@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Magic Bay — ASEAN Super App</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --teal:#006CE4;--teal2:#0055b3;--orange:#FF6B00;--orange2:#e05e00;
+  --gold:#C9960C;--gold2:#f0b429;
+  --green:#008009;--red:#CC0000;
+  --dark:#1A1A2E;--gray:#6B7280;--lgray:#F5F5F5;--border:#E5E7EB;
+  --white:#FFFFFF;--cream:#FAFAFA;
+  --emerald:#006B4F;--emeralddk:#004d39;
+}
+html,body{height:100%;background:#111;font-family:-apple-system,'Segoe UI',Roboto,sans-serif}
+.frame{
+  width:100%;max-width:390px;height:100vh;max-height:844px;
+  background:var(--white);position:relative;overflow:hidden;margin:0 auto;
+  display:flex;flex-direction:column;
+}
+@media(min-width:500px){.frame{border-radius:36px;box-shadow:0 30px 80px rgba(0,0,0,.6);height:844px;margin:auto;top:50%;transform:translateY(-50%);position:relative}}
+
+/* SCREENS */
+.scr{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;display:none;flex-direction:column;background:var(--cream)}
+.scr.on{display:flex}
+
+/* ══════════ SPLASH ══════════ */
+#s-splash{background:linear-gradient(175deg,#003d2b 0%,#006B4F 55%,#C9960C 130%);justify-content:center;align-items:center;gap:0}
+.sp-logo-ring{width:110px;height:110px;border-radius:50%;border:2.5px solid rgba(240,180,41,.5);display:flex;align-items:center;justify-content:center;margin-bottom:20px;position:relative}
+.sp-logo-ring::before{content:'';position:absolute;inset:-8px;border-radius:50%;border:1px solid rgba(240,180,41,.2)}
+.sp-wave{font-size:52px}
+.sp-name{font-size:36px;font-weight:900;color:#fff;letter-spacing:-0.5px}
+.sp-name b{color:var(--gold2)}
+.sp-tagline{font-size:11px;letter-spacing:3.5px;color:rgba(255,255,255,.55);text-transform:uppercase;margin:6px 0 18px}
+.sp-badge{background:rgba(201,150,12,.25);border:1px solid rgba(240,180,41,.5);color:var(--gold2);font-size:10px;letter-spacing:2px;text-transform:uppercase;padding:5px 16px;border-radius:20px}
+.sp-cta{margin-top:36px;background:var(--gold);color:#fff;border:none;padding:15px 52px;border-radius:30px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 6px 24px rgba(201,150,12,.45);letter-spacing:.3px}
+.sp-cta:active{transform:scale(.97)}
+.sp-foot{font-size:10px;color:rgba(255,255,255,.35);margin-top:14px}
+
+/* ══════════ TOPBAR ══════════ */
+.topbar{background:var(--emerald);color:#fff;padding:12px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:90}
+.topbar.white{background:#fff;border-bottom:1px solid var(--border);color:var(--dark)}
+.tb-logo{font-size:19px;font-weight:900;letter-spacing:-.3px}
+.tb-logo span{color:var(--gold2)}
+.tb-back{font-size:22px;cursor:pointer;width:32px}
+.tb-icons{display:flex;gap:14px;font-size:19px}
+
+/* ══════════ BOTTOM NAV ══════════ */
+.bnav{background:#fff;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(5,1fr);padding:6px 0 18px;flex-shrink:0;position:sticky;bottom:0;z-index:90}
+.bn{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:3px 0}
+.bn-ic{font-size:21px;line-height:1}
+.bn-lb{font-size:9px;color:var(--gray);font-weight:600;letter-spacing:.2px}
+.bn.act .bn-lb{color:var(--emerald);font-weight:800}
+
+/* ══════════ HOME ══════════ */
+.home-scroll{flex:1;overflow-y:auto;overflow-x:hidden}
+
+/* hero search */
+.hero-search{background:linear-gradient(170deg,#004d39,#006B4F);padding:16px 16px 22px}
+.hs-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.hs-greet{font-size:12px;color:rgba(255,255,255,.65)}
+.hs-name{font-size:20px;font-weight:800;color:#fff}
+.hs-pts{background:rgba(201,150,12,.25);border:1px solid rgba(240,180,41,.4);border-radius:20px;padding:4px 12px;text-align:right}
+.hs-pts .p1{font-size:10px;color:rgba(255,255,255,.6)}
+.hs-pts .p2{font-size:14px;font-weight:800;color:var(--gold2)}
+
+/* search tabs */
+.stabs{display:flex;gap:0;background:rgba(0,0,0,.2);border-radius:10px;padding:3px;margin-bottom:12px}
+.stab{flex:1;text-align:center;padding:7px 4px;font-size:12px;font-weight:700;color:rgba(255,255,255,.6);border-radius:8px;cursor:pointer;transition:.2s}
+.stab.act{background:#fff;color:var(--emerald)}
+
+/* search box */
+.sbox{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.sr{display:flex;align-items:center;padding:12px 14px;gap:10px;border-bottom:1px solid var(--border);cursor:pointer}
+.sr:last-child{border-bottom:none}
+.sr-ic{font-size:16px;color:var(--gray);width:20px;text-align:center}
+.sr-col{flex:1}
+.sr-label{font-size:10px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.sr-val{font-size:14px;font-weight:700;color:var(--dark);margin-top:1px}
+.sr-sep{width:1px;height:32px;background:var(--border)}
+.search-btn{background:var(--orange);color:#fff;border:none;width:calc(100% - 24px);margin:0 12px 12px;padding:13px;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
+.search-btn:active{opacity:.9}
+
+/* sections */
+.sec{padding:16px 16px 0}
+.sec-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sec-title{font-size:16px;font-weight:800;color:var(--dark)}
+.sec-more{font-size:12px;color:var(--teal);font-weight:700}
+
+/* destination pills */
+.dest-row{display:flex;gap:8px;overflow-x:auto;padding:0 16px 4px;scrollbar-width:none}
+.dest-row::-webkit-scrollbar{display:none}
+.dest-pill{flex-shrink:0;position:relative;border-radius:16px;overflow:hidden;cursor:pointer;width:100px;height:120px}
+.dest-pill img{width:100%;height:100%;object-fit:cover}
+.dest-overlay{position:absolute;inset:0;background:linear-gradient(0deg,rgba(0,0,0,.65) 0%,transparent 60%)}
+.dest-name{position:absolute;bottom:8px;left:8px;right:8px;color:#fff;font-size:12px;font-weight:800}
+.dest-count{font-size:10px;color:rgba(255,255,255,.7);font-weight:500}
+
+/* hotel card - list style */
+.hcard{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.09);cursor:pointer;margin-bottom:14px}
+.hcard-img{height:170px;position:relative;overflow:hidden}
+.hcard-img img{width:100%;height:100%;object-fit:cover}
+.hcard-badge{position:absolute;top:10px;left:10px;background:var(--orange);color:#fff;font-size:10px;font-weight:800;padding:3px 9px;border-radius:8px}
+.hcard-fav{position:absolute;top:10px;right:10px;font-size:20px;cursor:pointer}
+.hcard-body{padding:12px 14px 14px}
+.hcard-name{font-size:15px;font-weight:800;color:var(--dark)}
+.hcard-loc{font-size:11px;color:var(--gray);margin:3px 0 6px;display:flex;align-items:center;gap:3px}
+.stars{color:#F5A623;font-size:12px;letter-spacing:1px}
+.reviews{font-size:11px;color:var(--gray);margin-left:4px}
+.hcard-bottom{display:flex;align-items:flex-end;justify-content:space-between;margin-top:10px}
+.hcard-price-label{font-size:10px;color:var(--gray)}
+.hcard-price{font-size:22px;font-weight:900;color:var(--teal)}
+.hcard-price sub{font-size:11px;font-weight:500;color:var(--gray)}
+.hcard-book-btn{background:var(--orange);color:#fff;border:none;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer}
+
+/* AI Mall home card */
+.mall-home-card{margin:0 16px 16px;border-radius:20px;overflow:hidden;position:relative;cursor:pointer;height:160px}
+.mall-home-card img{width:100%;height:100%;object-fit:cover}
+.mall-home-overlay{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,40,25,.85) 0%,rgba(0,40,25,.3) 100%);padding:20px}
+.mho-badge{background:var(--gold);color:#fff;font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;padding:3px 10px;border-radius:10px;display:inline-block;margin-bottom:8px}
+.mho-title{font-size:20px;font-weight:900;color:#fff}
+.mho-sub{font-size:11px;color:rgba(255,255,255,.75);margin:4px 0 10px}
+.mho-btn{background:#fff;color:var(--emerald);border:none;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:800;cursor:pointer}
+
+/* ══════════ HOTELS LIST ══════════ */
+.hotel-filters{display:flex;gap:8px;overflow-x:auto;padding:12px 16px;scrollbar-width:none;flex-shrink:0}
+.hotel-filters::-webkit-scrollbar{display:none}
+.fc{background:#fff;border:1.5px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;flex-shrink:0;color:var(--dark)}
+.fc.act{background:var(--emerald);color:#fff;border-color:var(--emerald)}
+.hotel-count{padding:4px 16px 10px;font-size:13px;color:var(--gray);flex-shrink:0}
+.hotel-count b{color:var(--dark)}
+.hotels-scroll{flex:1;overflow-y:auto;padding:0 16px 16px}
+
+/* ══════════ HOTEL DETAIL ══════════ */
+.hd-gallery{height:240px;position:relative;flex-shrink:0;overflow:hidden}
+.hd-gallery img{width:100%;height:100%;object-fit:cover}
+.hd-gallery-dots{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
+.hd-gd{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.5)}
+.hd-gd.act{background:#fff;width:16px;border-radius:3px}
+.hd-back{position:absolute;top:14px;left:14px;background:rgba(0,0,0,.4);color:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.hd-fav{position:absolute;top:14px;right:14px;background:rgba(0,0,0,.4);color:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.hd-body{flex:1;overflow-y:auto;padding:16px}
+.hd-name{font-size:20px;font-weight:900;color:var(--dark)}
+.hd-loc{font-size:12px;color:var(--gray);margin:4px 0;display:flex;align-items:center;gap:4px}
+.hd-rating-row{display:flex;align-items:center;gap:10px;margin:8px 0 14px}
+.rating-badge{background:var(--emerald);color:#fff;font-size:13px;font-weight:900;padding:4px 10px;border-radius:8px}
+.rating-label{font-size:12px;font-weight:700;color:var(--dark)}
+.rating-count{font-size:11px;color:var(--gray)}
+.hd-amenities{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.am{background:var(--lgray);border-radius:8px;padding:6px 12px;font-size:11px;color:var(--dark);font-weight:600;display:flex;align-items:center;gap:4px}
+.hd-divider{height:1px;background:var(--border);margin:14px 0}
+.hd-section-title{font-size:14px;font-weight:800;color:var(--dark);margin-bottom:10px}
+/* room card */
+.room-card{border:1.5px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:10px;cursor:pointer}
+.room-img{height:90px;position:relative;overflow:hidden}
+.room-img img{width:100%;height:100%;object-fit:cover}
+.room-body{padding:10px 12px 12px}
+.room-name{font-size:13px;font-weight:800;color:var(--dark)}
+.room-features{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px}
+.rf{font-size:10px;color:var(--gray);background:var(--lgray);padding:2px 8px;border-radius:6px}
+.room-row{display:flex;align-items:center;justify-content:space-between}
+.room-price{font-size:18px;font-weight:900;color:var(--teal)}
+.room-price sub{font-size:11px;font-weight:500;color:var(--gray)}
+.select-room-btn{background:var(--orange);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer}
+
+/* sticky booking bar */
+.sticky-book{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;z-index:80}
+.sb-price{font-size:20px;font-weight:900;color:var(--teal)}
+.sb-price sub{font-size:11px;color:var(--gray);font-weight:500}
+.sb-btn{background:var(--orange);color:#fff;border:none;padding:12px 28px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer}
+
+/* ══════════ FLIGHTS ══════════ */
+.f-search-card{background:#fff;border-radius:16px;margin:12px 16px 0;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
+.f-route-row{display:flex;align-items:center;padding:14px 16px;gap:0;border-bottom:1px solid var(--border)}
+.f-city-box{flex:1}
+.f-city-code{font-size:30px;font-weight:900;color:var(--dark)}
+.f-city-name{font-size:11px;color:var(--gray)}
+.f-swap{width:40px;text-align:center;font-size:22px;color:var(--emerald);cursor:pointer;flex-shrink:0}
+.f-detail-row{display:flex;border-bottom:1px solid var(--border)}
+.f-field{flex:1;padding:12px 16px;border-right:1px solid var(--border)}
+.f-field:last-child{border-right:none}
+.f-field-label{font-size:10px;color:var(--gray);font-weight:600;text-transform:uppercase}
+.f-field-val{font-size:14px;font-weight:700;color:var(--dark);margin-top:2px}
+.f-search-btn{background:var(--orange);color:#fff;border:none;width:calc(100% - 32px);margin:12px 16px;padding:13px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer}
+/* flight result card */
+.frc{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);margin-bottom:12px;overflow:hidden;cursor:pointer}
+.frc-airline{display:flex;align-items:center;gap:8px;padding:12px 14px 8px;border-bottom:1px solid var(--border)}
+.airline-ic{width:28px;height:28px;border-radius:6px;object-fit:cover}
+.airline-nm{font-size:12px;font-weight:800;color:var(--dark)}
+.airline-fl{font-size:10px;color:var(--gray)}
+.frc-price{margin-left:auto;font-size:18px;font-weight:900;color:var(--teal)}
+.frc-route{display:flex;align-items:center;padding:12px 14px;gap:6px}
+.frc-city{font-size:22px;font-weight:900;color:var(--dark)}
+.frc-time{font-size:11px;color:var(--gray);margin-top:1px}
+.frc-mid{flex:1;display:flex;flex-direction:column;align-items:center}
+.frc-line{width:100%;height:1px;background:var(--border);position:relative}
+.frc-plane{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:16px}
+.frc-dur{font-size:10px;color:var(--gray);margin-top:4px}
+.frc-tags{display:flex;gap:6px;padding:0 14px 12px;flex-wrap:wrap}
+.ft{font-size:10px;padding:3px 9px;border-radius:6px;font-weight:700}
+.ft.direct{background:#e8f5e9;color:#2e7d32}
+.ft.member{background:#fff8e1;color:#f57f17}
+.ft.refund{background:#e3f2fd;color:#1565c0}
+.frc-book{background:var(--orange);color:#fff;border:none;width:calc(100% - 28px);margin:0 14px 12px;padding:10px;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer}
+
+/* ══════════ ASEAN MALL ══════════ */
+.mall-hero{height:200px;position:relative;flex-shrink:0;overflow:hidden}
+.mall-hero img{width:100%;height:100%;object-fit:cover}
+.mall-hero-overlay{position:absolute;inset:0;background:linear-gradient(0deg,rgba(0,40,25,.9) 0%,rgba(0,40,25,.2) 70%);padding:16px}
+.mall-hero-content{position:absolute;bottom:16px;left:16px;right:16px}
+.mall-first-badge{display:inline-flex;align-items:center;gap:4px;background:var(--gold);color:#fff;font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;padding:4px 12px;border-radius:10px;margin-bottom:8px}
+.mall-h-title{font-size:22px;font-weight:900;color:#fff}
+.mall-h-sub{font-size:11px;color:rgba(255,255,255,.75)}
+.mall-stats-row{display:flex;border-bottom:1px solid var(--border);background:#fff;flex-shrink:0}
+.mall-stat{flex:1;padding:12px 10px;text-align:center;border-right:1px solid var(--border)}
+.mall-stat:last-child{border-right:none}
+.ms-num{font-size:20px;font-weight:900;color:var(--emerald)}
+.ms-lbl{font-size:10px;color:var(--gray);font-weight:600}
+.mall-scroll{flex:1;overflow-y:auto}
+/* experience ticket card */
+.exp-section{padding:14px 16px 0}
+.exp-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 16px 16px}
+.ec{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.08);cursor:pointer}
+.ec-img{height:80px;position:relative;overflow:hidden}
+.ec-img img{width:100%;height:100%;object-fit:cover}
+.ec-zone{position:absolute;top:6px;left:6px;font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:6px;color:#fff}
+.ec-zone.kids{background:#e91e8c}
+.ec-zone.adults{background:#1565c0}
+.ec-zone.parents{background:#7b1fa2}
+.ec-zone.edu{background:#e65100}
+.ec-body{padding:8px 10px 10px}
+.ec-name{font-size:11px;font-weight:800;color:var(--dark)}
+.ec-duration{font-size:10px;color:var(--gray);margin:2px 0 6px}
+.ec-price{font-size:14px;font-weight:900;color:var(--teal)}
+.ec-price sub{font-size:10px;font-weight:500;color:var(--gray)}
+.ec-book{background:var(--emerald);color:#fff;border:none;width:100%;padding:6px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;margin-top:6px}
+/* combo package */
+.pkg-card{background:linear-gradient(135deg,#003d2b,#006B4F);border-radius:16px;margin:0 16px 14px;padding:16px;color:#fff;position:relative;overflow:hidden}
+.pkg-card::after{content:'✦';position:absolute;right:-10px;bottom:-20px;font-size:100px;color:rgba(201,150,12,.15)}
+.pkg-badge{background:var(--gold);color:#fff;font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border-radius:8px;display:inline-block;margin-bottom:8px}
+.pkg-title{font-size:17px;font-weight:900}
+.pkg-sub{font-size:11px;color:rgba(255,255,255,.7);margin:4px 0 12px}
+.pkg-includes{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.pkg-inc-item{display:flex;align-items:center;gap:7px;font-size:12px;color:rgba(255,255,255,.85)}
+.pkg-inc-item::before{content:'✓';color:var(--gold2);font-weight:900;font-size:13px}
+.pkg-price-row{display:flex;align-items:center;justify-content:space-between}
+.pkg-price{font-size:22px;font-weight:900;color:var(--gold2)}
+.pkg-price-old{font-size:12px;color:rgba(255,255,255,.45);text-decoration:line-through}
+.pkg-btn{background:var(--gold);color:#fff;border:none;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer}
+
+/* ══════════ MEMBERS ══════════ */
+.member-card{background:linear-gradient(135deg,#003d2b,#006B4F 60%,#C9960C);margin:12px 16px 0;border-radius:20px;padding:20px;color:#fff;position:relative;overflow:hidden}
+.member-card::before{content:'';position:absolute;right:-30px;top:-30px;width:150px;height:150px;border-radius:50%;border:2px solid rgba(201,150,12,.2)}
+.mc-row1{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.mc-avatar{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-size:22px}
+.mc-tier{background:rgba(201,150,12,.3);border:1px solid rgba(240,180,41,.5);color:var(--gold2);font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;padding:4px 14px;border-radius:20px}
+.mc-name{font-size:20px;font-weight:900}
+.mc-id{font-size:11px;color:rgba(255,255,255,.55);margin:2px 0 14px}
+.mc-pts-row{background:rgba(0,0,0,.2);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between}
+.mc-pt{text-align:center}
+.mc-pt .v{font-size:20px;font-weight:900;color:var(--gold2)}
+.mc-pt .l{font-size:10px;color:rgba(255,255,255,.55)}
+/* progress bar */
+.pts-progress{margin:14px 16px 0;background:#fff;border-radius:14px;padding:14px}
+.pp-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.pp-title{font-size:13px;font-weight:800;color:var(--dark)}
+.pp-need{font-size:11px;color:var(--gray)}
+.pp-bar{height:8px;background:var(--lgray);border-radius:4px;overflow:hidden}
+.pp-fill{height:100%;background:linear-gradient(90deg,var(--emerald),var(--gold2));border-radius:4px;width:60%}
+.pp-tiers{display:flex;justify-content:space-between;margin-top:6px;font-size:9px;color:var(--gray);font-weight:600}
+/* transaction list */
+.txn-section{padding:14px 16px 0}
+.txn-item{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+.txn-ic{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.txn-ic.green{background:#e8f5e9}
+.txn-ic.blue{background:#e3f2fd}
+.txn-ic.orange{background:#fff3e0}
+.txn-text .t1{font-size:13px;font-weight:700;color:var(--dark)}
+.txn-text .t2{font-size:11px;color:var(--gray);margin-top:1px}
+.txn-pts{margin-left:auto;font-size:14px;font-weight:800}
+.txn-pts.earn{color:var(--green)}
+.txn-pts.use{color:var(--red)}
+
+/* ══════════ SOCIAL ══════════ */
+.stories-row{display:flex;gap:10px;overflow-x:auto;padding:12px 16px;scrollbar-width:none;flex-shrink:0;background:#fff;border-bottom:1px solid var(--border)}
+.stories-row::-webkit-scrollbar{display:none}
+.story-item{display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;cursor:pointer}
+.story-ring{width:56px;height:56px;border-radius:50%;padding:2.5px;background:linear-gradient(45deg,var(--emerald),var(--gold2))}
+.story-avatar{width:100%;height:100%;border-radius:50%;border:2px solid #fff;object-fit:cover;display:flex;align-items:center;justify-content:center;background:var(--lgray);font-size:20px;overflow:hidden}
+.story-name{font-size:9px;color:var(--dark);font-weight:600;max-width:56px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.posts-feed{flex:1;overflow-y:auto}
+.post{background:#fff;margin-bottom:8px}
+.post-head{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.p-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--lgray);font-size:16px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.p-name{font-size:13px;font-weight:800;color:var(--dark)}
+.p-location{font-size:11px;color:var(--gray)}
+.p-more{margin-left:auto;font-size:20px;color:var(--gray);cursor:pointer}
+.post-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:80px;background:var(--lgray)}
+.post-foot{padding:10px 14px 14px}
+.post-actions{display:flex;gap:14px;margin-bottom:6px}
+.pa{font-size:22px;cursor:pointer}
+.pa.right{margin-left:auto}
+.post-likes{font-size:12px;font-weight:800;color:var(--dark);margin-bottom:4px}
+.post-caption{font-size:13px;color:var(--dark);line-height:1.4}
+.post-caption strong{font-weight:800}
+.post-hashtag{font-size:12px;color:var(--teal);margin-top:3px}
+.post-time{font-size:10px;color:var(--gray);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ══════════ BOOKING FLOW ══════════ */
+.bf-step{padding:16px}
+.bf-step-title{font-size:18px;font-weight:900;color:var(--dark);margin-bottom:4px}
+.bf-step-sub{font-size:12px;color:var(--gray);margin-bottom:18px}
+/* summary row */
+.bf-summary{background:var(--lgray);border-radius:12px;padding:12px 14px;margin-bottom:16px}
+.bfs-name{font-size:14px;font-weight:800;color:var(--dark)}
+.bfs-detail{font-size:11px;color:var(--gray);margin-top:3px}
+/* input groups */
+.inp-group{margin-bottom:12px}
+.inp-label{font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.inp{width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:14px;outline:none;background:#fff;color:var(--dark)}
+.inp:focus{border-color:var(--emerald)}
+.inp-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* date select style */
+.date-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.date-box{border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;background:#fff;cursor:pointer}
+.db-label{font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase}
+.db-date{font-size:15px;font-weight:800;color:var(--dark);margin-top:3px}
+.db-day{font-size:11px;color:var(--gray)}
+.db-sel{border-color:var(--emerald);background:#f0fdf4}
+/* guest selector */
+.guest-row{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.guest-info .g1{font-size:13px;font-weight:700;color:var(--dark)}
+.guest-info .g2{font-size:11px;color:var(--gray)}
+.guest-ctrl{display:flex;align-items:center;gap:10px}
+.gc-btn{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--border);background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--emerald)}
+.gc-val{font-size:16px;font-weight:800;color:var(--dark);min-width:20px;text-align:center}
+/* payment */
+.pay-method{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;cursor:pointer}
+.pay-method.sel{border-color:var(--emerald);background:#f0fdf4}
+.pay-ic{font-size:22px}
+.pay-info .p1{font-size:13px;font-weight:700;color:var(--dark)}
+.pay-info .p2{font-size:11px;color:var(--gray)}
+.pay-check{margin-left:auto;font-size:18px;color:var(--emerald)}
+/* price breakdown */
+.price-break{background:var(--lgray);border-radius:12px;padding:14px;margin-bottom:16px}
+.pb-row{display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px}
+.pb-row.total{font-size:15px;font-weight:900;color:var(--dark);border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+.pb-label{color:var(--gray)}
+.pb-val{color:var(--dark);font-weight:600}
+.member-saving{background:#e8f5e9;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:6px;margin-bottom:14px;font-size:12px;font-weight:700;color:#2e7d32}
+.confirm-btn{background:var(--orange);color:#fff;border:none;width:100%;padding:16px;border-radius:12px;font-size:16px;font-weight:900;cursor:pointer;box-shadow:0 4px 16px rgba(255,107,0,.35)}
+.confirm-btn:active{opacity:.9}
+
+/* ══════════ SUCCESS ══════════ */
+#s-success{background:var(--white);justify-content:center;align-items:center;padding:32px 24px;text-align:center}
+.success-circle{width:90px;height:90px;border-radius:50%;background:#e8f5e9;display:flex;align-items:center;justify-content:center;font-size:44px;margin:0 auto 20px}
+.success-title{font-size:24px;font-weight:900;color:var(--dark)}
+.success-sub{font-size:13px;color:var(--gray);margin:6px 0 24px}
+.ticket-card{background:var(--white);border-radius:20px;box-shadow:0 4px 24px rgba(0,0,0,.12);width:100%;margin-bottom:20px;overflow:hidden}
+.ticket-top{background:var(--emerald);padding:16px 20px;color:#fff;text-align:left}
+.ticket-hotel{font-size:16px;font-weight:900}
+.ticket-date{font-size:11px;color:rgba(255,255,255,.7);margin-top:3px}
+.ticket-dashes{border-top:2px dashed rgba(0,0,0,.1);margin:0 10px;position:relative}
+.ticket-dashes::before,.ticket-dashes::after{content:'';position:absolute;width:20px;height:20px;background:var(--cream);border-radius:50%;top:-10px}
+.ticket-dashes::before{left:-20px}
+.ticket-dashes::after{right:-20px}
+.ticket-body{padding:16px 20px}
+.ticket-row{display:flex;justify-content:space-between;margin-bottom:8px}
+.tr-label{font-size:11px;color:var(--gray)}
+.tr-val{font-size:12px;font-weight:700;color:var(--dark)}
+.ticket-ref{font-size:22px;font-weight:900;color:var(--emerald);text-align:center;padding:12px 0}
+.barcode{font-size:8px;color:var(--dark);letter-spacing:.5px;font-family:monospace;background:var(--lgray);padding:6px;border-radius:6px;text-align:center}
+.pts-earned-badge{background:linear-gradient(90deg,#e8f5e9,#fff8e1);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:10px;margin-bottom:20px;width:100%}
+.peb-icon{font-size:24px}
+.peb-text .t1{font-size:14px;font-weight:800;color:#2e7d32}
+.peb-text .t2{font-size:11px;color:var(--gray)}
+.success-home-btn{background:var(--emerald);color:#fff;border:none;width:100%;padding:14px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer}
+
+/* ══════════ LOADING ══════════ */
+.loading-overlay{position:absolute;inset:0;background:rgba(255,255,255,.9);display:none;justify-content:center;align-items:center;flex-direction:column;gap:12px;z-index:200}
+.loading-overlay.show{display:flex}
+.spin{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--emerald);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-txt{font-size:13px;color:var(--gray);font-weight:600}
+
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:none;justify-content:flex-end;flex-direction:column;max-width:390px;margin:0 auto}
+@media(min-width:500px){.modal-bg{left:50%;transform:translateX(-50%);right:auto;width:390px}}
+.modal-bg.open{display:flex}
+.modal-sheet{background:var(--white);border-radius:24px 24px 0 0;max-height:90vh;overflow-y:auto;padding:0}
+.modal-handle-bar{text-align:center;padding:12px 0 0}
+.modal-handle-bar span{display:inline-block;width:40px;height:4px;background:var(--border);border-radius:2px}
+.modal-content{padding:0 20px 30px}
+
+/* util */
+.pb20{padding-bottom:20px}
+img{display:block}
+</style>
+</head>
+<body>
+<div class="frame">
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loader">
+  <div class="spin"></div>
+  <div class="loading-txt" id="loader-txt">Searching...</div>
+</div>
+
+<!-- ════════ SPLASH ════════ -->
+<div class="scr on" id="s-splash">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:0;padding:40px 24px">
+    <div class="sp-logo-ring"><span class="sp-wave">🌊</span></div>
+    <div class="sp-name">Magic<b>Bay</b></div>
+    <div class="sp-tagline">ASEAN Super App</div>
+    <div class="sp-badge">🇹🇭 Pattani · First AI Mall in ASEAN</div>
+    <button class="sp-cta" onclick="go('s-home')">Get Started</button>
+    <div class="sp-foot">Hotels · Flights · AI Mall · Social</div>
+  </div>
+</div>
+
+<!-- ════════ HOME ════════ -->
+<div class="scr" id="s-home">
+  <div class="home-scroll">
+    <!-- hero search -->
+    <div class="hero-search">
+      <div class="hs-top">
+        <div>
+          <div class="hs-greet">Good morning,</div>
+          <div class="hs-name">Rajiv Sharma 👋</div>
+        </div>
+        <div class="hs-pts" onclick="go('s-members')">
+          <div class="p1">ASEAN Points</div>
+          <div class="p2">4,820 🏅</div>
+        </div>
+      </div>
+      <div class="stabs">
+        <div class="stab act" onclick="setTab(this,'hotel-search')">🏨 Hotels</div>
+        <div class="stab" onclick="setTab(this,'flight-search')">✈️ Flights</div>
+        <div class="stab" onclick="setTab(this,'mall-search')">🤖 AI Mall</div>
+      </div>
+      <!-- Hotel Search -->
+      <div id="hotel-search" class="sbox">
+        <div class="sr" onclick="showDatePicker()">
+          <div class="sr-ic">📍</div>
+          <div class="sr-col"><div class="sr-label">Destination</div><div class="sr-val">ASEAN · All Cities</div></div>
+        </div>
+        <div style="display:flex">
+          <div class="sr" style="flex:1;border-right:1px solid var(--border)" onclick="showDatePicker()">
+            <div class="sr-col"><div class="sr-label">Check-in</div><div class="sr-val">20 Jun</div></div>
+          </div>
+          <div class="sr" style="flex:1" onclick="showDatePicker()">
+            <div class="sr-col"><div class="sr-label">Check-out</div><div class="sr-val">23 Jun</div></div>
+          </div>
+        </div>
+        <div class="sr" onclick="">
+          <div class="sr-ic">👤</div>
+          <div class="sr-col"><div class="sr-label">Guests</div><div class="sr-val">2 Adults · 1 Room</div></div>
+        </div>
+        <button class="search-btn" onclick="searchHotels()">🔍 Search Hotels</button>
+      </div>
+      <!-- Flight Search -->
+      <div id="flight-search" class="sbox" style="display:none">
+        <div class="sr" onclick="">
+          <div class="sr-col"><div class="sr-label">From</div><div class="sr-val">HDY — Hat Yai</div></div>
+          <div style="font-size:20px;color:var(--emerald)">⇄</div>
+          <div class="sr-col" style="text-align:right"><div class="sr-label">To</div><div class="sr-val">KUL — Kuala Lumpur</div></div>
+        </div>
+        <div style="display:flex">
+          <div class="sr" style="flex:1;border-right:1px solid var(--border)">
+            <div class="sr-col"><div class="sr-label">Depart</div><div class="sr-val">19 Jun 2026</div></div>
+          </div>
+          <div class="sr" style="flex:1">
+            <div class="sr-col"><div class="sr-label">Passengers</div><div class="sr-val">1 Adult</div></div>
+          </div>
+        </div>
+        <button class="search-btn" onclick="searchFlights()">🔍 Search Flights</button>
+      </div>
+      <!-- Mall Search -->
+      <div id="mall-search" class="sbox" style="display:none">
+        <div class="sr">
+          <div class="sr-ic">🏛️</div>
+          <div class="sr-col"><div class="sr-label">Venue</div><div class="sr-val">ASEAN Mall — Pattani</div></div>
+        </div>
+        <div class="sr">
+          <div class="sr-ic">📅</div>
+          <div class="sr-col"><div class="sr-label">Visit Date</div><div class="sr-val">20 Jun 2026</div></div>
+        </div>
+        <button class="search-btn" onclick="go('s-mall')">🤖 Explore AI Experiences</button>
+      </div>
+    </div>
+
+    <!-- Destinations -->
+    <div class="sec"><div class="sec-hd"><div class="sec-title">ASEAN Destinations</div><div class="sec-more">See all</div></div></div>
+    <div class="dest-row">
+      <div class="dest-pill" onclick="go('s-hotels')">
+        <img src="https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=200&q=80" alt="Pattani">
+        <div class="dest-overlay"></div>
+        <div class="dest-name">Pattani<br><span class="dest-count">6 hotels</span></div>
+      </div>
+      <div class="dest-pill" onclick="go('s-hotels')">
+        <img src="https://images.unsplash.com/photo-1606836591695-4d58a73eba1e?w=200&q=80" alt="KL">
+        <div class="dest-overlay"></div>
+        <div class="dest-name">Kuala Lumpur<br><span class="dest-count">124 hotels</span></div>
+      </div>
+      <div class="dest-pill" onclick="go('s-hotels')">
+        <img src="https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=200&q=80" alt="Singapore">
+        <div class="dest-overlay"></div>
+        <div class="dest-name">Singapore<br><span class="dest-count">98 hotels</span></div>
+      </div>
+      <div class="dest-pill" onclick="go('s-hotels')">
+        <img src="https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=200&q=80" alt="Bali">
+        <div class="dest-overlay"></div>
+        <div class="dest-name">Bali<br><span class="dest-count">210 hotels</span></div>
+      </div>
+      <div class="dest-pill" onclick="go('s-hotels')">
+        <img src="https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=200&q=80" alt="Bangkok">
+        <div class="dest-overlay"></div>
+        <div class="dest-name">Bangkok<br><span class="dest-count">180 hotels</span></div>
+      </div>
+    </div>
+
+    <!-- AI Mall Banner -->
+    <div class="sec" style="padding-top:16px"><div class="sec-hd"><div class="sec-title">Featured Experience</div></div></div>
+    <div class="mall-home-card" onclick="go('s-mall')">
+      <img src="https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800&q=80" alt="AI Mall">
+      <div class="mall-home-overlay">
+        <div class="mall-hero-content">
+          <div class="mho-badge">🌏 First in ASEAN</div>
+          <div class="mho-title">ASEAN Mall AI Hub</div>
+          <div class="mho-sub">10 AI Experiences · Pattani, Thailand</div>
+          <button class="mho-btn" onclick="event.stopPropagation();go('s-mall')">Book Tickets →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Hotels -->
+    <div class="sec" style="padding-top:18px"><div class="sec-hd"><div class="sec-title">Top Rated Hotels</div><div class="sec-more" onclick="go('s-hotels')">View all</div></div></div>
+    <div style="padding:0 16px 20px">
+      <div class="hcard" onclick="openHotelDetail(0)">
+        <div class="hcard-img">
+          <img src="https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=600&q=80" alt="Hotel">
+          <div class="hcard-badge">🏅 ASEAN Choice</div>
+          <div class="hcard-fav">🤍</div>
+        </div>
+        <div class="hcard-body">
+          <div class="hcard-name">Pattani Heritage Grand</div>
+          <div class="hcard-loc">📍 ASEAN Mall District, Pattani</div>
+          <div style="display:flex;align-items:center"><span class="stars">★★★★★</span><span class="reviews">· 1,248 reviews</span></div>
+          <div class="hcard-bottom">
+            <div><div class="hcard-price-label">From</div><div class="hcard-price">฿1,200<sub>/night</sub></div></div>
+            <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(0)">Book Now</button>
+          </div>
+        </div>
+      </div>
+      <div class="hcard" onclick="openHotelDetail(1)">
+        <div class="hcard-img">
+          <img src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=600&q=80" alt="Hotel">
+          <div class="hcard-badge">🔥 Best Deal</div>
+          <div class="hcard-fav">❤️</div>
+        </div>
+        <div class="hcard-body">
+          <div class="hcard-name">KL Twin Peaks Suites</div>
+          <div class="hcard-loc">📍 KLCC, Kuala Lumpur</div>
+          <div style="display:flex;align-items:center"><span class="stars">★★★★★</span><span class="reviews">· 3,891 reviews</span></div>
+          <div class="hcard-bottom">
+            <div><div class="hcard-price-label">From</div><div class="hcard-price">RM 380<sub>/night</sub></div></div>
+            <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(1)">Book Now</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bnav">
+    <div class="bn act" onclick="go('s-home')"><div class="bn-ic">🏠</div><div class="bn-lb">Home</div></div>
+    <div class="bn" onclick="go('s-hotels')"><div class="bn-ic">🏨</div><div class="bn-lb">Hotels</div></div>
+    <div class="bn" onclick="go('s-flights')"><div class="bn-ic">✈️</div><div class="bn-lb">Flights</div></div>
+    <div class="bn" onclick="go('s-social')"><div class="bn-ic">📸</div><div class="bn-lb">Social</div></div>
+    <div class="bn" onclick="go('s-members')"><div class="bn-ic">👤</div><div class="bn-lb">Profile</div></div>
+  </div>
+</div>
+
+<!-- ════════ HOTELS LIST ════════ -->
+<div class="scr" id="s-hotels">
+  <div class="topbar white">
+    <div class="tb-back" onclick="back()">←</div>
+    <div style="font-size:15px;font-weight:800;color:var(--dark)">ASEAN Hotels</div>
+    <div class="tb-icons" style="color:var(--dark)"><span>🔍</span></div>
+  </div>
+  <!-- search summary bar -->
+  <div style="background:#fff;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="background:var(--lgray);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="back()">
+      <span style="font-size:14px">🔍</span>
+      <div>
+        <div style="font-size:13px;font-weight:800;color:var(--dark)">ASEAN · All cities</div>
+        <div style="font-size:11px;color:var(--gray)">20 Jun – 23 Jun · 2 Adults</div>
+      </div>
+      <div style="margin-left:auto;font-size:11px;color:var(--teal);font-weight:700">Edit</div>
+    </div>
+  </div>
+  <div class="hotel-filters">
+    <div class="fc act">⭐ Top Rated</div>
+    <div class="fc">💰 Price ↑</div>
+    <div class="fc">🏅 ASEAN Points</div>
+    <div class="fc">🏊 Pool</div>
+    <div class="fc">🤖 AI Services</div>
+    <div class="fc">🆓 Free Cancel</div>
+  </div>
+  <div class="hotel-count"><b>38 properties</b> found in ASEAN</div>
+  <div class="hotels-scroll pb20">
+    <div class="hcard" onclick="openHotelDetail(0)">
+      <div class="hcard-img">
+        <img src="https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=600&q=80" alt="">
+        <div class="hcard-badge">🏅 ASEAN Choice</div>
+        <div class="hcard-fav">🤍</div>
+      </div>
+      <div class="hcard-body">
+        <div class="hcard-name">Pattani Heritage Grand Hotel</div>
+        <div class="hcard-loc">📍 ASEAN Mall District, Pattani · 0.2km to AI Mall</div>
+        <div style="display:flex;align-items:center"><span class="stars">★★★★★</span><span class="reviews">· 1,248 reviews · 9.2 Superb</span></div>
+        <div style="font-size:11px;color:var(--green);font-weight:700;margin-top:6px">✓ Free cancellation · Only 3 rooms left!</div>
+        <div class="hcard-bottom">
+          <div><div class="hcard-price-label">Per night</div><div class="hcard-price">฿1,200<sub>/night</sub></div><div style="font-size:10px;color:var(--gray)">฿3,600 total · incl. taxes</div></div>
+          <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(0)">View Rooms</button>
+        </div>
+      </div>
+    </div>
+    <div class="hcard" onclick="openHotelDetail(1)">
+      <div class="hcard-img">
+        <img src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=600&q=80" alt="">
+        <div class="hcard-badge">🔥 Trending</div>
+        <div class="hcard-fav">❤️</div>
+      </div>
+      <div class="hcard-body">
+        <div class="hcard-name">KL Twin Peaks Suites</div>
+        <div class="hcard-loc">📍 KLCC, Kuala Lumpur · Malaysia</div>
+        <div style="display:flex;align-items:center"><span class="stars">★★★★★</span><span class="reviews">· 3,891 reviews · 9.4 Exceptional</span></div>
+        <div style="font-size:11px;color:var(--green);font-weight:700;margin-top:6px">✓ Free cancellation · Breakfast included</div>
+        <div class="hcard-bottom">
+          <div><div class="hcard-price-label">Per night</div><div class="hcard-price">RM 380<sub>/night</sub></div><div style="font-size:10px;color:var(--gray)">RM 1,140 total · incl. taxes</div></div>
+          <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(1)">View Rooms</button>
+        </div>
+      </div>
+    </div>
+    <div class="hcard" onclick="openHotelDetail(2)">
+      <div class="hcard-img">
+        <img src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=600&q=80" alt="">
+        <div class="hcard-badge">💎 Luxury</div>
+        <div class="hcard-fav">🤍</div>
+      </div>
+      <div class="hcard-body">
+        <div class="hcard-name">Marina Bay Sands Singapore</div>
+        <div class="hcard-loc">📍 Marina Bay, Singapore</div>
+        <div style="display:flex;align-items:center"><span class="stars">★★★★★</span><span class="reviews">· 12,440 reviews · 9.6 Exceptional</span></div>
+        <div style="font-size:11px;color:var(--orange);font-weight:700;margin-top:6px">⚡ Last 2 rooms at this price!</div>
+        <div class="hcard-bottom">
+          <div><div class="hcard-price-label">Per night</div><div class="hcard-price">SGD 420<sub>/night</sub></div><div style="font-size:10px;color:var(--gray)">SGD 1,260 total · incl. taxes</div></div>
+          <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(2)">View Rooms</button>
+        </div>
+      </div>
+    </div>
+    <div class="hcard" onclick="openHotelDetail(3)">
+      <div class="hcard-img">
+        <img src="https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=600&q=80" alt="">
+        <div class="hcard-fav">🤍</div>
+      </div>
+      <div class="hcard-body">
+        <div class="hcard-name">Bali Clifftop Villas — Uluwatu</div>
+        <div class="hcard-loc">📍 Uluwatu, Bali · Indonesia</div>
+        <div style="display:flex;align-items:center"><span class="stars">★★★★</span><span class="reviews">· 2,103 reviews · 8.9 Excellent</span></div>
+        <div style="font-size:11px;color:var(--green);font-weight:700;margin-top:6px">✓ Free cancellation · Private pool</div>
+        <div class="hcard-bottom">
+          <div><div class="hcard-price-label">Per night</div><div class="hcard-price">$89<sub>/night</sub></div><div style="font-size:10px;color:var(--gray)">$267 total · incl. taxes</div></div>
+          <button class="hcard-book-btn" onclick="event.stopPropagation();openHotelDetail(3)">View Rooms</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ HOTEL DETAIL ════════ -->
+<div class="scr" id="s-hotel-detail">
+  <div class="hd-gallery">
+    <img id="hd-img" src="https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=800&q=80" alt="">
+    <div class="hd-gallery-dots">
+      <div class="hd-gd act"></div><div class="hd-gd"></div><div class="hd-gd"></div><div class="hd-gd"></div>
+    </div>
+    <button class="hd-back" onclick="back()">←</button>
+    <button class="hd-fav" id="hd-fav-btn" onclick="toggleFav(this)">🤍</button>
+  </div>
+  <div class="hd-body">
+    <div class="hd-name" id="hd-name">Pattani Heritage Grand Hotel</div>
+    <div class="hd-loc" id="hd-loc">📍 ASEAN Mall District, Pattani</div>
+    <div class="hd-rating-row">
+      <div class="rating-badge" id="hd-score">9.2</div>
+      <div>
+        <div class="rating-label">Superb</div>
+        <div class="rating-count" id="hd-reviews">1,248 reviews</div>
+      </div>
+      <div style="margin-left:auto" id="hd-stars"><span class="stars">★★★★★</span></div>
+    </div>
+    <div class="hd-amenities" id="hd-amenities">
+      <div class="am">🏊 Pool</div><div class="am">🍽️ Restaurant</div><div class="am">🚗 Parking</div>
+      <div class="am">📶 Free WiFi</div><div class="am">💆 Spa</div><div class="am">🤖 AI Concierge</div>
+    </div>
+    <div class="hd-divider"></div>
+    <div class="hd-section-title">Choose Your Room</div>
+    <div class="room-card" onclick="openBooking('hotel')">
+      <div class="room-img"><img src="https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&q=80" alt=""></div>
+      <div class="room-body">
+        <div class="room-name">Deluxe Room — Garden View</div>
+        <div class="room-features">
+          <span class="rf">👥 2 Adults</span><span class="rf">🛏️ King Bed</span><span class="rf">📐 32m²</span><span class="rf">✓ Free Cancel</span>
+        </div>
+        <div class="room-row">
+          <div class="room-price" id="hd-room-price">฿1,200<sub>/night</sub></div>
+          <button class="select-room-btn" onclick="event.stopPropagation();openBooking('hotel')">Select</button>
+        </div>
+      </div>
+    </div>
+    <div class="room-card" onclick="openBooking('hotel')">
+      <div class="room-img"><img src="https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=400&q=80" alt=""></div>
+      <div class="room-body">
+        <div class="room-name">Superior Suite — City View</div>
+        <div class="room-features">
+          <span class="rf">👥 2 Adults</span><span class="rf">🛏️ King Bed</span><span class="rf">📐 52m²</span><span class="rf">🛁 Bathtub</span>
+        </div>
+        <div class="room-row">
+          <div class="room-price" id="hd-suite-price">฿2,200<sub>/night</sub></div>
+          <button class="select-room-btn" onclick="event.stopPropagation();openBooking('hotel')">Select</button>
+        </div>
+      </div>
+    </div>
+    <div class="pb20"></div>
+  </div>
+  <div class="sticky-book">
+    <div><div style="font-size:11px;color:var(--gray)">From per night</div><div class="sb-price" id="sb-price">฿1,200<sub>/night</sub></div></div>
+    <button class="sb-btn" onclick="openBooking('hotel')">Book Now</button>
+  </div>
+</div>
+
+<!-- ════════ FLIGHTS ════════ -->
+<div class="scr" id="s-flights">
+  <div class="topbar white">
+    <div class="tb-back" onclick="back()">←</div>
+    <div style="font-size:15px;font-weight:800;color:var(--dark)">ASEAN Flights</div>
+    <div class="tb-icons" style="color:var(--dark)"><span>🔖</span></div>
+  </div>
+  <div style="flex:1;overflow-y:auto">
+    <div class="f-search-card">
+      <div class="f-route-row">
+        <div class="f-city-box">
+          <div class="f-city-code">HDY</div>
+          <div class="f-city-name">Hat Yai, Thailand</div>
+        </div>
+        <div class="f-swap" id="f-swap-btn" onclick="swapCities()">⇄</div>
+        <div class="f-city-box" style="text-align:right">
+          <div class="f-city-code" id="f-dest-code">KUL</div>
+          <div class="f-city-name" id="f-dest-name">Kuala Lumpur</div>
+        </div>
+      </div>
+      <div class="f-detail-row">
+        <div class="f-field"><div class="f-field-label">Depart</div><div class="f-field-val">19 Jun 2026</div></div>
+        <div class="f-field"><div class="f-field-label">Return</div><div class="f-field-val">One-way</div></div>
+        <div class="f-field"><div class="f-field-label">Passengers</div><div class="f-field-val">1 Adult</div></div>
+      </div>
+      <button class="f-search-btn" onclick="searchFlights()">🔍 Search Flights</button>
+    </div>
+    <!-- results -->
+    <div style="padding:12px 16px 4px;font-size:13px;color:var(--gray)"><b style="color:var(--dark)">6 flights</b> · HDY → KUL · 19 Jun</div>
+    <div style="padding:0 16px 20px">
+      <div class="frc" onclick="openBooking('flight')">
+        <div class="frc-airline">
+          <div style="width:28px;height:28px;border-radius:6px;background:#e53935;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:900">AA</div>
+          <div><div class="airline-nm">AirAsia</div><div class="airline-fl">AK 802</div></div>
+          <div class="frc-price">฿1,890</div>
+        </div>
+        <div class="frc-route">
+          <div><div class="frc-city">HDY</div><div class="frc-time">08:15</div></div>
+          <div class="frc-mid">
+            <div class="frc-line"><div class="frc-plane">✈</div></div>
+            <div class="frc-dur">1h 20m</div>
+          </div>
+          <div style="text-align:right"><div class="frc-city">KUL</div><div class="frc-time">09:35</div></div>
+        </div>
+        <div class="frc-tags">
+          <span class="ft direct">Direct</span>
+          <span class="ft member">ASEAN Member −10%</span>
+          <span class="ft refund">Free Refund</span>
+        </div>
+        <button class="frc-book" onclick="event.stopPropagation();openBooking('flight')">Select — ฿1,701 (Member price)</button>
+      </div>
+      <div class="frc" onclick="openBooking('flight')">
+        <div class="frc-airline">
+          <div style="width:28px;height:28px;border-radius:6px;background:#1565c0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:900">TL</div>
+          <div><div class="airline-nm">Thai Lion Air</div><div class="airline-fl">SL 410</div></div>
+          <div class="frc-price">฿2,100</div>
+        </div>
+        <div class="frc-route">
+          <div><div class="frc-city">HDY</div><div class="frc-time">12:45</div></div>
+          <div class="frc-mid">
+            <div class="frc-line"><div class="frc-plane">✈</div></div>
+            <div class="frc-dur">1h 25m</div>
+          </div>
+          <div style="text-align:right"><div class="frc-city">KUL</div><div class="frc-time">14:10</div></div>
+        </div>
+        <div class="frc-tags">
+          <span class="ft direct">Direct</span>
+          <span class="ft member">ASEAN Member −10%</span>
+        </div>
+        <button class="frc-book" onclick="event.stopPropagation();openBooking('flight')">Select — ฿1,890 (Member price)</button>
+      </div>
+      <div class="frc" onclick="openBooking('flight')">
+        <div class="frc-airline">
+          <div style="width:28px;height:28px;border-radius:6px;background:#007aff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900">MAS</div>
+          <div><div class="airline-nm">Malaysia Airlines</div><div class="airline-fl">MH 756</div></div>
+          <div class="frc-price">฿3,450</div>
+        </div>
+        <div class="frc-route">
+          <div><div class="frc-city">HDY</div><div class="frc-time">07:30</div></div>
+          <div class="frc-mid">
+            <div class="frc-line"><div class="frc-plane">✈</div></div>
+            <div class="frc-dur">2h 45m · 1 stop</div>
+          </div>
+          <div style="text-align:right"><div class="frc-city">SIN</div><div class="frc-time">10:15</div></div>
+        </div>
+        <div class="frc-tags">
+          <span class="ft member">ASEAN Member −10%</span>
+          <span class="ft refund">Meals included</span>
+        </div>
+        <button class="frc-book" onclick="event.stopPropagation();openBooking('flight')">Select — ฿3,105 (Member price)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ ASEAN MALL ════════ -->
+<div class="scr" id="s-mall">
+  <div style="flex-shrink:0">
+    <div class="mall-hero">
+      <img src="https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800&q=80" alt="ASEAN Mall">
+      <div class="mall-hero-overlay"></div>
+      <button class="hd-back" onclick="back()">←</button>
+      <div class="mall-hero-content">
+        <div class="mall-first-badge">🌏 First in ASEAN</div>
+        <div class="mall-h-title">ASEAN Mall AI Hub</div>
+        <div class="mall-h-sub">📍 Pattani, Southern Thailand · Open Daily 10am–10pm</div>
+      </div>
+    </div>
+    <div class="mall-stats-row">
+      <div class="mall-stat"><div class="ms-num">10</div><div class="ms-lbl">AI Experiences</div></div>
+      <div class="mall-stat"><div class="ms-num">6</div><div class="ms-lbl">Zones</div></div>
+      <div class="mall-stat"><div class="ms-num">4.9★</div><div class="ms-lbl">Rating</div></div>
+      <div class="mall-stat"><div class="ms-num">Free</div><div class="ms-lbl">Members</div></div>
+    </div>
+  </div>
+  <div class="mall-scroll">
+    <!-- Combo Package -->
+    <div style="padding:14px 16px 0">
+      <div class="pkg-card">
+        <div class="pkg-badge">⚡ Best Value Package</div>
+        <div class="pkg-title">Magic Bay ASEAN Bundle</div>
+        <div class="pkg-sub">Hotel + Flight + All AI Mall Experiences</div>
+        <div class="pkg-includes">
+          <div class="pkg-inc-item">3 nights at Pattani Heritage Grand</div>
+          <div class="pkg-inc-item">Return flights Hat Yai ↔ KUL</div>
+          <div class="pkg-inc-item">All 10 AI Mall experiences (full access)</div>
+          <div class="pkg-inc-item">Airport transfers included</div>
+          <div class="pkg-inc-item">500 ASEAN Points bonus</div>
+        </div>
+        <div class="pkg-price-row">
+          <div>
+            <div class="pkg-price">฿8,900</div>
+            <div class="pkg-price-old">฿13,200</div>
+          </div>
+          <button class="pkg-btn" onclick="openBooking('package')">Book Bundle</button>
+        </div>
+      </div>
+    </div>
+    <!-- Individual experiences -->
+    <div class="exp-section">
+      <div class="sec-hd"><div class="sec-title">Book by Experience</div></div>
+    </div>
+    <div class="exp-grid">
+      <div class="ec" onclick="openBooking('mall','AI Robot Lab')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=300&q=80" alt="">
+          <div class="ec-zone kids">Kids</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Robot Lab</div>
+          <div class="ec-duration">⏱ 45 mins</div>
+          <div class="ec-price">฿250<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Robot Lab')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Light Garden')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300&q=80" alt="">
+          <div class="ec-zone kids">Kids</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Light Garden</div>
+          <div class="ec-duration">⏱ 30 mins</div>
+          <div class="ec-price">฿200<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Light Garden')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Football Sim')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=300&q=80" alt="">
+          <div class="ec-zone adults">Adults</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Football Sim</div>
+          <div class="ec-duration">⏱ 60 mins</div>
+          <div class="ec-price">฿350<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Football Sim')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','360° Voyage Room')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1622979135225-d2ba269cf1ac?w=300&q=80" alt="">
+          <div class="ec-zone adults">Adults</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">360° Voyage Room</div>
+          <div class="ec-duration">⏱ 50 mins</div>
+          <div class="ec-price">฿400<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','360° Voyage Room')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Robot Cafe')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1514190051997-0f6f39ca5cde?w=300&q=80" alt="">
+          <div class="ec-zone adults">Adults</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Robot Cafe</div>
+          <div class="ec-duration">⏱ Anytime</div>
+          <div class="ec-price">฿150<sub>/cover</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Robot Cafe')">Reserve Table</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Creator Studio')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1598387993441-a364f854cffd?w=300&q=80" alt="">
+          <div class="ec-zone parents">Parents</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Creator Studio</div>
+          <div class="ec-duration">⏱ 90 mins</div>
+          <div class="ec-price">฿500<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Creator Studio')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Floating Market')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=300&q=80" alt="">
+          <div class="ec-zone parents">Parents</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Floating Market</div>
+          <div class="ec-duration">⏱ 60 mins</div>
+          <div class="ec-price">฿300<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Floating Market')">Book Ticket</button>
+        </div>
+      </div>
+      <div class="ec" onclick="openBooking('mall','AI Time Tunnel')">
+        <div class="ec-img">
+          <img src="https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=300&q=80" alt="">
+          <div class="ec-zone edu">Education</div>
+        </div>
+        <div class="ec-body">
+          <div class="ec-name">AI Time Tunnel</div>
+          <div class="ec-duration">⏱ 45 mins</div>
+          <div class="ec-price">฿200<sub>/person</sub></div>
+          <button class="ec-book" onclick="event.stopPropagation();openBooking('mall','AI Time Tunnel')">Book Ticket</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ BOOKING FLOW ════════ -->
+<div class="scr" id="s-booking">
+  <div class="topbar white">
+    <div class="tb-back" onclick="back()">←</div>
+    <div id="bf-topbar-title" style="font-size:15px;font-weight:800;color:var(--dark)">Complete Booking</div>
+    <div></div>
+  </div>
+  <!-- step indicator -->
+  <div style="display:flex;padding:10px 16px;gap:0;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="flex:1;text-align:center;font-size:11px;font-weight:800;color:var(--emerald)">1 · Dates</div>
+    <div style="flex:1;text-align:center;font-size:11px;color:var(--gray)">2 · Guests</div>
+    <div style="flex:1;text-align:center;font-size:11px;color:var(--gray)">3 · Payment</div>
+  </div>
+  <div style="flex:1;overflow-y:auto">
+    <div class="bf-step">
+      <div class="bf-step-title" id="bf-title">Select Dates</div>
+      <div class="bf-step-sub" id="bf-sub">You're booking at Pattani Heritage Grand Hotel</div>
+      <div class="bf-summary" id="bf-summary">
+        <div class="bfs-name" id="bf-booking-name">Pattani Heritage Grand Hotel</div>
+        <div class="bfs-detail" id="bf-booking-detail">Deluxe Room · ASEAN Mall District, Pattani</div>
+      </div>
+      <div class="date-grid" id="bf-date-section">
+        <div class="date-box db-sel">
+          <div class="db-label">Check-in</div>
+          <div class="db-date">20 Jun 2026</div>
+          <div class="db-day">Saturday</div>
+        </div>
+        <div class="date-box">
+          <div class="db-label">Check-out</div>
+          <div class="db-date">23 Jun 2026</div>
+          <div class="db-day">Tuesday · 3 nights</div>
+        </div>
+      </div>
+      <div class="inp-group">
+        <div class="inp-label">Full Name</div>
+        <input class="inp" value="Rajiv Sharma">
+      </div>
+      <div class="inp-group">
+        <div class="inp-label">Email</div>
+        <input class="inp" value="rajiv@example.com">
+      </div>
+      <div class="inp-group">
+        <div class="inp-label">ASEAN Member ID</div>
+        <input class="inp" value="MB-ASEAN-2026-0047">
+      </div>
+      <!-- guests -->
+      <div class="inp-label" style="margin-bottom:8px">Guests</div>
+      <div class="guest-row">
+        <div class="guest-info"><div class="g1">Adults</div><div class="g2">Age 18+</div></div>
+        <div class="guest-ctrl">
+          <button class="gc-btn" onclick="changeGuest('adults',-1)">−</button>
+          <div class="gc-val" id="gc-adults">2</div>
+          <button class="gc-btn" onclick="changeGuest('adults',1)">+</button>
+        </div>
+      </div>
+      <div class="guest-row">
+        <div class="guest-info"><div class="g1">Children</div><div class="g2">Age 0–17</div></div>
+        <div class="guest-ctrl">
+          <button class="gc-btn" onclick="changeGuest('children',-1)">−</button>
+          <div class="gc-val" id="gc-children">0</div>
+          <button class="gc-btn" onclick="changeGuest('children',1)">+</button>
+        </div>
+      </div>
+      <div class="hd-divider"></div>
+      <!-- payment -->
+      <div class="hd-section-title">Payment Method</div>
+      <div class="pay-method sel">
+        <div class="pay-ic">💳</div>
+        <div class="pay-info"><div class="p1">ASEAN Visa Gold</div><div class="p2">···· ···· ···· 4892</div></div>
+        <div class="pay-check">✓</div>
+      </div>
+      <div class="pay-method" onclick="selectPay(this)">
+        <div class="pay-ic">📱</div>
+        <div class="pay-info"><div class="p1">TrueMoney Wallet</div><div class="p2">Balance: ฿2,400</div></div>
+        <div class="pay-check" style="color:var(--border)">○</div>
+      </div>
+      <div class="pay-method" onclick="selectPay(this)">
+        <div class="pay-ic">🏦</div>
+        <div class="pay-info"><div class="p1">Online Banking</div><div class="p2">Bangkok Bank, SCB, Maybank</div></div>
+        <div class="pay-check" style="color:var(--border)">○</div>
+      </div>
+      <div class="hd-divider"></div>
+      <!-- price summary -->
+      <div class="hd-section-title">Price Summary</div>
+      <div class="price-break" id="price-break">
+        <div class="pb-row"><span class="pb-label" id="pb-room-label">Room (3 nights × ฿1,200)</span><span class="pb-val">฿3,600</span></div>
+        <div class="pb-row"><span class="pb-label">Taxes & Fees</span><span class="pb-val">฿360</span></div>
+        <div class="pb-row"><span class="pb-label" style="color:var(--green)">ASEAN Member Discount (15%)</span><span class="pb-val" style="color:var(--green)">−฿540</span></div>
+        <div class="pb-row total"><span class="pb-label">Total</span><span class="pb-val" id="pb-total">฿3,420</span></div>
+      </div>
+      <div class="member-saving">
+        <span>🏅</span> You save ฿540 as a Gold Member + earn 342 ASEAN Points
+      </div>
+      <button class="confirm-btn" onclick="confirmBooking()">Confirm & Pay ฿3,420</button>
+      <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:10px;padding-bottom:30px">
+        🔒 Secure payment · Free cancellation until 18 Jun 2026
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ MEMBERS ════════ -->
+<div class="scr" id="s-members">
+  <div class="topbar" style="background:var(--emeralddk)">
+    <div class="tb-back" onclick="back()">←</div>
+    <div class="tb-logo">ASEAN <span>Members</span></div>
+    <div class="tb-icons"><span>⚙️</span></div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding-bottom:20px">
+    <!-- member card -->
+    <div class="member-card">
+      <div class="mc-row1">
+        <div class="mc-avatar">🌟</div>
+        <div class="mc-tier">🏅 GOLD MEMBER</div>
+      </div>
+      <div class="mc-name">Rajiv Sharma</div>
+      <div class="mc-id">MB-ASEAN-2026-0047 · Member since Jan 2024</div>
+      <div class="mc-pts-row">
+        <div class="mc-pt"><div class="v">4,820</div><div class="l">Total Points</div></div>
+        <div class="mc-pt"><div class="v">12</div><div class="l">Trips Taken</div></div>
+        <div class="mc-pt"><div class="v">3</div><div class="l">ASEAN Countries</div></div>
+        <div class="mc-pt"><div class="v">฿8.4k</div><div class="l">Total Saved</div></div>
+      </div>
+    </div>
+    <!-- progress -->
+    <div class="pts-progress">
+      <div class="pp-row">
+        <div class="pp-title">Upgrade to Platinum</div>
+        <div class="pp-need">3,180 pts to go</div>
+      </div>
+      <div class="pp-bar"><div class="pp-fill"></div></div>
+      <div class="pp-tiers"><span>Silver<br>1,000</span><span>Gold<br>3,000</span><span>Platinum<br>8,000</span><span>Diamond<br>20,000</span></div>
+    </div>
+    <!-- quick benefits row -->
+    <div style="display:flex;gap:10px;margin:14px 16px 0;overflow-x:auto;scrollbar-width:none">
+      <div style="flex-shrink:0;background:#fff;border-radius:12px;padding:12px 14px;min-width:120px;box-shadow:0 1px 6px rgba(0,0,0,.07);text-align:center">
+        <div style="font-size:24px">🏨</div>
+        <div style="font-size:12px;font-weight:700;margin-top:4px">15% OFF</div>
+        <div style="font-size:10px;color:var(--gray)">All Hotels</div>
+      </div>
+      <div style="flex-shrink:0;background:#fff;border-radius:12px;padding:12px 14px;min-width:120px;box-shadow:0 1px 6px rgba(0,0,0,.07);text-align:center">
+        <div style="font-size:24px">✈️</div>
+        <div style="font-size:12px;font-weight:700;margin-top:4px">10% OFF</div>
+        <div style="font-size:10px;color:var(--gray)">All Flights</div>
+      </div>
+      <div style="flex-shrink:0;background:#fff;border-radius:12px;padding:12px 14px;min-width:120px;box-shadow:0 1px 6px rgba(0,0,0,.07);text-align:center">
+        <div style="font-size:24px">🤖</div>
+        <div style="font-size:12px;font-weight:700;margin-top:4px">FREE</div>
+        <div style="font-size:10px;color:var(--gray)">AI Mall Entry</div>
+      </div>
+    </div>
+    <!-- recent transactions -->
+    <div class="txn-section">
+      <div class="sec-hd"><div class="sec-title">Recent Activity</div><div class="sec-more">View all</div></div>
+      <div class="txn-item">
+        <div class="txn-ic green">🏨</div>
+        <div class="txn-text"><div class="t1">Pattani Heritage Grand</div><div class="t2">3 nights · 20–23 Jun 2026</div></div>
+        <div class="txn-pts earn">+342 pts</div>
+      </div>
+      <div class="txn-item">
+        <div class="txn-ic blue">✈️</div>
+        <div class="txn-text"><div class="t1">AirAsia · HDY → KUL</div><div class="t2">19 Jun 2026 · Flight AK 802</div></div>
+        <div class="txn-pts earn">+85 pts</div>
+      </div>
+      <div class="txn-item">
+        <div class="txn-ic orange">🤖</div>
+        <div class="txn-text"><div class="t1">AI Mall — Full Experience</div><div class="t2">15 Jun 2026 · All zones</div></div>
+        <div class="txn-pts earn">+200 pts</div>
+      </div>
+      <div class="txn-item">
+        <div class="txn-ic" style="background:#fce4ec">🎁</div>
+        <div class="txn-text"><div class="t1">Points Redeemed — Room Upgrade</div><div class="t2">10 Jun 2026 · Marina Bay Sands</div></div>
+        <div class="txn-pts use">−500 pts</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ SOCIAL ════════ -->
+<div class="scr" id="s-social">
+  <div class="topbar white">
+    <div style="width:32px"></div>
+    <div style="font-size:17px;font-weight:900;color:var(--dark)">MagicBay <span style="color:var(--emerald)">Travel</span></div>
+    <div class="tb-icons" style="color:var(--dark)"><span>✉️</span></div>
+  </div>
+  <div class="stories-row">
+    <div class="story-item"><div class="story-ring"><div class="story-avatar">➕</div></div><div class="story-name">Add Story</div></div>
+    <div class="story-item"><div class="story-ring"><div class="story-avatar"><img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&q=80" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div></div><div class="story-name">Ahmad</div></div>
+    <div class="story-item"><div class="story-ring"><div class="story-avatar"><img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div></div><div class="story-name">Nurul</div></div>
+    <div class="story-item"><div class="story-ring"><div class="story-avatar">🇸🇬</div></div><div class="story-name">Singapore</div></div>
+    <div class="story-item"><div class="story-ring"><div class="story-avatar">🇮🇩</div></div><div class="story-name">Bali</div></div>
+    <div class="story-item"><div class="story-ring"><div class="story-avatar">🤖</div></div><div class="story-name">AI Mall</div></div>
+  </div>
+  <div class="posts-feed">
+    <!-- Post 1 -->
+    <div class="post">
+      <div class="post-head">
+        <div class="p-avatar"><img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&q=80" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>
+        <div>
+          <div class="p-name">Ahmad Faizal</div>
+          <div class="p-location">📍 ASEAN Mall Pattani · Sponsored by MagicBay</div>
+        </div>
+        <div class="p-more">•••</div>
+      </div>
+      <img class="post-img" src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=600&q=80" alt="" style="aspect-ratio:4/3;object-fit:cover">
+      <div class="post-foot">
+        <div class="post-actions">
+          <span class="pa" onclick="toggleLike(this)">🤍</span>
+          <span class="pa">💬</span>
+          <span class="pa">✈️</span>
+          <span class="pa right">🔖</span>
+        </div>
+        <div class="post-likes">2,341 likes</div>
+        <div class="post-caption"><strong>Ahmad Faizal</strong> The AI Robot Lab at ASEAN Mall Pattani is absolutely mind-blowing! You literally program the robot yourself and it learns 🤖✨ First of its kind in ASEAN!</div>
+        <div class="post-hashtag">#MagicBay #ASEANMall #Pattani #AIExperience #FirstInASEAN</div>
+        <div class="post-time">2 hours ago</div>
+      </div>
+    </div>
+    <!-- Post 2 -->
+    <div class="post">
+      <div class="post-head">
+        <div class="p-avatar"><img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>
+        <div>
+          <div class="p-name">Nurul Hana</div>
+          <div class="p-location">📍 Bali Clifftop Villas, Uluwatu</div>
+        </div>
+        <div class="p-more">•••</div>
+      </div>
+      <img class="post-img" src="https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=600&q=80" alt="" style="aspect-ratio:4/3;object-fit:cover">
+      <div class="post-foot">
+        <div class="post-actions">
+          <span class="pa" onclick="toggleLike(this)">❤️</span>
+          <span class="pa">💬</span>
+          <span class="pa">✈️</span>
+          <span class="pa right">🔖</span>
+        </div>
+        <div class="post-likes">8,910 likes</div>
+        <div class="post-caption"><strong>Nurul Hana</strong> Booked this entire Bali trip through Magic Bay in under 5 minutes — flights from Hat Yai + this villa + all sorted! Gold member perks are insane 🌴🏅</div>
+        <div class="post-hashtag">#MagicBay #ASEANTravel #Bali #GoldMember</div>
+        <div class="post-time">5 hours ago</div>
+      </div>
+    </div>
+    <!-- Post 3 -->
+    <div class="post">
+      <div class="post-head">
+        <div class="p-avatar" style="background:#1565c0;color:#fff;font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center">R</div>
+        <div>
+          <div class="p-name">Rajiv Sharma</div>
+          <div class="p-location">📍 Marina Bay Sands, Singapore</div>
+        </div>
+        <div class="p-more">•••</div>
+      </div>
+      <img class="post-img" src="https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=600&q=80" alt="" style="aspect-ratio:4/3;object-fit:cover">
+      <div class="post-foot">
+        <div class="post-actions">
+          <span class="pa" onclick="toggleLike(this)">🤍</span>
+          <span class="pa">💬</span>
+          <span class="pa">✈️</span>
+          <span class="pa right">🔖</span>
+        </div>
+        <div class="post-likes">4,127 likes</div>
+        <div class="post-caption"><strong>Rajiv Sharma</strong> Used Magic Bay points to upgrade to the infinity pool suite here 🏊 2,000 points = free room upgrade. This loyalty programme actually pays off! 💎</div>
+        <div class="post-hashtag">#MagicBay #MBS #Singapore #ASEANPoints #Luxury</div>
+        <div class="post-time">1 day ago</div>
+      </div>
+    </div>
+    <div style="padding-bottom:20px"></div>
+  </div>
+</div>
+
+<!-- ════════ SUCCESS ════════ -->
+<div class="scr" id="s-success">
+  <div style="flex:1;overflow-y:auto;padding:32px 24px;display:flex;flex-direction:column;align-items:center">
+    <div class="success-circle" id="sc-icon">✅</div>
+    <div class="success-title" id="sc-title">Booking Confirmed!</div>
+    <div class="success-sub" id="sc-sub">Your booking is secured and ready</div>
+    <div class="ticket-card">
+      <div class="ticket-top">
+        <div class="ticket-hotel" id="tc-name">Pattani Heritage Grand Hotel</div>
+        <div class="ticket-date" id="tc-date">20 Jun – 23 Jun 2026 · 3 Nights · Deluxe Room</div>
+      </div>
+      <div class="ticket-dashes"></div>
+      <div class="ticket-body">
+        <div class="ticket-row"><span class="tr-label">Guest Name</span><span class="tr-val">Rajiv Sharma</span></div>
+        <div class="ticket-row"><span class="tr-label">Member ID</span><span class="tr-val">MB-ASEAN-2026-0047</span></div>
+        <div class="ticket-row"><span class="tr-label">Status</span><span class="tr-val" style="color:var(--green)">✓ Confirmed</span></div>
+        <div class="ticket-ref" id="tc-ref">MB-2026-1047</div>
+        <div class="barcode">|||||| ||| ||||| || |||||| ||| || ||||| |||| ||| |||||| ||| |||</div>
+      </div>
+    </div>
+    <div class="pts-earned-badge">
+      <div class="peb-icon">🏅</div>
+      <div class="peb-text">
+        <div class="t1">+342 ASEAN Points Earned!</div>
+        <div class="t2">New balance: 5,162 points · 2,838 to Platinum</div>
+      </div>
+    </div>
+    <button class="success-home-btn" onclick="go('s-home')">Back to Home</button>
+    <div style="font-size:11px;color:var(--gray);margin-top:12px;text-align:center">Confirmation sent to rajiv@example.com</div>
+  </div>
+</div>
+
+<!-- ════════ MODAL ════════ -->
+<div class="modal-bg" id="modal">
+  <div class="modal-sheet">
+    <div class="modal-handle-bar"><span></span></div>
+    <div class="modal-content" id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let history = ['s-splash'];
+let bookingType = 'hotel';
+let mallExperience = '';
+let hotelData = [
+  {name:'Pattani Heritage Grand Hotel',loc:'ASEAN Mall District, Pattani',img:'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=800&q=80',score:'9.2',reviews:'1,248 reviews',price:'฿1,200',suitePrice:'฿2,200'},
+  {name:'KL Twin Peaks Suites',loc:'KLCC, Kuala Lumpur, Malaysia',img:'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800&q=80',score:'9.4',reviews:'3,891 reviews',price:'RM 380',suitePrice:'RM 680'},
+  {name:'Marina Bay Sands',loc:'Marina Bay, Singapore',img:'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800&q=80',score:'9.6',reviews:'12,440 reviews',price:'SGD 420',suitePrice:'SGD 780'},
+  {name:'Bali Clifftop Villas',loc:'Uluwatu, Bali, Indonesia',img:'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&q=80',score:'8.9',reviews:'2,103 reviews',price:'$89',suitePrice:'$145'},
+];
+let guestCounts = {adults:2,children:0};
+let refId = 1046;
+
+// ── Navigation ──
+function go(id){
+  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  document.getElementById(id).scrollTop=0;
+  if(history[history.length-1]!==id) history.push(id);
+}
+function back(){
+  history.pop();
+  let prev = history[history.length-1]||'s-home';
+  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));
+  document.getElementById(prev).classList.add('on');
+  document.getElementById(prev).scrollTop=0;
+}
+
+// ── Home tabs ──
+function setTab(el,id){
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('act'));
+  el.classList.add('act');
+  ['hotel-search','flight-search','mall-search'].forEach(s=>{
+    document.getElementById(s).style.display = (s===id)?'block':'none';
+  });
+}
+
+// ── Search with loader ──
+function showLoader(txt,ms,cb){
+  let l=document.getElementById('loader');
+  document.getElementById('loader-txt').textContent=txt;
+  l.classList.add('show');
+  setTimeout(()=>{l.classList.remove('show');if(cb)cb();},ms);
+}
+function searchHotels(){showLoader('Finding best hotels…',1400,()=>go('s-hotels'));}
+function searchFlights(){showLoader('Searching flights…',1600,()=>go('s-flights'));}
+
+// ── Hotel detail ──
+function openHotelDetail(idx){
+  let h=hotelData[idx]||hotelData[0];
+  document.getElementById('hd-img').src=h.img;
+  document.getElementById('hd-name').textContent=h.name;
+  document.getElementById('hd-loc').textContent='📍 '+h.loc;
+  document.getElementById('hd-score').textContent=h.score;
+  document.getElementById('hd-reviews').textContent=h.reviews;
+  document.getElementById('hd-room-price').innerHTML=h.price+'<sub>/night</sub>';
+  document.getElementById('hd-suite-price').innerHTML=h.suitePrice+'<sub>/night</sub>';
+  document.getElementById('sb-price').innerHTML=h.price+'<sub>/night</sub>';
+  document.getElementById('bf-booking-name').textContent=h.name;
+  document.getElementById('bf-booking-detail').textContent='Deluxe Room · '+h.loc;
+  document.getElementById('pb-room-label').textContent='Room (3 nights × '+h.price+')';
+  go('s-hotel-detail');
+}
+function toggleFav(btn){btn.textContent=btn.textContent==='🤍'?'❤️':'🤍';}
+
+// ── Booking flow ──
+function openBooking(type,exp){
+  bookingType=type;
+  mallExperience=exp||'';
+  let title='', sub='', name='', detail='', roomLabel='', total='';
+  if(type==='hotel'){
+    title='Confirm Your Stay'; sub='Almost done! Review your booking details.';
+    name=document.getElementById('hd-name').textContent;
+    detail='Deluxe Room · 20 Jun – 23 Jun 2026';
+    document.getElementById('bf-date-section').style.display='grid';
+    document.getElementById('pb-room-label').textContent='Room (3 nights × ฿1,200)';
+    document.getElementById('pb-total').textContent='฿3,420';
+    document.querySelector('.confirm-btn').textContent='Confirm & Pay ฿3,420';
+  } else if(type==='flight'){
+    title='Confirm Your Flight'; sub='Review your flight booking.';
+    name='AirAsia · AK 802'; detail='HDY → KUL · 19 Jun 2026 · Economy';
+    document.getElementById('bf-date-section').style.display='none';
+    document.getElementById('pb-room-label').textContent='Flight fare (1 Adult)';
+    document.getElementById('pb-total').textContent='฿1,701';
+    document.querySelector('.confirm-btn').textContent='Confirm & Pay ฿1,701';
+  } else if(type==='mall'){
+    title='Book AI Experience'; sub='Secure your ticket at ASEAN Mall.';
+    name='ASEAN Mall AI Hub — '+(exp||'AI Experience');
+    detail='Pattani · 20 Jun 2026 · 2 Guests';
+    document.getElementById('bf-date-section').style.display='none';
+    document.getElementById('pb-room-label').textContent='Tickets (2 persons)';
+    document.getElementById('pb-total').textContent='฿500';
+    document.querySelector('.confirm-btn').textContent='Confirm & Pay ฿500';
+  } else if(type==='package'){
+    title='Book ASEAN Bundle'; sub='Hotel + Flights + AI Mall experiences.';
+    name='Magic Bay ASEAN Bundle'; detail='3 nights + return flights + full AI Mall access';
+    document.getElementById('bf-date-section').style.display='grid';
+    document.getElementById('pb-room-label').textContent='Bundle total (save 32%)';
+    document.getElementById('pb-total').textContent='฿8,900';
+    document.querySelector('.confirm-btn').textContent='Confirm & Pay ฿8,900';
+  }
+  document.getElementById('bf-topbar-title').textContent=title;
+  document.getElementById('bf-title').textContent=title;
+  document.getElementById('bf-sub').textContent=sub;
+  document.getElementById('bf-booking-name').textContent=name;
+  document.getElementById('bf-booking-detail').textContent=detail;
+  go('s-booking');
+}
+
+function changeGuest(type,delta){
+  guestCounts[type]=Math.max(0,guestCounts[type]+delta);
+  if(type==='adults') guestCounts.adults=Math.max(1,guestCounts.adults);
+  document.getElementById('gc-'+type).textContent=guestCounts[type];
+}
+function selectPay(el){
+  document.querySelectorAll('.pay-method').forEach(p=>{
+    p.classList.remove('sel');
+    p.querySelector('.pay-check').textContent='○';
+    p.querySelector('.pay-check').style.color='var(--border)';
+  });
+  el.classList.add('sel');
+  el.querySelector('.pay-check').textContent='✓';
+  el.querySelector('.pay-check').style.color='var(--emerald)';
+}
+
+function confirmBooking(){
+  refId++;
+  let ref='MB-2026-'+refId;
+  let isF=bookingType==='flight', isM=bookingType==='mall', isPkg=bookingType==='package';
+  document.getElementById('sc-icon').textContent = isF?'🛫':isM?'🎫':'🏨';
+  document.getElementById('sc-title').textContent = isF?'Flight Booked! ✈️':isM?'Ticket Confirmed! 🎫':isPkg?'Bundle Secured! 🌏':'Stay Confirmed! 🏨';
+  document.getElementById('sc-sub').textContent = 'Your booking is locked in. Enjoy your ASEAN experience!';
+  document.getElementById('tc-name').textContent = document.getElementById('bf-booking-name').textContent;
+  document.getElementById('tc-date').textContent = document.getElementById('bf-booking-detail').textContent;
+  document.getElementById('tc-ref').textContent = ref;
+  showLoader('Processing payment…',1800,()=>go('s-success'));
+}
+
+// ── Flights ──
+let swapped=false;
+function swapCities(){
+  swapped=!swapped;
+  document.getElementById('f-dest-code').textContent=swapped?'HDY':'KUL';
+  document.getElementById('f-dest-name').textContent=swapped?'Hat Yai, Thailand':'Kuala Lumpur';
+  document.getElementById('f-swap-btn').style.transform=swapped?'rotate(180deg)':'rotate(0)';
+}
+
+// ── Social ──
+function toggleLike(el){
+  el.textContent=el.textContent==='🤍'?'❤️':'🤍';
+}
+
+// ── Date picker stub ──
+function showDatePicker(){
+  // visual feedback only
+  document.querySelectorAll('.date-box').forEach((b,i)=>{
+    b.classList.toggle('db-sel', i===0);
+  });
+}
+</script>
+</body>
+</html>

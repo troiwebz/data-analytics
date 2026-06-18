@@ -3236,6 +3236,18 @@ IMPORTANT: Generate a FRESH variation — different angle, hook style, and struc
     except Exception as ex:  return jsonify({'error': str(ex)}), 500
 
 
+@app.route('/magic-bay')
+def magic_bay_sim():
+    return render_template('magic_bay_sim.html')
+
+@app.route('/magic-bay-dashboards')
+def magic_bay_dashboards():
+    return render_template('magic_bay_dashboards.html')
+
+@app.route('/asean-mall')
+def asean_mall_site():
+    return render_template('asean_mall_site.html')
+
 # Always initialise DB — needed for Vercel serverless (no __main__ block runs)
 init_db()
 
