@@ -1,0 +1,17 @@
+name: fetch-clip
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download clip and commit
+        run: |
+          curl -fL --retry 3 -o static/destin-bangkok-mobile-6s.mp4 "https://d2ol7oe51mr4n9.cloudfront.net/user_3ACUUhtoR0ZmAfx0ZlBgxsUibVg/797ec508-e118-421c-be0e-c9e1e30e783e.mp4"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/destin-bangkok-mobile-6s.mp4
+          git commit -m "Add Destin Bangkok mobile 6s website clip"
+          git push
