@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DESTIN — European Dining Room · Sukhumvit, Bangkok</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c0e0b;          /* near-black green */
+    --surface:#141711;      /* deep green-charcoal */
+    --cream:#f1e9d8;
+    --gold:#c8a565;
+    --muted:#98907e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:auto}
+  body{
+    background:var(--ink);
+    color:var(--cream);
+    font-family:"Jost",system-ui,sans-serif;
+    font-weight:300;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .serif{font-family:"Cormorant Garamond",Georgia,serif}
+
+  /* ——— animation gate: everything is paused until <html class="play"> ——— */
+  .a{animation-play-state:paused!important}
+  .play .a{animation-play-state:running!important}
+
+  /* ——— film grain (invisible polish) ——— */
+  .grain{
+    position:fixed;inset:-50%;z-index:40;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ——— nav ——— */
+  nav{
+    position:fixed;top:0;left:0;right:0;z-index:30;
+    display:flex;justify-content:space-between;align-items:center;
+    padding:1.15rem 1.35rem;
+    background:linear-gradient(to bottom,rgba(12,14,11,.55),transparent);
+    opacity:0;
+    animation:navIn .9s cubic-bezier(.22,.61,.36,1) .25s forwards;
+  }
+  @keyframes navIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+  .wordmark{font-family:"Cormorant Garamond",serif;font-weight:600;font-size:1.28rem;letter-spacing:.42em;padding-left:.42em;color:var(--cream)}
+  .nav-cta{font-size:.63rem;letter-spacing:.3em;color:var(--gold);text-decoration:none;text-transform:uppercase;border-bottom:1px solid rgba(200,165,101,.45);padding-bottom:.2rem}
+
+  /* ——— hero ——— */
+  .hero{position:relative;height:100vh;min-height:600px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
+  .hero-bg{
+    position:absolute;inset:0;
+    background:url("img/hero.jpg") center 38%/cover no-repeat;
+    transform:scale(1.12);
+    animation:kenburns 6.4s cubic-bezier(.19,.55,.4,1) 0s forwards;
+  }
+  @keyframes kenburns{to{transform:scale(1.015)}}
+  .hero-veil{
+    position:absolute;inset:0;
+    background:
+      linear-gradient(to bottom,rgba(12,14,11,.42) 0%,rgba(12,14,11,.12) 34%,rgba(12,14,11,.5) 66%,rgba(12,14,11,.94) 100%);
+  }
+  .hero-inner{position:relative;z-index:2;text-align:center;padding:0 1.6rem calc(9.5vh);max-width:24rem}
+
+  .eyebrow{
+    font-size:.63rem;letter-spacing:.34em;text-transform:uppercase;color:var(--gold);
+    opacity:0;
+    animation:eyebrowIn 1.1s cubic-bezier(.22,.61,.36,1) .55s forwards;
+  }
+  @keyframes eyebrowIn{from{opacity:0;letter-spacing:.55em}to{opacity:1;letter-spacing:.34em}}
+
+  h1{
+    margin-top:1.05rem;
+    font-family:"Cormorant Garamond",serif;font-weight:500;
+    font-size:clamp(2.55rem,12vw,3.1rem);
+    line-height:1.06;letter-spacing:.01em;
+  }
+  .line{display:block;overflow:hidden;padding-bottom:.06em;margin-bottom:-.06em}
+  .line>span{display:inline-block;transform:translateY(112%);animation:riseUp 1s cubic-bezier(.19,.66,.22,1) forwards}
+  .line:nth-child(1)>span{animation-delay:.85s}
+  .line:nth-child(2)>span{animation-delay:1.02s}
+  .line em{font-style:italic;color:var(--gold);font-weight:500}
+  @keyframes riseUp{to{transform:translateY(0)}}
+
+  .rule{
+    width:56px;height:1px;background:var(--gold);margin:1.35rem auto 1.15rem;
+    transform:scaleX(0);transform-origin:center;
+    animation:ruleIn .8s cubic-bezier(.22,.61,.36,1) 1.55s forwards;position:relative;
+  }
+  .rule::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;background:var(--gold);transform:translate(-50%,-50%) rotate(45deg)}
+  @keyframes ruleIn{to{transform:scaleX(1)}}
+
+  .sub{
+    font-size:.94rem;letter-spacing:.06em;color:var(--muted);font-weight:300;
+    opacity:0;animation:fadeUp .9s cubic-bezier(.22,.61,.36,1) 1.75s forwards;
+  }
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+  .cta{
+    display:inline-block;margin-top:1.7rem;
+    font-size:.66rem;letter-spacing:.32em;text-transform:uppercase;color:var(--cream);text-decoration:none;
+    border:1px solid rgba(200,165,101,.75);padding:1rem 2.1rem .95rem;
+    position:relative;overflow:hidden;
+    opacity:0;animation:fadeUp .9s cubic-bezier(.22,.61,.36,1) 2.05s forwards;
+  }
+  .cta::before{
+    content:"";position:absolute;top:0;left:-80%;width:55%;height:100%;
+    background:linear-gradient(105deg,transparent,rgba(200,165,101,.32),transparent);
+    animation:sheen 1.5s ease 3s forwards;
+  }
+  @keyframes sheen{to{left:130%}}
+
+  .cue{
+    position:absolute;bottom:2.6vh;left:50%;transform:translateX(-50%);z-index:2;
+    opacity:0;animation:fadeUp .8s ease 2.7s forwards;
+  }
+  .cue span{display:block;width:1px;height:34px;background:linear-gradient(to bottom,var(--gold),transparent);margin:0 auto;
+    animation:cuePulse 1.8s ease-in-out 3s infinite}
+  @keyframes cuePulse{0%,100%{transform:scaleY(1);opacity:.9}50%{transform:scaleY(.55);opacity:.4}}
+
+  /* ——— signatures ——— */
+  .sig{background:var(--ink);padding:4.2rem 1.5rem 3rem;position:relative}
+  .sig::before{content:"";position:absolute;top:0;left:1.5rem;right:1.5rem;height:1px;background:linear-gradient(to right,transparent,rgba(200,165,101,.35),transparent)}
+  .sig .eyebrow2{font-size:.6rem;letter-spacing:.34em;text-transform:uppercase;color:var(--gold);text-align:center}
+  .sig h2{font-family:"Cormorant Garamond",serif;font-weight:500;font-size:1.95rem;line-height:1.15;text-align:center;margin-top:.85rem}
+  .sig h2 em{font-style:italic;color:var(--gold)}
+  .dishes{margin-top:2.4rem;display:grid;gap:2.1rem}
+  .dish{background:var(--surface);border:1px solid rgba(200,165,101,.14)}
+  .dish figure{height:238px;overflow:hidden}
+  .dish img{width:100%;height:100%;object-fit:cover;display:block;filter:saturate(.92) contrast(1.04)}
+  .dish .body{padding:1.25rem 1.3rem 1.4rem;display:flex;justify-content:space-between;gap:1rem;align-items:baseline}
+  .dish h3{font-family:"Cormorant Garamond",serif;font-weight:600;font-size:1.22rem;letter-spacing:.02em}
+  .dish p{font-size:.8rem;color:var(--muted);margin-top:.35rem;letter-spacing:.04em}
+  .price{font-size:.8rem;color:var(--gold);letter-spacing:.08em;white-space:nowrap}
+
+  footer{padding:2.2rem 1.5rem 3rem;text-align:center;color:var(--muted);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;line-height:2}
+  footer b{color:var(--cream);font-weight:400}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+
+<nav class="a">
+  <span class="wordmark">DESTIN</span>
+  <a class="nav-cta" href="#">Reserve</a>
+</nav>
+
+<header class="hero">
+  <div class="hero-bg a"></div>
+  <div class="hero-veil"></div>
+  <div class="hero-inner">
+    <p class="eyebrow a">European Dining Room · Sukhumvit</p>
+    <h1 class="serif">
+      <span class="line"><span class="a">An evening</span></span>
+      <span class="line"><span class="a">worth <em>dressing for.</em></span></span>
+    </h1>
+    <div class="rule a"></div>
+    <p class="sub a">Seven courses. Old-world wines. Candlelight.</p>
+    <a class="cta a" href="#">Reserve a Table</a>
+  </div>
+  <div class="cue a"><span class="a"></span></div>
+</header>
+
+<section class="sig">
+  <p class="eyebrow2">The Signatures</p>
+  <h2>From the fire <em>&amp; the cellar</em></h2>
+  <div class="dishes">
+    <article class="dish">
+      <figure><img src="img/dish1.jpg" alt="Charred Hokkaido scallop"></figure>
+      <div class="body">
+        <div>
+          <h3 class="serif">Charred Hokkaido Scallop</h3>
+          <p>Brown butter · fennel pollen</p>
+        </div>
+        <span class="price">฿ 720</span>
+      </div>
+    </article>
+    <article class="dish">
+      <figure><img src="img/dish2.jpg" alt="Dry-aged duck"></figure>
+      <div class="body">
+        <div>
+          <h3 class="serif">Dry-Aged Duck à l'Orange</h3>
+          <p>Burnt citrus · thyme jus</p>
+        </div>
+        <span class="price">฿ 1,150</span>
+      </div>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <b>DESTIN</b><br>
+  6th Avenue, Sukhumvit · Bangkok<br>
+  Tue – Sun · 5 pm – Midnight
+</footer>
+</body>
+</html>
