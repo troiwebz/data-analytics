@@ -12,15 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download assets and commit
         run: |
-          if [ -f static/destin-hero-site/preview.png ]; then echo "already present"; exit 0; fi
-          mkdir -p static/destin-hero-site/img
-          curl -fL --retry 3 -o /tmp/frame.png "https://d2ol7oe51mr4n9.cloudfront.net/user_3ACUUhtoR0ZmAfx0ZlBgxsUibVg/3472f9b4-5e9d-4069-8529-28d1ff5a73be.png"
-          convert /tmp/frame.png -resize 540x static/destin-hero-site/preview.png || cp /tmp/frame.png static/destin-hero-site/preview.png
-          curl -fL --retry 3 -o static/destin-hero-site/img/hero.jpg "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?q=80&w=1000&h=1700&fit=crop"
-          curl -fL --retry 3 -o static/destin-hero-site/img/dish1.jpg "https://images.unsplash.com/photo-1551218808-94e220e084d2?q=80&w=900&h=700&fit=crop"
-          curl -fL --retry 3 -o static/destin-hero-site/img/dish2.jpg "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=900&h=700&fit=crop"
+          if [ -f static/destin-hero-6s.mp4 ]; then echo "already present"; exit 0; fi
+          curl -fL --retry 3 -o static/destin-hero-6s.mp4 "https://d2ol7oe51mr4n9.cloudfront.net/user_3ACUUhtoR0ZmAfx0ZlBgxsUibVg/6d0846e5-7b84-493c-ac03-749573e26f60.mp4"
+          curl -fL --retry 3 -o static/destin-hero-site/preview.png "https://d2ol7oe51mr4n9.cloudfront.net/user_3ACUUhtoR0ZmAfx0ZlBgxsUibVg/5e657eb4-1f9b-4cb3-a8f0-86c3e7fcf71f.png"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f static/destin-hero-site/preview.png static/destin-hero-site/img
-          git commit -m "Add hero site preview frame and images [skip ci]"
+          git add -f static/destin-hero-6s.mp4 static/destin-hero-site/preview.png
+          git commit -m "Update hero clip and preview to v2 [skip ci]"
           git push
