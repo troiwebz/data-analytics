@@ -17,6 +17,9 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
 - 2026-08-31 — "Re-Fix" (re-edit their phone video free) — doubtful: remote freebie, doesn't create the in-person appointment
 
 ## Rules learned
+- Ask offer economics before brainstorming: free entry vs cheap paid
+  entry vs full price + guarantee. Never default the brainstorm to free
+  offers — the founder decides the economics per campaign.
 - HIDDEN FUNNEL FIRST: always ask what the target funnel first step is
   before designing. Current default: an in-person appointment at the
   client's shop. Offers that don't force that step fail (even nice ones).

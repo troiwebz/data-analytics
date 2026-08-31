@@ -80,6 +80,11 @@ when available):
     package behind it is, since every offer must ladder into it.)
 0b. **Ask what the NICHE is** — which business type and area is this offer
     aimed at? (restaurants, hotels, salons, gyms; Sukhumvit, Phuket…)
+0b2. **Ask the OFFER ECONOMICS** — never assume free. "For this campaign,
+    should the front-door offer be: (a) FREE entry (freebie/trial),
+    (b) CHEAP PAID entry (tripwire like ฿500), or (c) FULL PRICE with the
+    risk removed (guarantee)?" Filter the brainstorm by his answer; if he
+    says "show me a mix", balance the 10 across all three economics.
 0c. **Ask the hidden-funnel question**: "What is the target first step
    of the funnel for this offer — an in-person appointment, a DM
    conversation, a phone call, something else?" The freebie is the bait; the

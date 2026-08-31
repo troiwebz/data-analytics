@@ -135,5 +135,5 @@ invent-and-file silently.
 - "Your menu as a website" (QR menu for restaurants) — UNTESTED
 - "One dish famous in 30 days" / "your best dish" — UNTESTED
 - "Steal the tourists": EN/CN descriptions + tourist keywords — UNTESTED
-- "Your slowest day, fixed" — UNTESTED
+- "Your slowest day, fixed" — LIKED (founder: "maybe" — soft yes, not locked)
 - Showcase site for one famous local shop, then "yours is ฿500" — UNTESTED
