@@ -222,6 +222,10 @@ website.
    ("3 reels in 3 days" — do you come for 3 days?), spell it out. The
    OFFER section may take TWO lines (up to ~7 seconds) for this — clarity
    beats brevity in the offer; trim the pain section to pay for it.
+4c. SCOPE PROTECTION: never promise unlimited work in an offer. Words like
+   "everything", "unlimited", "as much as you want" invite the customer to
+   expect a full production for a freebie. Scope the free work naturally:
+   "one visit", "one short shoot" — big value, bounded effort.
 5. Always include the scarcity line ("Only 5 businesses this month") — it is
    both urgency AND our cost cap. Never drop it.
 6. CTA is always a single DM keyword in caps, niche-specific (e.g. DM "FIX",
