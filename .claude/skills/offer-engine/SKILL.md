@@ -243,6 +243,11 @@ website.
    ("3 reels in 3 days" — do you come for 3 days?), spell it out. The
    OFFER section may take TWO lines (up to ~7 seconds) for this — clarity
    beats brevity in the offer; trim the pain section to pay for it.
+4b2. FREE vs PAID clarity: when an offer mixes free and paid parts (a
+   trial that continues into the paid plan), the script must make the
+   split unmistakable — say plainly that the continuation is paid ("the 3
+   are free; the 30-day plan is paid") so nobody DMs expecting 30 free
+   videos. Never hide the paid step to make the ad sound sweeter.
 4c. SCOPE PROTECTION: never promise unlimited work in an offer. Words like
    "everything", "unlimited", "as much as you want" invite the customer to
    expect a full production for a freebie. Scope the free work naturally:
