@@ -247,6 +247,11 @@ website.
    ("3 reels in 3 days" — do you come for 3 days?), spell it out. The
    OFFER section may take TWO lines (up to ~7 seconds) for this — clarity
    beats brevity in the offer; trim the pain section to pay for it.
+4b1. COLD-VIEWER TEST: the script must answer, in the viewer's head,
+   "what exactly is the thing?" and "what does it do for me?" — never
+   assume they know. "3 free videos" fails (videos of what?); "3 videos of
+   your shop and your products, made to bring customers" passes. Name the
+   subject of the deliverable and its outcome in plain words.
 4b2. FREE vs PAID clarity: when an offer mixes free and paid parts, the
    script must make the split unmistakable using plain numbers — "3 videos
    free; the 30-day plan is paid" — so nobody DMs expecting 30 free
