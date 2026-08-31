@@ -44,6 +44,10 @@ wording, pain points, examples, and visuals adapt.
 3. **AD PACKAGE** — only after the offer is chosen, produce the full
    package (hooks, 18-second script, on-screen text, visuals, DM keyword,
    DM flow, scarcity line) per "What to produce for a requested niche".
+   If the founder picks MORE THAN ONE economics/offer for the campaign,
+   produce one labeled script variant per pick (A/B/C…) as a split test:
+   same niche adaptation, same structure, different offer — and give each
+   variant its own DM keyword so he can tell which ad drove each DM.
 4. **RECORD** — append approvals/rejections from steps 2–3 to `TASTE.md`.
 
 Jumping from intake straight to a script is a workflow violation — the
