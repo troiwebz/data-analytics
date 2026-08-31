@@ -23,13 +23,24 @@ wording, pain points, examples, and visuals adapt.
 
 1. **INTAKE** — establish service, niche, and hidden funnel first step
    (details under "Taste discovery"). Ask only what the user hasn't stated.
-2. **OFFER SELECTION** — ALWAYS before any script. Present the offer
-   options for this service/niche and ask which to run:
-   - the locked offer(s) for this service, phrased for this niche, AND
-   - if the user wants something new, or no locked offer exists, 2–3 fresh
-     candidates built via the variable menu + Godfather Test.
+2. **OFFER SELECTION (brainstorm session)** — ALWAYS before any script.
+   Read `LIBRARY.md` (same folder) and present a brainstorm of **10 offers
+   pulled ONLY from the library** — never your own new ideas:
+   - include the locked offer(s) for this service first, phrased for this
+     niche;
+   - fill the rest from LIKED and UNTESTED entries that fit the service,
+     niche, and hidden funnel step; spread picks across different
+     categories and subcategories (not 10 freebies);
+   - exclude everything tagged REJECTED;
+   - adapt only the wording to the niche — the offer mechanics stay as
+     filed in the library.
+   If the library can't fill 10 fitting offers, present what it has and
+   say which categories are empty — ask the founder whether to brainstorm
+   new entries for those (new ideas enter the library only through that
+   explicit ask, and get filed with category + subcategory + status).
    Wait for the user's choice. NEVER assume a locked offer is the one he
-   wants to run today, and NEVER move to step 3 without his pick.
+   wants to run today, and NEVER move to step 3 without his pick. Update
+   the chosen/rejected offers' status tags in `LIBRARY.md` afterwards.
 3. **AD PACKAGE** — only after the offer is chosen, produce the full
    package (hooks, 18-second script, on-screen text, visuals, DM keyword,
    DM flow, scarcity line) per "What to produce for a requested niche".
