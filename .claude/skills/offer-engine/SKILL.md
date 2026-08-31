@@ -3,8 +3,7 @@ name: offer-engine
 description: >
   Generate ready-to-shoot ad packages for Venus Venture's locked offers,
   adapted to any niche. Two service lines: GOOGLE MAPS (Free First Fix +
-  500 Baht Setup) and REELS (Free First Shoot + risk-free 30 Reels in 30
-  Days). Trigger whenever the user names a niche or business type and wants
+  500 Baht Setup) and REELS (3-Day Trial + risk-free 30 Reels in 30 Days). Trigger whenever the user names a niche or business type and wants
   the offer, ad, script, reel, or campaign for it — e.g. "run the offer for
   salons", "offer-engine: hotels, reels", "make this for tailor shops",
   "adapt the 500 baht offer for gyms", "script for restaurants in Phuket".
@@ -43,6 +42,13 @@ wording, pain points, examples, and visuals adapt.
 The founder's taste is specific — never assume it. Before drafting offers
 for a niche or service that has no locked pair yet:
 
+0. **Ask the hidden-funnel question FIRST**: "What is the target first step
+   of the funnel for this offer — an in-person appointment, a DM
+   conversation, a phone call, something else?" The freebie is the bait; the
+   hidden first step is the real product of the offer. Every candidate offer
+   MUST force that step or it fails, no matter how attractive it sounds.
+   (Current default for Venus Venture: an IN-PERSON APPOINTMENT at the
+   client's shop — the shoot/visit is the sales meeting.)
 1. Read `TASTE.md` (same folder) for what he has already liked/rejected.
 2. Present a short menu: for the 4–6 variables most relevant to this niche,
    show ONE concrete mini-offer example each (one line, in his simple
@@ -73,10 +79,12 @@ Any offer this engine outputs or designs — locked or new — must pass:
 1. **Zero hesitation** — the customer risks nothing and the value is big and
    concrete. "Free demo from your photos" fails (feels cheap). "We come, we
    shoot, we edit, free, and you keep it" passes.
-2. **Funnel pull** — the offer naturally leads to the next paid step. Every
-   front-door offer must create the moment where the bigger package is
-   pitched (in person at the shoot, in the DM after delivery). A one-off
-   sale with no next step fails.
+2. **Funnel pull** — the offer forces the hidden funnel first step (default:
+   an in-person appointment at their shop) and naturally leads to the next
+   paid step. The moment where the bigger package is pitched must be built
+   in (face to face at the shoot/visit, or in the DM after delivery). A
+   one-off sale with no next step fails; so does a remote freebie that
+   never gets us in front of the owner.
 3. **Capped cost** — we can NOT give everything free. Free work is limited
    to ONE small deliverable per lead, protected by: a spots limit ("only 5
    businesses this month"), qualification ("DM to see if you qualify" — we
@@ -105,13 +113,19 @@ Meta ads.
 
 ## Service line 2 — REELS (30 Reels in 30 Days)
 
-**Offer A — Free First Shoot (the godfather magnet)**
-"We come to your shop. We shoot. We edit. Your first video — completely
-FREE. And you keep it, even if you never hire us."
-- Cost cap: max 5 spots/month, qualify leads in DM (established businesses
-  that can afford monthly — hotels, restaurants, salons; not street stalls).
-- Funnel moment: the shoot IS the sales meeting. Pitch the 30-day plan face
-  to face when delivering the reel.
+**Offer A — 3-Day Trial (the godfather magnet)**
+"We come to your shop. We shoot once. You get 3 reels in 3 days, posted.
+FREE. Love them? The other 27 continue paid."
+- Hidden funnel step: the shoot appointment IS the sales meeting — we are
+  in their shop, face to face. Pitch the 30-day plan there and on day 4.
+- Cost cap: ONE visit + 3 reels max, 5 spots/month, qualify leads in DM
+  (established businesses that can afford monthly — hotels, restaurants,
+  salons; not street stalls).
+- The trial is literally days 1–3 of the real package, so continuing feels
+  like keeping something they already have, not a new purchase.
+- NEVER spend our own ad money on trials. If a boost demo helps close,
+  it runs on the client's small budget (฿100–200), positioned as part of
+  their plan — or show live results from existing clients instead.
 
 **Offer B — Risk-Free 30 Days (the package itself, de-risked)**
 "Start the 30 reels in 30 days plan. If you don't love the first 3 reels,
