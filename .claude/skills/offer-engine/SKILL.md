@@ -234,6 +234,10 @@ website.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
+3b. Hooks are DIRECT, not conversational. No chatty tags or games with the
+   viewer ("...right?", "guess who wins?", "let me tell you something").
+   A plain statement or one plain question: "Your shop has no videos?
+   That's why sales are slow." — that register.
 4. The offer must sound big and concrete: "We come. We shoot. We edit. You
    pay nothing." / "Full setup. 48 hours. Only 500 baht."
 4b. ZERO CONFUSION rule: the offer's mechanics must be impossible to
