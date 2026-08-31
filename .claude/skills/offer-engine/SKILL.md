@@ -41,6 +41,25 @@ wording, pain points, examples, and visuals adapt.
    Wait for the user's choice. NEVER assume a locked offer is the one he
    wants to run today, and NEVER move to step 3 without his pick. Update
    the chosen/rejected offers' status tags in `LIBRARY.md` afterwards.
+2b. **SEMANTIC OPTIMIZATION** — after the offer is chosen, before any
+   script. Meta's delivery system reads the ad's words to decide who sees
+   it (creative IS targeting), so:
+   a. Map the realistic Meta audience SEGMENTS for this niche/area — who
+      would actually buy (e.g. Indian-origin restaurant owners in Bangkok;
+      Thai SME owners; expat cafe owners; tourist-facing shops).
+   b. For each segment, list its SEMANTIC WORDS — the exact words that
+      segment uses for their business, customers, and pain ("shop",
+      "tables empty", "walk-ins", "bookings", "orders"), plus the language
+      register (English / Thai / Hinglish touches).
+   c. PRESENT the segments + word suggestions to the founder and ASK which
+      segment(s) to target — this is a required question stage, like offer
+      selection. He may add his own words; record chosen segments/words in
+      TASTE.md if reusable.
+   d. Only then write the ad, weaving the chosen segment's semantic words
+      into the hook (the hook must NAME the segment or its pain in its own
+      words), pain line, on-screen text, and DM flow. One segment per ad —
+      if he picks several segments, that's one ad variant per segment,
+      each with its own DM keyword.
 3. **AD PACKAGE** — only after the offer is chosen, produce the full
    package (hooks, 18-second script, on-screen text, visuals, DM keyword,
    DM flow, scarcity line) per "What to produce for a requested niche".
