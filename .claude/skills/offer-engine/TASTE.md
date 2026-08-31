@@ -16,6 +16,11 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
 - 2026-08-31 — "Boost with our own ad money" (result taste) — good concept, but never our own ad spend; use client's small budget or show existing clients' live results
 - 2026-08-31 — "Re-Fix" (re-edit their phone video free) — doubtful: remote freebie, doesn't create the in-person appointment
 
+## Semantic segments (chosen 2026-08-31, reels campaign)
+- TARGET: Thai SME owners (Thai language required: ร้าน/ลูกค้า/ยอดขาย/ไวรัล) and
+  Expat English-speaking owners (venue/footfall/bookings/regulars/socials).
+- NOT chosen this round: Indian-community segment, tourist-facing segment.
+
 ## Rules learned
 - Ask offer economics before brainstorming: free entry vs cheap paid
   entry vs full price + guarantee. Never default the brainstorm to free
