@@ -1,40 +1,80 @@
 ---
 name: offer-engine
 description: >
-  Generate ready-to-shoot ad packages for Venus Venture's two locked offers —
-  the "Free First Fix" (free fix of the one biggest problem on a business's
-  Google/online presence) and the "500 Baht Setup" (complete Google Maps
-  listing setup or fix for ฿500, done in 48 hours) — adapted to any niche.
-  Trigger whenever the user names a niche or business type and wants the
-  offer, ad, script, reel, or campaign for it — e.g. "run the offer for
-  salons", "offer-engine: hotels", "make this for tailor shops", "adapt the
-  500 baht offer for gyms", "give me the script for restaurants in Phuket".
-  Output is always the full package: hook options, an 18-second voiceover
-  script, on-screen text, DM keyword, DM reply flow, and the upsell ladder.
+  Generate ready-to-shoot ad packages for Venus Venture's locked offers,
+  adapted to any niche. Two service lines: GOOGLE MAPS (Free First Fix +
+  500 Baht Setup) and REELS (Free First Shoot + risk-free 30 Reels in 30
+  Days). Trigger whenever the user names a niche or business type and wants
+  the offer, ad, script, reel, or campaign for it — e.g. "run the offer for
+  salons", "offer-engine: hotels, reels", "make this for tailor shops",
+  "adapt the 500 baht offer for gyms", "script for restaurants in Phuket".
+  Also trigger when the user wants a NEW offer designed for a service — the
+  engine drafts and refines it until it passes the Godfather Test. Output is
+  always the full package: hooks, an 18-second voiceover script, on-screen
+  text, DM keyword, DM reply flow, and the upsell ladder.
 ---
 
 # Offer Engine — Venus Venture
 
 You generate complete, ready-to-shoot ad packages for ONE business niche at a
-time, using the two locked offers below. The offers never change. Only the
-niche wording, examples, pain points, and visuals adapt.
+time, using the locked offers below. The offers never change. Only the niche
+wording, pain points, examples, and visuals adapt.
 
-## The two locked offers (never invent new ones)
+## The Godfather Test (every offer must pass ALL three)
+
+Any offer this engine outputs or designs — locked or new — must pass:
+
+1. **Zero hesitation** — the customer risks nothing and the value is big and
+   concrete. "Free demo from your photos" fails (feels cheap). "We come, we
+   shoot, we edit, free, and you keep it" passes.
+2. **Funnel pull** — the offer naturally leads to the next paid step. Every
+   front-door offer must create the moment where the bigger package is
+   pitched (in person at the shoot, in the DM after delivery). A one-off
+   sale with no next step fails.
+3. **Capped cost** — we can NOT give everything free. Free work is limited
+   to ONE small deliverable per lead, protected by: a spots limit ("only 5
+   businesses this month"), qualification ("DM to see if you qualify" — we
+   pick businesses that can afford the monthly package), and money-back
+   guarantees INSTEAD of free trials (a refund promise feels the same to the
+   buyer but costs us almost nothing).
+
+When the user asks for a new offer for a service, draft it, check it against
+these three, state which checks it passes or fails, and refine until it
+passes all three before presenting it as final.
+
+## Service line 1 — GOOGLE MAPS
 
 **Offer A — Free First Fix (the DM magnet)**
 "DM us your shop name. We find the ONE biggest problem on your Google listing
-and fix it FREE." Zero risk, zero cost, takes the business owner 10 seconds.
-Purpose: fill the DM inbox.
+and fix it FREE." Zero risk, takes the owner 10 seconds, costs us minutes.
 
 **Offer B — 500 Baht Setup (the easy yes)**
 "We create or fix your Google Maps listing completely — photos, hours, menu/
 services, description, keywords. Done in 48 hours. Only ฿500."
-Purpose: convert DMs into paying clients fast.
 
-**The ladder behind them (mention in DM flow, never in the ad):**
-Free First Fix → ฿500 Setup → ฿500/month maintenance (weekly posts, review
-replies) → full ranking retainer / "Top 3 in 90 days or free" guarantee for
-qualified keywords → cross-sell 30 reels in 30 days + Meta ads.
+**Ladder:** Free First Fix → ฿500 Setup → ฿500/month maintenance (weekly
+posts, review replies) → full ranking retainer / "Top 3 in 90 days or free"
+guarantee (ONLY for keywords we verified are winnable) → cross-sell reels +
+Meta ads.
+
+## Service line 2 — REELS (30 Reels in 30 Days)
+
+**Offer A — Free First Shoot (the godfather magnet)**
+"We come to your shop. We shoot. We edit. Your first video — completely
+FREE. And you keep it, even if you never hire us."
+- Cost cap: max 5 spots/month, qualify leads in DM (established businesses
+  that can afford monthly — hotels, restaurants, salons; not street stalls).
+- Funnel moment: the shoot IS the sales meeting. Pitch the 30-day plan face
+  to face when delivering the reel.
+
+**Offer B — Risk-Free 30 Days (the package itself, de-risked)**
+"Start the 30 reels in 30 days plan. If you don't love the first 3 reels,
+cancel — full refund." Paid upfront; refund capped at 3 reels of work. Never
+offer free weeks or free trials — refund guarantee only.
+
+**Ladder:** Free First Shoot → 30 Reels in 30 Days (3-reel refund guarantee)
+→ boost best reels with Meta/TikTok ads → cross-sell ฿500 Google setup +
+website.
 
 ## Style rules (locked — learned from the founder)
 
@@ -44,37 +84,41 @@ qualified keywords → cross-sell 30 reels in 30 days + Meta ads.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
-4. The offer must sound big and concrete: "We come. We fix. You pay nothing."
-   / "Full setup. 48 hours. Only 500 baht."
-5. Always include a scarcity line: "Only 10 shops this month" (adjust number).
+4. The offer must sound big and concrete: "We come. We shoot. We edit. You
+   pay nothing." / "Full setup. 48 hours. Only 500 baht."
+5. Always include the scarcity line ("Only 5 businesses this month") — it is
+   both urgency AND our cost cap. Never drop it.
 6. CTA is always a single DM keyword in caps, niche-specific (e.g. DM "FIX",
-   DM "SETUP", DM "SALON").
-7. Every script ships with matching ON-SCREEN TEXT per section (viewers watch
-   muted): hook text, offer text (price big: ฿500), end frame with DM keyword.
+   DM "REEL", DM "SALON"). For free-shoot offers, phrase as "DM to see if
+   you qualify" — qualification protects our time and raises desire.
+7. Every script ships with matching ON-SCREEN TEXT per section (viewers
+   watch muted): hook text, offer text (price/FREE big), end frame with DM
+   keyword.
 8. Brand: say "Venus Venture" once, at the offer line — never in the hook.
 9. If live proof footage is referenced, attribute it: "from one of our
    [niche] clients" and remind: blur client names unless permission given.
 
 ## What to produce for a requested niche
 
-Given a niche (and optionally a location, language, or audience), output ALL
-of the following in one response:
+Given a niche (and optionally a service line, location, language, or
+audience), output ALL of the following in one response. Default service
+line: Google Maps; use Reels when the user says reels/videos/content.
 
-1. **Niche pain line** — the one sentence of what this niche loses when not
-   found on Google (be concrete: walk-ins, bookings, orders, calls).
+1. **Niche pain line** — what this niche loses when invisible (walk-ins,
+   bookings, orders, calls — be concrete).
 2. **3 hook options** — one question hook, one competitor/enemy hook, one
    loss hook. All in simple words.
-3. **Full 18-second voiceover script** using the best hook, for Offer A or
-   Offer B (default: lead the ad with Offer A free fix, present Offer B in
-   the DM; if the user says "500 baht ad", lead with Offer B).
+3. **Full 18-second voiceover script** using the best hook, leading with
+   Offer A (lead with Offer B only if the user asks).
 4. **On-screen text plan** — per section, short, caps for key numbers.
 5. **Visual suggestions** — 2–3 shot ideas instantly recognizable as this
-   niche (e.g. salon: mirror + chair; gym: weights rack; restaurant: dish
+   niche (salon: mirror + chair; gym: weights rack; restaurant: dish
    close-up).
 6. **DM keyword** for this niche.
-7. **DM reply flow** — first auto-reply message, the Offer B pitch message,
-   and the one-line upsell to monthly maintenance. Simple English, short.
-8. **Scarcity line** tuned to the niche ("Only 10 restaurants this month").
+7. **DM reply flow** — auto-reply, qualification question (for free-shoot
+   offers), the Offer B pitch message, and the one-line upsell to the next
+   ladder step. Simple English, short sentences.
+8. **Scarcity line** tuned to the niche ("Only 5 restaurants this month").
 9. If a location is given, localize: name the area in the hook or scarcity
    line ("salons in Sukhumvit"), and add tourist-language angle (English/
    Chinese keywords) when the niche serves tourists.
@@ -83,9 +127,10 @@ of the following in one response:
 
 - If the user asks for a language variant, provide the script in that
   language plus an English back-translation.
-- If the user asks for "all niches" or several at once, do each niche as its
-  own complete package — never merge niches into one generic ad.
+- If the user asks for several niches, do each as its own complete package —
+  never merge niches into one generic ad.
 - If the user asks to change price, keyword, or scarcity number, change only
   that; everything else stays locked.
-- Never add new offers, discounts, or guarantees unless the user explicitly
-  says to.
+- Never add new offers, discounts, free trials, or guarantees on your own.
+  When the user requests a new offer, design it via the Godfather Test loop
+  above and present it for approval before treating it as locked.
