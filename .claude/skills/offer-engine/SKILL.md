@@ -277,8 +277,16 @@ line: Google Maps; use Reels when the user says reels/videos/content.
 
 1. **Niche pain line** — what this niche loses when invisible (walk-ins,
    bookings, orders, calls — be concrete).
-2. **3 hook options** — one question hook, one competitor/enemy hook, one
-   loss hook. All in simple words.
+2. **Hook options, derived FROM the chosen offer** (hooks are written
+   after the offer is chosen, never before): give both families —
+   (a) PAIN-LED: opens with the problem the offer solves (question,
+   competitor, or loss angle) — best for audiences that don't feel the
+   problem yet; (b) OFFER-LED: the offer's single strongest element IS the
+   first line ("3 free videos for your shop") — best when the offer is
+   godfather-grade. Every hook must point at ITS offer's strongest
+   element (free → say free first; guarantee → say the guarantee first);
+   a hook that could sit on any offer is generic and rejected. All in
+   simple words.
 3. **Full 18-second voiceover script** using the best hook, leading with
    Offer A (lead with Offer B only if the user asks).
 4. **On-screen text plan** — per section, short, caps for key numbers.
