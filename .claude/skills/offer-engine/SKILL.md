@@ -215,6 +215,13 @@ website.
    CTA (15–19s).
 4. The offer must sound big and concrete: "We come. We shoot. We edit. You
    pay nothing." / "Full setup. 48 hours. Only 500 baht."
+4b. ZERO CONFUSION rule: the offer's mechanics must be impossible to
+   misread. State exactly how many visits, what happens when, and what
+   they receive ("We visit ONE time. We shoot everything. Then one video
+   goes up each day for 3 days."). If a short phrase can be read two ways
+   ("3 reels in 3 days" — do you come for 3 days?), spell it out. The
+   OFFER section may take TWO lines (up to ~7 seconds) for this — clarity
+   beats brevity in the offer; trim the pain section to pay for it.
 5. Always include the scarcity line ("Only 5 businesses this month") — it is
    both urgency AND our cost cap. Never drop it.
 6. CTA is always a single DM keyword in caps, niche-specific (e.g. DM "FIX",
