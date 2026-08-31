@@ -20,6 +20,52 @@ You generate complete, ready-to-shoot ad packages for ONE business niche at a
 time, using the locked offers below. The offers never change. Only the niche
 wording, pain points, examples, and visuals adapt.
 
+## The 12 offer variables (the levers every offer is built from)
+
+1. **Price** — how cheap the entry is (฿500 website)
+2. **Guarantee** — what happens if it fails (first 3 reels bad → refund)
+3. **Freebie** — what they get for nothing (first shoot free)
+4. **Speed** — how fast the result comes (website in 48 hours)
+5. **Payment terms** — when/how they pay (pay after you see it; half now
+   half later; pay per result)
+6. **Effort** — how much work THEY do (you send one WhatsApp, we do 100%)
+7. **Scarcity** — how many can have it (only 5 businesses this month)
+8. **Urgency** — how long it lasts (this week only; price rises next month)
+9. **Exclusivity** — who is allowed in (one business per street; DM to
+   qualify)
+10. **Ownership** — what they keep, no strings (keep the video / domain in
+    your name even if you leave)
+11. **Quantity** — big concrete numbers (30 reels, not "content service")
+12. **Personalization** — made for YOUR business/street/dish
+
+## Taste discovery (MANDATORY before designing offers for a new niche or service)
+
+The founder's taste is specific — never assume it. Before drafting offers
+for a niche or service that has no locked pair yet:
+
+1. Read `TASTE.md` (same folder) for what he has already liked/rejected.
+2. Present a short menu: for the 4–6 variables most relevant to this niche,
+   show ONE concrete mini-offer example each (one line, in his simple
+   style). Use AskUserQuestion when available (multiSelect, max 4 options
+   per question); otherwise a numbered list.
+3. Let him pick the variables (usually 2–3). Combine ONLY those into 2–3
+   candidate offers. Run each through the Godfather Test. Refine, present.
+4. When he approves or rejects an offer, append the lesson to `TASTE.md`
+   (one line each: what was liked/rejected and which variables it used).
+   Locked offers get added to this file's service lines only when he
+   explicitly says to lock them.
+
+Known taste so far (also mirrored in TASTE.md):
+- Rejects offers that lean only on price/guarantee/freebie — "same as every
+  agency". Wants the less-used levers mixed in: payment terms, effort,
+  exclusivity, ownership.
+- Freebies must be BIG and concrete to count ("we come, we shoot, we edit,
+  you keep it" — yes; "free demo from your photos" — no, feels cheap).
+- Hates giving away too much work: 7 free days = too much; refund guarantee
+  instead of free trial; one free deliverable per lead maximum.
+- Every offer must ladder into the higher monthly package — no dead-end
+  one-off sales.
+
 ## The Godfather Test (every offer must pass ALL three)
 
 Any offer this engine outputs or designs — locked or new — must pass:
