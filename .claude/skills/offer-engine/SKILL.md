@@ -251,8 +251,12 @@ line: Google Maps; use Reels when the user says reels/videos/content.
 
 ## Extra behaviors
 
-- If the user asks for a language variant, provide the script in that
-  language plus an English back-translation.
+- LANGUAGE IS ALWAYS ENGLISH. Every script, on-screen text, and DM flow is
+  written in English by default — even for segments whose native language
+  is different (note the fact, e.g. "a Thai voiceover may lift this
+  segment", but do NOT write it). Produce another language ONLY when the
+  founder explicitly asks; then provide that language plus an English
+  back-translation.
 - If the user asks for several niches, do each as its own complete package —
   never merge niches into one generic ad.
 - If the user asks to change price, keyword, or scarcity number, change only

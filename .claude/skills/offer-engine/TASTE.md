@@ -22,6 +22,9 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
 - NOT chosen this round: Indian-community segment, tourist-facing segment.
 
 ## Rules learned
+- ENGLISH ONLY by default — never switch or add languages (Thai, Hindi,
+  etc.) until the founder explicitly asks. Suggesting it as a note is
+  fine; writing it is not.
 - Ask offer economics before brainstorming: free entry vs cheap paid
   entry vs full price + guarantee. Never default the brainstorm to free
   offers — the founder decides the economics per campaign.
