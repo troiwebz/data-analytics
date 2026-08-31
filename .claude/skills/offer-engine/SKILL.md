@@ -70,7 +70,11 @@ wording, pain points, examples, and visuals adapt.
    produce one labeled script variant per pick (A/B/C…) as a split test:
    same niche adaptation, same structure, different offer — and give each
    variant its own DM keyword so he can tell which ad drove each DM.
-3b. **META COMPLIANCE CHECK** — before presenting any script, verify:
+3b. **META COMPLIANCE CHECK** — MANDATORY, every time, on EVERY ad-facing
+   output: new scripts, revised lines, captions, on-screen text, and DM
+   flows — including small edits (a one-line change re-runs the check).
+   State the check's result ("Meta check: pass" or what was fixed) when
+   presenting. Verify:
    - No engagement bait in paid ads ("like/share/comment below"); the CTA
      is a DM keyword, delivered as a click-to-message ad, not a boosted
      post begging for comments.
