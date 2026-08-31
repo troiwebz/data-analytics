@@ -22,6 +22,9 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
 - NOT chosen this round: Indian-community segment, tourist-facing segment.
 
 ## Rules learned
+- Semantic words must be the owner's own everyday words, not marketing
+  jargon: "socials", "venue", "footfall" rejected — use "your page",
+  "your shop", "customers walking in", "videos".
 - ENGLISH ONLY by default — never switch or add languages (Thai, Hindi,
   etc.) until the founder explicitly asks. Suggesting it as a note is
   fine; writing it is not.

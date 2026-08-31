@@ -49,8 +49,11 @@ wording, pain points, examples, and visuals adapt.
       Thai SME owners; expat cafe owners; tourist-facing shops).
    b. For each segment, list its SEMANTIC WORDS — the exact words that
       segment uses for their business, customers, and pain ("shop",
-      "tables empty", "walk-ins", "bookings", "orders"), plus the language
-      register (English / Thai / Hinglish touches).
+      "tables empty", "walk-ins", "bookings", "orders"). Semantic words
+      must ALSO pass the simple-words rule: everyday words the owner
+      himself says — never marketer/industry jargon ("socials", "venue",
+      "footfall", "content strategy" are banned; say "your page", "your
+      shop", "customers walking in", "videos").
    c. PRESENT the segments + word suggestions to the founder and ASK which
       segment(s) to target — this is a required question stage, like offer
       selection. He may add his own words; record chosen segments/words in
