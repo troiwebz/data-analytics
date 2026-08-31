@@ -70,6 +70,18 @@ wording, pain points, examples, and visuals adapt.
    produce one labeled script variant per pick (A/B/C…) as a split test:
    same niche adaptation, same structure, different offer — and give each
    variant its own DM keyword so he can tell which ad drove each DM.
+3b. **META COMPLIANCE CHECK** — before presenting any script, verify:
+   - No engagement bait in paid ads ("like/share/comment below"); the CTA
+     is a DM keyword, delivered as a click-to-message ad, not a boosted
+     post begging for comments.
+   - No implied personal attributes ("are YOU broke/sick/lonely") —
+     addressing their BUSINESS is fine.
+   - No unrealistic income/result promises; concrete service promises
+     (free, refund, 30 videos) are fine.
+   - Primary text (the Ads Manager caption) written in normal case, light
+     emoji; ALL-CAPS belongs only in on-screen text inside the video.
+   - Note the ad objective the script assumes (messages objective for DM
+     keywords) so the founder sets the campaign up right.
 4. **RECORD** — append approvals/rejections from steps 2–3 to `TASTE.md`.
 
 Jumping from intake straight to a script is a workflow violation — the
