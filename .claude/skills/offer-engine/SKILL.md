@@ -40,9 +40,17 @@ wording, pain points, examples, and visuals adapt.
 ## Taste discovery (MANDATORY before designing offers for a new niche or service)
 
 The founder's taste is specific — never assume it. Before drafting offers
-for a niche or service that has no locked pair yet:
+for a niche or service that has no locked pair yet, run this intake in
+order (ask only what the user has not already stated; use AskUserQuestion
+when available):
 
-0. **Ask the hidden-funnel question FIRST**: "What is the target first step
+0a. **Ask what the SERVICE is** — which product are we designing the offer
+    for? (An existing line — Maps, Reels — or a new one: websites, ads
+    management, etc. If it's a new service, also ask what the full/monthly
+    package behind it is, since every offer must ladder into it.)
+0b. **Ask what the NICHE is** — which business type and area is this offer
+    aimed at? (restaurants, hotels, salons, gyms; Sukhumvit, Phuket…)
+0c. **Ask the hidden-funnel question**: "What is the target first step
    of the funnel for this offer — an in-person appointment, a DM
    conversation, a phone call, something else?" The freebie is the bait; the
    hidden first step is the real product of the offer. Every candidate offer
