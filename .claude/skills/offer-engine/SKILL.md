@@ -289,8 +289,12 @@ line: Google Maps; use Reels when the user says reels/videos/content.
    problem yet; (b) OFFER-LED: the offer's single strongest element IS the
    first line ("3 free videos for your shop") — best when the offer is
    godfather-grade. Every hook must point at ITS offer's strongest
-   element within its FIRST WORDS, not buried mid-sentence (free → "FREE"
-   is the first word the viewer hears; guarantee → the guarantee opens);
+   element EARLY — inside the first 3 seconds — but never as a naked
+   first word with no context ("FREE!" alone reads as spam and answers
+   nothing). Hook order for offer-led: WHO it's for → WHAT it is → the
+   irresistible element ("Business in Thailand? 3 videos of your shop —
+   free — to bring you customers."). The element lands on something the
+   viewer already understands;
    a hook that could sit on any offer is generic and rejected. All in
    simple words.
 3. **Full 18-second voiceover script** using the best hook, leading with
