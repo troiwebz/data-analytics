@@ -247,6 +247,13 @@ website.
    ("3 reels in 3 days" — do you come for 3 days?), spell it out. The
    OFFER section may take TWO lines (up to ~7 seconds) for this — clarity
    beats brevity in the offer; trim the pain section to pay for it.
+4a2. SWAPPABLE OFFER BLOCK: build every ad so the OFFER lives in exactly
+   one block — one voiceover segment plus one on-screen text card. Hook
+   visuals, proof footage and end frame must stay OFFER-NEUTRAL (shop,
+   phone, website scrolling, the founder on camera) so the same edit is
+   reused for every new offer: only the voiceover and the text cards
+   change, never the footage. Never specify a visual that names one
+   offer's mechanics (e.g. filming "3 FREE" on a board).
 4b1. COLD-VIEWER TEST: the script must answer, in the viewer's head,
    "what exactly is the thing?" and "what does it do for me?" — never
    assume they know. "3 free videos" fails (videos of what?); "3 videos of
