@@ -1,10 +1,28 @@
 # Guest Outreach Sender — setup
 
-About 15 minutes. Do it once per Google Workspace account you send from.
+About 15 minutes. Do it once per sending account.
 
 ---
 
-## 1. Turn on email authentication (do this first)
+## Using a free @gmail.com account?
+
+**Skip Step 1 entirely.** Google already publishes SPF, DKIM and DMARC for
+`gmail.com`, so there is no DNS to configure. Jump to Step 2.
+
+What to do instead, because on a free address your identity is all you have:
+
+- Set a real profile photo and full name on the account. Editors check.
+- Put a real site in your signature so there is something behind the name.
+- Keep `DAILY_MAX` at 20. Apps Script allows ~100 recipients/day on consumer
+  Gmail, but that ceiling is not the constraint — reputation is. Free accounts
+  get suspended for bulk sending far faster than Workspace ones.
+- Spread volume across accounts rather than raising the cap on one.
+
+The `CONFIG` block in `Code.gs` already ships with these numbers.
+
+---
+
+## 1. Turn on email authentication — *Google Workspace domains only*
 
 In the Google Admin console for the sending domain:
 
@@ -88,8 +106,14 @@ address in column A.
 
 ## Doing this across several accounts
 
-Repeat the whole thing per Workspace account: separate domain, separate sheet,
-separate script. Keeping them independent is the point — if one domain's reputation
-goes bad, it doesn't take the others down with it.
+Repeat the whole thing per account: separate sheet, separate script, separate
+login. Keeping them independent is the point — if one account's reputation goes
+bad, it doesn't take the others down with it.
 
-5 accounts × 40/day ≈ 4,000 emails a month.
+| Setup | Per day | Per month |
+|---|---|---|
+| 3 free Gmail accounts @ 20/day | 60 | ~1,200 |
+| 5 free Gmail accounts @ 20/day | 100 | ~2,000 |
+| 5 Workspace mailboxes @ 40/day | 200 | ~4,000 |
+
+Never raise a single account's cap to hit a number. Add accounts instead.

@@ -14,10 +14,14 @@ var CONFIG = {
 
   DRY_RUN:           true,   // true = creates drafts only, sends nothing. Flip to false when ready.
 
-  PER_RUN:           3,      // emails per trigger run
-  WARMUP_START:      10,     // day 1 daily limit
-  WARMUP_STEP:       5,      // added per day
-  DAILY_MAX:         40,     // hard ceiling, never raise this
+  // ── Volume ────────────────────────────────────────────────────────────────
+  // Profile below is tuned for a FREE @gmail.com account. Apps Script allows
+  // ~100 recipients/day on consumer Gmail, but reputation caps you far lower.
+  // On Google Workspace with DKIM set up you can use: 10 / 5 / 40.
+  PER_RUN:           2,      // emails per trigger run
+  WARMUP_START:      5,      // day 1 daily limit
+  WARMUP_STEP:       3,      // added per day
+  DAILY_MAX:         20,     // hard ceiling for free Gmail, never raise this
 
   SEND_HOUR_START:   9,      // only send between these hours (script timezone)
   SEND_HOUR_END:     17,
@@ -26,8 +30,10 @@ var CONFIG = {
   JITTER_MIN_SEC:    5,      // random pause between sends within one run
   JITTER_MAX_SEC:    25,
 
-  FROM_NAME:         'Your Name',
-  SIGNATURE:         'Your Name\nyoursite.com\n123 Your Street, Your City, Country',
+  // On a free Gmail address your name and signature ARE your credibility.
+  // Use a real full name and link the site that proves you're a real person.
+  FROM_NAME:         'Jen',
+  SIGNATURE:         'Jen\nlishawn.com\n123 Your Street, Your City, Country',
 
   SUBJECT:  'Quick idea for {{site}}',
   BODY:
