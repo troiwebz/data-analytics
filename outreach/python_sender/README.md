@@ -36,6 +36,24 @@ CHROME_CHANNEL = "chrome"
 
 ---
 
+## Two ways to drive it
+
+**A web page on your Mac** — easier, and what most people want:
+
+```bash
+python3 web.py
+```
+
+Then open **http://localhost:5055**. You get status, the email editor with a
+live preview, your prospect list, buttons for sign-in / dry-run / send, and a
+running activity log. It only listens on 127.0.0.1, so it is not reachable from
+outside your machine.
+
+**Or the terminal**, if you prefer it or want to run from cron. Both read the
+same settings, so changing something in one shows up in the other.
+
+---
+
 ## First run, in order
 
 **1. Sign in** — opens Chrome, you log into the Gmail account, it remembers.
@@ -126,7 +144,7 @@ design. Three accounts ≈ 1,200 emails/month.
 
 ## What's been tested
 
-Verified by `test_core.py` (40 assertions, all passing):
+Verified by `test_core.py` and `test_settings.py` (75 assertions, all passing):
 
 - Warmup ramp: starts at 5, rises by 3, holds at 20 from day 6 onward
 - Daily cap decrements correctly and never goes negative
@@ -138,6 +156,16 @@ Verified by `test_core.py` (40 assertions, all passing):
 - Sheet URL → CSV export URL, with and without a `gid`, and rejects non-Sheet URLs
 - Templating fills every placeholder and raises on an unknown column
 - Random gaps stay in range and actually vary
+- Settings: a rejected save leaves the running config completely untouched
+  (it previously did not), errors don't carry over between saves, unknown
+  template placeholders are caught before they can reach a real email,
+  non-numeric input is refused rather than crashing, checkbox values coerce
+  correctly, saved settings survive a reload, and a corrupt override file
+  falls back to defaults
+
+Also exercised by hand against the running web app: every endpoint, each
+validation failure, the CSV rejection paths, and a browser-launch failure
+surfacing in the activity log and releasing the buttons.
 
 Also verified by hand: Chromium launches with a persistent profile, the profile
 directory survives, and a missing browser binary produces a readable error.

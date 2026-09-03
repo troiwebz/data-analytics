@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outreach Control Panel</title>
+<style>
+  :root{
+    --bg:#f7f7f5; --panel:#fff; --ink:#1a1a18; --muted:#6b6b66; --line:#e2e2dd;
+    --accent:#2f6f4f; --accent-ink:#fff; --warn-bg:#fdf6e3; --warn-line:#e8d9a8;
+    --warn-ink:#6b5518; --danger:#a33; --ok:#2f6f4f; --code:#f2f2ef;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#16171a; --panel:#1e2024; --ink:#e8e8e4; --muted:#9a9a93; --line:#31343a;
+      --accent:#4d9b73; --accent-ink:#0d0f10; --warn-bg:#2b2618; --warn-line:#4a4128;
+      --warn-ink:#e0cd94; --danger:#e08080; --ok:#6bbd93; --code:#26282d;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;
+     color:var(--muted);margin:0 0 12px;font-weight:600}
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:7px;
+        padding:8px 13px;min-width:96px}
+  .chip b{display:block;font-size:20px;font-weight:600;letter-spacing:-.02em}
+  .chip span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:18px;margin-bottom:16px}
+
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px;font-weight:500}
+  input[type=text],input[type=number],textarea,select{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;
+    background:var(--bg);color:var(--ink);font:inherit}
+  textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+  .row{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .row input[type=checkbox]{width:auto}
+
+  button{font:inherit;font-weight:500;padding:9px 15px;border-radius:7px;
+         border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--muted)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+  .actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:6px}
+
+  .note{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink);
+        border-radius:7px;padding:10px 13px;margin:10px 0;font-size:13px}
+  .problem{background:var(--warn-bg);border-color:var(--danger);color:var(--danger)}
+  .hint{color:var(--muted);font-size:12px;margin-top:6px}
+
+  pre{background:var(--code);border:1px solid var(--line);border-radius:7px;padding:13px;
+      overflow-x:auto;white-space:pre-wrap;word-break:break-word;margin:0;font-size:12.5px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #logbox{max-height:280px;overflow-y:auto}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;
+     text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
+  .t-next{background:var(--accent);color:var(--accent-ink)}
+  .t-sent{background:var(--code);color:var(--muted)}
+  .t-skipped{background:var(--warn-bg);color:var(--warn-ink)}
+  .t-waiting{background:var(--code);color:var(--muted)}
+  .truncate{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--muted)}
+  .spin{color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Outreach Control Panel</h1>
+    <span class="sub" id="signedin"></span>
+  </header>
+  <div class="sub">Runs on your Mac only. Nothing here is on the internet.</div>
+
+  <div class="chips" id="chips"></div>
+  <div id="warnings"></div>
+
+  <div class="card">
+    <h2>Actions</h2>
+    <div class="actions">
+      <button id="b-setup">Sign in to Gmail</button>
+      <button id="b-dry">Dry run — drafts only</button>
+      <button class="primary" id="b-send">Send for real</button>
+      <span id="jobstate" class="spin" style="align-self:center"></span>
+    </div>
+    <div class="hint">Always dry-run first. It fills Gmail's compose box and saves a
+      draft without sending, so you can read exactly what goes out.</div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2>Your email</h2>
+        <div class="grid2">
+          <div><label>Your name (shows as sender)</label>
+               <input type="text" id="FROM_NAME"></div>
+          <div><label>Google Sheet URL (optional)</label>
+               <input type="text" id="SHEET_URL" placeholder="leave blank to use prospects.csv"></div>
+        </div>
+        <label>Signature</label><textarea id="SIGNATURE" rows="3"></textarea>
+        <label>Subject</label><input type="text" id="SUBJECT">
+        <label>Body</label><textarea id="BODY" rows="13"></textarea>
+        <div class="hint">Placeholders: {first_name} {site} {personal_line} {idea_1}
+          {idea_2} {signature}</div>
+        <div class="actions" style="margin-top:14px">
+          <button class="primary" id="b-save">Save</button>
+          <button id="b-preview">Refresh preview</button>
+        </div>
+        <div id="saveresult"></div>
+      </div>
+
+      <div class="card">
+        <h2>Limits &amp; timing</h2>
+        <div class="grid2">
+          <div><label>Emails per run</label><input type="number" id="PER_RUN"></div>
+          <div><label>Day-1 limit</label><input type="number" id="WARMUP_START"></div>
+          <div><label>Increase per day</label><input type="number" id="WARMUP_STEP"></div>
+          <div><label>Daily cap</label><input type="number" id="DAILY_MAX"></div>
+          <div><label>Start hour</label><input type="number" id="SEND_HOUR_START"></div>
+          <div><label>End hour</label><input type="number" id="SEND_HOUR_END"></div>
+          <div><label>Min gap (sec)</label><input type="number" id="GAP_MIN_SEC"></div>
+          <div><label>Max gap (sec)</label><input type="number" id="GAP_MAX_SEC"></div>
+        </div>
+        <div class="row">
+          <input type="checkbox" id="SEND_WEEKDAYS_ONLY">
+          <label for="SEND_WEEKDAYS_ONLY" style="margin:0">Weekdays only</label>
+        </div>
+        <label>Browser</label>
+        <select id="CHROME_CHANNEL">
+          <option value="">Bundled Chromium</option>
+          <option value="chrome">Your Google Chrome (recommended)</option>
+          <option value="msedge">Microsoft Edge</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Preview — next email out</h2>
+        <div id="preview"><div class="hint">Loading…</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Activity</h2>
+        <pre id="logbox">Nothing running yet.</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Prospects</h2>
+    <div id="plist"><div class="hint">Loading…</div></div>
+    <label style="margin-top:18px">Paste CSV to replace the list</label>
+    <textarea id="csvbox" rows="5"
+      placeholder="email,first_name,site,personal_line,idea_1,idea_2"></textarea>
+    <div class="actions" style="margin-top:10px">
+      <button id="b-csv">Replace list</button>
+    </div>
+    <div id="csvresult"></div>
+    <div class="hint">Rows without a first name or a personal line are skipped on
+      purpose — an unpersonalized outreach email does more harm than sending nothing.</div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ["FROM_NAME","SIGNATURE","SUBJECT","BODY","SHEET_URL","PER_RUN",
+  "WARMUP_START","WARMUP_STEP","DAILY_MAX","SEND_HOUR_START","SEND_HOUR_END",
+  "GAP_MIN_SEC","GAP_MAX_SEC","CHROME_CHANNEL"];
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(url, opts){ const r = await fetch(url, opts); return r.json(); }
+
+async function loadSettings(){
+  const d = await api("/api/settings");
+  FIELDS.forEach(f => { if ($(f)) $(f).value = d.settings[f]; });
+  $("SEND_WEEKDAYS_ONLY").checked = !!d.settings.SEND_WEEKDAYS_ONLY;
+}
+
+async function saveSettings(){
+  const payload = {SEND_WEEKDAYS_ONLY: $("SEND_WEEKDAYS_ONLY").checked};
+  FIELDS.forEach(f => { if ($(f)) payload[f] = $(f).value; });
+  const d = await api("/api/settings", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  $("saveresult").innerHTML = d.ok
+    ? '<div class="note">Saved.</div>'
+    : '<div class="note problem">' + d.problems.map(esc).join("<br>") + '</div>';
+  if (d.ok) { setTimeout(() => $("saveresult").innerHTML = "", 2500); loadPreview(); }
+}
+
+async function loadPreview(){
+  const d = await api("/api/preview");
+  if (d.empty){
+    $("preview").innerHTML = d.error
+      ? '<div class="note problem">' + esc(d.error) + '</div>'
+      : '<div class="hint">Nothing queued. Add prospects below, '
+        + 'or everyone in the list has already been contacted.</div>';
+    return;
+  }
+  let html = "";
+  if (d.unfilled.length)
+    html += '<div class="note problem">Unfilled placeholders: '
+         + d.unfilled.map(esc).join(", ") + '</div>';
+  html += '<div class="hint" style="margin-bottom:8px"><b>To:</b> ' + esc(d.to)
+       + '<br><b>Subject:</b> ' + esc(d.subject) + '</div>'
+       + '<pre>' + esc(d.body) + '</pre>';
+  $("preview").innerHTML = html;
+}
+
+function renderStatus(d){
+  $("chips").innerHTML = [
+    ["Warmup day", d.warmup_day], ["Allowed today", d.allowance],
+    ["Sent today", d.sent_today], ["Left today", d.remaining],
+    ["Contacted ever", d.contacted_ever], ["Queued now", d.queued],
+  ].map(([k,v]) => '<div class="chip"><b>'+v+'</b><span>'+k+'</span></div>').join("");
+
+  $("signedin").innerHTML = '<span class="dot ' + (d.signed_in?"on":"off") + '"></span>'
+    + (d.signed_in ? "Chrome profile ready" : "not signed in yet")
+    + ' &nbsp;·&nbsp; ' + esc(d.window_reason);
+
+  let w = d.warnings.map(x => '<div class="note">'+esc(x)+'</div>').join("");
+  if (!d.in_window)
+    w += '<div class="note">Outside the send window right now (' + esc(d.window_reason)
+       + '). Dry runs still work; real sends will wait.</div>';
+  $("warnings").innerHTML = w;
+
+  $("plist").innerHTML = d.rows.length ? '<table><tr><th>Email</th><th>Name</th>'
+    + '<th>Site</th><th>Personal line</th><th>Status</th></tr>'
+    + d.rows.map(r => '<tr><td>'+esc(r.email)+'</td><td>'+esc(r.first_name)+'</td><td>'
+      + esc(r.site)+'</td><td class="truncate" title="'+esc(r.personal_line)+'">'
+      + esc(r.personal_line)+'</td><td><span class="tag t-'+r.status+'">'+r.status
+      + '</span>'+(r.reason?'<div class="hint">'+esc(r.reason)+'</div>':'')
+      + '</td></tr>').join("") + '</table>'
+    : '<div class="hint">No prospects yet. Paste a CSV below.</div>';
+
+  const running = d.job.running;
+  ["b-setup","b-dry","b-send"].forEach(b => $(b).disabled = running);
+  $("jobstate").textContent = running ? (d.job.name + "… watch Activity") : "";
+  if (d.job.lines.length){
+    const box = $("logbox"), atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+    box.textContent = d.job.lines.join("\n");
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+}
+
+async function tick(){
+  try { renderStatus(await api("/api/status")); } catch(e){}
+}
+
+$("b-save").onclick = saveSettings;
+$("b-preview").onclick = loadPreview;
+$("b-csv").onclick = async () => {
+  const d = await api("/api/prospects", {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({csv: $("csvbox").value})});
+  $("csvresult").innerHTML = d.ok
+    ? '<div class="note">Loaded ' + d.count + ' prospects.</div>'
+    : '<div class="note problem">' + d.problems.map(esc).join("<br>") + '</div>';
+  if (d.ok){ $("csvbox").value = ""; tick(); loadPreview(); }
+};
+["setup","dry","send"].forEach(k => {
+  const action = {setup:"setup", dry:"dry_run", send:"send"}[k];
+  $("b-"+k).onclick = async () => {
+    if (action === "send" && !confirm("This sends real emails from your Gmail. Continue?")) return;
+    const d = await api("/api/run/"+action, {method:"POST"});
+    if (!d.ok) alert(d.problems.join("\n"));
+    tick();
+  };
+});
+
+loadSettings().then(loadPreview);
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

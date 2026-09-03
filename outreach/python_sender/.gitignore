@@ -1,5 +1,6 @@
 .chrome_profile/
 state.json
+settings.local.json
 screenshots/
 suppression.txt
 __pycache__/
