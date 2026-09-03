@@ -1,0 +1,7 @@
+.chrome_profile/
+state.json
+screenshots/
+suppression.txt
+__pycache__/
+*.pyc
+send.log
