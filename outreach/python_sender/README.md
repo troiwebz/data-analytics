@@ -44,8 +44,13 @@ CHROME_CHANNEL = "chrome"
 python3 send.py --setup
 ```
 
-**2. Add your prospects.** Either edit `prospects.csv`, or put your Sheet's URL
-in `config.py` as `SHEET_URL`. Columns:
+**2. Add your prospects.** Either start from the sample:
+
+```bash
+cp prospects.example.csv prospects.csv
+```
+
+or put your Sheet's URL in `config.py` as `SHEET_URL`. Columns:
 
 | Column | Notes |
 |---|---|
@@ -57,6 +62,9 @@ in `config.py` as `SHEET_URL`. Columns:
 
 Rows missing `first_name` or `personal_line` are skipped and reported. That's
 deliberate — an unpersonalized outreach email is worse than none.
+
+Your `prospects.csv` is git-ignored on purpose, so a list of real people's
+addresses never ends up committed. Only `prospects.example.csv` is tracked.
 
 **3. Set your identity** in `config.py`: `FROM_NAME`, `SIGNATURE`, and the
 `SUBJECT` / `BODY` text.

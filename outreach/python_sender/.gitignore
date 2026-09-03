@@ -5,3 +5,7 @@ suppression.txt
 __pycache__/
 *.pyc
 send.log
+
+# Your real prospect list stays out of git (root .gitignore blocks *.csv).
+# Only the sample template is tracked.
+!prospects.example.csv

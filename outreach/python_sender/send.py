@@ -37,8 +37,11 @@ def load_prospects(browser=None):
         url = core.sheet_to_csv_url(cfg.SHEET_URL)
         return core.parse_prospects(browser.fetch_csv(url)), "sheet"
     if not os.path.exists(cfg.CSV_PATH):
-        raise SystemExit("No prospects found. Set SHEET_URL in config.py, or create %s"
-                         % cfg.CSV_PATH)
+        raise SystemExit(
+            "No prospect list found.\n\n"
+            "  Either:  cp prospects.example.csv prospects.csv   (then edit it)\n"
+            "  Or:      set SHEET_URL in config.py to your Google Sheet\n\n"
+            "  Looked for: %s" % cfg.CSV_PATH)
     with open(cfg.CSV_PATH) as f:
         return core.parse_prospects(f.read()), os.path.basename(cfg.CSV_PATH)
 
