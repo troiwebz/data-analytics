@@ -1,14 +1,16 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-let config = {}, counts = {}, sel = new Set(), qsel = new Set(), batches = [];
+let config = {}, counts = {}, sel = new Set(), qsel = new Set(), ksel = new Set(), batches = [];
+let kwEntries = [];
 
 async function load() {
   const { config: c = {}, posts = {}, batches: b = [], sweepLog = [], sweep = null } = await chrome.storage.local.get(["config", "posts", "batches", "sweepLog", "sweep"]);
   config = c; batches = b;
+  kwEntries = parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT);
   counts = {};
   for (const p of Object.values(posts)) { const k = (p.sub || "").toLowerCase(); const e = counts[k] || (counts[k] = { total: 0, demand: 0 }); e.total += 1; if (p.type === "demand") e.demand += 1; }
-  if (!sel.size && config.lastSweep) { sel = new Set(config.lastSweep.subs || []); qsel = new Set(config.lastSweep.queries || []); $("pages").value = config.lastSweep.pages || 5; $("sort").value = config.lastSweep.sort || "new"; $("read").value = config.lastSweep.read ?? 30; $("delay").value = config.lastSweep.delay || 3; $("custom").value = (config.lastSweep.custom || []).join("\n"); }
-  renderGroups(); renderQueries(); renderBatches(); renderLog(sweepLog); renderProgress(sweep); estimate();
+  if (!sel.size && !ksel.size && config.lastSweep) { sel = new Set(config.lastSweep.subs || []); qsel = new Set(config.lastSweep.queries || []); ksel = new Set(config.lastSweep.kgroups || []); $("kt").value = config.lastSweep.kt || "week"; $("ksort").value = config.lastSweep.ksort || "relevance"; $("kbatch").value = config.lastSweep.kbatch || 4; $("pages").value = config.lastSweep.pages || 5; $("sort").value = config.lastSweep.sort || "new"; $("read").value = config.lastSweep.read ?? 30; $("delay").value = config.lastSweep.delay || 3; $("custom").value = (config.lastSweep.custom || []).join("\n"); }
+  renderGroups(); renderQueries(); renderKeywordGroups(); renderBatches(); renderLog(sweepLog); renderProgress(sweep); estimate();
 }
 
 function allSubs() {
@@ -26,21 +28,34 @@ function renderQueries() {
   $("queries").innerHTML = DISCOVERY_QUERIES.map((q) => `<span class="sub ${qsel.has(q.key) ? "on" : ""}" data-q="${q.key}" title="${esc(q.q)}">${esc(q.label)}</span>`).join("");
   $("queries").querySelectorAll(".sub").forEach((el) => el.addEventListener("click", () => { const k = el.dataset.q; qsel.has(k) ? qsel.delete(k) : qsel.add(k); renderQueries(); estimate(); }));
 }
+function renderKeywordGroups() {
+  const counts = {};
+  for (const e of kwEntries) counts[e.group] = (counts[e.group] || 0) + 1;
+  const batch = Math.max(1, Number($("kbatch").value) || 4);
+  $("kgroups").innerHTML = Object.entries(counts).map(([g, n]) => `<span class="sub ${ksel.has(g) ? "on" : ""}" data-k="${esc(g)}">${esc(g)}<span class="n">${n} kw · ${Math.ceil(n / batch)} searches</span></span>`).join("");
+  $("kgroups").querySelectorAll(".sub").forEach((el) => el.addEventListener("click", () => { const g = el.dataset.k; ksel.has(g) ? ksel.delete(g) : ksel.add(g); renderKeywordGroups(); estimate(); }));
+}
 function customSubs() { return $("custom").value.split("\n").map((s) => s.trim().replace(/^r\//, "")).filter(Boolean); }
 function selection() {
-  return { subs: Array.from(new Set([...sel, ...customSubs()])), queries: Array.from(qsel), pages: Math.max(1, Number($("pages").value) || 5), sort: $("sort").value, read: Math.max(0, Number($("read").value) || 0), delay: Math.max(2, Number($("delay").value) || 3), custom: customSubs() };
+  return { subs: Array.from(new Set([...sel, ...customSubs()])), queries: Array.from(qsel), kgroups: Array.from(ksel), kt: $("kt").value, ksort: $("ksort").value, kbatch: Math.max(1, Number($("kbatch").value) || 4), pages: Math.max(1, Number($("pages").value) || 5), sort: $("sort").value, read: Math.max(0, Number($("read").value) || 0), delay: Math.max(2, Number($("delay").value) || 3), custom: customSubs() };
 }
+function keywordQueue(s) { return buildKeywordSweepQueue(kwEntries, s.kgroups, s.pages, s.ksort, s.kt, s.kbatch); }
 function estimate() {
   const s = selection();
-  const items = s.subs.length + s.queries.length;
+  const kq = keywordQueue(s);
+  $("kest").textContent = kq.length ? `${kq.length} keyword searches over the past ${s.kt}, ${s.pages} pages each.` : "No categories selected.";
+  const items = s.subs.length + s.queries.length + kq.length;
   const secs = items * s.pages * (s.delay + 1.5) + s.read * (s.delay + 1.5);
   $("est").textContent = items ? `${items} items × up to ${s.pages} pages + ${s.read} threads ≈ ${Math.ceil(secs / 60)} min in one tab. Reddit tolerates this pace for a logged-in account; keep the tab open.` : "Nothing selected.";
   $("run").disabled = !items;
 }
-["pages", "sort", "read", "delay", "custom"].forEach((id) => $(id).addEventListener("input", estimate));
+["pages", "sort", "read", "delay", "custom", "kt", "ksort"].forEach((id) => $(id).addEventListener("input", estimate));
+$("kbatch").addEventListener("input", () => { renderKeywordGroups(); estimate(); });
+$("kall").addEventListener("click", () => { kwEntries.forEach((e) => ksel.add(e.group)); renderKeywordGroups(); estimate(); });
+$("knone").addEventListener("click", () => { ksel.clear(); renderKeywordGroups(); estimate(); });
 
 async function run(s) {
-  const queue = buildSweepQueue(s.subs, s.queries, s.pages, s.sort);
+  const queue = [...keywordQueue(s), ...buildSweepQueue(s.subs, s.queries, s.pages, s.sort)];
   if (!queue.length) return;
   await chrome.storage.local.set({ config: { ...config, lastSweep: s } });
   const r = await chrome.runtime.sendMessage({ type: "sweep-start", queue, read: s.read, delay: s.delay });
@@ -55,13 +70,13 @@ $("qall").addEventListener("click", () => { DISCOVERY_QUERIES.forEach((q) => qse
 $("qnone").addEventListener("click", () => { qsel.clear(); renderQueries(); estimate(); });
 
 function renderBatches() {
-  $("batches").innerHTML = batches.length ? batches.map((b, i) => `<div class="batch"><div><b>${esc(b.name)}</b><div class="m">${b.subs.length} subreddits · ${b.queries.length} searches · ${b.pages} pages · ${b.read} threads${b.lastRun ? ` · last ${new Date(b.lastRun).toLocaleDateString()}` : ""}</div></div><button class="btn sm primary" data-run="${i}">Run</button><button class="btn sm" data-del="${i}" title="delete">✕</button></div>`).join("") : '<div style="color:var(--muted);font-size:12px">No saved batches yet. Select subreddits and searches, name it, Save batch. Then it is one click.</div>';
-  $("batches").querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", async () => { const bt = batches[Number(b.dataset.run)]; bt.lastRun = Date.now(); await chrome.storage.local.set({ batches }); sel = new Set(bt.subs); qsel = new Set(bt.queries); $("pages").value = bt.pages; $("sort").value = bt.sort; $("read").value = bt.read; $("delay").value = bt.delay; $("custom").value = ""; renderGroups(); renderQueries(); estimate(); run(bt); }));
+  $("batches").innerHTML = batches.length ? batches.map((b, i) => `<div class="batch"><div><b>${esc(b.name)}</b><div class="m">${(b.kgroups || []).length} keyword categories (${b.kt || "week"}) · ${b.subs.length} subreddits · ${b.queries.length} searches · ${b.pages} pages · ${b.read} threads${b.lastRun ? ` · last ${new Date(b.lastRun).toLocaleDateString()}` : ""}</div></div><button class="btn sm primary" data-run="${i}">Run</button><button class="btn sm" data-del="${i}" title="delete">✕</button></div>`).join("") : '<div style="color:var(--muted);font-size:12px">No saved batches yet. Select subreddits and searches, name it, Save batch. Then it is one click.</div>';
+  $("batches").querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", async () => { const bt = batches[Number(b.dataset.run)]; bt.lastRun = Date.now(); await chrome.storage.local.set({ batches }); sel = new Set(bt.subs); qsel = new Set(bt.queries); ksel = new Set(bt.kgroups || []); $("kt").value = bt.kt || "week"; $("ksort").value = bt.ksort || "relevance"; $("kbatch").value = bt.kbatch || 4; renderKeywordGroups(); $("pages").value = bt.pages; $("sort").value = bt.sort; $("read").value = bt.read; $("delay").value = bt.delay; $("custom").value = ""; renderGroups(); renderQueries(); estimate(); run(bt); }));
   $("batches").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { batches.splice(Number(b.dataset.del), 1); await chrome.storage.local.set({ batches }); renderBatches(); }));
 }
 $("saveb").addEventListener("click", async () => {
   const name = $("bname").value.trim(); if (!name) return $("bname").focus();
-  const s = selection(); if (!s.subs.length && !s.queries.length) return alert("Select something first.");
+  const s = selection(); if (!s.subs.length && !s.queries.length && !s.kgroups.length) return alert("Select something first.");
   const i = batches.findIndex((b) => b.name === name);
   const entry = { name, ...s };
   if (i >= 0) batches[i] = { ...batches[i], ...entry }; else batches.push(entry);

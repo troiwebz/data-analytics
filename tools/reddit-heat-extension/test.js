@@ -133,3 +133,15 @@ assert.ok(sq[2].url.startsWith("https://old.reddit.com/search?q=") && sq[2].url.
 assert.strictEqual(H.sweepUrl({ kind: "sub", sub: "Wix" }, "week"), "https://old.reddit.com/r/Wix/top/?t=week");
 assert.ok(H.CANDIDATE_SUBS.reduce((n, g) => n + g.subs.length, 0) >= 55);
 console.log("sweep: ok");
+
+// keyword sweep + demand by keyword
+const kq = H.buildKeywordSweepQueue(H.parseKeywordText('# Demand\n"need a website"\n"who can build"\n"fix my website"\n"how much" website\n"website quote"\n# Offers\n"for hire" website'), ["Demand"], 3, "relevance", "week", 4);
+assert.strictEqual(kq.length, 2);
+assert.strictEqual(kq[0].keywords.length, 4);
+assert.ok(kq[0].url.includes("&sort=relevance&t=week"), kq[0].url);
+assert.ok(decodeURIComponent(kq[0].url).includes('("need a website") OR ("who can build")'));
+assert.strictEqual(H.sweepUrl({ kind: "sub", sub: "Wix" }, "top", "week"), "https://old.reddit.com/r/Wix/top/?t=week");
+assert.strictEqual(H.sweepUrl({ kind: "query", q: "x" }, "new"), "https://old.reddit.com/search?q=x&sort=new");
+const dbk = H.demandByKeyword({ a: { type: "demand", created: Date.now() - 86400000, keywords: ['"need a website"'], comments: 3, signals: { lead: 1, buyer: 2 } }, b: { type: "demand", created: Date.now() - 40 * 86400000, keywords: ['"need a website"'], comments: 9 }, c: { type: "offer", created: Date.now(), keywords: ['"need a website"'] } }, 7);
+assert.deepStrictEqual(dbk, [{ kw: '"need a website"', posts: 1, replies: 3, comments: 3 }]);
+console.log("keyword sweep: ok");

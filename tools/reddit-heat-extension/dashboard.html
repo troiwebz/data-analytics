@@ -132,6 +132,11 @@
       <div class="card"><h3>Open opportunities · demand you can answer now</h3><div class="body" id="i-opp"></div><div class="foot">Recent demand threads with few replies, a budget, or a clear ask. Score = freshness + budget + ask + unanswered.</div></div>
     </div>
 
+    <div class="insights" style="grid-template-columns: 2fr 1fr">
+      <div class="card"><h3>Demand by keyword <span class="r" style="display:flex;gap:6px;text-transform:none;letter-spacing:0;font-weight:400"><select id="dk-days" style="padding:2px 6px;border:1px solid var(--line);border-radius:4px;background:#fff"><option value="1">past 24h</option><option value="7" selected>past week</option><option value="30">past month</option><option value="90">past 90 days</option></select></span></h3><div class="body bars" id="i-demand-kw"></div><div class="foot">Demand posts that matched each keyword in the window. Use this to see what buyers ask for right now, before reading comments.</div></div>
+      <div class="card"><h3>Demand by category</h3><div class="body bars" id="i-demand-group"></div><div class="foot">Same window, grouped by your keyword categories.</div></div>
+    </div>
+
     <div class="card">
       <h3><span id="count">0 threads</span><span><button class="link" id="expand-all">expand all</button> · <button class="link danger" id="clear-data">clear all data</button></span></h3>
       <table id="t"><thead><tr>

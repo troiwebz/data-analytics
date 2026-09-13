@@ -80,7 +80,21 @@ async function saveConfig(patch) {
   await chrome.storage.local.set({ config });
 }
 
+function renderDemandByKeyword() {
+  const days = Number($("dk-days").value) || 7;
+  const groupsOf = {};
+  for (const e of parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT)) groupsOf[e.kw] = e.group;
+  const postsObj = {};
+  for (const r of all) postsObj[r.id] = { type: r.type, created: Date.parse(r.posted), keywords: r.keywords, comments: r.comments, signals: r.analysed ? { lead: r.leadReplies, buyer: r.buyerReplies } : null };
+  const list = demandByKeyword(postsObj, days, Date.now(), groupsOf);
+  bars($("i-demand-kw"), list.slice(0, 14).map((e) => [e.kw, e.posts, e]), (v, e) => `${v} posts · ${e.comments} cmts`);
+  const g = {};
+  for (const e of list) { const x = g[e.group] || (g[e.group] = { posts: 0, comments: 0 }); x.posts += e.posts; x.comments += e.comments; }
+  bars($("i-demand-group"), Object.entries(g).sort((a, b) => b[1].posts - a[1].posts).map(([k, v]) => [k, v.posts, v]), (v, e) => `${v} posts · ${e.comments} cmts`);
+}
+
 function renderDiscovery() {
+  renderDemandByKeyword();
   // Subreddits by demand volume, with confirm checkboxes.
   const bySub = {};
   for (const r of all) { const b = bySub[r.sub] || (bySub[r.sub] = { demand: 0, total: 0, ev: 0, recent: 0 }); b.total += 1; if (r.type === "demand") { b.demand += 1; if (Date.now() - Date.parse(r.posted) < 30 * 86400000) b.recent += 1; } b.ev += r.leadReplies + r.buyerReplies; }
@@ -167,6 +181,7 @@ function renderTable() {
 
 document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "title" || k === "sub" || k === "type" ? 1 : -1; } renderTable(); }));
 $("f-kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); });
+$("dk-days").addEventListener("change", renderDemandByKeyword);
 $("f-days").addEventListener("change", (e) => { f.days = Number(e.target.value); apply(); });
 $("f-read").addEventListener("change", (e) => { f.read = e.target.checked; apply(); });
 $("f-evidence").addEventListener("change", (e) => { f.evidence = e.target.checked; apply(); });

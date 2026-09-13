@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.5 (private Chrome extension)
+# Reddit Lead Threads v1.6 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -13,6 +13,10 @@ An orange panel appears bottom-right on every `old.reddit.com` page.
 - **Read comments of top threads ▶**: opens the most-commented saved threads one after another, scrapes and classifies every comment on each, and moves to the next one automatically.
 
 **On a thread page**: the panel shows the counts it found (hand-raises, buyer questions, OP replies, booked) and a **Save this thread's comments** button.
+
+## Keyword sweep: what is in demand this week or month
+
+Batch sweep → section 2. Pick keyword categories (Demand, AI-era demand, Niches, Offers…), a time window (24 hours, week, month, year), and a ranking (relevance in window, top voted, newest). Each category's keywords are OR-ed four at a time into site-wide Reddit searches and walked N pages each. No subreddit list needed: Reddit search returns matching posts from every subreddit, and the dashboard's subreddit panel then shows where they came from. On the dashboard, **Demand by keyword** and **Demand by category** count demand posts per keyword for the chosen window, so you can compare this week against last month.
 
 ## Batch sweep: bulk-select subreddits, run N pages each
 

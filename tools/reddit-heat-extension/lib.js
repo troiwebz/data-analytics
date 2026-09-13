@@ -711,10 +711,47 @@ HEAT.DISCOVERY_QUERIES = [
 ];
 
 // One sweep item → the first page URL. kind: "sub" | "query"
-HEAT.sweepUrl = function (item, sort = "new") {
-  if (item.kind === "query") return `https://old.reddit.com/search?q=${encodeURIComponent(item.q)}&sort=${sort === "new" ? "new" : "top"}${sort !== "new" ? `&t=${sort}` : ""}`;
+// sort: "new" | "top" | "relevance"; t: "day" | "week" | "month" | "year" | "all".
+// Backward compatible: sort of "week"/"month" means top over that window.
+HEAT.sweepUrl = function (item, sort = "new", t = "") {
+  if (sort === "week" || sort === "month" || sort === "year") { t = sort; sort = "top"; }
+  if (item.kind === "query") {
+    const tt = sort === "new" ? "" : `&t=${t || "month"}`;
+    return `https://old.reddit.com/search?q=${encodeURIComponent(item.q)}&sort=${sort}${tt}`;
+  }
   if (sort === "new") return `https://old.reddit.com/r/${encodeURIComponent(item.sub)}/new/`;
-  return `https://old.reddit.com/r/${encodeURIComponent(item.sub)}/top/?t=${sort}`;
+  return `https://old.reddit.com/r/${encodeURIComponent(item.sub)}/top/?t=${t || "month"}`;
+};
+
+// Keyword sweep: each selected category's keywords are OR-ed in groups of
+// `batch` into site-wide searches, sorted by relevance/top/new over window t.
+HEAT.buildKeywordSweepQueue = function (entries, groups, pages, sort = "relevance", t = "week", batch = 4) {
+  const q = [];
+  const wanted = new Set(groups || []);
+  const byGroup = {};
+  for (const e of entries || []) if (wanted.has(e.group)) (byGroup[e.group] = byGroup[e.group] || []).push(e.kw);
+  for (const [g, kws] of Object.entries(byGroup)) {
+    for (let i = 0; i < kws.length; i += batch) {
+      const chunk = kws.slice(i, i + batch);
+      const query = chunk.map((k) => `(${k})`).join(" OR ");
+      q.push({ kind: "query", group: g, keywords: chunk, label: `${g}: ${chunk[0]}${chunk.length > 1 ? ` +${chunk.length - 1}` : ""}`, pages, url: HEAT.sweepUrl({ kind: "query", q: query }, sort, t) });
+    }
+  }
+  return q;
+};
+
+// Demand by keyword within a window: [{ kw, group, posts, recent, replies }]
+HEAT.demandByKeyword = function (posts, days = 7, now = Date.now(), groupsOf = null) {
+  const cutoff = now - days * 86400000;
+  const m = {};
+  for (const p of Object.values(posts || {})) {
+    if (p.type !== "demand" || (p.created || 0) < cutoff) continue;
+    const ev = p.signals ? (p.signals.lead || 0) + (p.signals.buyer || 0) : 0;
+    for (const k of p.keywords || []) { const e = m[k] || (m[k] = { kw: k, posts: 0, replies: 0, comments: 0 }); e.posts += 1; e.replies += ev; e.comments += p.comments || 0; }
+  }
+  const out = Object.values(m);
+  if (groupsOf) for (const e of out) e.group = groupsOf[e.kw] || "Other";
+  return out.sort((a, b) => b.posts - a.posts || b.comments - a.comments);
 };
 
 HEAT.buildSweepQueue = function (subs, queryKeys, pages, sort) {
