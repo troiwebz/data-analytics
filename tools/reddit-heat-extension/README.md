@@ -1,49 +1,53 @@
 # Reddit Lead Threads (private Chrome extension)
 
-Searches hundreds of keywords across many subreddits from inside your own logged-in browser, scores every matching thread on **lead evidence**, tracks how fast each one is heating up, and saves a CSV after every run. Nothing is published to the Chrome Web Store; you load it unpacked.
+Crawls subreddits page by page from inside your own browser, matches hundreds of keywords locally, scores every thread on **lead evidence**, tracks how fast each one is heating up, and saves a CSV after every run. Not on the Chrome Web Store; you load it unpacked.
 
-## Why an extension
+## How it works
 
-Reddit blocks datacenter IPs and crawlers. Your browser on your home connection is not blocked, and the extension uses Reddit's public `.json` endpoints without your session cookie, so it can read everything but cannot post or act as you.
+1. **Crawl.** For each subreddit it walks the `new` listing 100 posts a page (Reddit caps listings at ~1000 posts) until it reaches your look-back window.
+2. **Match.** Every post is checked against all your keywords locally, so 250 or 2,500 keywords cost the same. A post is kept if any keyword matches or it looks like an offer / demand / freebie / value post.
+3. **Read comments.** The most active kept threads have their comments read and classified (up to 150 per run by default).
+4. **Snapshot.** Upvotes and comments are stored per run so "heat" is measurable across runs.
+5. **Export.** A ranked CSV lands in `Downloads/reddit-lead-threads/` after each run.
 
-## What "lead evidence" means
+**Speed.** Without an API key Reddit allows ~10 requests a minute, so 17 subreddits × 10 pages + 150 comment reads ≈ 35 minutes. With a free Reddit "installed app" client id (Options page explains, two minutes to create) the limit is 100 a minute and the same run takes about 4 minutes. The key is read-only; the extension never posts or acts as you.
 
-Real leads on r/forhire arrive by DM and are invisible. The extension reads every comment on the most active threads and counts the closest public proxies:
+## Columns
 
 | Column | Meaning |
 |---|---|
 | **Lead** | `hands × 5 + buyer questions × 4 + OP replies × 2 + 20 if OP said booked/closed + unique commenters (max 10) − heckles × 2` |
-| **Heat** | `Δcomments (48h) × 3 + Δupvotes (48h) + Lead`. Needs two or more runs to be meaningful. |
+| **Heat** | `Δcomments (48h) × 3 + Δupvotes (48h) + Lead`. Needs two or more runs. |
 | Hands | Hand-raises: "DM'd you", "interested", "send me", "can I get one", "+1". The conversion signal on freebie and value-bomb posts. |
 | Buyer | Client-style questions: "how much", "can you build", "for my restaurant", "timeline", "deposit". |
-| OP↩ | The poster replying to other people, a sign they are actually working the thread. |
-| booked/closed | OP wrote "fully booked", "slots are full", "found someone", "filled". The strongest public proof a thread converted. |
+| OP↩ | The poster replying to other people. |
+| booked/closed | OP wrote "fully booked", "slots are full", "found someone", "filled". Strongest public proof of conversion. |
 | Heckle | "race to the bottom", "why so cheap", "scam". Subtracts. |
-| Type | `offer` (`[For Hire]`, "I'll build"), `freebie` ("free website", "first 5"), `value` ("here's how", AMA, case study), `demand` (`[Hiring]`, "need a website", "how much"). |
-| Price | First flat or hourly price in title/body, "from" when it is a starting price, "free" for freebies. |
-| Keywords | Which of your keywords the post actually matched. |
+| Type | `offer`, `freebie`, `value`, `demand`, `other`, from title patterns. |
+| Category / keywords | Which of your keyword categories (the `#` headers) and which exact keywords matched. |
+| Price | First flat or hourly price in title/body; "from" for starting prices; "free" for freebies. |
+
+The CSV also carries author, flair, upvote ratio, the first 1,200 characters of the post body, the outbound link if any, and up to five classified replies.
 
 ## Install
 
-1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick this folder.
-2. Click the icon → **Options** to edit keywords and subreddits. It ships with about 80 keywords and 17 subreddits. Add as many as you like, one per line; quoted phrases are exact.
-3. Click **Refresh now**. Keywords are grouped 5 per request with OR, so the default set is roughly 300 searches plus 60 comment reads, about 35 to 40 minutes at Reddit's unauthenticated pace. Close the popup; progress shows when you reopen it.
-4. It re-runs every 6 hours while Chrome is open (change in Options) and, by default, saves `Downloads/reddit-lead-threads/leads-<timestamp>.csv` after each run.
+1. `chrome://extensions` → **Developer mode** on → **Load unpacked** → this folder.
+2. Icon → **Options**. Paste a Reddit client id (instructions on the page), click **Test**. Edit keywords: it ships with ~250 in five categories (Offers, Freebies, Value bombs, Demand, Niches). Lines starting with `#` are category headers.
+3. Icon → **Refresh now**. Close the popup; progress shows when you reopen it. It re-runs every 3 hours while Chrome is open.
 
 ## Read it
 
-- Default sort is **Lead**. Filter to **Freebies** or **Value bombs** to see which giveaway formats drew hand-raises; **Offers** for priced posts; **Demand** for buyers naming budgets.
-- A `·` in the Lead column means that thread's comments have not been read yet. Each run reads the 60 most active unread threads (raise in Options).
-- The italic line under a title is the first buyer-style reply, so you can see the tone without opening the thread.
-- **Export CSV** saves the current filtered view; the auto-save after each run contains everything tracked.
+- Filter by **type**, **category**, or a **single keyword** (counts shown), plus days and free text. Default sort is Lead.
+- A `·` in Lead means comments not read yet; raise "comment reads per run" in Options if too many rows show it.
+- Turn on **Also run keyword searches** in Options for busy subreddits like r/smallbusiness where 1000 posts is less than your window.
 
-## Tune it
+## Test
 
-- Rate limiting: searches are 6.5 s apart and comment reads 4 s apart. If you see `429` in the status errors, raise the interval or trim keywords.
-- Scoring weights and the regexes for buyer / hand-raise / booked / heckle are at the top of `lib.js`.
-- Run `node test.js` after editing `lib.js`.
+```
+node test.js
+```
 
 ## Limits
 
-- Reddit search only returns the newest ~100 matches per query, so very old threads fall off; set the window to "past year" in Options for a one-off historical sweep, then back to "month".
-- The classifiers are regex heuristics. They are tuned on r/forhire and r/smallbusiness language and will misread sarcasm. Treat Lead as a ranking, not a count of customers.
+- Regex heuristics, tuned on r/forhire and r/smallbusiness language. Treat Lead as a ranking, not a customer count.
+- Reddit's `new` listing caps at ~1000 posts per subreddit; the search option reaches further back but only for keyword hits.

@@ -1,12 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "0.2.0",
-  "description": "Searches hundreds of keywords across subreddits, scores every thread on lead evidence (buyer questions, hand-raises, OP booked), tracks heat over time, and saves a CSV.",
-  "permissions": ["storage", "alarms", "downloads"],
-  "host_permissions": ["https://old.reddit.com/*", "https://www.reddit.com/*"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "Reddit Lead Threads" },
+  "version": "0.3.0",
+  "description": "Crawls subreddits page by page, matches hundreds of keywords locally, scores every thread on lead evidence (buyer questions, hand-raises, OP booked), tracks heat over time, and saves a CSV.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://old.reddit.com/*",
+    "https://www.reddit.com/*",
+    "https://oauth.reddit.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Reddit Lead Threads"
+  },
   "options_page": "options.html",
-  "icons": { "128": "icon.png" }
+  "icons": {
+    "128": "icon.png"
+  }
 }

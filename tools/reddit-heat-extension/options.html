@@ -4,35 +4,53 @@
 <meta charset="utf-8">
 <title>Reddit Lead Threads — options</title>
 <style>
-  body { max-width: 900px; margin: 24px auto; font: 14px/1.5 system-ui, sans-serif; color: #1a1a1a; padding: 0 16px; }
+  body { max-width: 960px; margin: 24px auto; font: 14px/1.5 system-ui, sans-serif; color: #1a1a1a; padding: 0 16px; }
+  h2 { margin-bottom: 4px; }
   label { display: block; font-weight: 600; margin-top: 18px; }
-  textarea { width: 100%; height: 260px; font: 13px/1.4 ui-monospace, monospace; padding: 8px; box-sizing: border-box; }
-  input[type=number], select { font: inherit; padding: 4px 6px; }
-  .row { display: flex; gap: 24px; flex-wrap: wrap; }
+  textarea { width: 100%; height: 320px; font: 13px/1.4 ui-monospace, monospace; padding: 8px; box-sizing: border-box; }
+  input[type=number], input[type=text], select { font: inherit; padding: 4px 6px; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
   .hint { color: #666; font-size: 13px; }
+  .box { background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 6px; padding: 10px 14px; margin-top: 8px; }
   button { font: inherit; padding: 8px 14px; margin-top: 18px; }
-  #saved { margin-left: 12px; color: #2e7d32; }
+  #saved, #authres { margin-left: 12px; }
+  .ok { color: #2e7d32; } .bad { color: #c62828; }
+  code { background: #eee; padding: 0 4px; }
 </style>
 </head>
 <body>
 <h2>Reddit Lead Threads — options</h2>
-<p class="hint">Keywords are grouped 5 per request with OR, so 100 keywords × 17 subreddits ≈ 340 requests ≈ 37 minutes per run at Reddit's unauthenticated pace. Use quotes for exact phrases. One keyword per line.</p>
+<p class="hint">The crawler walks each subreddit's newest posts page by page (100 a page) and matches every keyword locally, so adding keywords costs nothing. Requests ≈ subreddits × pages + comment reads.</p>
+
+<label>Reddit API client id <span class="hint">(optional, makes runs ~10× faster)</span></label>
+<div class="row">
+  <input type="text" id="clientid" placeholder="e.g. Ab12Cd34Ef56Gh" style="width:320px">
+  <button id="testauth" style="margin-top:0">Test</button><span id="authres"></span>
+</div>
+<div class="box hint">
+  Free, two minutes: open <code>https://www.reddit.com/prefs/apps</code> → <b>create another app</b> → name it anything → choose <b>installed app</b> → redirect uri <code>http://localhost</code> → create. Copy the short id shown under the app name (not the secret). This gives 100 requests/min read-only access; the extension never posts as you.
+</div>
 
 <label>Keywords <span class="hint" id="kwcount"></span></label>
+<div class="hint">Lines starting with <code>#</code> are category headers used for the popup's category filter. Quoted phrases must appear exactly; bare words must all appear somewhere in title or body.</div>
 <textarea id="keywords"></textarea>
 
 <label>Subreddits (one per line, no r/)</label>
-<textarea id="subs" style="height:160px"></textarea>
+<textarea id="subs" style="height:150px"></textarea>
 
 <div class="row">
-  <div><label>Refresh every (minutes)</label><input type="number" id="interval" min="60" step="30"></div>
-  <div><label>Search window</label><select id="time"><option value="week">past week</option><option value="month">past month</option><option value="year">past year</option></select></div>
-  <div><label>Comment deep-dives per run</label><input type="number" id="dives" min="10" max="200" step="10"><div class="hint">Each is one extra request; 60 ≈ 4 min.</div></div>
-  <div><label>Auto-save CSV after each run</label><input type="checkbox" id="autocsv"> <span class="hint">to Downloads/reddit-lead-threads/</span></div>
+  <div><label>Look back (days)</label><input type="number" id="window" min="1" max="365" step="1" style="width:80px"><div class="hint">Listings cap at ~1000 posts per subreddit.</div></div>
+  <div><label>Max pages per subreddit</label><input type="number" id="pages" min="1" max="10" step="1" style="width:80px"><div class="hint">100 posts per page.</div></div>
+  <div><label>Comment reads per run</label><input type="number" id="dives" min="10" max="500" step="10" style="width:80px"><div class="hint">Most active unread threads first.</div></div>
+  <div><label>Refresh every (minutes)</label><input type="number" id="interval" min="30" step="30" style="width:80px"></div>
+</div>
+<div class="row">
+  <div><label><input type="checkbox" id="alsosearch"> Also run keyword searches on busy subreddits</label><div class="hint">Reaches past the 1000-post cap; one request per category per subreddit.</div></div>
+  <div><label><input type="checkbox" id="autocsv"> Auto-save CSV after each run</label><div class="hint">Downloads/reddit-lead-threads/</div></div>
 </div>
 
 <button id="save">Save</button><span id="saved"></span>
-<button id="reset" style="margin-left:12px">Reset to defaults</button>
+<button id="reset" style="margin-left:12px">Reset keywords &amp; subreddits to defaults</button>
 <script src="lib.js"></script>
 <script src="options.js"></script>
 </body>
