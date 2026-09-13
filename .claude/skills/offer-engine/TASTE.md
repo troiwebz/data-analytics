@@ -47,3 +47,6 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
 - ALWAYS end a reply with the full final script including every
   correction so far — never only the changed line. He shoots from the
   last message.
+- ALWAYS give THREE variations of anything shootable — three real
+  executions, not three rewordings — with a one-word label each and a
+  recommendation. He chooses.
