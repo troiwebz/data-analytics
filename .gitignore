@@ -76,3 +76,7 @@ Screenshot*.png
 .htaccess
 .localized
 .dart_tool/
+
+# Extension needs its scripts and icon tracked
+!tools/reddit-heat-extension/*.sh
+!tools/reddit-heat-extension/*.png
