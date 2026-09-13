@@ -183,3 +183,38 @@ assert.strictEqual(H.pickPlaybook({ title: "How much should a 5 page site cost?"
 assert.strictEqual(H.pickPlaybook({ title: "Wix site not showing up on Google" }).key, "google");
 assert.strictEqual(H.pickPlaybook({ title: "Need a website for my HVAC company" }).key, "need-site");
 console.log("replies: ok");
+
+// co-founder hunt
+const cf = (t, b) => H.classifyCofounder(t, b || "");
+assert.strictEqual(cf("Looking for a technical co-founder for my fitness app", "I cannot code. Equity only, no budget yet.").role, "technical");
+assert.strictEqual(cf("Looking for a technical co-founder for my fitness app", "Equity only, no budget yet.").hasBudget, false, "no budget yet must not read as budget");
+assert.strictEqual(cf("Looking for a technical co-founder for my fitness app", "Equity only, no budget yet.").equityOnly, true);
+assert.strictEqual(cf("Need a marketing co-founder for my SaaS", "We do $4,000 MRR with 30 paying customers.").role, "marketing");
+assert.strictEqual(cf("Need a marketing co-founder for my SaaS", "We do $4,000 MRR with 30 paying customers.").hasBudget, true);
+assert.strictEqual(cf("[Seeking] Technical cofounder for AI-powered resume builder", "MVP is live.").keep, true, "a resume-builder product is not a job seeker");
+assert.strictEqual(cf("Non-technical founder looking for a developer to build my marketplace", "Idea stage.").keep, true);
+assert.strictEqual(cf("[FOR HIRE] Senior full-stack dev available for co-founder roles", "portfolio: x.com").keep, false);
+assert.strictEqual(cf("Looking for a marketing job - immediate joiner", "notice period 15 days").keep, false);
+assert.strictEqual(cf("What is your favourite CRM?", "Just curious.").keep, false);
+
+// the venture, not the ask, and never doubled
+assert.strictEqual(H.huntThing({ title: "Looking for a technical co-founder for my fitness app" }), "your fitness app");
+assert.strictEqual(H.huntThing({ title: "[Seeking] Technical cofounder for AI-powered resume builder" }), "your AI-powered resume builder");
+assert.strictEqual(H.huntThing({ title: "Need a marketing co-founder for my SaaS (B2B)" }), "your SaaS");
+assert.strictEqual(H.huntThing({ title: "Anyone want to join my startup?", body: "Building a scheduling tool." }), "your tool");
+
+const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
+const short = H.huntShortReply(hp, { name: "Troi" });
+assert.strictEqual(short.split("\n").length, 3, "the public reply is exactly three lines:\n" + short);
+assert.ok(short.length < 420, "the public reply stays short: " + short.length);
+assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
+assert.ok(short.includes("your fitness app") && !short.includes("co-founder for your fitness app"));
+for (let v = 0; v < 4; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 3);
+const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
+assert.ok(dm.length > 900, "the DM is the long one: " + dm.length);
+assert.ok(dm.startsWith("Hi u/jane,") && dm.includes("— Troi, web developer"));
+assert.ok(dm.includes("budget is the constraint"), "equity-only posts get the budget line");
+assert.ok(H.huntComposeUrl(hp, dm).startsWith("https://www.reddit.com/message/compose/?to=jane&subject="));
+assert.ok(H.huntScore({ ...hp, created: Date.now() }) > H.huntScore({ ...hp, created: Date.now() - 5 * 86400000 }), "fresher posts rank higher");
+assert.ok(H.huntScore({ ...hp, hasBudget: true, equityOnly: false }) > H.huntScore(hp), "money ranks higher than equity-only");
+console.log("co-founder hunt: ok");

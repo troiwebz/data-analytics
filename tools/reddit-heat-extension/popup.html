@@ -20,11 +20,16 @@
 <body>
 <div class="h"><span class="dot"></span>Reddit Lead Threads<span class="v" id="ver"></span></div>
 <div class="stats">
-  <div class="s"><b id="n-tracked">0</b><span>threads</span></div>
-  <div class="s"><b id="n-read">0</b><span>comments read</span></div>
-  <div class="s"><b id="n-ev">0</b><span>with leads</span></div>
+  <div class="s"><b id="h-queue">0</b><span>waiting for you</span></div>
+  <div class="s"><b id="h-today">0</b><span>contacted today</span></div>
+  <div class="s"><b id="h-ever">0</b><span>contacted ever</span></div>
 </div>
 <div class="b">
+  <button class="p" id="hunt">Co-founder hunt · reply and DM</button>
+  <div class="hint" style="padding:2px 0 6px">Watches co-founder subreddits every minute. One post at a time: copy 3 lines for the thread, send the long DM, move on. Nobody twice.</div>
+  <button id="advBtn">Advanced tools · scraping, dashboard, campaigns ▾</button>
+  <div id="adv" hidden>
+  <div class="s" style="margin:6px 0"><span id="n-old">0 threads · 0 with leads</span></div>
   <button class="p" id="dash">Open dashboard</button>
   <button id="sweep">Batch sweep · pick subreddits, run 5 pages each</button>
   <button id="plan">Campaign planner · 10 offer ideas you approve</button>
@@ -45,6 +50,7 @@
   <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:6px">All time</div>
   <button data-url="https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=top&t=year">r/forhire · website offers · top past year</button>
   <button id="opts">Options · keywords</button>
+  </div>
   <button id="reload">Reload code (after an update)</button>
 </div>
 <div class="hint" id="last"></div>

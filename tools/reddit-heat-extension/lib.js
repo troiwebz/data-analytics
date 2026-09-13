@@ -910,3 +910,266 @@ HEAT.STATUSES = [
 HEAT.statusOf = function (p) { return p.status || (p.ignored ? "not_lead" : p.replied ? "replied" : "new"); };
 HEAT.isBuyer = function (p) { return p.type === "demand"; };
 HEAT.isSeller = function (p) { return p.type === "offer" || p.type === "freebie" || p.type === "value"; };
+
+// ===========================================================================
+// CO-FOUNDER HUNT
+// One narrow job: watch subreddits where people ask for a co-founder, show one
+// post at a time, give a 3-line public reply to copy and a long DM to send,
+// and never show the same person twice once you've contacted them.
+// ===========================================================================
+HEAT.HUNT_SUBS = ["cofounder", "CoFounderHunt", "startups", "Entrepreneur", "indiehackers", "SideProject", "EntrepreneurRideAlong", "startup", "TechStartups", "ycombinator", "SaaS", "microsaas", "AppIdeas", "Startup_Ideas", "cofoundermatch", "IndianStartups"];
+
+HEAT.HUNT_QUERIES = [
+  '"technical co-founder" OR "technical cofounder"',
+  '"looking for a cofounder" OR "looking for a co-founder"',
+  '"seeking cofounder" OR "seeking co-founder" OR "need a cofounder"',
+  '"marketing co-founder" OR "growth co-founder" OR "marketing cofounder"',
+  '"cto co-founder" OR "developer co-founder" OR "engineering co-founder"',
+  '"non-technical founder" (developer OR technical OR build)',
+];
+
+// What kind of partner are they asking for?
+const ROLE_TECH = /\b(technical|tech)\s*(co[- ]?founder|partner)|\bcto\b|\b(developer|engineer|engineering|dev)\s*(co[- ]?founder|partner)|need (someone|somebody) (to|who can) (build|code|develop)|looking for (a |an )?(developer|engineer|coder|programmer)|can'?t code|no technical|non[- ]?technical founder/i;
+const ROLE_MARKETING = /\b(marketing|growth|sales|gtm|go[- ]to[- ]market|distribution)\s*(co[- ]?founder|partner|person|lead)|\bcmo\b|need (someone|help) (to|with) (market|sell|grow|distribution)/i;
+const ROLE_DESIGN = /\b(design|ui|ux|product design)\s*(co[- ]?founder|partner)|\bcdo\b|need (a )?designer/i;
+const ROLE_BIZ = /\b(business|ops|operations|finance|bizdev)\s*(co[- ]?founder|partner)|\bcoo\b|\bcfo\b/i;
+const COFOUNDER_ASK = /co[- ]?founder|cofounder|\bcto\b|\bcmo\b|\bcoo\b|technical partner|business partner|join (me|us|my|our) (startup|project|venture|team)|looking for (a )?partner|(?:looking for|need|want|seeking) (?:a |an |someone |somebody )?(?:technical person|developer|engineer|coder|programmer|designer|marketer)\b|need (?:someone|somebody|help) (?:to|who can) (?:build|code|develop|market|launch)|build(ing)? (a|my|our) (startup|saas|app|product) (and|but)/i;
+// Narrower than JOBSEEKER_RE: here we only want to drop people hunting for a
+// salaried job. "resume builder" is a product, not a CV.
+const HUNT_JOBSEEKER = /looking for (a |an )?(new |remote |full[- ]time |part[- ]time |paid )*(job|employment|internship)\b|seeking (a |an )?(job|employment|full[- ]time|position)\b|immediate joiner|notice period|open to work|my (resume|cv)\b|years? of experience (working|in|as)|any (openings|referrals)|available for (full|part)[- ]time/i;
+// Recruiters, agencies and people selling services are not prospects.
+const HUNT_SELLER = /\bfor hire\b|\bi(?:'m| am) (?:a|an) (?:agency|freelancer|dev shop|development (?:agency|company))|\bwe (?:are|build) (?:a|an) (?:agency|dev shop|software (?:house|agency))|\bhire us\b|\bour agency\b|\bdm me (?:for|if) (?:rates|pricing|a quote)|\bportfolio:|\bcheck out my (?:agency|studio|service)|\bstarting (?:at|from) (?:\$|€|£)/i;
+
+HEAT.classifyCofounder = function (title, body) {
+  const t = (title || "").toLowerCase();
+  const all = (t + "\n" + (body || "").slice(0, 1500)).toLowerCase();
+  if (HUNT_SELLER.test(t) || HUNT_SELLER.test(all.slice(0, 400))) return { keep: false, why: "seller/agency" };
+  if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "job seeker" };
+  if (!COFOUNDER_ASK.test(all)) return { keep: false, why: "not a co-founder ask" };
+  // Someone OFFERING to be a co-founder is not a prospect either.
+  if (/\b(i|we)(?:'m| am|'re| are)? (?:a |an )?(?:available|open|looking to join|offering)\b|\bi want to be (?:a |your )?co[- ]?founder|\bjoin your (?:startup|team|project)\b/i.test(t)) return { keep: false, why: "offering to join" };
+  let role = "unclear";
+  if (ROLE_TECH.test(all)) role = "technical";
+  else if (ROLE_MARKETING.test(all)) role = "marketing";
+  else if (ROLE_DESIGN.test(all)) role = "design";
+  else if (ROLE_BIZ.test(all)) role = "business";
+  const equityOnly = /\bequity only\b|\bsweat equity\b|\bno (?:pay|salary|budget|money|funding)\b|\bunpaid\b|\bcan'?t pay\b|\bzero budget\b/i.test(all);
+  // "no budget yet" must not count as budget, so negations are checked first.
+  const noMoney = equityOnly || /\bnot funded\b|\bun ?funded\b|\bpre[- ]?revenue\b|\bbootstrapp?ed with nothing\b|\bwithout (?:pay|a budget|funding)\b|\bno (?:revenue|customers|users)\b/i.test(all);
+  const hasBudget = !noMoney && /(\$|€|£)\s?\d{3,}|\b(?:have|has|got|with) (?:a |some )?budget\b|\bbudget (?:of|is|available)\b|\bfunded\b|\braised\b|\brevenue\b|\bpaying customers\b|\bmrr\b/i.test(all);
+  const stage = /\bidea stage\b|\bjust an idea\b|\bpre[- ]?idea\b/i.test(all) ? "idea"
+    : /\bmvp\b|\bprototype\b|\bbuilt\b|\blaunched\b|\bbeta\b|\busers\b/i.test(all) ? "building"
+    : /\brevenue\b|\bmrr\b|\bpaying\b|\bcustomers\b/i.test(all) ? "revenue" : "unknown";
+  return { keep: true, role, stage, equityOnly, hasBudget };
+};
+
+// Fit score: who is most worth your 3 lines right now.
+HEAT.huntScore = function (p, now = Date.now()) {
+  const ageH = Math.max(0, (now - (p.created || 0)) / 3600000);
+  let s = 0;
+  s += ageH < 2 ? 25 : ageH < 8 ? 18 : ageH < 24 ? 12 : ageH < 72 ? 6 : 0;  // fresh wins: be early
+  if (p.role === "technical") s += 20;
+  else if (p.role === "design" || p.role === "unclear") s += 8;
+  if (p.hasBudget) s += 15;
+  if (p.equityOnly) s -= 12;
+  if (p.stage === "building") s += 10; else if (p.stage === "revenue") s += 14; else if (p.stage === "idea") s += 2;
+  s += Math.min(8, Math.floor((p.comments || 0) / 3));     // some traction
+  if ((p.comments || 0) > 25) s -= 6;                       // already crowded
+  if ((p.body || "").length > 400) s += 5;                  // they wrote a real post
+  return Math.max(0, Math.round(s));
+};
+
+// --------------------------------------------------------------- templates
+// PUBLIC: exactly three lines. One specific observation, one free useful
+// thing, one line saying a DM is on the way. No pitch, no price, no link.
+HEAT.HUNT_SHORT = {
+  technical: [
+    (p, m) => `The hard part on ${m.thing} usually isn't the build, it's deciding what NOT to build for v1.\nHappy to map the smallest version that still proves the idea, free, takes me 20 minutes.\nSent you a DM with how I'd scope it.`,
+    (p, m) => `Ideas like ${m.thing} usually die waiting for the perfect technical co-founder instead of shipping a rough v1.\nI'll sketch the 3-screen version you could test in two weeks, no charge.\nDM sent with the outline.`,
+    (p, m) => `Before you hand over equity: a v1 of this is usually 2 to 4 weeks of work, not a co-founder-sized commitment.\nI wrote out what I'd build first and what I'd cut, free either way.\nSent it to your DMs.`,
+  ],
+  marketing: [
+    (p, m) => `For ${m.thing} the first 100 users almost never come from marketing, they come from one channel you can do by hand.\nI'll name the channel I'd pick for you and why, free.\nDM sent.`,
+    (p, m) => `A marketing co-founder before you have a repeatable offer usually just spreads the guessing around.\nHappy to pressure-test your offer and pick one channel to start with, no charge.\nSent you the notes in DM.`,
+  ],
+  design: [
+    (p, m) => `Design is rarely what's blocking ${m.thing} at this stage, the flow is.\nI'll map the 3 screens that actually matter and what to cut, free.\nDM sent with the sketch.`,
+  ],
+  business: [
+    (p, m) => `The fastest way to find out if this needs a co-founder is to try to sell it once, first.\nHappy to write the one-page version you could put in front of a buyer this week, free.\nSent it over in DM.`,
+  ],
+  unclear: [
+    (p, m) => `Worth deciding whether you need a partner or just the first version built, they're very different commitments.\nI'll map the smallest v1 for ${m.thing} and what it would take, free.\nDM sent with the detail.`,
+  ],
+};
+
+// PRIVATE: the long Laurel-style value bomb. Full diagnosis and steps.
+HEAT.HUNT_DM = {
+  technical: (p, m) => `Hi ${m.name}, saw your post about looking for a technical co-founder for ${m.thing}.
+
+Not pitching you on being one. I want to give you the thing that actually unblocks most people in your position, because I've watched a lot of good ideas stall for a year waiting for the right person to show up.
+
+Here's the honest picture. A technical co-founder costs you 30 to 50 percent of the company and usually three to six months of searching, and most of those partnerships break because one side had no way to judge the other's work yet. Meanwhile the first version of what you're describing is almost always 2 to 4 weeks of focused building. So the sequence that works is: build the smallest testable version first, put it in front of ten real people, and THEN decide whether you need a partner or a hire, with actual evidence in hand.
+
+If I were doing it this week:
+
+1. Write the one sentence a user would say after using it. Not the vision, the outcome. "I finally stopped losing X." Everything you build gets judged against that sentence.
+
+2. Cut to three screens. Almost every v1 is: the thing they enter, the thing it does, the thing they get back. Accounts, settings, dashboards, admin panels, payments, all of it can wait. If you can't describe v1 in three screens, it's not v1 yet.
+
+3. Pick boring tools on purpose. For most of these, a no-code or low-code stack gets you live in days, and that's fine. The code is not the moat, the users are. You can rebuild later on someone else's money.
+
+4. Manual-first for anything hard. If a step needs AI, matching, moderation or logic you can't build yet, do it by hand behind the scenes for the first twenty users. They don't care, and you learn what to automate.
+
+5. Get ten people using it before you give away equity. Ten real users tells you more than ten co-founder conversations, and it completely changes the terms if you do end up wanting a partner.
+
+${m.stageLine}
+
+If it helps I'll put the specific three screens for ${m.thing} on paper and send them to you, no charge and no obligation. Reply here with what it does today and who the first user is, and I'll write it up.
+
+${m.sign}`,
+
+  marketing: (p, m) => `Hi ${m.name}, saw your post looking for a marketing or growth co-founder for ${m.thing}.
+
+I'm not applying. I want to hand you the thing that usually changes the outcome here, because "we need marketing" is almost always a symptom and not the problem.
+
+The pattern I see: a founder brings in a growth person before the offer is repeatable, the growth person tries five channels, none of them stick, and both sides conclude the other one was the problem. What actually works is proving one channel by hand yourself, then bringing in someone to scale that one channel.
+
+Here's how I'd do it over the next two weeks:
+
+1. Write the offer in one sentence a stranger would repeat. "We help [who] get [outcome] without [the annoying part]." If you can't say it in one line, no channel will save it.
+
+2. Pick the single place your first 100 users already gather. One subreddit, one Slack, one Facebook group, one conference list, one directory. Not "social media".
+
+3. Go there and help twenty people manually, with no link. Answer the exact question they asked, fully, for free. Count how many ask you what you do. That number is your real conversion signal.
+
+4. Only then pick the channel. If people respond to written help, it's content and communities. If they respond to a demo, it's outbound. If they respond to price, it's ads. The first 20 manual conversations tell you which.
+
+5. Bring in a growth partner once one channel gives you a repeatable result, and give them a number to scale rather than a blank page.
+
+${m.stageLine}
+
+Happy to name the specific channel I'd pick for ${m.thing} and the first twenty places to go, free. Tell me who the buyer is and what they pay today, and I'll write it out.
+
+${m.sign}`,
+
+  design: (p, m) => `Hi ${m.name}, saw you're looking for a design co-founder for ${m.thing}.
+
+Not applying, but here's the thing that usually matters more than design at this stage.
+
+Early products almost never fail because they looked bad. They fail because the flow asks too much before it gives anything back. A designer joining now will mostly be guessing at the same unknowns you are.
+
+What I'd do first:
+
+1. Draw the three screens on paper: what the user gives, what happens, what they get. If it takes more than three, the scope is still too big.
+
+2. Make the first screen do one thing with no signup. Accounts before value is where most early products lose people.
+
+3. Use an off-the-shelf component kit for v1. It will look clean and consistent, and it costs you nothing. Custom design is worth paying for after you know the flow is right.
+
+4. Watch five people use it without helping them. Every place they hesitate is a design brief, and it's worth more than any mockup.
+
+5. Then hire or partner with a designer, with a real flow and real user reactions to work from.
+
+${m.stageLine}
+
+If useful I'll sketch those three screens for ${m.thing} and send them over, free. Tell me what it does and who it's for.
+
+${m.sign}`,
+
+  business: (p, m) => `Hi ${m.name}, saw your post about finding a co-founder for ${m.thing}.
+
+Not applying. Here's what I'd want someone to tell me in your position.
+
+Before splitting equity, the highest-value thing you can do is try to sell it once, manually, to one real buyer. Everything gets clearer after that: whether it's a real problem, what they'd pay, and whether the gap you're filling is actually a partner or just a first build.
+
+The two-week version:
+
+1. Write a one-page description of the outcome, not the product. Who it's for, what changes for them, what it costs.
+
+2. Take it to ten people who match that description, and ask for the sale, not for feedback. Feedback is polite; a "yes, when can I have it" is real.
+
+3. If someone says yes, build the smallest thing that delivers it, even if half of it is you doing the work by hand.
+
+4. If nobody says yes, you just saved yourself a year and a co-founder relationship.
+
+5. Then decide what you're missing. Usually it's execution, which you can buy, not a partner, which you can't easily undo.
+
+${m.stageLine}
+
+Happy to write that one-page version for ${m.thing} and send it to you, free. Tell me who the buyer is and I'll draft it.
+
+${m.sign}`,
+
+  unclear: (p, m) => `Hi ${m.name}, saw your post about looking for a co-founder for ${m.thing}.
+
+Not applying, but here's the framing that tends to help most at this point.
+
+There are two very different situations that both look like "I need a co-founder". One is that you genuinely need someone to own a whole function alongside you for years. The other, far more common, is that you need the first version of the thing to exist so you can find out if any of this is real. The first costs a third of your company and months of searching. The second is usually two to four weeks of work.
+
+The test I'd use:
+
+1. Write down what needs to be true in 90 days for this to be worth continuing. Users? Revenue? One signed customer?
+
+2. Ask what actually stands between you and that. If the answer is "it doesn't exist yet", that's a build problem, not a partner problem.
+
+3. Build the three-screen version. What they give, what it does, what they get. Cut everything else.
+
+4. Put it in front of ten people who have the problem. Watch, don't pitch.
+
+5. Then decide. If you still want a partner, you're now negotiating from a position of evidence instead of hope, and the terms will be much better.
+
+${m.stageLine}
+
+If it helps I'll map the smallest v1 for ${m.thing} and send it over, free, no obligation. Tell me what it does and who it's for.
+
+${m.sign}`,
+};
+
+// Pull a short, natural noun phrase for "their thing".
+HEAT.huntThing = function (p) {
+  let t = (p.title || "").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+  // Drop the ask itself ("Looking for a technical co-founder ...") so what is
+  // left is the venture: "for my fitness app" -> "your fitness app".
+  t = t.replace(/^.*\b(?:co[- ]?founders?|cofounders?|cto|cmo|coo|technical partner|business partner|developer|engineer|designer|partner)\b/i, " ").trim();
+  const junk = /^(?:co[- ]?founder|cofounder|partner|someone|somebody|anyone|help|equity|my (?:startup|idea|project)|our (?:startup|idea|project)|the (?:project|idea)|this|it)\b/i;
+  const clean = (x) => x.replace(/\s*[-–—|(,.:;!?]+\s*$/, "").replace(/\s+/g, " ").trim();
+  const tries = [
+    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing|to build)\s+(?:my|our|a|an|the)\s+([A-Za-z0-9][\w' -]{2,40})/,
+    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing)\s+([A-Za-z0-9][\w' -]{2,40})/,
+  ];
+  for (const re of tries) {
+    const m = t.match(re);
+    if (m) {
+      const phrase = clean(m[1]);
+      if (phrase.length > 2 && !junk.test(phrase)) return "your " + phrase;
+    }
+  }
+  const app = (p.body || "").match(/\b(?:app|platform|marketplace|saas|tool|site|product|startup)\b/i);
+  return app ? "your " + app[0].toLowerCase() : "your idea";
+};
+
+HEAT.huntVars = function (p, profile = {}) {
+  const stageLine = p.stage === "revenue" ? "Since you already have revenue, you're in a much stronger position than most people posting this, and you can almost certainly pay for execution instead of trading equity for it."
+    : p.stage === "building" ? "Since you've already built something, you're further along than most, and the next step is usually users rather than a partner."
+    : p.equityOnly ? "I know budget is the constraint, so everything above is meant to be doable by you for close to nothing."
+    : "";
+  return { name: p.author ? "u/" + p.author : "there", thing: HEAT.huntThing(p), stageLine, sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "" };
+};
+
+HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
+  const set = HEAT.HUNT_SHORT[p.role] || HEAT.HUNT_SHORT.unclear;
+  const m = HEAT.huntVars(p, profile);
+  return set[variant % set.length](p, m);
+};
+HEAT.huntDM = function (p, profile = {}) {
+  const fn = HEAT.HUNT_DM[p.role] || HEAT.HUNT_DM.unclear;
+  return fn(p, HEAT.huntVars(p, profile));
+};
+HEAT.huntDmSubject = function (p) {
+  const thing = HEAT.huntThing(p);
+  return `Re: your co-founder post — a few notes on ${thing}`.slice(0, 100);
+};
+HEAT.huntComposeUrl = function (p, body) {
+  return `https://www.reddit.com/message/compose/?to=${encodeURIComponent(p.author)}&subject=${encodeURIComponent(HEAT.huntDmSubject(p))}&message=${encodeURIComponent(body)}`;
+};

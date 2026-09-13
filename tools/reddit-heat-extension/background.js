@@ -64,9 +64,9 @@ async function reclassifyAll() {
   if (changed) await chrome.storage.local.set({ posts });
   return changed;
 }
-chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); reclassifyAll(); });
-chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); });
+chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 });  huntGet().then((h) => huntArm(h.on)); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (!msg) return;
   if (msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -87,6 +87,11 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "prune") { (async () => { const { posts = {}, snaps = {} } = await chrome.storage.local.get(["posts", "snaps"]); const cutoff = Date.now() - (msg.days || 90) * 86400000; let n = 0; for (const [id, p] of Object.entries(posts)) { if ((p.created || 0) < cutoff && statusOf(p) === "new" && !p.manual) { delete posts[id]; delete snaps[id]; n += 1; } } await chrome.storage.local.set({ posts, snaps }); reply({ removed: n }); })(); return true; }
   if (msg.type === "reclassify") { reclassifyAll().then((n) => reply({ changed: n })); return true; }
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
+  if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
+  if (msg.type === "hunt-act") { huntAct(msg.id, msg.action).then(reply); return true; }
+  if (msg.type === "hunt-poll") { huntPoll(true).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "hunt-on") { huntSet({ on: !!msg.on }).then(() => { huntArm(!!msg.on); if (msg.on) huntPoll(true); reply({ ok: true }); }); return true; }
+  if (msg.type === "hunt-subs") { huntSet({ subs: msg.subs && msg.subs.length ? msg.subs : HUNT_SUBS, perTick: msg.perTick || 4 }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "status-by-url") { chrome.storage.local.get(["posts"]).then(({ posts = {} }) => { const path = (msg.permalink || "").replace(/^https?:\/\/[^/]+/, ""); const p = Object.values(posts).find((x) => x.permalink && path.startsWith(x.permalink.replace(/\/$/, ""))); reply(p ? { id: p.id, status: statusOf(p), type: p.type, title: p.title } : { id: null }); }); return true; }
 });
 
@@ -454,4 +459,151 @@ async function exportCsv(posts, snaps) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   try { await chrome.downloads.download({ url, filename: `reddit-lead-threads/leads-${stamp}.csv`, conflictAction: "uniquify", saveAs: false }); }
   catch (e) { const { meta = {} } = await chrome.storage.local.get(["meta"]); meta.errors = [...(meta.errors || []), "csv: " + e.message]; await chrome.storage.local.set({ meta }); }
+}
+
+// ===========================================================================
+// CO-FOUNDER HUNT
+// Polls a handful of subreddits every minute for people asking for a
+// co-founder, keeps one queue sorted by fit, and refuses to surface anyone
+// you have already contacted. Read-only: it never posts and never DMs.
+// ===========================================================================
+const HUNT_ALARM = "hunt-poll";
+const HUNT_KEEP_DAYS = 14;
+
+async function huntGet() {
+  const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
+  return {
+    on: !!hunt.on,
+    posts: hunt.posts || {},
+    contacted: hunt.contacted || {},
+    cursor: hunt.cursor || 0,
+    lastPoll: hunt.lastPoll || 0,
+    lastError: hunt.lastError || "",
+    subs: hunt.subs && hunt.subs.length ? hunt.subs : HUNT_SUBS,
+    perTick: hunt.perTick || 4,
+    found: hunt.found || 0,
+  };
+}
+async function huntSet(patch) {
+  const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
+  await chrome.storage.local.set({ hunt: { ...hunt, ...patch } });
+}
+function huntArm(on) {
+  if (on) chrome.alarms.create(HUNT_ALARM, { periodInMinutes: 1, delayInMinutes: 0.1 });
+  else chrome.alarms.clear(HUNT_ALARM);
+}
+
+async function huntFetch(url) {
+  const r = await fetch(url, { credentials: "omit", cache: "no-store", headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(url.replace(/\?.*/, "") + " -> HTTP " + r.status);
+  return r.json();
+}
+
+// Turn a Reddit JSON child into a hunt candidate, or null if it isn't one.
+function huntCandidate(child) {
+  const d = child && child.data;
+  if (!d || d.stickied || d.over_18) return null;
+  const author = (d.author || "").trim();
+  if (!author || author === "[deleted]" || /^automoderator$/i.test(author)) return null;
+  const title = d.title || "", body = d.selftext || "";
+  const c = classifyCofounder(title, body);
+  if (!c.keep) return null;
+  return {
+    id: d.name || ("t3_" + d.id),
+    author,
+    sub: d.subreddit || "",
+    title,
+    body: body.slice(0, 4000),
+    permalink: "https://www.reddit.com" + (d.permalink || ""),
+    created: (d.created_utc || 0) * 1000,
+    comments: d.num_comments || 0,
+    ups: d.score || 0,
+    flair: d.link_flair_text || "",
+    role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget,
+    firstSeen: Date.now(),
+  };
+}
+
+async function huntPoll(force) {
+  const st = await huntGet();
+  if (!st.on && !force) return { ok: false, error: "hunt is off" };
+  const subs = st.subs;
+  const n = Math.max(1, Math.min(8, st.perTick));
+  const picks = [];
+  for (let i = 0; i < n; i += 1) picks.push(subs[(st.cursor + i) % subs.length]);
+  const query = HUNT_QUERIES[st.cursor % HUNT_QUERIES.length];
+  const urls = picks.map((s) => `https://www.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=25&raw_json=1`);
+  urls.push(`https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`);
+
+  const posts = st.posts;
+  let added = 0, seen = 0, error = "";
+  for (const url of urls) {
+    try {
+      const j = await huntFetch(url);
+      for (const child of (j.data && j.data.children) || []) {
+        seen += 1;
+        const cand = huntCandidate(child);
+        if (!cand) continue;
+        const prev = posts[cand.id];
+        if (prev) { prev.comments = cand.comments; prev.ups = cand.ups; continue; }
+        posts[cand.id] = cand;
+        added += 1;
+      }
+    } catch (e) { error = String(e.message || e); }
+    await sleep(1200);                         // stay well under Reddit's public pace
+  }
+  // Forget stale, untouched candidates so the store cannot grow forever.
+  const cutoff = Date.now() - HUNT_KEEP_DAYS * 86400000;
+  for (const [id, p] of Object.entries(posts)) {
+    if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
+  }
+  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: error, found: st.found + added });
+  return { ok: true, added, seen, error };
+}
+
+// The queue: fit-ranked, never anyone already contacted, never anything you
+// skipped or marked irrelevant.
+async function huntQueue(limit = 40) {
+  const st = await huntGet();
+  const now = Date.now();
+  const list = [];
+  let blocked = 0;
+  for (const p of Object.values(st.posts)) {
+    if (p.act === "skip" || p.act === "not_relevant" || p.dmAt) continue;
+    const prior = st.contacted[(p.author || "").toLowerCase()];
+    if (prior && prior.id !== p.id) { blocked += 1; continue; }
+    list.push({ ...p, score: huntScore(p, now) });
+  }
+  list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || b.score - a.score);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const contacted = Object.values(st.contacted);
+  return {
+    queue: list.slice(0, limit),
+    total: list.length,
+    blocked,
+    contactedTotal: contacted.length,
+    contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
+    on: st.on,
+    lastPoll: st.lastPoll,
+    lastError: st.lastError,
+    found: st.found,
+  };
+}
+
+async function huntAct(id, action) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false };
+  const now = Date.now();
+  if (action === "skip" || action === "not_relevant") p.act = action;
+  if (action === "replied") { p.repliedAt = now; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
+  if (action === "dm") {
+    p.dmAt = now;
+    const prev = st.contacted[p.author.toLowerCase()];
+    st.contacted[p.author.toLowerCase()] = { at: now, id, how: prev && prev.how === "reply" ? "reply+dm" : "dm", sub: p.sub };
+  }
+  if (action === "undo") { delete p.act; delete p.repliedAt; delete p.dmAt; if ((st.contacted[p.author.toLowerCase()] || {}).id === id) delete st.contacted[p.author.toLowerCase()]; }
+  p.actAt = now;
+  await huntSet({ posts: st.posts, contacted: st.contacted });
+  return { ok: true };
 }

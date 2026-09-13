@@ -1,8 +1,26 @@
-# Reddit Lead Threads v2.0 (private Chrome extension)
+# Reddit Lead Threads v2.1 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
-## Semi-automatic collection (the main way)
+## Co-founder hunt (start here)
+
+One job, one screen. Click the extension icon → **Co-founder hunt** → **Start watching**.
+
+Every minute it checks a rotating handful of subreddits where people ask for a partner (r/cofounder, r/CoFounderHunt, r/startups, r/Entrepreneur, r/indiehackers, r/SideProject, r/SaaS, r/ycombinator and others) plus one site-wide search, and keeps only real asks: recruiters, agencies, job seekers and people *offering* to be a co-founder are dropped. Each keeper is tagged with the role they want (technical, marketing, design, business), their stage, and whether they have money or are equity-only, then ranked so the freshest, best-fit post is in front of you.
+
+Then it is the same three moves, one post at a time:
+
+1. **Copy 3 lines** and paste them as the public comment. Three lines, no link, no price, no pitch — one specific observation about their situation, one free useful thing, one line saying a DM is coming. **Another angle** swaps in a different opener if the first does not fit.
+2. **Open DM, pre-filled ↗** opens Reddit's message compose with the subject and the long Laurel Portié style letter already in it: the real diagnosis, five numbered steps they can do this week, and an open door. Read it, edit it, send it.
+3. **Posted the reply** (`1`), **Sent the DM** (`2`), **Skip** (`s`), **Not relevant** (`x`). Sending moves you to the next post.
+
+**Nobody twice.** The moment you mark a reply or a DM, that username goes on a contacted list. Every future post by that person — a repost, a different idea, six months later — is hidden and counted under "Already contacted, hidden". **Undo last** puts the most recent one back if you misclicked.
+
+Nothing is ever posted or sent for you. The extension reads public JSON, fills in the text, and you click send on Reddit's own page. Set your sign-off name in Options → it appears at the bottom of every DM.
+
+## Everything below is the older lead scraper (popup → Advanced tools)
+
+## Semi-automatic collection
 
 An orange panel appears bottom-right on every `old.reddit.com` page.
 
@@ -27,12 +45,6 @@ Popup → **Batch sweep**. About 60 candidate subreddits are listed in groups (A
 **Parallel tabs.** Settings → Parallel tabs (1 to 4, default 2) and Max pages per minute across all tabs (default 24). All tabs pull from one shared queue under one global speed limit with random jitter. If Reddit answers "too many requests", every tab pauses 90 seconds and the cap drops 30 percent for the rest of the run. Closing a worker tab puts its item back in the queue for the others. Reading pages does not get an account banned; automated posting does, and this extension never posts.
 
 Suggested batches: *Discovery* (all eight searches, 5 pages, monthly) to find new subreddits, then confirm them on the dashboard; *Daily recent* (confirmed subreddits, newest, 3 pages, read 30 threads).
-
-## Central database, statuses, one file
-
-Everything lives in one database inside the extension. The dashboard opens on **Buyers · last 7 days · New**. Top bar: Time (Today / 7 / 30 / All), Who (Buyers / Sellers / Everything), Status tabs with counts (New, Seen, Replied, DM'd, Quoted, Won, Lost, Not a lead), a find box, keyword and subreddit dropdowns, a run dropdown, and Sort. Each row has a status dropdown, a Reply button, and a details toggle with a note field. The orange panel on a thread page also shows the status dropdown, so you can mark "Replied" right after posting. Statuses and notes survive future sweeps; a thread never comes back as New once you've touched it.
-
-**Central file.** Click **Choose central file…** in the header once and pick `reddit-leads.csv` anywhere on your disk. From then on the dashboard rewrites that same file after every sweep and every status or note change (while the dashboard is open), sorted by status. No more downloads. After a Chrome restart click **Reconnect file** once. Trends (stats, demand by keyword, subreddits, phrases, collection log) are on the second tab.
 
 ## Central database, statuses, one file
 

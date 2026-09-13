@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Co-founder hunt</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e8eaf0; --dim:#98a0b3; --ok:#2ea043; --or:#ff5722; --warn:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 18px; border-bottom:1px solid var(--line); background:#12141a; position:sticky; top:0; z-index:5; }
+  h1 { font-size:16px; margin:0; }
+  .stat { background:#1e222b; border:1px solid var(--line); border-radius:999px; padding:4px 11px; font-size:12px; color:var(--dim); }
+  .stat b { color:var(--fg); }
+  button { font:inherit; cursor:pointer; border-radius:7px; border:1px solid var(--line); background:#1e222b; color:var(--fg); padding:7px 12px; }
+  button:hover { background:#272c37; }
+  button.primary { background:var(--or); border-color:var(--or); color:#fff; font-weight:600; }
+  button.good { background:var(--ok); border-color:var(--ok); color:#fff; font-weight:600; }
+  button.ghost { background:transparent; }
+  main { max-width:1180px; margin:18px auto; padding:0 18px 60px; }
+  .wrap { display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { margin:0 0 8px; font-size:17px; line-height:1.35; }
+  .card h2 a { color:var(--fg); text-decoration:none; }
+  .card h2 a:hover { text-decoration:underline; }
+  .meta { color:var(--dim); font-size:12px; margin-bottom:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .tag { border:1px solid var(--line); border-radius:5px; padding:1px 7px; background:#20242e; color:var(--fg); font-size:11px; }
+  .tag.tech { border-color:#2f6feb; color:#8ab4ff; }
+  .tag.money { border-color:var(--ok); color:#7ee29a; }
+  .tag.equity { border-color:var(--warn); color:#e6c76b; }
+  .body { white-space:pre-wrap; max-height:340px; overflow:auto; color:#c8cede; font-size:13px; border-top:1px solid var(--line); padding-top:10px; }
+  .step { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 6px; }
+  .step b { color:var(--or); }
+  textarea { width:100%; background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font:13px/1.5 inherit; resize:vertical; }
+  #short { height:108px; }
+  #dm { height:300px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+  .sep { height:1px; background:var(--line); margin:16px 0; }
+  .done { color:var(--ok); font-size:12px; }
+  .empty { text-align:center; color:var(--dim); padding:60px 20px; }
+  kbd { background:#20242e; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 5px; font-size:11px; }
+  .foot { color:var(--dim); font-size:12px; margin-top:14px; }
+  [hidden] { display:none !important; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+
+<header>
+  <h1>Co-founder hunt</h1>
+  <button id="toggle" class="primary">Start watching</button>
+  <button id="now" class="ghost">Check now</button>
+  <span class="stat">In queue <b id="sQueue">0</b></span>
+  <span class="stat">Contacted today <b id="sToday">0</b></span>
+  <span class="stat">Contacted ever <b id="sEver">0</b></span>
+  <span class="stat">Already contacted, hidden <b id="sBlocked">0</b></span>
+  <span class="stat" id="sPoll">never checked</span>
+</header>
+
+<main>
+  <div id="empty" class="empty" hidden>
+    <p><b>No one in the queue right now.</b></p>
+    <p>Press <b>Start watching</b> and leave this tab open. It checks a few subreddits every minute and new co-founder posts appear here, freshest and best-fit first.</p>
+  </div>
+
+  <div id="wrap" class="wrap" hidden>
+    <section class="card">
+      <h2><a id="title" target="_blank" rel="noopener"></a></h2>
+      <div class="meta" id="meta"></div>
+      <div class="body" id="body"></div>
+    </section>
+
+    <section class="card">
+      <p class="step"><b>Step 1</b> · the public reply (3 lines, nothing more)</p>
+      <textarea id="short"></textarea>
+      <div class="row">
+        <button id="copyShort" class="primary">Copy 3 lines</button>
+        <button id="variant" class="ghost">Another angle</button>
+        <button id="openPost" class="ghost">Open the post ↗</button>
+        <span id="repliedMark" class="done" hidden>✓ replied</span>
+      </div>
+
+      <div class="sep"></div>
+
+      <p class="step"><b>Step 2</b> · the DM (the long one)</p>
+      <textarea id="dm"></textarea>
+      <div class="row">
+        <button id="copyDm" class="primary">Copy DM</button>
+        <button id="openDm" class="good">Open DM, pre-filled ↗</button>
+        <span id="dmMark" class="done" hidden>✓ sent</span>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="row">
+        <button id="didReply">Posted the reply <kbd>1</kbd></button>
+        <button id="didDm" class="good">Sent the DM → next <kbd>2</kbd></button>
+        <button id="skip" class="ghost">Skip <kbd>s</kbd></button>
+        <button id="bad" class="ghost">Not relevant <kbd>x</kbd></button>
+        <button id="undo" class="ghost">Undo last</button>
+      </div>
+      <p class="foot">Marking <b>Posted the reply</b> or <b>Sent the DM</b> puts this person on the contacted list. They will never show up here again, on this post or any future one.</p>
+    </section>
+  </div>
+</main>
+<script src="lib.js"></script>
+<script src="hunt.js"></script>
