@@ -398,14 +398,24 @@ HEAT.matchedKeywords = function (keywords, text) { return HEAT.matchKeywords(key
 // ---------------------------------------------------------------------------
 // Post typing and price extraction
 // ---------------------------------------------------------------------------
+// Job seekers and job postings are not website buyers. Detect them first.
+const JOBSEEKER_RE = /looking for (a |an )?(new |remote |full[- ]time |part[- ]time |digital marketing |marketing |developer |design )*(job|opportunit|role|position|work|internship|gig)|immediate joiner|notice period|open to (remote|hybrid|on-?site|new)|seeking (a |an )?(job|role|position|employment|opportunit)|hire me|resume|\bcv\b|years? of experience (working|in|as)|(fresher|graduate) looking|any (openings|referrals)|referrals? (would|appreciated)|open to work|available for (full|part)[- ]time/i;
+const JOBPOST_RE = /\b(salary|per annum|\blpa\b|\bctc\b|full[- ]time (position|role|employee)|we are hiring (a|an) (senior|junior|mid)|job (description|opening|requirements)|apply (here|now|at)|\b\d+\+? ?(yrs|years) (of )?experience (required|needed)|benefits (include|package)|401k|equity)\b/i;
+// The ask must be about something a web builder can deliver.
+const WEBCTX_RE = /web ?site|\bsite\b|landing ?page|home ?page|web (dev|design|developer|designer|page|app)|wordpress|shopify|wix|squarespace|godaddy|webflow|framer|lovable|bolt\.new|\bv0\b|vibe.?cod|online store|e-?commerce|\bapp\b|domain|hosting|\bseo\b|google (business|maps|profile)|not (showing|ranking) (up )?on google|booking (system|page)|portfolio site/i;
+
 HEAT.classifyPost = function (title, body) {
   const t = (title || "").toLowerCase();
-  const all = (t + "\n" + (body || "").slice(0, 2000)).toLowerCase();
-  if (/\[(hiring|task)\]|\bhiring\b|need a (web|website|developer|designer|landing)|need (someone|help)|looking for (a|an|someone)|who can (build|fix|finish|help)|can (anyone|someone) (build|fix|finish|help)|recommend|how much|quoted me|is it worth|worth (hiring|paying)|my (website|site|app) (sucks|is outdated|is broken|isn'?t working|won'?t)|website help|help with my (website|site|store|landing)|(fix|finish|rebuild|redo|migrate|deploy) my (website|site|app|store)|(lovable|bolt|v0|vibe.?cod|ai.?(built|made|generated)|chatgpt|cursor)\b.*\b(site|website|app|landing|store)|(site|website|app|landing|store)\b.*\b(lovable|bolt\.new|vibe.?cod|built with ai)|not (showing|ranking|converting|loading|working)|ghosted|scammed/.test(t)) return "demand";
-  if (/\bfree\b|giveaway|for a testimonial|in exchange for|first (3|5|10)\b/.test(t)) return "freebie";
+  const b = (body || "").slice(0, 2000).toLowerCase();
+  const all = t + "\n" + b;
+  if (JOBSEEKER_RE.test(t) || (JOBSEEKER_RE.test(b) && !WEBCTX_RE.test(t))) return "job";
+  if (JOBPOST_RE.test(all) && !/landing page|website (for|redesign|build)/i.test(t)) return "job";
+  const demandAsk = /\[(hiring|task)\]|\bhiring\b|need (a |an |some |someone to )?(web|website|developer|designer|landing|dev\b|help)|looking for (a |an |someone )?(web|website|developer|designer|dev\b|freelancer|agency|someone to (build|fix|make|finish))|who can (build|fix|finish|help|make)|can (anyone|someone) (build|fix|finish|help|make|recommend)|recommend(ations?)? (a |an |for )?(web|website|developer|designer|agency|freelancer)|how much (does|should|would|to|for|is)|quoted me|got quoted|is it worth|worth (hiring|paying)|my (website|site|app|store) (sucks|is outdated|is broken|isn'?t working|won'?t|looks|doesn'?t)|website help|help with my (website|site|store|landing|app)|(fix|finish|rebuild|redo|migrate|deploy|update) my (website|site|app|store)|(lovable|bolt|v0|vibe.?cod|ai.?(built|made|generated)|chatgpt|cursor)\b.*\b(site|website|app|landing|store)|(site|website|app|landing|store)\b.*\b(lovable|bolt\.new|vibe.?cod|built with ai)|not (showing|ranking|converting|loading|working)|(designer|developer|dev|agency) (ghosted|scammed|disappeared)|ghosted (me|us)|scammed (me|us)/;
+  if (demandAsk.test(t) && WEBCTX_RE.test(all)) return "demand";
+  if (/\bfree\b|giveaway|for a testimonial|in exchange for|first (3|5|10)\b/.test(t) && WEBCTX_RE.test(all)) return "freebie";
   if (/\bama\b|here'?s how|here is how|lessons? learned|what i learned|i made \$|case study|breakdown|value bomb|how i (got|landed|built|made)/.test(t)) return "value";
-  if (/\[(for hire|offer)\]|\bfor hire\b|\boffer\b|i(?:'ll| will) build|build you(?:r)? (?:a )?website|websites? for \$?\d|starting at|flat fee|\$\d+/.test(t)) return "offer";
-  if (/\[(for hire|offer)\]/.test(all)) return "offer";
+  if (/\[(for hire|offer)\]|\bfor hire\b|\boffer\b|i(?:'ll| will) build|build you(?:r)? (?:a )?website|websites? for \$?\d|starting at|flat fee|\$\d+/.test(t) && WEBCTX_RE.test(all)) return "offer";
+  if (/\[(for hire|offer)\]/.test(all) && WEBCTX_RE.test(all)) return "offer";
   return "other";
 };
 
@@ -535,7 +545,13 @@ HEAT.postFromChild = function (c, sub, compiled) {
 
 // Keep a crawled post if any keyword matched, or it is clearly an offer /
 // demand / freebie / value post even without a keyword hit.
-HEAT.keepPost = function (post) { return (post.keywords && post.keywords.length > 0) || post.type !== "other"; };
+HEAT.keepPost = function (post) {
+  if (post.ignored) return false;
+  if (["offer", "demand", "freebie", "value"].includes(post.type)) return true;
+  if (post.type === "job") return false;
+  // keyword-only hit: only if the thread is actually about a website / web work
+  return !!(post.keywords && post.keywords.length && WEBCTX_RE.test((post.title || "") + " " + (post.body || "")));
+};
 
 // Lead score = evidence that the thread produced real prospects.
 // Heat = how fast it is moving right now.
@@ -561,7 +577,7 @@ HEAT.heatScore = function (post, snaps, now = Date.now(), windowMs = 48 * 3600 *
 // Opportunity = a demand thread you could answer now: recent, unanswered,
 // with a budget or a clear ask, not already swarmed.
 HEAT.opportunityScore = function (post, now = Date.now()) {
-  if (post.type !== "demand") return 0;
+  if (post.type !== "demand" || post.ignored) return 0;
   const ageDays = Math.max(0, (now - (post.created || 0)) / 86400000);
   const text = (post.title || "") + " " + (post.body || "");
   const budget = /(\$|€|£)\s?\d{2,5}|\bbudget\b/i.test(text) ? 6 : 0;
@@ -670,7 +686,7 @@ HEAT.IDEA_POOL = [
 
 HEAT.buildIdeas = function (posts, confirmedSubs = [], now = Date.now()) {
   const list = Object.values(posts || {});
-  const demand = list.filter((p) => p.type === "demand");
+  const demand = list.filter((p) => p.type === "demand" && !p.ignored);
   const ideas = HEAT.IDEA_POOL.map((idea) => {
     const hits = demand.filter((p) => idea.match.test((p.title || "") + " " + (p.body || "")));
     const recent = hits.filter((p) => now - (p.created || 0) < 30 * 86400000);
@@ -759,4 +775,106 @@ HEAT.buildSweepQueue = function (subs, queryKeys, pages, sort) {
   for (const s of subs || []) q.push({ kind: "sub", sub: s, label: `r/${s}`, pages, url: HEAT.sweepUrl({ kind: "sub", sub: s }, sort) });
   for (const k of queryKeys || []) { const d = HEAT.DISCOVERY_QUERIES.find((x) => x.key === k); if (d) q.push({ kind: "query", key: k, label: d.label, pages, url: HEAT.sweepUrl({ kind: "query", q: d.q }, sort) }); }
   return q;
+};
+
+// ---------------------------------------------------------------------------
+// Value-bomb replies (Laurel Portié style): lead with their exact situation,
+// diagnose it, give the complete fix in steps they can do today, no link,
+// no price, no pitch; end with an open door. Subreddit-rule safe.
+// ---------------------------------------------------------------------------
+HEAT.REPLY_PLAYBOOKS = [
+  { key: "ai-broken", match: /lovable|bolt\.new|\bv0\b|vibe.?cod|built with ai|ai.?(built|made|generated)|chatgpt|cursor|finish my (site|app)|someone to finish|deploy|checkout (is )?broken|auth/i,
+    diagnose: "Nine times out of ten an AI-built site that \"almost works\" is failing at one of three seams: the generated code calls an API key or backend that only existed in the builder's preview, the form or checkout posts to a placeholder endpoint, or the deploy points at a build that is older than the code you see.",
+    steps: [
+      "Open the live site, press F12 → Console, reload, and copy the first red error. That line names the seam. If it mentions 401/403 or \"undefined\" next to a key, it is an environment-variable problem: the key is set in the builder but not in your host (Vercel/Netlify/Lovable → Settings → Environment variables). Add it there and redeploy.",
+      "Test the broken action (checkout, form, login) with the Network tab open. Click it, look for the request that turns red. If the URL contains \"localhost\", \"example\", or \"your-api\", the code still has a placeholder; search the project for that string and replace it with the real URL.",
+      "If it works on desktop but not on phone, it is almost always a fixed-width container. Search the CSS for \"width: 1\" (e.g. 1200px) and change those to max-width with width 100%.",
+      "Before touching anything else, export the code (Lovable → GitHub sync, Bolt → download) so you have a copy that isn't locked in the builder. Fixes are far easier in a real editor.",
+      "Deploy from that exported repo, not from the builder, so the version on your domain is exactly the version you fixed.",
+    ],
+    watch: "Don't let anyone \"rebuild it from scratch\" as the first answer. What you have is usually 80% done; it needs the last 20%, which is a few hours, not a new project." },
+  { key: "google", match: /not (showing|ranking|appearing|found)|google (business|profile|maps)|\bseo\b|index|can'?t find my (site|website)/i,
+    diagnose: "\"Not showing on Google\" is usually one of three separate problems that look the same: the site isn't indexed at all, it's indexed but has no page that matches what people search, or your Google Business Profile isn't linked to it.",
+    steps: [
+      "Search Google for site:yourdomain.com (no spaces). Zero results = not indexed. Fix: add the site to Google Search Console (free), submit the sitemap (usually yourdomain.com/sitemap.xml; Wix/Squarespace/Shopify all generate one), then use \"Request indexing\" on the home page. Takes 2 to 14 days.",
+      "If results appear but not for your service: your home page title is probably your brand name only. Change the page title to \"[Service] in [City] | [Brand]\", e.g. \"Emergency Plumber in Austin | Smith Plumbing\", and put that same phrase in the first heading and first paragraph.",
+      "Create or claim your Google Business Profile at business.google.com, pick the most specific primary category, add your website URL, 10 real photos, and your service area. For local searches this matters more than the website.",
+      "Make one page per service you want to be found for (\"water heater repair\", \"drain cleaning\"), each with 300+ words of your own words and a phone number. One page trying to rank for everything ranks for nothing.",
+      "Ask your last five happy customers for a Google review this week. Reviews are the biggest ranking lever in the map pack.",
+    ],
+    watch: "Ignore anyone selling \"guaranteed page 1\" or 500 backlinks. For a local business, the four steps above are the whole game for the first six months." },
+  { key: "ghosted", match: /ghosted|scammed|disappeared|never finished|half.?(done|built|finished)|took my (money|deposit)|abandoned/i,
+    diagnose: "Sorry, this is common and it's not your fault. The good news: you almost always own more than you think, and you can lock it down today before anything else.",
+    steps: [
+      "Find out who controls the three things that matter: the domain (check at who.is; the registrar and the account email), the hosting, and the site files. If any account is in your name, change the password now and turn on 2FA.",
+      "If the domain is in the designer's name, email them a short written request to transfer it to a registrar account you own (Namecheap, Cloudflare). Domain ownership is the one thing that can really hold you hostage; everything else is replaceable.",
+      "Ask for a copy of whatever exists: for WordPress a full-site export or backup file, for Wix/Squarespace the login to the site, for custom code a zip or GitHub repo. Even a half-built site saves days.",
+      "Write down exactly what was promised, what was paid, and dates. If it was PayPal Goods & Services or a card, you have a dispute window (usually 180 days PayPal, 120 days card). File it with that timeline; it often gets money back or a sudden reply.",
+      "Whoever finishes it next: agree a written scope, milestone payments, and that every account is created in YOUR name from day one.",
+    ],
+    watch: "Don't pay anyone a new full deposit until step 1 is done. You want the domain and files in your hands before another dollar moves." },
+  { key: "pricing", match: /how much (does|should|would|to|for|is)|quoted|quote|fair price|overpriced|rip ?off|worth it|budget/i,
+    diagnose: "Prices for a small business website range from $100 to $10k because they are different products with the same name. Here is how to tell what you're actually being quoted for, so you can compare like with like.",
+    steps: [
+      "Ask each person for the scope in five lines: number of pages, who writes the text, who supplies photos, what happens with hosting and domain, and what's included after launch (edits, updates, support). A $500 and a $3,000 quote often differ only in the last three.",
+      "Rough 2026 anchors people report on here: DIY builder $200–600/yr; template-based 5-page site from a freelancer $500–1,500; custom design with copywriting and SEO setup $2,000–4,000; e-commerce $3,000+. Under about $500 you're buying a template with your logo on it, which is fine if that's what you need.",
+      "Ask what you own at the end: domain in your name, admin login, ability to move hosts. If the answer is vague, walk away regardless of price.",
+      "Pay in milestones (e.g. 40/40/20) through PayPal Goods & Services or Stripe, never full upfront to someone you found online.",
+      "Decide what the site must DO before comparing: get calls, take bookings, sell products, or just exist so you look real. Each needs a different build, and the cheapest one that does your job is the right one.",
+    ],
+    watch: "Be suspicious of anyone who quotes without asking a single question about your business." },
+  { key: "landing", match: /landing ?page|facebook ads|google ads|\bppc\b|\bads\b|not converting|conversion/i,
+    diagnose: "If ads are sending people to a page that doesn't convert, the fix is usually in the page, not the ad. The page has one job: match the promise in the ad and make the next step obvious.",
+    steps: [
+      "Headline = the exact promise from the ad, same words. If the ad says \"$99 gutter cleaning this week\", the page headline is \"$99 gutter cleaning this week\", not your company tagline.",
+      "One action only. Remove the menu, the footer links, the social icons. A single form or call button, repeated at top, middle, bottom.",
+      "Proof above the fold: one review with a name and town, or a before/after photo, or a number (\"412 homes this year\").",
+      "Speed test the page on your phone on mobile data. If it takes more than 3 seconds, compress images (tinypng.com) and remove any embedded video. Most ad traffic is mobile.",
+      "Install the pixel and set the form submit as the conversion event, then let the ad run 7 days before judging. Under 50 clicks tells you nothing.",
+    ],
+    watch: "A 2–5% form rate on cold ad traffic is normal. If you're at 0.5% the page is the problem; if you're at 3% and unhappy, the offer or targeting is." },
+  { key: "slow", match: /slow|speed|loading|mobile|phone|responsive|broken|not working|not loading/i,
+    diagnose: "A slow or broken-on-phone site is almost always images and plugins, not \"bad hosting\", and you can fix most of it yourself in an hour.",
+    steps: [
+      "Run the site through pagespeed.web.dev on mobile. Look only at the first three items under \"Opportunities\"; they are usually \"properly size images\", \"eliminate render-blocking resources\" and \"reduce unused JavaScript\".",
+      "Images: anything over 300 KB is too big for a web page. Resize to max 1600px wide and compress with tinypng.com or squoosh.app, then re-upload. This alone usually halves load time.",
+      "If WordPress: deactivate every plugin you don't remember installing, then install one caching plugin (LiteSpeed Cache or WP Rocket). Sliders, page-builder add-ons and social feeds are the usual culprits.",
+      "Mobile layout broken: open the site on your phone, find the element that overflows, and in the builder set its width to 100% / auto instead of a fixed pixel width.",
+      "Check that you're on PHP 8+ and HTTPS; both are one-click in most hosting panels and both affect speed.",
+    ],
+    watch: "Don't move hosts as the first step. Nine out of ten slow sites are slow on any host until the images and plugins are handled." },
+  { key: "need-site", match: /need (a |an )?(website|web|site|landing|developer|designer)|looking for (a |an |someone)|who can build|recommend|no website|don'?t have a website|do i need a website/i,
+    diagnose: "Before choosing who builds it, decide what it has to do. For most local and service businesses the answer is \"make the phone ring and look legit when someone Googles us\", and that needs a lot less than people are often sold.",
+    steps: [
+      "Write the five pages on paper first: Home (what you do, where, one call button), Services (one section per service), About (photo of you, why you), Reviews (copy five real ones), Contact (phone, form, map, hours). Anyone can build this in a week once the words exist.",
+      "Get the words done before design. Write like you talk to a customer on the phone. Text is the part every builder will ask you for, and it's the part that stalls projects for months.",
+      "Buy the domain yourself, in your own account (Namecheap or Cloudflare, about $12/yr). Never let a builder register it for you.",
+      "Then decide the route: DIY on Wix/Squarespace if you have a weekend and no budget; a freelancer if you want it done properly and want to own it; an agency only if you need e-commerce or integrations.",
+      "Whatever route: ask for a Google Business Profile to be set up and linked, and for the site to be handed over with admin login and a 10-minute walkthrough on how to change text and photos.",
+    ],
+    watch: "The site that gets finished beats the perfect site that doesn't. Five plain pages live this month is worth more than a redesign next quarter." },
+];
+
+HEAT.pickPlaybook = function (post) {
+  const text = (post.title || "") + " " + (post.body || "");
+  return HEAT.REPLY_PLAYBOOKS.find((p) => p.match.test(text)) || HEAT.REPLY_PLAYBOOKS[HEAT.REPLY_PLAYBOOKS.length - 1];
+};
+
+// Pull a short quote of their situation for the opening line.
+HEAT.situationLine = function (post) {
+  const t = (post.title || "").replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim().replace(/[?!.]+$/, "");
+  return t.length > 110 ? t.slice(0, 107) + "…" : t;
+};
+
+HEAT.valueBombReply = function (post, profile = {}) {
+  const pb = HEAT.pickPlaybook(post);
+  const body = (post.body || "").toLowerCase();
+  const mentions = [];
+  for (const [re, label] of [[/\bwix\b/, "Wix"], [/squarespace/, "Squarespace"], [/shopify/, "Shopify"], [/wordpress/, "WordPress"], [/lovable/, "Lovable"], [/bolt/, "Bolt"], [/webflow/, "Webflow"], [/godaddy/, "GoDaddy"], [/framer/, "Framer"]]) if (re.test(body) || re.test((post.title || "").toLowerCase())) mentions.push(label);
+  const platform = mentions.length ? ` Since you're on ${mentions[0]}, the steps below are ${mentions[0]}-specific where it matters.` : "";
+  const price = (post.body || "").match(/(\$|€|£)\s?\d{2,5}/);
+  const budgetLine = price ? ` A ${price[0].replace(/\s/, "")} budget is workable for this if it's scoped right, so don't let anyone tell you it isn't.` : "";
+  const steps = pb.steps.map((s, i) => `${i + 1}. ${s}`).join("\n\n");
+  const sign = profile.name ? `\n\n– ${profile.name}${profile.role ? `, ${profile.role}` : ""}` : "";
+  return `Re: "${HEAT.situationLine(post)}"\n\n${pb.diagnose}${platform}${budgetLine}\n\nHere's exactly what I'd do, in order:\n\n${steps}\n\n${pb.watch}\n\nIf you get stuck on any step, reply here with what you see and I'll walk you through it. No charge for that, and no need to hire anyone for most of the above.${sign}`;
 };

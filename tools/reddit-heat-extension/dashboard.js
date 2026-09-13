@@ -1,10 +1,12 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const TYPES = ["offer", "freebie", "value", "demand", "other"];
+const TYPES = ["offer", "freebie", "value", "demand", "job", "other"];
+let showIgnored = false;
 const PRICE_BANDS = ["free", "under $200", "$200–599", "$600–1499", "$1500+", "hourly", "no price"];
 
 let all = [], rows = [], log = [];
-const f = { type: new Set(), group: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
+const f = { type: new Set(["offer", "demand", "freebie", "value"]), group: new Set(), run: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
+const selected = new Set();
 let config = {};
 let sortKey = "leadScore", sortDir = -1;
 const open = new Set();
@@ -21,7 +23,7 @@ async function load() {
   const { posts = {}, snaps = {}, meta = {}, log: lg = [], config: cfg = {} } = await chrome.storage.local.get(["posts", "snaps", "meta", "log", "config"]);
   config = cfg;
   const now = Date.now();
-  all = Object.values(posts).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price) }));
+  all = Object.values(posts).filter((p) => showIgnored || !p.ignored).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price), ignored: !!p.ignored, manual: !!p.manual, runs: p.runs || [], replied: p.replied || 0 }));
   log = lg;
   $("ver").textContent = "v" + chrome.runtime.getManifest().version;
   const read = all.filter((r) => r.analysed);
@@ -43,7 +45,8 @@ function chips(el, items, set, cls) {
 
 function renderFilters() {
   const count = (fn) => { const m = {}; for (const r of all) for (const v of fn(r)) m[v] = (m[v] || 0) + 1; return m; };
-  const tc = count((r) => [r.type]), gc = count((r) => r.groups), sc = count((r) => [r.sub]), pc = count((r) => [r.band]);
+  const tc = count((r) => [r.type]), gc = count((r) => r.groups), sc = count((r) => [r.sub]), pc = count((r) => [r.band]), rc = count((r) => r.runs.length ? r.runs : ["(untagged)"]);
+  chips($("f-run"), Object.entries(rc).sort((a, b) => b[1] - a[1]).slice(0, 12), f.run);
   chips($("f-type"), TYPES.filter((t) => tc[t]).map((t) => [t, tc[t]]), f.type, true);
   chips($("f-group"), Object.entries(gc).sort((a, b) => b[1] - a[1]), f.group);
   chips($("f-sub"), Object.entries(sc).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([s, n]) => ["r/" + s, n]), f.sub);
@@ -61,6 +64,7 @@ function apply() {
     (now - Date.parse(r.posted) <= f.days * 86400000) &&
     (!f.type.size || f.type.has(r.type)) &&
     (!f.group.size || r.groups.some((g) => f.group.has(g))) &&
+    (!f.run.size || (r.runs.length ? r.runs : ["(untagged)"]).some((x) => f.run.has(x))) &&
     (!f.sub.size || f.sub.has("r/" + r.sub)) &&
     (!f.price.size || f.price.has(r.band)) &&
     (!f.kw || r.keywords.includes(f.kw)) &&
@@ -157,6 +161,7 @@ function renderTable() {
   for (const r of sorted.slice(0, 600)) {
     const tr = document.createElement("tr"); tr.className = "row"; tr.dataset.id = r.id;
     const td = (html, cls) => { const d = document.createElement("td"); d.innerHTML = html; if (cls) d.className = cls; tr.appendChild(d); };
+    td(`<input type="checkbox" data-sel="${esc(r.id)}" ${selected.has(r.id) ? "checked" : ""}>`);
     td(`<span class="lead ${!r.analysed ? "na" : r.leadScore >= Math.max(8, top * 0.5) ? "hot" : ""}">${r.analysed ? r.leadScore : "·"}</span>`, "num");
     td(r.type === "demand" ? `<span class="lead ${r.opportunity >= 15 ? "hot" : ""}">${r.opportunity}</span>` : '<span class="lead na">·</span>', "num");
     td(`<span class="tag t-${r.type}">${r.type}</span>`);
@@ -168,18 +173,29 @@ function renderTable() {
     td(String(r.opReplies), "num");
     td(r.heckles ? `<span class="tag t-bad">${r.heckles}</span>` : "0", "num");
     td(r.posted);
-    td(`<div class="ttl"><div class="t">${r.closed ? '<span class="tag t-good">booked</span> ' : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) + (r.keywords.length > 3 ? ` +${r.keywords.length - 3}` : "") : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
-    tr.addEventListener("click", (e) => { if (e.target.closest("a")) return; open.has(r.id) ? open.delete(r.id) : open.add(r.id); renderTable(); });
+    td(`<div class="ttl"><div class="t">${r.replied ? '<span class="tag t-good" title="you marked this replied">replied</span> ' : ""}${r.closed ? '<span class="tag t-good">booked</span> ' : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) + (r.keywords.length > 3 ? ` +${r.keywords.length - 3}` : "") : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
+    tr.querySelector("[data-sel]").addEventListener("click", (e) => { e.stopPropagation(); e.target.checked ? selected.add(r.id) : selected.delete(r.id); updateSelCount(); });
+    tr.addEventListener("click", (e) => { if (e.target.closest("a") || e.target.closest("input")) return; open.has(r.id) ? open.delete(r.id) : open.add(r.id); renderTable(); });
     tb.appendChild(tr);
     if (open.has(r.id)) {
       const d = document.createElement("tr"); d.className = "detail";
-      d.innerHTML = `<td colspan="12"><div class="detail"><div class="grid"><div><h4>Post by u/${esc(r.author)}${r.flair ? " · " + esc(r.flair) : ""}</h4><div class="body-text">${esc(r.body) || "<i>no body captured</i>"}</div>${r.linkUrl ? `<div style="margin-top:6px"><a href="${esc(r.linkUrl)}" target="_blank">${esc(r.linkUrl)}</a></div>` : ""}</div><div><h4>Matched keywords</h4><div>${r.keywords.map((k) => `<span class="chip" style="cursor:default">${esc(k)}</span>`).join(" ") || "<i>none, kept by type</i>"}</div><h4 style="margin-top:12px">Classified replies ${r.analysed ? `(${r.uniqueCommenters} people)` : ""}</h4>${r.analysed ? (r.replies.length ? `<ul>${r.replies.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<i>no buyer / hand-raise / booked replies found</i>") : `<i>Comments not read yet. <a href="${esc(r.url)}" target="_blank">Open the thread</a> and click “Save this thread's comments”.</i>`}</div></div></div></td>`;
+      d.innerHTML = `<td colspan="12"><div class="detail"><div class="grid"><div><h4>Post by u/${esc(r.author)}${r.flair ? " · " + esc(r.flair) : ""}</h4><div class="body-text">${esc(r.body) || "<i>no body captured</i>"}</div>${r.linkUrl ? `<div style="margin-top:6px"><a href="${esc(r.linkUrl)}" target="_blank">${esc(r.linkUrl)}</a></div>` : ""}</div><div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${r.ignored ? `<button class="btn" data-ov="restore" data-id="${esc(r.id)}">Restore</button>` : `<button class="btn" data-ov="ignore" data-id="${esc(r.id)}" title="wrong identification: hide it everywhere and keep it out of ideas">✕ Not a lead</button>`}${["demand", "offer", "freebie", "value", "job", "other"].filter((t) => t !== r.type).map((t) => `<button class="btn" data-ov="type" data-t="${t}" data-id="${esc(r.id)}" title="change type">${t}</button>`).join("")}${r.manual ? '<span class="tag t-good" style="align-self:center">manually set</span>' : ""}</div><h4>Matched keywords</h4><div>${r.keywords.map((k) => `<span class="chip" style="cursor:default">${esc(k)}</span>`).join(" ") || "<i>none, kept by type</i>"}</div><h4 style="margin-top:12px">Classified replies ${r.analysed ? `(${r.uniqueCommenters} people)` : ""}</h4>${r.analysed ? (r.replies.length ? `<ul>${r.replies.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<i>no buyer / hand-raise / booked replies found</i>") : `<i>Comments not read yet. <a href="${esc(r.url)}" target="_blank">Open the thread</a> and click “Save this thread's comments”.</i>`}</div></div></div></td>`;
+      d.querySelectorAll("[data-ov]").forEach((b) => b.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const patch = b.dataset.ov === "ignore" ? { ignored: true } : b.dataset.ov === "restore" ? { ignored: false } : { type: b.dataset.t, ignored: false };
+        await chrome.runtime.sendMessage({ type: "override", id: b.dataset.id, patch });
+        load();
+      }));
       tb.appendChild(d);
     }
   }
 }
 
-document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "title" || k === "sub" || k === "type" ? 1 : -1; } renderTable(); }));
+function updateSelCount() { $("replies").textContent = `Replies for selected (${selected.size})`; }
+$("sel-all").addEventListener("change", (e) => { rows.forEach((r) => e.target.checked ? selected.add(r.id) : selected.delete(r.id)); renderTable(); updateSelCount(); });
+$("replies").addEventListener("click", async () => { if (!selected.size) return alert("Tick one or more threads in the table first."); await chrome.storage.local.set({ replySelection: Array.from(selected) }); location.href = "replies.html"; });
+$("clear-run").addEventListener("click", () => { f.run.clear(); renderFilters(); apply(); });
+document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (!k) return; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "title" || k === "sub" || k === "type" ? 1 : -1; } renderTable(); }));
 $("f-kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); });
 $("dk-days").addEventListener("change", renderDemandByKeyword);
 $("f-days").addEventListener("change", (e) => { f.days = Number(e.target.value); apply(); });
@@ -189,6 +205,8 @@ $("f-confirmed").addEventListener("change", (e) => { f.confirmed = e.target.chec
 $("q").addEventListener("input", (e) => { f.q = e.target.value.trim().toLowerCase(); apply(); });
 $("clear-group").addEventListener("click", () => { f.group.clear(); renderFilters(); apply(); });
 $("clear-sub").addEventListener("click", () => { f.sub.clear(); renderFilters(); apply(); });
+$("reclass").addEventListener("click", async () => { const r = await chrome.runtime.sendMessage({ type: "reclassify" }); $("reclass").textContent = `re-checked (${r.changed} changed)`; setTimeout(() => ($("reclass").textContent = "re-check types"), 2500); load(); });
+$("show-ignored").addEventListener("click", () => { showIgnored = !showIgnored; $("show-ignored").textContent = showIgnored ? "hide ignored" : "show ignored"; load(); });
 $("expand-all").addEventListener("click", () => { if (open.size) open.clear(); else rows.forEach((r) => open.add(r.id)); renderTable(); });
 $("csv").addEventListener("click", () => {
   const blob = new Blob(["﻿" + toCsv(rows.slice().sort((a, b) => b.leadScore - a.leadScore || b.heat - a.heat))], { type: "text/csv" });

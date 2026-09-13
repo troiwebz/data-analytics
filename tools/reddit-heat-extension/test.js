@@ -28,12 +28,25 @@ assert.strictEqual(H.classifyPost("I'll build a free website for the first 5 bus
 assert.strictEqual(H.classifyPost("[Hiring] Need a website for my bakery, budget $800", ""), "demand");
 assert.strictEqual(H.classifyPost("Here's how I got 12 web design clients from Reddit in 30 days", ""), "value");
 assert.strictEqual(H.classifyPost("How much should a 5 page site cost?", ""), "demand");
-assert.strictEqual(H.classifyPost("Random title", "[For Hire] in body"), "offer");
+assert.strictEqual(H.classifyPost("Random title", "[For Hire] I build websites, see body"), "offer");
+assert.strictEqual(H.classifyPost("Random title", "[For Hire] in body, no web context"), "other");
 assert.strictEqual(H.classifyPost("Photo of my cat", "cute"), "other");
 assert.strictEqual(H.classifyPost("Built my site with Lovable, checkout is broken, who can fix it?", ""), "demand");
 assert.strictEqual(H.classifyPost("Can anyone finish my vibe coded app? Budget $400", ""), "demand");
 assert.strictEqual(H.classifyPost("Wix site not showing up on Google, help", ""), "demand");
 assert.strictEqual(H.classifyPost("My web designer ghosted me after the deposit", ""), "demand");
+// job seekers and job postings must not be demand
+assert.strictEqual(H.classifyPost("Looking for a Digital Marketing / Performance Marketing Job – Immediate Joiner", "I have 4 years of experience working across Website Growth. If you know of any openings or are hiring, please DM me."), "job");
+assert.strictEqual(H.classifyPost("Open to remote opportunities, 3 yrs React dev", "resume attached"), "job");
+assert.strictEqual(H.classifyPost("[Hiring] Senior Frontend Engineer, full-time, $120k salary + equity", "job description: 5+ years experience required"), "job");
+assert.strictEqual(H.classifyPost("Looking for a co-founder for my startup", ""), "other");
+assert.strictEqual(H.classifyPost("How much should I charge my roommate for rent?", ""), "other");
+// but a real web ask with a hiring tag is still demand
+assert.strictEqual(H.classifyPost("[Hiring] Need a landing page for our ad campaign, budget $400", ""), "demand");
+assert.ok(!H.keepPost({ type: "job", keywords: [] }));
+assert.ok(!H.keepPost({ type: "other", keywords: ["restaurant website"], title: "Best restaurant in town?", body: "looking for dinner" }));
+assert.ok(H.keepPost({ type: "other", keywords: ["restaurant website"], title: "Restaurant website menu page keeps breaking", body: "" }));
+assert.ok(!H.keepPost({ type: "demand", keywords: ["x"], ignored: true }));
 
 // opportunity: fresh, budget, ask, unanswered
 const nowO = Date.now();
@@ -145,3 +158,14 @@ assert.strictEqual(H.sweepUrl({ kind: "query", q: "x" }, "new"), "https://old.re
 const dbk = H.demandByKeyword({ a: { type: "demand", created: Date.now() - 86400000, keywords: ['"need a website"'], comments: 3, signals: { lead: 1, buyer: 2 } }, b: { type: "demand", created: Date.now() - 40 * 86400000, keywords: ['"need a website"'], comments: 9 }, c: { type: "offer", created: Date.now(), keywords: ['"need a website"'] } }, 7);
 assert.deepStrictEqual(dbk, [{ kw: '"need a website"', posts: 1, replies: 3, comments: 3 }]);
 console.log("keyword sweep: ok");
+
+// value-bomb replies
+const rp = H.valueBombReply({ title: "Built my site with Lovable, checkout is broken, who can fix it?", body: "Budget $300, on Lovable" }, { name: "Noah" });
+assert.ok(rp.startsWith('Re: "Built my site with Lovable, checkout is broken, who can fix it"'), rp.slice(0, 80));
+assert.ok(rp.includes("Since you're on Lovable") && rp.includes("$300 budget") && rp.includes("1. Open the live site") && rp.includes("– Noah"));
+assert.ok(!/https?:\/\//.test(rp.replace(/pagespeed\.web\.dev|tinypng\.com|squoosh\.app|business\.google\.com|who\.is/g, "")), "no links except free tools");
+assert.strictEqual(H.pickPlaybook({ title: "My web designer ghosted me after the deposit" }).key, "ghosted");
+assert.strictEqual(H.pickPlaybook({ title: "How much should a 5 page site cost?" }).key, "pricing");
+assert.strictEqual(H.pickPlaybook({ title: "Wix site not showing up on Google" }).key, "google");
+assert.strictEqual(H.pickPlaybook({ title: "Need a website for my HVAC company" }).key, "need-site");
+console.log("replies: ok");

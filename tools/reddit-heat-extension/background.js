@@ -43,17 +43,28 @@ async function checkVersion() {
   try {
     const onDisk = await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json();
     if (onDisk.version && onDisk.version !== chrome.runtime.getManifest().version) {
-      const { auto, pendingVersion } = await chrome.storage.local.get(["auto", "pendingVersion"]);
+      const { auto, pendingVersion, sweepState } = await chrome.storage.local.get(["auto", "pendingVersion", "sweepState"]);
       // Require the same new version on two consecutive checks so we never
       // reload while the updater is still copying files.
       if (pendingVersion !== onDisk.version) { await chrome.storage.local.set({ pendingVersion: onDisk.version }); return; }
-      if (auto) return; // a sweep or walk is running; try again next minute
+      if (auto || sweepState) return; // a sweep or walk is running; try again next minute
       await chrome.storage.local.set({ lastAutoReload: { from: chrome.runtime.getManifest().version, to: onDisk.version, t: Date.now() }, pendingVersion: null });
       chrome.runtime.reload();
     }
   } catch (e) { /* file missing mid-copy; retry next minute */ }
 }
-chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); });
+async function reclassifyAll() {
+  const { posts = {} } = await chrome.storage.local.get(["posts"]);
+  let changed = 0;
+  for (const p of Object.values(posts)) {
+    if (p.manual) continue;
+    const t = classifyPost(p.title, p.body);
+    if (t !== p.type) { p.type = t; changed += 1; }
+  }
+  if (changed) await chrome.storage.local.set({ posts });
+  return changed;
+}
+chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); reclassifyAll(); });
 chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
@@ -62,14 +73,18 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "rearm") { arm().then(() => reply({ ok: true })); return true; }
   if (msg.type === "testauth") { getToken(msg.clientId, true).then((t) => reply({ ok: !!t })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "config") { getConfig().then((c) => reply({ entries: c.entries, subs: c.subs })); return true; }
-  if (msg.type === "ingest") { ingest(msg.posts || [], msg.source).then(reply); return true; }
+  if (msg.type === "ingest") { ingest(msg.posts || [], msg.source, "manual").then(reply); return true; }
   if (msg.type === "signals") { saveSignals(msg.post, msg.signals, msg.source).then(reply); return true; }
+  if (msg.type === "open-page") { chrome.tabs.create({ url: chrome.runtime.getURL(msg.page) }); reply({ ok: true }); return; }
   if (msg.type === "open-dashboard") { chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }); reply({ ok: true }); return; }
   if (msg.type === "queue") { buildQueue(msg.limit || 30, msg.newest).then((queue) => reply({ queue })); return true; }
-  if (msg.type === "sweep-start") { startSweep(msg.queue || [], msg.read || 0, msg.delay || 3).then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "sweep-start") { startSweep(msg.queue || [], msg.read || 0, msg.delay || 3, msg.workers || 2, msg.maxPerMin || 24, msg.run).then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "sweep-stop") { stopSweep(true).then(() => reply({ ok: true })); return true; }
-  if (msg.type === "sweep-progress") { chrome.storage.local.get(["sweep"]).then(({ sweep }) => { if (sweep) { const p = { ...msg.patch }; const inc = p._inc; delete p._inc; const next = { ...sweep }; for (const k of Object.keys(p)) next[k] = inc && typeof p[k] === "number" ? (sweep[k] || 0) + p[k] : p[k]; chrome.storage.local.set({ sweep: next }); } reply({ ok: true }); }); return true; }
-  if (msg.type === "sweep-finish") { stopSweep(false).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "sweep-page") { handlePage(_s.tab && _s.tab.id, msg).then(reply); return true; }
+  if (msg.type === "sweep-thread") { handleThread(_s.tab && _s.tab.id, msg).then(reply); return true; }
+  if (msg.type === "sweep-429") { handle429(_s.tab && _s.tab.id).then(reply); return true; }
+  if (msg.type === "reclassify") { reclassifyAll().then((n) => reply({ changed: n })); return true; }
+  if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
 });
 
 // --- Page-scrape ingestion (from content.js). Same store as the crawler.
@@ -84,7 +99,8 @@ async function withStore(fn) {
 
 function recordPost(posts, snaps, p, now) {
   const prev = posts[p.id] || {};
-  posts[p.id] = { ...prev, ...p, body: p.body || prev.body || "", signals: prev.signals, firstSeen: prev.firstSeen || now, lastSeen: now };
+  const keepType = prev.manual ? { type: prev.type, ignored: prev.ignored } : {};
+  posts[p.id] = { ...prev, ...p, ...keepType, body: p.body || prev.body || "", signals: prev.signals, runs: prev.runs, replied: prev.replied, manual: prev.manual, firstSeen: prev.firstSeen || now, lastSeen: now };
   const arr = snaps[p.id] || [];
   const last = arr[arr.length - 1];
   if (!last || last.score !== p.score || last.comments !== p.comments || now - last.t > 6 * 3600 * 1000) arr.push({ t: now, score: p.score, comments: p.comments });
@@ -97,11 +113,16 @@ async function addLog(entry) {
   await chrome.storage.local.set({ log: log.slice(-300) });
 }
 
-async function ingest(list, source) {
+async function ingest(list, source, run) {
   const r = await withStore(async (posts, snaps) => {
     const now = Date.now();
     let kept = 0;
-    for (const p of list) { if (!p || !p.id || !keepPost(p)) continue; recordPost(posts, snaps, p, now); kept += 1; }
+    for (const p of list) {
+      if (!p || !p.id || !keepPost(p)) continue;
+      recordPost(posts, snaps, p, now);
+      if (run) { const rs = posts[p.id].runs || []; if (!rs.includes(run)) rs.push(run); posts[p.id].runs = rs.slice(-10); }
+      kept += 1;
+    }
     return { kept, total: Object.keys(posts).length };
   });
   if (source) await addLog({ kind: "page", url: source.url, label: source.label, scanned: list.length, kept: r.kept });
@@ -130,26 +151,132 @@ async function buildQueue(limit, newest = false) {
     .map((p) => p.permalink);
 }
 
-// --- Batch sweep: one tab walks the queue; content.js does the moving.
-async function startSweep(queue, read, delay) {
-  if (!queue.length) throw new Error("empty queue");
-  const first = queue[0];
-  const auto = { mode: "sweep", queue: queue.slice(1), current: { ...first, pagesLeft: first.pages }, read, delay, started: Date.now() };
-  const sweep = { running: true, stage: `starting ${first.label}`, items: queue.length, totalPages: queue.reduce((n, q) => n + q.pages, 0), pagesDone: 0, kept: 0, read, threadsDone: 0, started: Date.now() };
-  await chrome.storage.local.set({ auto, sweep });
-  const tab = await chrome.tabs.create({ url: first.url, active: true });
-  await chrome.storage.local.set({ sweepTab: tab.id });
+// --- Batch sweep engine: N worker tabs pull from one shared queue, under one
+// global rate limit. Content scripts report each page and ask what to do next.
+let S = null;                       // in-memory copy of sweepState
+let lock = Promise.resolve();
+function withLock(fn) { const p = lock.then(fn); lock = p.catch(() => {}); return p; }
+async function loadS() { if (!S) { const { sweepState } = await chrome.storage.local.get(["sweepState"]); S = sweepState || null; } return S; }
+async function saveS() { await chrome.storage.local.set({ sweepState: S }); }
+async function pushProgress(stage) {
+  if (!S) return;
+  await chrome.storage.local.set({ sweep: { running: true, run: S.run, stage, items: S.items, totalPages: S.totalPages, pagesDone: S.stats.pagesDone, kept: S.stats.kept, read: S.read, threadsDone: S.stats.threadsDone, throttled: S.stats.throttled, workers: Object.keys(S.active).length, maxPerMin: S.maxPerMin, started: S.started } });
 }
 
-async function stopSweep(stopped) {
+async function startSweep(queue, read, delay, workers = 2, maxPerMin = 24, run = "") {
+  return withLock(async () => {
+    await loadS();
+    if (S && Object.keys(S.active).length) throw new Error("a sweep is already running; stop it first (Batch sweep → Stop)");
+    if (!queue.length) throw new Error("empty queue");
+    workers = Math.min(4, Math.max(1, workers | 0));
+    run = (run || "").trim() || new Date().toISOString().slice(0, 16).replace("T", " ");
+    S = { run, queue: queue.slice(), active: {}, read, delay: Math.max(2, delay), workers, maxPerMin: Math.max(6, maxPerMin | 0), nav: [], cooldownUntil: 0, commentQueue: null,
+      items: queue.length, totalPages: queue.reduce((n, q) => n + q.pages, 0), started: Date.now(), stats: { pagesDone: 0, kept: 0, threadsDone: 0, throttled: 0 } };
+    for (let i = 0; i < workers; i++) {
+      const item = S.queue.shift(); if (!item) break;
+      const tab = await chrome.tabs.create({ url: item.url, active: i === 0 });
+      S.active[tab.id] = { item, pagesLeft: item.pages };
+    }
+    await saveS(); await pushProgress("starting");
+  });
+}
+
+// _stop runs without taking the lock (callers inside withLock use it directly).
+async function _stop(stopped) {
   const { sweep, sweepLog = [] } = await chrome.storage.local.get(["sweep", "sweepLog"]);
-  await chrome.storage.local.remove(["auto", "sweepTab"]);
+  S = null;
+  await chrome.storage.local.remove(["sweepState", "auto"]);
   if (sweep && sweep.running) {
     const done = { ...sweep, running: false, stopped, finishedAt: Date.now() };
-    sweepLog.push({ items: done.items, pagesDone: done.pagesDone, kept: done.kept, threadsDone: done.threadsDone, stopped, finishedAt: done.finishedAt });
+    sweepLog.push({ run: done.run, items: done.items, pagesDone: done.pagesDone, kept: done.kept, threadsDone: done.threadsDone, throttled: done.throttled, workers: done.workers, stopped, finishedAt: done.finishedAt });
     await chrome.storage.local.set({ sweep: done, sweepLog: sweepLog.slice(-100) });
   }
 }
+async function stopSweep(stopped) { return withLock(() => _stop(stopped)); }
+
+// Global pacing: reserve a navigation slot. Returns ms this tab should wait.
+function throttle() {
+  const now = Date.now();
+  S.nav = S.nav.filter((t) => t > now - 60000);
+  let wait = S.delay * 1000 + Math.floor(Math.random() * 1500);
+  if (S.cooldownUntil > now) wait = Math.max(wait, S.cooldownUntil - now);
+  if (S.nav.length >= S.maxPerMin) wait = Math.max(wait, S.nav[0] + 60000 - now + 500);
+  S.nav.push(now + wait);
+  return wait;
+}
+
+async function nextForTab(tabId) {
+  const a = S.active[tabId];
+  // 1. more pages of the current item?  (caller sets a.nextUrl)
+  if (a.pagesLeft > 0 && a.nextUrl && !a.thread) { const go = a.nextUrl; a.nextUrl = ""; return { go, stage: `${a.item.label} · page ${a.item.pages - a.pagesLeft + 1}/${a.item.pages}` }; }
+  // 2. next queue item
+  const item = S.queue.shift();
+  if (item) { S.active[tabId] = { item, pagesLeft: item.pages }; return { go: item.url, stage: `${item.label} (${S.queue.length} items left)` }; }
+  // 3. comment phase
+  if (S.read > 0) {
+    if (!S.commentQueue) S.commentQueue = await buildQueue(S.read, true);
+    const perm = S.commentQueue.shift();
+    if (perm) { S.active[tabId] = { item: a.item, pagesLeft: 0, thread: true }; return { go: "https://old.reddit.com" + perm, stage: `reading comments (${S.commentQueue.length} left)` }; }
+  }
+  // 4. nothing left for this tab
+  delete S.active[tabId];
+  return { done: true, last: Object.keys(S.active).length === 0 };
+}
+
+async function handlePage(tabId, payload) {
+  return withLock(async () => {
+    await loadS();
+    if (!S || !S.active[tabId]) return { ignore: true };
+    const a = S.active[tabId];
+    if (a.thread) return { ignore: true }; // a listing page while assigned a thread: not ours
+    const r = await ingest(payload.posts || [], payload.source, S.run);
+    a.pagesLeft -= 1; a.nextUrl = payload.nextUrl || "";
+    S.stats.pagesDone += 1; S.stats.kept += r.kept;
+    const nx = await nextForTab(tabId);
+    if (nx.done) { await saveS(); if (nx.last) { await pushProgress("finished"); await _stop(false); return { done: true, finished: true }; } await pushProgress("winding down"); return { done: true }; }
+    const wait = throttle();
+    await saveS(); await pushProgress(nx.stage);
+    return { go: nx.go, wait, stage: nx.stage, kept: r.kept };
+  });
+}
+
+async function handleThread(tabId, payload) {
+  return withLock(async () => {
+    await loadS();
+    if (!S || !S.active[tabId] || !S.active[tabId].thread) return { ignore: true };
+    await saveSignals(payload.post, payload.signals, payload.source);
+    S.stats.threadsDone += 1;
+    const nx = await nextForTab(tabId);
+    if (nx.done) { await saveS(); if (nx.last) { await pushProgress("finished"); await _stop(false); return { done: true, finished: true }; } return { done: true }; }
+    const wait = throttle();
+    await saveS(); await pushProgress(nx.stage);
+    return { go: nx.go, wait, stage: nx.stage };
+  });
+}
+
+// Reddit answered "too many requests": every tab pauses 90s and the cap drops 30%.
+async function handle429(tabId) {
+  return withLock(async () => {
+    await loadS();
+    if (!S) return { wait: 60000 };
+    S.cooldownUntil = Date.now() + 90000;
+    S.maxPerMin = Math.max(6, Math.floor(S.maxPerMin * 0.7));
+    S.stats.throttled += 1;
+    await saveS(); await pushProgress(`rate limited, cooling down 90s (cap now ${S.maxPerMin}/min)`);
+    return { wait: 90000 + Math.floor(Math.random() * 5000) };
+  });
+}
+
+// A worker tab closed by hand: put its item back and carry on with the rest.
+chrome.tabs.onRemoved.addListener((tabId) => withLock(async () => {
+  await loadS();
+  if (!S || !S.active[tabId]) return;
+  const a = S.active[tabId];
+  if (!a.thread && a.pagesLeft > 0) S.queue.unshift({ ...a.item, pages: a.pagesLeft });
+  delete S.active[tabId];
+  await saveS();
+  if (!Object.keys(S.active).length) { await pushProgress("all tabs closed"); await _stop(true); }
+}));
 
 // --- OAuth (installed app, userless). Token lasts ~1h; cached in storage.
 async function getToken(clientId, force = false) {

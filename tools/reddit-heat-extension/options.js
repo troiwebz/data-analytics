@@ -4,6 +4,7 @@ const lines = (s) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 async function load() {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   $("clientid").value = config.clientId || "";
+  $("pname").value = (config.profile || {}).name || ""; $("prole").value = (config.profile || {}).role || "";
   $("keywords").value = config.keywordText || DEFAULT_KEYWORD_TEXT.trim();
   $("subs").value = (config.subs && config.subs.length ? config.subs : DEFAULT_SUBS).join("\n");
   $("window").value = config.windowDays || 30;
@@ -29,7 +30,10 @@ function count() {
 $("alsosearch").addEventListener("change", count);
 
 $("save").addEventListener("click", async () => {
+  const { config: prevCfg = {} } = await chrome.storage.local.get(["config"]);
   const config = {
+    ...prevCfg,
+    profile: { name: $("pname").value.trim(), role: $("prole").value.trim() },
     clientId: $("clientid").value.trim(),
     keywordText: $("keywords").value,
     subs: lines($("subs").value).map((s) => s.replace(/^r\//, "")),

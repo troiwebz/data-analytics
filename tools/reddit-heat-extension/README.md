@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.6 (private Chrome extension)
+# Reddit Lead Threads v1.8 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -24,6 +24,8 @@ Popup → **Batch sweep**. About 60 candidate subreddits are listed in groups (A
 
 **Run this selection now** opens one tab that walks every item page by page, then reads the comments, then stops. Progress and a Stop button are on the sweep page and on the orange panel. **Save batch** stores the selection under a name so future runs are one click; the page remembers your last selection. If Reddit shows its "too many requests" page mid-sweep, the tab waits 60 seconds and retries instead of skipping.
 
+**Parallel tabs.** Settings → Parallel tabs (1 to 4, default 2) and Max pages per minute across all tabs (default 24). All tabs pull from one shared queue under one global speed limit with random jitter. If Reddit answers "too many requests", every tab pauses 90 seconds and the cap drops 30 percent for the rest of the run. Closing a worker tab puts its item back in the queue for the others. Reading pages does not get an account banned; automated posting does, and this extension never posts.
+
 Suggested batches: *Discovery* (all eight searches, 5 pages, monthly) to find new subreddits, then confirm them on the dashboard; *Daily recent* (confirmed subreddits, newest, 3 pages, read 30 threads).
 
 ## Where the results live: the dashboard
@@ -38,6 +40,17 @@ Click the extension icon → **Open dashboard** (or the **Dashboard** button on 
 - **Results table** sorted by Lead score. Click a row to expand the post body, matched keywords, and the classified replies. **Export CSV (filtered)** saves what you are looking at.
 
 A good first session: r/forhire search `"for hire" website` sorted Top past year, walk 10 pages; r/forhire search `hiring website`, walk 5; r/smallbusiness search `"need a website"`, walk 10; then "Read comments of top threads" with 30. About 10 minutes, mostly waiting.
+
+## Value-bomb replies
+
+Tick threads in the dashboard table, click **Replies for selected**. Each thread gets a ready-to-edit reply in the Laurel Portié value-bomb style: open with their exact situation, name the real cause, give the complete fix in numbered steps they can do today, a "watch out for" line, and an open door at the end. No link, no price, no pitch. Seven playbooks are chosen automatically from the post: AI-built site broken, not showing on Google, designer ghosted, pricing question, landing page for ads, slow or broken on mobile, need a website. Edit, **Copy reply**, open the thread, paste, then **Mark replied** so the dashboard shows it. Set your sign-off name in Options.
+
+## Cleaner results
+
+- Job seekers ("looking for a … job", "immediate joiner", "open to remote opportunities") and job postings (salary, full-time, years required) are typed `job` and never counted as demand.
+- Demand, offers and freebies must be about a website, landing page, store, app, domain, hosting or SEO. A keyword hit inside an unrelated thread is dropped.
+- Expand any row to click **Not a lead** (hides it everywhere, keeps it out of ideas) or change its type; your choice is kept on future scrapes. **re-check types** re-runs the classifier on everything saved after an update.
+- Every sweep has a **run name**; threads remember which runs found them, and the dashboard's **Run** filter shows one run at a time. Starting a sweep while one is running is refused.
 
 ## Campaign planner: ten offers, you decide
 

@@ -31,6 +31,9 @@
   Free, two minutes: open <code>https://www.reddit.com/prefs/apps</code> → <b>create another app</b> → name it anything → choose <b>installed app</b> → redirect uri <code>http://localhost</code> → create. Copy the short id shown under the app name (not the secret). This gives 100 requests/min read-only access; the extension never posts as you.
 </div>
 
+<label>Reply sign-off <span class="hint">(optional, used by the reply generator)</span></label>
+<div class="row"><input type="text" id="pname" placeholder="Your first name" style="width:200px"><input type="text" id="prole" placeholder="e.g. web developer, Austin" style="width:280px"></div>
+
 <label>Keywords <span class="hint" id="kwcount"></span></label>
 <div class="hint">Lines starting with <code>#</code> are category headers used for the popup's category filter. Quoted phrases must appear exactly; bare words must all appear somewhere in title or body.</div>
 <textarea id="keywords"></textarea>

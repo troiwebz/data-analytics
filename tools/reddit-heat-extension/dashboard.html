@@ -58,7 +58,7 @@
   .lead { font-weight: 700; } .lead.hot { color: var(--accent); } .lead.na { color: #c4c8ce; font-weight: 400; }
   .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .t-offer { background: var(--offer); color: var(--offer-t); } .t-demand { background: var(--demand); color: var(--demand-t); } .t-freebie { background: var(--freebie); color: var(--freebie-t); } .t-value { background: var(--value); color: var(--value-t); } .t-other { background: var(--other); color: var(--other-t); }
-  .t-good { background: var(--good); color: var(--good-t); } .t-bad { background: var(--bad); color: var(--bad-t); }
+  .t-job { background: #f1f5f9; color: #475569; } .t-good { background: var(--good); color: var(--good-t); } .t-bad { background: var(--bad); color: var(--bad-t); }
   .ttl { max-width: 460px; } .ttl .t { font-weight: 500; } .ttl .m { color: var(--muted); font-size: 12px; margin-top: 2px; }
   tr.detail td { background: #fafbfc; padding: 12px 16px 14px; }
   .detail .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -86,7 +86,8 @@
   <span class="sp"></span>
   <input id="q" type="text" placeholder="Search title, body, keyword, subreddit…" style="width:300px;padding:6px 10px;border:1px solid var(--line);border-radius:6px">
   <div class="actions">
-    <button class="btn primary" id="sweep">Batch sweep</button>
+    <button class="btn primary" id="replies" title="tick threads in the table first">Replies for selected (0)</button>
+    <button class="btn" id="sweep">Batch sweep</button>
     <button class="btn" id="plan">Campaign planner</button>
     <button class="btn" id="csv">Export CSV (filtered)</button>
     <button class="btn" id="crawl" title="Optional background crawler; slow without an API key">Crawl in background</button>
@@ -109,6 +110,7 @@
     <div class="card"><h3>Type</h3><div class="body chips" id="f-type"></div></div>
     <div class="card"><h3>Category <button class="link" id="clear-group">clear</button></h3><div class="body chips" id="f-group"></div></div>
     <div class="card"><h3>Keyword</h3><div class="body"><select id="f-kw"><option value="">All keywords</option></select></div></div>
+    <div class="card"><h3>Run <button class="link" id="clear-run">clear</button></h3><div class="body chips" id="f-run"></div></div>
     <div class="card"><h3>Subreddit <button class="link" id="clear-sub">clear</button></h3><div class="body chips" id="f-sub"></div></div>
     <div class="card"><h3>Price</h3><div class="body chips" id="f-price"></div></div>
     <div class="card"><h3>More</h3><div class="body">
@@ -138,8 +140,9 @@
     </div>
 
     <div class="card">
-      <h3><span id="count">0 threads</span><span><button class="link" id="expand-all">expand all</button> · <button class="link danger" id="clear-data">clear all data</button></span></h3>
+      <h3><span id="count">0 threads</span><span><button class="link" id="expand-all">expand all</button> · <button class="link" id="reclass" title="re-run the classifier on everything saved; your manual overrides are kept">re-check types</button> · <button class="link" id="show-ignored">show ignored</button> · <button class="link danger" id="clear-data">clear all data</button></span></h3>
       <table id="t"><thead><tr>
+        <th style="cursor:default"><input type="checkbox" id="sel-all" title="select all shown"></th>
         <th data-k="leadScore" class="num sorted" title="hands×5 + buyer×4 + OP replies×2 + 20 if booked + unique commenters − heckles×2">Lead</th>
         <th data-k="opportunity" class="num" title="demand threads only: freshness + budget + ask + unanswered">Opp</th>
         <th data-k="type">Type</th>

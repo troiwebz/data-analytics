@@ -111,10 +111,11 @@
 
   const { auto = null } = await chrome.storage.local.get(["auto"]);
   const delayMs = ((auto && auto.delay) || 3) * 1000;
-  const progress = (patch) => send({ type: "sweep-progress", patch });
   // Reddit's soft rate limit page: wait a minute and retry instead of skipping.
-  if (auto && /too many requests|you are doing that too much|rate limit/i.test(document.title + " " + (document.body ? document.body.innerText.slice(0, 400) : ""))) {
-    say("Reddit asked us to slow down. Retrying in 60s…"); setTimeout(() => location.reload(), 60000); return;
+  if (/too many requests|you are doing that too much|rate limit/i.test(document.title + " " + (document.body ? document.body.innerText.slice(0, 400) : ""))) {
+    const r = await send({ type: "sweep-429" });
+    const w = (r && r.wait) || 60000;
+    say(`Reddit asked us to slow down. All tabs pausing; retrying in ${Math.round(w / 1000)}s…`); setTimeout(() => location.reload(), w); return;
   }
 
   if (!isThread) {
@@ -137,29 +138,11 @@
       await chrome.storage.local.set({ auto: { mode: "comments", queue: r.queue, done: 0, started: Date.now() } });
       location.href = "https://old.reddit.com" + r.queue[0];
     });
-    if (auto && auto.mode === "sweep" && auto.current) {
-      btn("■ Stop sweep", "stop", async () => { await send({ type: "sweep-stop" }); say("Stopped."); });
-      const r = await send({ type: "ingest", posts, source: source() });
-      const cur = { ...auto.current, pagesLeft: auto.current.pagesLeft - 1 };
-      const next = nextPageLink();
-      await progress({ pagesDone: 1, kept: r.kept, stage: `${cur.label} · page ${cur.pages - cur.pagesLeft}/${cur.pages}`, _inc: true });
-      if (cur.pagesLeft > 0 && next) {
-        await chrome.storage.local.set({ auto: { ...auto, current: cur } });
-        say(`${cur.label}: page ${cur.pages - cur.pagesLeft} saved (${r.kept} kept). Next page in ${delayMs / 1000}s…`);
-        setTimeout(() => { location.href = next; }, delayMs);
-      } else if (auto.queue.length) {
-        const nx = auto.queue[0];
-        await chrome.storage.local.set({ auto: { ...auto, queue: auto.queue.slice(1), current: { ...nx, pagesLeft: nx.pages } } });
-        say(`${cur.label} done. Moving to ${nx.label} (${auto.queue.length - 1} more after it)…`);
-        setTimeout(() => { location.href = nx.url; }, delayMs);
-      } else if (auto.read > 0) {
-        const q = await send({ type: "queue", limit: auto.read, newest: true });
-        if (q.queue.length) {
-          await chrome.storage.local.set({ auto: { mode: "comments", queue: q.queue, done: 0, started: Date.now(), delay: auto.delay, sweep: true } });
-          say(`Pages done. Reading comments of ${q.queue.length} newest threads…`);
-          setTimeout(() => { location.href = "https://old.reddit.com" + q.queue[0]; }, delayMs);
-        } else { await send({ type: "sweep-finish" }); say("Sweep done. Nothing new to read. Open the dashboard."); }
-      } else { await send({ type: "sweep-finish" }); say("Sweep done. Open the dashboard."); }
+    const sw = await send({ type: "sweep-page", posts, source: source(), nextUrl: nextPageLink() });
+    if (sw && !sw.ignore) {
+      btn("■ Stop sweep (all tabs)", "stop", async () => { await send({ type: "sweep-stop" }); say("Stopped."); });
+      if (sw.done) say(sw.finished ? "Sweep finished. Open the dashboard." : "This tab is done; other tabs are finishing.");
+      else { say(`Saved (${sw.kept} kept). ${sw.stage}. Next in ${Math.round(sw.wait / 1000)}s…`); setTimeout(() => { location.href = sw.go; }, sw.wait); }
     } else if (auto && auto.mode === "listing" && auto.remaining > 0) {
       btn("■ Stop walking", "stop", async () => { await chrome.storage.local.remove("auto"); say("Stopped."); });
       const r = await send({ type: "ingest", posts, source: source() });
@@ -180,19 +163,22 @@
     const s = r.signals;
     say(`${r.scraped} comments: ${s.lead} hand-raises, ${s.buyer} buyer questions, ${s.opReplies} OP replies${s.closed ? ", OP says booked" : ""}.`);
     btn("Save this thread's comments", "", async () => { await send({ type: "signals", post: r.post, signals: s, source: source() }); say("Saved."); });
-    if (auto && auto.mode === "comments" && auto.queue && auto.queue.length) {
+    const sw = await send({ type: "sweep-thread", post: r.post, signals: s, source: source() });
+    if (sw && !sw.ignore) {
+      btn("■ Stop sweep (all tabs)", "stop", async () => { await send({ type: "sweep-stop" }); say("Stopped."); });
+      if (sw.done) say(sw.finished ? "Sweep finished. Open the dashboard." : "This tab is done; other tabs are finishing.");
+      else { say(`Saved. ${sw.stage}. Next in ${Math.round(sw.wait / 1000)}s…`); setTimeout(() => { location.href = sw.go; }, sw.wait); }
+    } else if (auto && auto.mode === "comments" && auto.queue && auto.queue.length) {
       btn("■ Stop reading", "stop", async () => { await chrome.storage.local.remove("auto"); say("Stopped."); });
       await send({ type: "signals", post: r.post, signals: s, source: source() });
       const queue = auto.queue.filter((p) => p !== r.post.permalink && !location.pathname.startsWith(p));
       const a = { ...auto, queue, done: auto.done + 1 };
-      if (auto.sweep) await progress({ threadsDone: 1, stage: `reading comments ${a.done}`, _inc: true });
       if (queue.length) {
         await chrome.storage.local.set({ auto: a });
         say(`Thread ${a.done} saved. ${queue.length} left, next in ${delayMs / 1000}s…`);
         setTimeout(() => { location.href = "https://old.reddit.com" + queue[0]; }, delayMs);
       } else {
         await chrome.storage.local.remove("auto");
-        if (auto.sweep) await send({ type: "sweep-finish" });
         say(`Done: ${a.done} threads read. Open the dashboard to see the ranking.`);
       }
     }

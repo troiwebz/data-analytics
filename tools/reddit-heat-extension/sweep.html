@@ -87,15 +87,21 @@
         </div>
         <div class="row2">
           <div><label class="f">Then read comments of newest</label><input type="number" id="read" min="0" max="200" value="30"></div>
-          <div><label class="f">Seconds between pages</label><input type="number" id="delay" min="2" max="15" value="3"></div>
+          <div><label class="f">Seconds between pages (per tab)</label><input type="number" id="delay" min="2" max="15" value="3"></div>
         </div>
+        <div class="row2">
+          <div><label class="f">Parallel tabs</label><select id="workers"><option value="1">1 (safest)</option><option value="2" selected>2 (recommended)</option><option value="3">3</option><option value="4">4 (max)</option></select></div>
+          <div><label class="f">Max pages / minute, all tabs</label><input type="number" id="maxpm" min="6" max="60" value="24"></div>
+        </div>
+        <div class="est" style="margin-top:6px">Safety: one shared speed limit across tabs, random 0–1.5s jitter, and if Reddit answers "too many requests" every tab pauses 90s and the cap drops 30%. Reading pages does not get accounts banned; posting does. Keep it under ~30/min.</div>
         <div class="est" id="est"></div>
       </div>
     </div>
     <div class="card">
       <h3>5 · Run</h3>
       <div class="body">
-        <button class="btn primary" id="run" style="width:100%">Run this selection now</button>
+        <label class="f">Run name (tags every thread it finds, so runs don't mix)</label><input type="text" id="runname" placeholder="e.g. Weekly demand 13 Sep">
+        <button class="btn primary" id="run" style="width:100%;margin-top:8px">Run this selection now</button>
         <div class="row2" style="margin-top:8px"><input type="text" id="bname" placeholder="save as batch, e.g. Daily recent"><button class="btn" id="saveb">Save batch</button></div>
         <div id="batches" style="margin-top:10px"></div>
       </div>
