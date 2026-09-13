@@ -39,10 +39,73 @@ chrome.runtime.onInstalled.addListener(arm);
 chrome.runtime.onStartup.addListener(arm);
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
-  if (msg && msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
-  if (msg && msg.type === "rearm") { arm().then(() => reply({ ok: true })); return true; }
-  if (msg && msg.type === "testauth") { getToken(msg.clientId, true).then((t) => reply({ ok: !!t })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (!msg) return;
+  if (msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "rearm") { arm().then(() => reply({ ok: true })); return true; }
+  if (msg.type === "testauth") { getToken(msg.clientId, true).then((t) => reply({ ok: !!t })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "config") { getConfig().then((c) => reply({ entries: c.entries, subs: c.subs })); return true; }
+  if (msg.type === "ingest") { ingest(msg.posts || [], msg.source).then(reply); return true; }
+  if (msg.type === "signals") { saveSignals(msg.post, msg.signals, msg.source).then(reply); return true; }
+  if (msg.type === "open-dashboard") { chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }); reply({ ok: true }); return; }
+  if (msg.type === "queue") { buildQueue(msg.limit || 30).then((queue) => reply({ queue })); return true; }
 });
+
+// --- Page-scrape ingestion (from content.js). Same store as the crawler.
+async function withStore(fn) {
+  const store = await chrome.storage.local.get(["posts", "snaps", "meta"]);
+  const posts = store.posts || {}, snaps = store.snaps || {};
+  const result = await fn(posts, snaps);
+  const meta = { ...(store.meta || {}), count: Object.keys(posts).length, analysed: Object.values(posts).filter((p) => p.signals).length, lastPage: Date.now() };
+  await chrome.storage.local.set({ posts, snaps, meta });
+  return result;
+}
+
+function recordPost(posts, snaps, p, now) {
+  const prev = posts[p.id] || {};
+  posts[p.id] = { ...prev, ...p, body: p.body || prev.body || "", signals: prev.signals, firstSeen: prev.firstSeen || now, lastSeen: now };
+  const arr = snaps[p.id] || [];
+  const last = arr[arr.length - 1];
+  if (!last || last.score !== p.score || last.comments !== p.comments || now - last.t > 6 * 3600 * 1000) arr.push({ t: now, score: p.score, comments: p.comments });
+  snaps[p.id] = arr.slice(-MAX_SNAPS);
+}
+
+async function addLog(entry) {
+  const { log = [] } = await chrome.storage.local.get(["log"]);
+  log.push({ t: Date.now(), ...entry });
+  await chrome.storage.local.set({ log: log.slice(-300) });
+}
+
+async function ingest(list, source) {
+  const r = await withStore(async (posts, snaps) => {
+    const now = Date.now();
+    let kept = 0;
+    for (const p of list) { if (!p || !p.id || !keepPost(p)) continue; recordPost(posts, snaps, p, now); kept += 1; }
+    return { kept, total: Object.keys(posts).length };
+  });
+  if (source) await addLog({ kind: "page", url: source.url, label: source.label, scanned: list.length, kept: r.kept });
+  return r;
+}
+
+async function saveSignals(post, signals, source) {
+  const r = await withStore(async (posts, snaps) => {
+    const now = Date.now();
+    if (post && post.id) { if (!posts[post.id]) recordPost(posts, snaps, post, now); else recordPost(posts, snaps, { ...posts[post.id], score: post.score, comments: post.comments, body: post.body || posts[post.id].body }, now); posts[post.id].signals = signals; }
+    return { ok: true };
+  });
+  if (source) await addLog({ kind: "thread", url: source.url, label: source.label, total: signals.total, lead: signals.lead, buyer: signals.buyer, closed: signals.closed });
+  return r;
+}
+
+// Threads worth reading next: most comments first, unread or stale.
+async function buildQueue(limit) {
+  const { posts = {} } = await chrome.storage.local.get(["posts"]);
+  const now = Date.now();
+  return Object.values(posts)
+    .filter((p) => p.comments > 0 && p.permalink && (!p.signals || now - (p.signals.t || 0) > 24 * 3600 * 1000))
+    .sort((a, b) => b.comments - a.comments || b.created - a.created)
+    .slice(0, limit)
+    .map((p) => p.permalink);
+}
 
 // --- OAuth (installed app, userless). Token lasts ~1h; cached in storage.
 async function getToken(clientId, force = false) {

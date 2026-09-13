@@ -20,9 +20,9 @@
 </head>
 <body>
 <h2>Reddit Lead Threads — options</h2>
-<p class="hint">The crawler walks each subreddit's newest posts page by page (100 a page) and matches every keyword locally, so adding keywords costs nothing. Requests ≈ subreddits × pages + comment reads.</p>
+<p class="hint"><b>Main way to collect:</b> open any old.reddit.com listing, search, or thread and use the orange panel. It scrapes what you see, walks next pages, and reads threads, with no API and no rate limits. The settings below are the keyword list used for matching plus the optional background crawler.</p>
 
-<label>Reddit API client id <span class="hint">(optional, makes runs ~10× faster)</span></label>
+<label>Reddit API client id <span class="hint">(optional; only for the background crawler)</span></label>
 <div class="row">
   <input type="text" id="clientid" placeholder="e.g. Ab12Cd34Ef56Gh" style="width:320px">
   <button id="testauth" style="margin-top:0">Test</button><span id="authres"></span>

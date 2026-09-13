@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "1.0.0",
-  "description": "Crawls subreddits page by page, matches hundreds of keywords locally, scores every thread on lead evidence (buyer questions, hand-raises, OP booked), tracks heat over time, and saves a CSV.",
+  "version": "1.2.0",
+  "description": "Scrapes the Reddit pages you browse (listings, searches, threads), walks next pages and threads for you, matches hundreds of keywords, scores every thread on lead evidence, and saves a CSV. Optional background crawler.",
   "permissions": [
     "storage",
     "alarms",
-    "downloads"
+    "downloads",
+    "tabs"
   ],
   "host_permissions": [
     "https://old.reddit.com/*",
@@ -23,5 +24,17 @@
   "options_page": "options.html",
   "icons": {
     "128": "icon.png"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://old.reddit.com/*"
+      ],
+      "js": [
+        "lib.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

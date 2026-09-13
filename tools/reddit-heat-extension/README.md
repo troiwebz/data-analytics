@@ -1,57 +1,60 @@
-# Reddit Lead Threads v1.0 (private Chrome extension)
+# Reddit Lead Threads v1.2 (private Chrome extension)
 
-Crawls subreddits page by page from inside your own browser, matches hundreds of keywords locally, scores every thread on **lead evidence**, tracks how fast each one is heating up, and saves a CSV after every run. Not on the Chrome Web Store; you load it unpacked.
+Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
-## How it works
+## Semi-automatic collection (the main way)
 
-1. **Crawl.** For each subreddit it walks the `new` listing 100 posts a page (Reddit caps listings at ~1000 posts) until it reaches your look-back window.
-2. **Match.** Every post is checked against all your keywords locally, so 250 or 2,500 keywords cost the same. A post is kept if any keyword matches or it looks like an offer / demand / freebie / value post.
-3. **Read comments.** The most active kept threads have their comments read and classified (up to 150 per run by default).
-4. **Snapshot.** Upvotes and comments are stored per run so "heat" is measurable across runs.
-5. **Export.** A ranked CSV lands in `Downloads/reddit-lead-threads/` after each run.
+An orange panel appears bottom-right on every `old.reddit.com` page.
 
-**Speed.** Without an API key Reddit allows ~10 requests a minute, so 17 subreddits × 10 pages + 150 comment reads ≈ 35 minutes. With a free Reddit "installed app" client id (Options page explains, two minutes to create) the limit is 100 a minute and the same run takes about 4 minutes. The key is read-only; the extension never posts or acts as you.
+**On a listing or search page** (for example `old.reddit.com/r/forhire/new` or a search sorted by Top, past year):
 
-## Columns
+- **Save this page**: stores every post on the page that matches a keyword or looks like an offer / demand / freebie / value post.
+- **Save + walk next pages ▶**: saves this page, then follows "next" automatically, one page every 3 seconds, for as many pages as the box says. Stop any time with the red button.
+- **Read comments of top threads ▶**: opens the most-commented saved threads one after another, scrapes and classifies every comment on each, and moves to the next one automatically.
+
+**On a thread page**: the panel shows the counts it found (hand-raises, buyer questions, OP replies, booked) and a **Save this thread's comments** button.
+
+## Where the results live: the dashboard
+
+Click the extension icon → **Open dashboard** (or the **Dashboard** button on the orange panel). It opens as a full browser tab with:
+
+- **Stat tiles**: threads saved, threads with comments read, hand-raises, buyer questions, threads where the poster got booked, last collected.
+- **Collection log**: every page and thread you scraped, newest first, with what each one captured. This is the record of your search scrapes.
+- **Offers by price band**: lead evidence found in offer threads grouped by their stated price. This answers "which price gets buyers".
+- **Keywords that found leads**: which of your keywords matched threads that had buyer replies.
+- **Filters** down the left: type, category, keyword, subreddit, price band, date, and "only threads with lead evidence".
+- **Results table** sorted by Lead score. Click a row to expand the post body, matched keywords, and the classified replies. **Export CSV (filtered)** saves what you are looking at.
+
+A good first session: r/forhire search `"for hire" website` sorted Top past year, walk 10 pages; r/forhire search `hiring website`, walk 5; r/smallbusiness search `"need a website"`, walk 10; then "Read comments of top threads" with 30. About 10 minutes, mostly waiting.
+
+## What "lead evidence" means
+
+Real leads on r/forhire arrive by DM and are invisible. The extension reads comments and counts the closest public proxies:
 
 | Column | Meaning |
 |---|---|
 | **Lead** | `hands × 5 + buyer questions × 4 + OP replies × 2 + 20 if OP said booked/closed + unique commenters (max 10) − heckles × 2` |
-| **Heat** | `Δcomments (48h) × 3 + Δupvotes (48h) + Lead`. Needs two or more runs. |
+| **Heat** | `Δcomments (48h) × 3 + Δupvotes (48h) + Lead`. Needs the same thread saved on two different days. |
 | Hands | Hand-raises: "DM'd you", "interested", "send me", "can I get one", "+1". The conversion signal on freebie and value-bomb posts. |
 | Buyer | Client-style questions: "how much", "can you build", "for my restaurant", "timeline", "deposit". |
 | OP↩ | The poster replying to other people. |
 | booked/closed | OP wrote "fully booked", "slots are full", "found someone", "filled". Strongest public proof of conversion. |
 | Heckle | "race to the bottom", "why so cheap", "scam". Subtracts. |
 | Type | `offer`, `freebie`, `value`, `demand`, `other`, from title patterns. |
-| Category / keywords | Which of your keyword categories (the `#` headers) and which exact keywords matched. |
+| Category / keywords | Which keyword categories (the `#` headers in Options) and which exact keywords matched. |
 | Price | First flat or hourly price in title/body; "from" for starting prices; "free" for freebies. |
 
-The CSV also carries author, flair, upvote ratio, the first 1,200 characters of the post body, the outbound link if any, and up to five classified replies.
+The CSV also carries author, flair, the post body excerpt, the outbound link if any, and up to five classified replies.
 
-## Install (once) and update (two clicks)
+## Install and update
 
-Load the extension from a git checkout so updates are a pull away:
+1. Unzip into a permanent folder. `chrome://extensions` → **Developer mode** on → **Load unpacked** → pick the folder.
+2. Optional: icon → **Options** to edit the ~250 prefilled keywords (lines starting with `#` are categories).
+3. **Update**: unzip the new version over the same folder, then click **Reload code** in the popup. All saved threads and settings are kept.
 
-```
-git clone https://github.com/troiwebz/data-analytics.git
-cd data-analytics
-git checkout claude/brave-fermat-6ysqd0
-```
+## Optional background crawler
 
-1. `chrome://extensions` → **Developer mode** on → **Load unpacked** → pick `data-analytics/tools/reddit-heat-extension`.
-
-**To update after a new push:** run `update.sh` (macOS/Linux) or double-click `update.bat` (Windows) inside the extension folder, then click **Reload code** in the popup. Chrome re-reads the files from disk; all collected threads, snapshots, and your options are kept because they live in Chrome storage, not in the files. The popup shows the loaded version next to the buttons.
-
-Once the branch is merged to `main`, check out `main` instead; the scripts pull whichever branch is checked out.
-2. Icon → **Options**. Paste a Reddit client id (instructions on the page), click **Test**. Edit keywords: it ships with ~250 in five categories (Offers, Freebies, Value bombs, Demand, Niches). Lines starting with `#` are category headers.
-3. Icon → **Refresh now**. Close the popup; progress shows when you reopen it. It re-runs every 3 hours while Chrome is open.
-
-## Read it
-
-- Filter by **type**, **category**, or a **single keyword** (counts shown), plus days and free text. Default sort is Lead.
-- A `·` in Lead means comments not read yet; raise "comment reads per run" in Options if too many rows show it.
-- Turn on **Also run keyword searches** in Options for busy subreddits like r/smallbusiness where 1000 posts is less than your window.
+The **Crawl in background** button walks each subreddit's `new` listing through Reddit's JSON endpoints without you browsing. Without an API key Reddit allows ~10 requests a minute (about 35 minutes for the default 17 subreddits); with a free "installed app" client id pasted in Options it is ~4 minutes. It shares the same store as the page scraper.
 
 ## Test
 
@@ -62,4 +65,4 @@ node test.js
 ## Limits
 
 - Regex heuristics, tuned on r/forhire and r/smallbusiness language. Treat Lead as a ranking, not a customer count.
-- Reddit's `new` listing caps at ~1000 posts per subreddit; the search option reaches further back but only for keyword hits.
+- The scraper reads old.reddit.com markup only. Use `old.reddit.com`, not `www.reddit.com`.

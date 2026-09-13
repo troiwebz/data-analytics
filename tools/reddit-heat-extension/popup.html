@@ -4,60 +4,33 @@
 <meta charset="utf-8">
 <title>Reddit Lead Threads</title>
 <style>
-  body { width: 1000px; margin: 0; font: 12px/1.4 system-ui, sans-serif; color: #1a1a1a; background: #fafafa; }
-  header { display: flex; gap: 6px; align-items: center; padding: 6px 10px; background: #fff; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
-  header .grow { flex: 1; color: #666; min-width: 200px; }
-  button, select, input { font: inherit; padding: 3px 6px; max-width: 260px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 4px 6px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
-  th { background: #f1f1f1; position: sticky; top: 38px; cursor: pointer; white-space: nowrap; z-index: 1; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .title { max-width: 400px; }
-  .title a { color: #0645ad; text-decoration: none; }
-  .tag { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 11px; margin-right: 4px; }
-  .offer { background: #e3f2fd; } .demand { background: #fff3e0; } .freebie { background: #f3e5f5; } .value { background: #e0f7fa; } .other { background: #eee; }
-  .closed { background: #c8e6c9; } .lead { background: #e8f5e9; } .heckle { background: #ffebee; }
-  .hot { font-weight: 600; color: #c62828; }
-  .muted { color: #888; }
-  .sample { color: #555; font-style: italic; }
-  .kw { color: #777; font-size: 11px; }
-  .kw b { color: #555; font-weight: 600; }
+  body { width: 300px; margin: 0; font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; color: #17191c; background: #fff; }
+  .h { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e4e6ea; font-weight: 600; }
+  .h .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4500; }
+  .h .v { color: #6b7280; font-weight: 400; margin-left: auto; font-size: 12px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 12px 14px; }
+  .s { background: #f5f6f8; border-radius: 8px; padding: 8px 10px; } .s b { display: block; font-size: 18px; } .s span { color: #6b7280; font-size: 11px; }
+  .b { padding: 0 14px 14px; display: grid; gap: 6px; }
+  button { font: inherit; padding: 8px 10px; border: 1px solid #e4e6ea; background: #fff; border-radius: 6px; cursor: pointer; text-align: left; }
+  button:hover { background: #f1f2f4; } button.p { background: #ff4500; border-color: #ff4500; color: #fff; font-weight: 600; } button.p:hover { background: #e63e00; }
+  .hint { color: #6b7280; font-size: 12px; padding: 0 14px 12px; }
+  .hint a { color: #1d4ed8; }
 </style>
 </head>
 <body>
-<header>
-  <select id="type"><option value="all">All types</option><option value="offer">Offers</option><option value="freebie">Freebies</option><option value="value">Value bombs</option><option value="demand">Demand</option></select>
-  <select id="group"><option value="all">All categories</option></select>
-  <select id="kw"><option value="all">All keywords</option></select>
-  <select id="days"><option value="7">7 days</option><option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select>
-  <input id="q" placeholder="filter text" style="width:140px">
-  <span class="grow" id="status">Loading…</span>
-  <button id="refresh">Refresh now</button>
-  <button id="csv">Export CSV</button>
-  <button id="opts">Options</button>
-  <button id="reload" title="Reload the extension code from disk after running update.sh / update.bat. Keeps all data.">Reload code</button>
-  <span class="muted" id="ver"></span>
-</header>
-<table id="t">
-  <thead><tr>
-    <th data-k="leadScore" class="num" title="hands×5 + buyer questions×4 + OP replies×2 + 20 if booked + unique commenters (max 10) − heckles×2">Lead</th>
-    <th data-k="heat" class="num" title="Δcomments48h×3 + Δupvotes48h + lead">Heat</th>
-    <th data-k="type">Type</th>
-    <th data-k="sub">Sub</th>
-    <th data-k="price">Price</th>
-    <th data-k="score" class="num">Up</th>
-    <th data-k="comments" class="num">Cmts</th>
-    <th data-k="dComments48h" class="num">Δ48h</th>
-    <th data-k="leadReplies" class="num" title="hand-raises: DM'd, interested, send me">Hands</th>
-    <th data-k="buyerReplies" class="num" title="client-style questions">Buyer</th>
-    <th data-k="opReplies" class="num" title="OP replying to people">OP↩</th>
-    <th data-k="heckles" class="num">Heckle</th>
-    <th data-k="posted">Posted</th>
-    <th data-k="title">Title · matched keywords · first buyer reply</th>
-  </tr></thead>
-  <tbody></tbody>
-</table>
-<script src="lib.js"></script>
+<div class="h"><span class="dot"></span>Reddit Lead Threads<span class="v" id="ver"></span></div>
+<div class="stats">
+  <div class="s"><b id="n-tracked">0</b><span>threads</span></div>
+  <div class="s"><b id="n-read">0</b><span>comments read</span></div>
+  <div class="s"><b id="n-ev">0</b><span>with leads</span></div>
+</div>
+<div class="b">
+  <button class="p" id="dash">Open dashboard</button>
+  <button id="go">Open r/forhire search to start scraping</button>
+  <button id="opts">Options · keywords</button>
+  <button id="reload">Reload code (after an update)</button>
+</div>
+<div class="hint" id="last"></div>
 <script src="popup.js"></script>
 </body>
 </html>

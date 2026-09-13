@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Reddit Lead Threads</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --line: #e4e6ea; --text: #17191c; --muted: #6b7280; --accent: #ff4500; --accent-soft: #fff1ec;
+    --offer: #dbeafe; --offer-t: #1e40af; --demand: #ffedd5; --demand-t: #9a3412; --freebie: #f3e8ff; --freebie-t: #6b21a8; --value: #cffafe; --value-t: #155e75; --other: #eceef1; --other-t: #4b5563;
+    --good: #dcfce7; --good-t: #166534; --bad: #fee2e2; --bad-t: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  a { color: #1d4ed8; text-decoration: none; } a:hover { text-decoration: underline; }
+  button, select, input { font: inherit; color: inherit; }
+  .btn { padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; }
+  .btn:hover { background: #f1f2f4; } .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; } .btn.primary:hover { background: #e63e00; }
+  .btn.danger { color: var(--bad-t); }
+
+  .top { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .top h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .top .ver { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .top .sp { flex: 1; }
+  .top .actions { display: flex; gap: 8px; }
+
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 16px 22px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .v { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; } .stat .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  .layout { display: grid; grid-template-columns: 250px 1fr; gap: 16px; padding: 16px 22px 40px; align-items: start; }
+  .side { position: sticky; top: 62px; display: grid; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .card .body { padding: 10px 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: #fafafa; cursor: pointer; font-size: 12px; user-select: none; }
+  .chip:hover { border-color: #c9ccd2; } .chip.on { background: var(--text); color: #fff; border-color: var(--text); }
+  .chip .n { color: var(--muted); margin-left: 4px; } .chip.on .n { color: #d1d5db; }
+  .side select, .side input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .side label.row { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
+  .link { background: none; border: 0; color: #1d4ed8; cursor: pointer; padding: 0; font-size: 12px; }
+
+  .main { display: grid; gap: 16px; min-width: 0; }
+  .insights { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .bars { display: grid; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 8px; font-size: 12px; }
+  .bar .track { height: 10px; background: #eef0f3; border-radius: 5px; overflow: hidden; } .bar .fill { height: 100%; background: var(--accent); border-radius: 5px; }
+  .bar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar .k { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: #fafbfc; cursor: pointer; white-space: nowrap; position: sticky; top: 61px; z-index: 1; }
+  th.sorted { color: var(--text); } th.sorted::after { content: " ▾"; } th.sorted.asc::after { content: " ▴"; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row { cursor: pointer; } tr.row:hover td { background: #fbfbfc; }
+  .lead { font-weight: 700; } .lead.hot { color: var(--accent); } .lead.na { color: #c4c8ce; font-weight: 400; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .t-offer { background: var(--offer); color: var(--offer-t); } .t-demand { background: var(--demand); color: var(--demand-t); } .t-freebie { background: var(--freebie); color: var(--freebie-t); } .t-value { background: var(--value); color: var(--value-t); } .t-other { background: var(--other); color: var(--other-t); }
+  .t-good { background: var(--good); color: var(--good-t); } .t-bad { background: var(--bad); color: var(--bad-t); }
+  .ttl { max-width: 460px; } .ttl .t { font-weight: 500; } .ttl .m { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  tr.detail td { background: #fafbfc; padding: 12px 16px 14px; }
+  .detail .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .detail h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .detail .body-text { white-space: pre-wrap; color: #374151; max-height: 180px; overflow: auto; }
+  .detail ul { margin: 0; padding-left: 16px; } .detail li { margin-bottom: 4px; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .empty b { color: var(--text); }
+  .log { max-height: 260px; overflow: auto; }
+  .log .e { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
+  .log .e:last-child { border-bottom: 0; } .log .u { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .log .n { white-space: nowrap; }
+  .foot { color: var(--muted); font-size: 12px; padding: 8px 14px; border-top: 1px solid var(--line); }
+  @media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, 1fr); } .insights { grid-template-columns: 1fr; } .layout { grid-template-columns: 1fr; } .side { position: static; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1><span class="dot"></span> Reddit Lead Threads <span class="ver" id="ver"></span></h1>
+  <span class="sp"></span>
+  <input id="q" type="text" placeholder="Search title, body, keyword, subreddit…" style="width:300px;padding:6px 10px;border:1px solid var(--line);border-radius:6px">
+  <div class="actions">
+    <button class="btn" id="csv">Export CSV (filtered)</button>
+    <button class="btn" id="crawl" title="Optional background crawler; slow without an API key">Crawl in background</button>
+    <button class="btn" id="opts">Options</button>
+    <button class="btn" id="reload" title="Reload extension code after unzipping an update">Reload code</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="v" id="s-tracked">0</div><div class="l">threads saved</div></div>
+  <div class="stat"><div class="v" id="s-read">0</div><div class="l">threads with comments read</div></div>
+  <div class="stat"><div class="v" id="s-hands">0</div><div class="l">hand-raises found</div></div>
+  <div class="stat"><div class="v" id="s-buyer">0</div><div class="l">buyer questions found</div></div>
+  <div class="stat"><div class="v" id="s-booked">0</div><div class="l">threads where OP got booked</div></div>
+  <div class="stat"><div class="v" id="s-last" style="font-size:14px;padding-top:6px">—</div><div class="l">last collected</div></div>
+</div>
+
+<div class="layout">
+  <aside class="side">
+    <div class="card"><h3>Type</h3><div class="body chips" id="f-type"></div></div>
+    <div class="card"><h3>Category <button class="link" id="clear-group">clear</button></h3><div class="body chips" id="f-group"></div></div>
+    <div class="card"><h3>Keyword</h3><div class="body"><select id="f-kw"><option value="">All keywords</option></select></div></div>
+    <div class="card"><h3>Subreddit <button class="link" id="clear-sub">clear</button></h3><div class="body chips" id="f-sub"></div></div>
+    <div class="card"><h3>Price</h3><div class="body chips" id="f-price"></div></div>
+    <div class="card"><h3>More</h3><div class="body">
+      <select id="f-days"><option value="30">Posted in last 30 days</option><option value="90">Last 90 days</option><option value="365" selected>Last year</option><option value="36500">Any time</option></select>
+      <label class="row"><input type="checkbox" id="f-read"> only threads with comments read</label>
+      <label class="row"><input type="checkbox" id="f-evidence"> only threads with lead evidence</label>
+    </div></div>
+  </aside>
+
+  <main class="main">
+    <div class="insights">
+      <div class="card"><h3>Offers by price band · lead evidence</h3><div class="body bars" id="i-price"></div><div class="foot">Sum of hand-raises + buyer questions in offer threads, by stated price.</div></div>
+      <div class="card"><h3>Keywords that found leads</h3><div class="body bars" id="i-kw"></div><div class="foot">Lead evidence in threads each keyword matched.</div></div>
+      <div class="card"><h3>Collection log</h3><div class="body log" id="log"></div><div class="foot">Every page and thread you scraped, newest first.</div></div>
+    </div>
+
+    <div class="card">
+      <h3><span id="count">0 threads</span><span><button class="link" id="expand-all">expand all</button> · <button class="link danger" id="clear-data">clear all data</button></span></h3>
+      <table id="t"><thead><tr>
+        <th data-k="leadScore" class="num sorted" title="hands×5 + buyer×4 + OP replies×2 + 20 if booked + unique commenters − heckles×2">Lead</th>
+        <th data-k="type">Type</th>
+        <th data-k="sub">Sub</th>
+        <th data-k="price">Price</th>
+        <th data-k="score" class="num">Up</th>
+        <th data-k="comments" class="num">Cmts</th>
+        <th data-k="leadReplies" class="num" title="hand-raises">Hands</th>
+        <th data-k="buyerReplies" class="num" title="client-style questions">Buyer</th>
+        <th data-k="opReplies" class="num" title="OP replying">OP↩</th>
+        <th data-k="heckles" class="num">Heckle</th>
+        <th data-k="posted">Posted</th>
+        <th data-k="title">Thread</th>
+      </tr></thead><tbody></tbody></table>
+      <div class="empty" id="empty" hidden></div>
+    </div>
+  </main>
+</div>
+<script src="lib.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

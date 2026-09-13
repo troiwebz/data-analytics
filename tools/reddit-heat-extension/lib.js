@@ -396,31 +396,54 @@ HEAT.classifyComment = function (body, author, opAuthor) {
   return "other";
 };
 
-HEAT.summariseComments = function (listing, opAuthor) {
+// Flat form: comments = [{ author, body, parentAuthor }]. Used by both the
+// JSON walker below and the page scraper (content.js).
+HEAT.summariseFlat = function (comments, opAuthor) {
   const out = { total: 0, buyer: 0, lead: 0, heckle: 0, op: 0, opReplies: 0, closed: false, uniqueCommenters: 0, sampleBuyer: "", replies: [] };
   const people = new Set();
   const keep = (d, cls) => { if (out.replies.length < 5) out.replies.push(`[${cls}] u/${d.author}: ${(d.body || "").replace(/\s+/g, " ").slice(0, 160)}`); };
+  for (const d of comments || []) {
+    out.total += 1;
+    if (d.author && d.author !== opAuthor) people.add(d.author);
+    const cls = HEAT.classifyComment(d.body, d.author, opAuthor);
+    if (cls === "buyer") { out.buyer += 1; if (!out.sampleBuyer) out.sampleBuyer = (d.body || "").slice(0, 140); keep(d, cls); }
+    else if (cls === "lead") { out.lead += 1; if (!out.sampleBuyer) out.sampleBuyer = (d.body || "").slice(0, 140); keep(d, cls); }
+    else if (cls === "heckle") out.heckle += 1;
+    else if (cls === "op" || cls === "closed") {
+      out.op += 1;
+      if (d.parentAuthor && d.parentAuthor !== opAuthor) out.opReplies += 1;
+      if (cls === "closed") { out.closed = true; keep(d, cls); }
+    }
+  }
+  out.uniqueCommenters = people.size;
+  return out;
+};
+
+HEAT.summariseComments = function (listing, opAuthor) {
+  const flat = [];
   const walk = (children, parentAuthor) => {
     for (const c of children || []) {
       if (!c || c.kind !== "t1") continue;
       const d = c.data || {};
-      out.total += 1;
-      if (d.author && d.author !== opAuthor) people.add(d.author);
-      const cls = HEAT.classifyComment(d.body, d.author, opAuthor);
-      if (cls === "buyer") { out.buyer += 1; if (!out.sampleBuyer) out.sampleBuyer = (d.body || "").slice(0, 140); keep(d, cls); }
-      else if (cls === "lead") { out.lead += 1; if (!out.sampleBuyer) out.sampleBuyer = (d.body || "").slice(0, 140); keep(d, cls); }
-      else if (cls === "heckle") out.heckle += 1;
-      else if (cls === "op" || cls === "closed") {
-        out.op += 1;
-        if (parentAuthor && parentAuthor !== opAuthor) out.opReplies += 1;
-        if (cls === "closed") { out.closed = true; keep(d, cls); }
-      }
+      flat.push({ author: d.author, body: d.body, parentAuthor });
       if (d.replies && d.replies.data) walk(d.replies.data.children, d.author);
     }
   };
   if (Array.isArray(listing) && listing[1] && listing[1].data) walk(listing[1].data.children, opAuthor);
-  out.uniqueCommenters = people.size;
-  return out;
+  return HEAT.summariseFlat(flat, opAuthor);
+};
+
+// Build a post record from fields scraped off an old.reddit page.
+HEAT.postFromScrape = function (f, compiled) {
+  const text = (f.title || "") + "\n" + (f.body || "");
+  const m = HEAT.matchKeywords(compiled || [], text);
+  const permalink = (f.permalink || "").replace(/^https?:\/\/[^/]+/, "");
+  return {
+    id: f.id, sub: f.sub || "", type: HEAT.classifyPost(f.title, f.body), title: f.title || "", author: f.author || "", flair: f.flair || "",
+    created: f.created || 0, permalink, url: "https://old.reddit.com" + permalink, linkUrl: f.linkUrl || "",
+    body: (f.body || "").replace(/\s+/g, " ").slice(0, 1200), price: HEAT.extractPrice(text.slice(0, 1800)),
+    keywords: m.keywords, groups: m.groups, score: f.score || 0, ratio: 0, comments: f.comments || 0, source: "page",
+  };
 };
 
 // ---------------------------------------------------------------------------
