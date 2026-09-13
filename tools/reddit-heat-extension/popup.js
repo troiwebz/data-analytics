@@ -11,7 +11,8 @@ async function load() {
   $("n-read").textContent = list.filter((p) => p.signals).length;
   $("n-ev").textContent = list.filter((p) => p.signals && (p.signals.lead + p.signals.buyer > 0 || p.signals.closed)).length;
   const last = Math.max(meta.lastPage || 0, meta.lastRun || 0);
-  $("last").textContent = last ? "Last collected " + new Date(last).toLocaleString() : "Nothing collected yet. Use the orange panel on any old.reddit.com page.";
+  const upd = lastAutoReload ? ` · auto-updated to v${lastAutoReload.to} at ${new Date(lastAutoReload.t).toLocaleTimeString()}` : "";
+  $("last").textContent = (last ? "Last collected " + new Date(last).toLocaleString() : "Nothing collected yet. Use the orange panel on any old.reddit.com page.") + upd;
 }
 $("dash").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }));
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
