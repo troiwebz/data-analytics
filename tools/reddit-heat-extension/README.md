@@ -29,9 +29,21 @@ Crawls subreddits page by page from inside your own browser, matches hundreds of
 
 The CSV also carries author, flair, upvote ratio, the first 1,200 characters of the post body, the outbound link if any, and up to five classified replies.
 
-## Install
+## Install (once) and update (two clicks)
 
-1. `chrome://extensions` → **Developer mode** on → **Load unpacked** → this folder.
+Load the extension from a git checkout so updates are a pull away:
+
+```
+git clone https://github.com/troiwebz/data-analytics.git
+cd data-analytics
+git checkout claude/brave-fermat-6ysqd0
+```
+
+1. `chrome://extensions` → **Developer mode** on → **Load unpacked** → pick `data-analytics/tools/reddit-heat-extension`.
+
+**To update after a new push:** run `update.sh` (macOS/Linux) or double-click `update.bat` (Windows) inside the extension folder, then click **Reload code** in the popup. Chrome re-reads the files from disk; all collected threads, snapshots, and your options are kept because they live in Chrome storage, not in the files. The popup shows the loaded version next to the buttons.
+
+Once the branch is merged to `main`, check out `main` instead; the scripts pull whichever branch is checked out.
 2. Icon → **Options**. Paste a Reddit client id (instructions on the page), click **Test**. Edit keywords: it ships with ~250 in five categories (Offers, Freebies, Value bombs, Demand, Niches). Lines starting with `#` are category headers.
 3. Icon → **Refresh now**. Close the popup; progress shows when you reopen it. It re-runs every 3 hours while Chrome is open.
 

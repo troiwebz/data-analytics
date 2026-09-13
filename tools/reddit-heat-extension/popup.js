@@ -67,6 +67,8 @@ document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () 
 ["type", "group", "kw", "days"].forEach((id) => $(id).addEventListener("change", load));
 $("q").addEventListener("input", load);
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("reload").addEventListener("click", () => { $("status").textContent = "Reloading code…"; chrome.runtime.reload(); });
+$("ver").textContent = "v" + chrome.runtime.getManifest().version;
 $("refresh").addEventListener("click", () => {
   $("status").textContent = "Starting run… you can close this popup; progress shows when you reopen it.";
   chrome.runtime.sendMessage({ type: "refresh" }, () => load());
