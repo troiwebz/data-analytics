@@ -106,3 +106,20 @@ assert.ok(csv.split("\n")[0].startsWith("leadScore,opportunity,heat,type,groups,
 assert.ok(csv.includes('"a | b"') && csv.includes('"Offers"') && csv.includes("[buyer] u/a:"));
 
 console.log("lib.js: all tests passed");
+
+// campaign ideas
+const demandPosts = {
+  a: { id: "a", type: "demand", title: "Built my site with Lovable, checkout is broken, who can fix it? Budget $300", body: "", sub: "lovable", created: Date.now() - 86400000, comments: 2, url: "u1" },
+  b: { id: "b", type: "demand", title: "Lovable site not working after deploy, need someone to finish it", body: "", sub: "lovable", created: Date.now() - 2 * 86400000, comments: 0, url: "u2" },
+  c: { id: "c", type: "demand", title: "Wix site not showing up on Google, help?", body: "", sub: "Wix", created: Date.now() - 3 * 86400000, comments: 12, url: "u3" },
+  d: { id: "d", type: "offer", title: "[For Hire] Websites for $500", body: "", sub: "forhire", created: Date.now(), comments: 17, url: "u4" },
+};
+const ideas = H.buildIdeas(demandPosts, ["smallbusiness"]);
+assert.strictEqual(ideas.length, 10);
+assert.strictEqual(ideas[0].key, "ai-rescue");
+assert.strictEqual(ideas[0].matched, 2);
+assert.ok(ideas[0].targets.includes("lovable") && ideas[0].targets.includes("smallbusiness"));
+assert.strictEqual(ideas[0].opps[0].id, "a");
+assert.ok(ideas.some((i) => i.key === "google-visibility" && i.matched === 1));
+assert.ok(ideas.every((i) => i.title && i.body && i.price));
+console.log("campaign ideas: ok");

@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Campaign Planner · Reddit Lead Threads</title>
+<style>
+  :root { --bg: #f5f6f8; --panel: #fff; --line: #e4e6ea; --text: #17191c; --muted: #6b7280; --accent: #ff4500; --good: #dcfce7; --good-t: #166534; --bad: #fee2e2; --bad-t: #991b1b; --warn: #fef3c7; --warn-t: #92400e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  a { color: #1d4ed8; text-decoration: none; } a:hover { text-decoration: underline; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  .btn { padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; }
+  .btn:hover { background: #f1f2f4; } .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; } .btn.primary:hover { background: #e63e00; }
+  .btn.ok { background: var(--good); border-color: #86efac; color: var(--good-t); } .btn.no { background: var(--bad); border-color: #fca5a5; color: var(--bad-t); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .top { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; } .top .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .top .sp { flex: 1; } .top .actions { display: flex; gap: 8px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px 22px 60px; display: grid; gap: 14px; }
+  .banner { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+  .banner b { font-size: 15px; } .banner .m { color: var(--muted); margin-top: 3px; }
+  .banner.live { border-color: #86efac; background: #f0fdf4; }
+  .steps { display: flex; gap: 10px; flex-wrap: wrap; } .step { padding: 4px 10px; border-radius: 999px; background: #eef0f3; color: var(--muted); font-size: 12px; } .step.on { background: var(--text); color: #fff; }
+  .idea { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .idea.approved { border-color: #86efac; } .idea.rejected { opacity: .55; }
+  .head { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; padding: 12px 16px; align-items: center; cursor: pointer; }
+  .head .rank { font-size: 18px; font-weight: 700; color: var(--muted); } .idea.approved .head .rank { color: var(--good-t); }
+  .head .n { font-weight: 600; font-size: 14px; } .head .who { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .head .ev { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .t-ev { background: #eef0f3; color: #374151; } .t-ok { background: var(--good); color: var(--good-t); } .t-no { background: var(--bad); color: var(--bad-t); } .t-draft { background: var(--warn); color: var(--warn-t); }
+  .body { display: none; border-top: 1px solid var(--line); padding: 14px 16px 16px; }
+  .idea.open .body { display: block; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  textarea { min-height: 150px; resize: vertical; font-family: inherit; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; } .chip { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: #fafafa; font-size: 12px; }
+  .chip input { margin: 0 4px 0 0; vertical-align: -1px; }
+  .opps { display: grid; gap: 6px; } .opps .o { display: grid; grid-template-columns: 30px 1fr; gap: 8px; font-size: 12px; } .opps .o b { color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; } .row .sp { flex: 1; }
+  .saved { color: var(--good-t); font-size: 12px; }
+  .check { display: grid; gap: 8px; } .check label { display: flex; gap: 8px; align-items: flex-start; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); margin: 0; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1><span class="dot"></span> Campaign Planner</h1>
+  <div class="steps"><span class="step on" id="st1">1 · Generate from your data</span><span class="step" id="st2">2 · Edit and approve</span><span class="step" id="st3">3 · Start campaign</span></div>
+  <span class="sp"></span>
+  <div class="actions">
+    <button class="btn" id="dash">Dashboard</button>
+    <button class="btn" id="regen" title="Rebuild the 10 ideas from the latest scraped demand. Your edits to approved ideas are kept.">Regenerate ideas</button>
+    <button class="btn" id="export">Export approved (text)</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="banner" id="banner">
+    <div><b id="b-title">No campaign yet</b><div class="m" id="b-text">Generate ten ideas from the demand you scraped, edit the price and wording, approve the ones you like, then start. Nothing is posted automatically: you post and reply yourself.</div></div>
+    <div><button class="btn primary" id="start">Start campaign with approved ideas</button></div>
+  </div>
+  <div id="list"></div>
+</div>
+<script src="lib.js"></script>
+<script src="campaign.js"></script>
+</body>
+</html>

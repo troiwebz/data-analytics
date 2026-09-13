@@ -14,5 +14,6 @@ async function load() {
 }
 $("dash").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }));
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("plan").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("campaign.html") }));
 $("reload").addEventListener("click", () => chrome.runtime.reload());
 load();

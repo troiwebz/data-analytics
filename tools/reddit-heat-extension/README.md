@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.2 (private Chrome extension)
+# Reddit Lead Threads v1.4 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -26,6 +26,12 @@ Click the extension icon → **Open dashboard** (or the **Dashboard** button on 
 - **Results table** sorted by Lead score. Click a row to expand the post body, matched keywords, and the classified replies. **Export CSV (filtered)** saves what you are looking at.
 
 A good first session: r/forhire search `"for hire" website` sorted Top past year, walk 10 pages; r/forhire search `hiring website`, walk 5; r/smallbusiness search `"need a website"`, walk 10; then "Read comments of top threads" with 30. About 10 minutes, mostly waiting.
+
+## Campaign planner: ten offers, you decide
+
+Popup → **Campaign planner** (or the button on the dashboard). It turns the demand you scraped into ten service ideas, ranked by how many demand threads each one would answer, each with a suggested price, target subreddits, a ready-to-edit post title and body, and the live threads you could reply to with that offer right now.
+
+You stay in control: edit the name, price, wording, and target subreddits; **Approve** or **Reject** each one; then **Start campaign**. Starting only unlocks a checklist per approved offer (posted, replied, DMs answered, results logged). The extension never posts or replies for you. **Regenerate ideas** refreshes the evidence from new scrapes and keeps your edits and decisions. **Export approved** saves them as a text file.
 
 ## What "lead evidence" means
 

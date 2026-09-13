@@ -181,6 +181,7 @@ $("csv").addEventListener("click", () => {
 });
 $("crawl").addEventListener("click", () => { chrome.runtime.sendMessage({ type: "refresh" }, () => load()); $("s-last").textContent = "crawling…"; });
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("plan").addEventListener("click", () => { location.href = "campaign.html"; });
 $("reload").addEventListener("click", () => chrome.runtime.reload());
 $("clear-data").addEventListener("click", async () => { if (confirm("Delete all saved threads, comments and the collection log? Keywords and settings are kept.")) { await chrome.storage.local.remove(["posts", "snaps", "meta", "log", "auto"]); load(); } });
 chrome.storage.onChanged.addListener((ch) => { if (ch.posts || ch.meta || ch.log) load(); });

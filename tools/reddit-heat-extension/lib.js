@@ -607,3 +607,81 @@ HEAT.toRow = function (p, snaps, now = Date.now()) {
     replies: s.replies || [], sampleReply: s.sampleBuyer || "", analysed: !!p.signals,
   };
 };
+
+// ---------------------------------------------------------------------------
+// Campaign planner: turn scraped demand into 10 service ideas the user can
+// edit, approve or reject before anything starts. Nothing is ever posted.
+// ---------------------------------------------------------------------------
+HEAT.IDEA_POOL = [
+  { key: "ai-rescue", name: "AI-site rescue", who: "Owners stuck with a Lovable / Bolt / v0 / vibe-coded site or app",
+    offer: "Fix or finish your AI-built site so it actually launches: broken checkout, auth, deploy, domain, mobile.", price: "$249 flat, 48 hours", upsell: "$99/mo hosting + fixes",
+    match: /lovable|bolt\.new|\bv0\b|vibe.?cod|built with ai|ai.?(built|made|generated)|chatgpt|cursor|finish my (site|app|website)|someone to finish|deploy/i,
+    title: "[For Hire] I finish and fix AI-built websites (Lovable, Bolt, v0, vibe-coded) — $249 flat, live in 48h",
+    body: "You built it with AI and it almost works. I take it the last mile: broken checkout or forms, auth, deploy, custom domain, mobile layout, speed.\n\nIncluded: audit of what's wrong, the fixes, deploy on your domain, a 15-minute handover call, 14 days of follow-up fixes.\nPrice: $249 flat. 50% via PayPal Goods & Services or Stripe to start, 50% when it's live.\nPortfolio: [link]. DM me the site URL and what's broken." },
+  { key: "google-visibility", name: "Not showing on Google fix", who: "Wix / Squarespace / GoDaddy / Shopify owners invisible on Google",
+    offer: "Google Business Profile + on-page SEO + indexing fix so the business shows up for its own name and service.", price: "$149 flat", upsell: "$79/mo local SEO upkeep",
+    match: /not (showing|ranking|appearing|found)|google (business|profile|maps)|\bseo\b|index/i,
+    title: "[For Hire] Your website isn't showing on Google? I fix indexing, Google Business Profile and on-page SEO — $149 flat",
+    body: "If you search your business name and your site doesn't come up, this is for you. Works on Wix, Squarespace, Shopify, WordPress.\n\nIncluded: indexing and Search Console fix, Google Business Profile set up or cleaned, titles/descriptions for every page, 5 local keywords placed, before/after report in 7 days.\nPrice: $149 flat, PayPal Goods & Services or Stripe.\nDM your URL and city." },
+  { key: "ads-landing", name: "Landing page for ads", who: "Anyone running or about to run Facebook / Google ads",
+    offer: "One conversion-focused landing page with form, tracking pixel and thank-you page.", price: "$299, 48 hours", upsell: "$149 per extra variant for A/B",
+    match: /landing page|facebook ads|google ads|\bppc\b|\bads\b|conversion|not converting/i,
+    title: "[For Hire] Landing page for your ad campaign, with pixel and form, $299 in 48 hours",
+    body: "Sending ads to your homepage wastes budget. I build one page that matches the ad: headline, proof, offer, form, pixel + conversion event, thank-you page.\n\nIncluded: copy from your ad and offer, mobile-first design, Meta/Google tracking, one round of revisions, live on your domain in 48h.\nPrice: $299 flat. Extra variant for testing: $149.\nPortfolio: [link]. DM the ad or offer you're running." },
+  { key: "ghosted-rescue", name: "Abandoned-project takeover", who: "Owners whose designer ghosted or delivered half a site",
+    offer: "Take over a half-built site, finish it, and hand over full ownership with a written scope and escrow.", price: "$499 flat, scoped after a free 20-min review", upsell: "",
+    match: /ghosted|scammed|disappeared|never finished|half.?(done|built|finished)|took my (money|deposit)|abandoned/i,
+    title: "[For Hire] Designer ghosted you? I take over half-finished websites and get them live — fixed quote, milestone payments",
+    body: "You paid a deposit, got a half-built site, and now nobody answers. I finish it.\n\nHow it works: free 20-minute review of what exists, written scope and fixed price, 3 milestones paid through PayPal Goods & Services or escrow, you own every login and file at the end.\nTypical: $499 for a 5-page site takeover, live in 7 days.\nPortfolio: [link]. DM the URL and what you were promised." },
+  { key: "local-5page", name: "5-page local business site", who: "Trades and local services: plumbers, HVAC, salons, dentists, contractors",
+    offer: "5-page site with booking or quote form, Google Business Profile connected, hosting set up.", price: "$499 flat, 7 days", upsell: "$99/mo hosting, edits, monthly report",
+    match: /plumb|hvac|electric|roof|landscap|clean|contractor|handyman|dentist|dental|chiro|salon|barber|gym|restaurant|cafe|bakery|realtor|real estate|photograph|lawyer|law firm|accountant|clinic|need a website|small business/i,
+    title: "[For Hire] 5-page website for local service businesses, $499 flat, live in 7 days, Google Business Profile included",
+    body: "For plumbers, HVAC, cleaners, salons, clinics, contractors: a site that gets the phone to ring.\n\nIncluded: 5 pages (home, services, about, reviews, contact), click-to-call and quote form, Google Business Profile connected, hosting and domain set up, mobile-first, 30 days of edits.\nPrice: $499 flat. 50% to start via PayPal Goods & Services or Stripe.\nPortfolio: [link]. DM your trade and city." },
+  { key: "subscription", name: "Website subscription, $0 down", who: "Owners who won't pay upfront", offer: "Site built free, then a monthly fee that covers hosting, edits and support. Cancel any time after 6 months.", price: "$0 down, $99/month", upsell: "",
+    match: /budget|afford|cheap|expensive|how much|too much|can't pay|monthly|subscription|per month/i,
+    title: "[For Hire] Business website for $0 down, $99/month: build, hosting, unlimited small edits, cancel after 6 months",
+    body: "No upfront cost. I build your 5-page site, host it, and keep it updated for $99/month.\n\nIncluded: design and build, hosting and SSL, unlimited small edits (hours, prices, photos), monthly backup, a real person to email. After 6 months you can cancel and keep the site.\nPortfolio: [link]. DM your business type." },
+  { key: "free-audit", name: "Free 5-point website audit (lead magnet)", who: "Any owner unsure why their site isn't working", offer: "Free written audit: speed, mobile, Google visibility, conversion, security. Upsell the fixes.", price: "Free, fixes quoted from $99", upsell: "Fix packages $99–$499",
+    match: /roast|audit|feedback|review my|what's wrong|not (working|converting)|no leads/i,
+    title: "Free 5-point audit of your business website this week (speed, mobile, Google, conversion, security), first 10 who comment",
+    body: "Drop your URL in the comments. I'll reply with a short written audit: page speed score, mobile issues, whether Google can find you, what stops visitors from contacting you, and any security red flags.\n\nNo strings. If you want the fixes done I'll quote them, most are $99–$299. Limiting to the first 10 so I can do them properly." },
+  { key: "speed-mobile", name: "Speed and mobile fix", who: "Owners with a slow or broken-on-phone site", offer: "Make the existing site fast and correct on mobile without a rebuild.", price: "$99 flat", upsell: "",
+    match: /slow|speed|loading|mobile|phone|responsive|broken|not working/i,
+    title: "[For Hire] Slow website or broken on phones? Fixed for $99 flat, same week, no rebuild",
+    body: "Included: image and script optimisation, caching, mobile layout fixes, before/after PageSpeed report. Works on WordPress, Wix, Shopify, Squarespace, custom sites.\nPrice: $99 flat. PayPal Goods & Services or Stripe.\nDM your URL." },
+  { key: "migration", name: "Platform migration", who: "Owners who outgrew Wix / GoDaddy / Squarespace", offer: "Move the site to WordPress or Webflow with no lost pages, redirects, and SEO preserved.", price: "$399 flat", upsell: "$99/mo hosting",
+    match: /migrat|move my (site|website)|switch(ing)? (from|to)|leave wix|wix to|squarespace to|godaddy to|rebuild|redo my/i,
+    title: "[For Hire] Move your site off Wix / GoDaddy / Squarespace to WordPress or Webflow, $399 flat, nothing lost",
+    body: "Included: every page and image moved, same or better design, all URLs redirected so Google rankings hold, forms and booking reconnected, hosting set up, training video.\nPrice: $399 flat for up to 10 pages.\nDM your current URL." },
+  { key: "shopify-setup", name: "Shopify store setup or fix", who: "Product sellers with a broken or empty store", offer: "Store set up with products, payments, shipping, theme tweaks, or fix a store that isn't converting.", price: "$349 setup / $149 fix", upsell: "",
+    match: /shopify|woocommerce|store|ecommerce|e-commerce|checkout|products/i,
+    title: "[For Hire] Shopify store set up properly ($349) or fixed ($149): products, payments, shipping, theme, checkout",
+    body: "Included: theme set up to your brand, up to 20 products loaded, payments and shipping zones, legal pages, checkout tested, basic SEO. Fix package covers one clear problem: checkout, speed, theme bug, apps conflict.\nPrices: $349 setup, $149 fix.\nDM your store URL." },
+  { key: "booking", name: "Booking and quote system add-on", who: "Service businesses taking bookings by phone or DM", offer: "Add online booking or a quote request flow to the existing site, connected to calendar and email.", price: "$199 flat", upsell: "",
+    match: /booking|appointment|schedule|calendar|quote form|estimate/i,
+    title: "[For Hire] Add online booking or a quote form to your existing website, $199 flat, connected to your calendar",
+    body: "Included: booking or quote flow that fits your services, calendar sync, email/SMS confirmations, works on any platform.\nPrice: $199 flat.\nDM your URL and how you take bookings today." },
+  { key: "hiring-responder", name: "Answer [Hiring] posts with a fixed quote", who: "Posters in r/forhire [Hiring] and 'looking for a developer' threads", offer: "A reply-and-DM template with a fixed quote and delivery date, sent within an hour of the post.", price: "Quote per post, typically $300–$1,500", upsell: "",
+    match: /\[hiring\]|\[task\]|\bhiring\b|looking for (a|an|someone)|need (a|someone)|who can build|recommend/i,
+    title: "(reply template) Fixed quote for your post",
+    body: "Hi, I can do this for $[price], delivered by [date]. [One sentence on exactly how.] Two similar things I built: [link], [link]. Happy to do a 10-minute call first. Payment via PayPal Goods & Services or milestones, your choice. DM sent." },
+];
+
+HEAT.buildIdeas = function (posts, confirmedSubs = [], now = Date.now()) {
+  const list = Object.values(posts || {});
+  const demand = list.filter((p) => p.type === "demand");
+  const ideas = HEAT.IDEA_POOL.map((idea) => {
+    const hits = demand.filter((p) => idea.match.test((p.title || "") + " " + (p.body || "")));
+    const recent = hits.filter((p) => now - (p.created || 0) < 30 * 86400000);
+    const subs = {};
+    for (const p of hits) subs[p.sub] = (subs[p.sub] || 0) + 1;
+    const targets = Object.entries(subs).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([s]) => s);
+    for (const s of confirmedSubs) if (!targets.includes(s) && targets.length < 6) targets.push(s);
+    const opps = hits.map((p) => ({ p, o: HEAT.opportunityScore(p, now) })).sort((a, b) => b.o - a.o).slice(0, 8).map(({ p, o }) => ({ id: p.id, title: p.title, url: p.url, sub: p.sub, opp: o }));
+    const evidence = recent.length * 3 + hits.length;
+    return { key: idea.key, name: idea.name, who: idea.who, offer: idea.offer, price: idea.price, upsell: idea.upsell, title: idea.title, body: idea.body,
+      matched: hits.length, recent: recent.length, evidence, targets, opps };
+  });
+  return ideas.sort((a, b) => b.evidence - a.evidence).slice(0, 10);
+};
