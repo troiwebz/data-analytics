@@ -234,12 +234,15 @@ website.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
-3a0. ALWAYS GIVE THREE VARIATIONS. Never hand over a single version of
-   anything the founder will shoot or post — a hook, a line, a block, a
-   whole script, a caption. Give three genuinely different executions
-   (different angle or structure, not three rewordings of one line), name
-   the difference in a word each, and say which one you would run and why.
-   He picks; the pick then becomes the locked version.
+3a0. THREE VARIATIONS OF EVERY BLOCK, ONE THEME. Never hand over a
+   single version of anything the founder will shoot or post. Deliver a
+   BLOCK MATRIX: three hooks, three pains, three offers, three CTAs — all
+   holding the SAME theme, so any row combines with any other row and he
+   can mix his own script. Not three whole scripts to choose between; a
+   grid to assemble from. Every hook still obeys 3b1 (opens on the
+   platform name). Label each row in one word (DIRECT / LOSS / EFFORT…),
+   then name the combination you would run and why. His pick becomes the
+   locked version.
 3a1. ALWAYS CLOSE WITH THE FULL FINAL SCRIPT. Every reply that touches
    a script — a hook swap, one corrected word, a block rewritten, a rule
    applied — ends with the COMPLETE script carrying every correction made
