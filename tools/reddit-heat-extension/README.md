@@ -1,4 +1,4 @@
-# Reddit Lead Threads (private Chrome extension)
+# Reddit Lead Threads v1.0 (private Chrome extension)
 
 Crawls subreddits page by page from inside your own browser, matches hundreds of keywords locally, scores every thread on **lead evidence**, tracks how fast each one is heating up, and saves a CSV after every run. Not on the Chrome Web Store; you load it unpacked.
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "description": "Crawls subreddits page by page, matches hundreds of keywords locally, scores every thread on lead evidence (buyer questions, hand-raises, OP booked), tracks heat over time, and saves a CSV.",
   "permissions": [
     "storage",
