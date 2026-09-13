@@ -60,11 +60,13 @@ Real leads on r/forhire arrive by DM and are invisible. The extension reads comm
 
 The CSV also carries author, flair, the post body excerpt, the outbound link if any, and up to five classified replies.
 
-## Install and update
+## Install once, update with one click
 
 1. Unzip into a permanent folder. `chrome://extensions` → **Developer mode** on → **Load unpacked** → pick the folder.
 2. Optional: icon → **Options** to edit the ~250 prefilled keywords (lines starting with `#` are categories).
-3. **Update**: unzip the new version over the same folder, then click **Reload code** in the popup. All saved threads and settings are kept.
+3. **Update**: double-click `update.bat` (Windows) or run `./update.sh` (Mac/Linux) inside the folder. It downloads the latest files from GitHub into that same folder, no Git and no unzipping. Within a minute the extension notices the new version on disk and reloads itself; the popup's version number changes. It never reloads while a sweep is running. Saved threads, batches and settings are kept.
+
+To make it fully hands-off, schedule the script: Windows Task Scheduler → run `update.bat` daily; Mac → `crontab -e` with `0 9 * * * /path/to/update.sh`.
 
 ## Optional background crawler
 

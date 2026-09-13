@@ -35,9 +35,27 @@ async function arm() {
   const cfg = await getConfig();
   chrome.alarms.create(ALARM, { periodInMinutes: cfg.intervalMin, delayInMinutes: 1 });
 }
-chrome.runtime.onInstalled.addListener(arm);
-chrome.runtime.onStartup.addListener(arm);
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); });
+// Auto-reload: once a minute, read manifest.json from disk. If update.bat /
+// update.sh (or a fresh unzip) put a newer version in the folder, reload so
+// Chrome picks it up without anyone clicking anything. Never reloads mid-sweep.
+const VERSION_ALARM = "version-check";
+async function checkVersion() {
+  try {
+    const onDisk = await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json();
+    if (onDisk.version && onDisk.version !== chrome.runtime.getManifest().version) {
+      const { auto, pendingVersion } = await chrome.storage.local.get(["auto", "pendingVersion"]);
+      // Require the same new version on two consecutive checks so we never
+      // reload while the updater is still copying files.
+      if (pendingVersion !== onDisk.version) { await chrome.storage.local.set({ pendingVersion: onDisk.version }); return; }
+      if (auto) return; // a sweep or walk is running; try again next minute
+      await chrome.storage.local.set({ lastAutoReload: { from: chrome.runtime.getManifest().version, to: onDisk.version, t: Date.now() }, pendingVersion: null });
+      chrome.runtime.reload();
+    }
+  } catch (e) { /* file missing mid-copy; retry next minute */ }
+}
+chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); });
+chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (!msg) return;
   if (msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
