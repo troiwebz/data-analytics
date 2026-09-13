@@ -67,4 +67,12 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
     states a loss.
   * He DROPPED the scarcity line and the website score. Scarcity is still
     the rule — flag its absence once, then respect his call.
+- 2026-09-13 — REJECTED hook: the self-search trap. Never build a hook on
+  a mechanism the viewer must first understand (personalised search
+  results, algorithms, how ranking works). Fails the cold-viewer test.
+- 2026-09-13 — Once a script is approved, every later script in the same
+  set must be TONE-MATCHED to it, not just rule-compliant: same opener
+  ("Unga business name mattum kudunga"), same speed claim, same brand
+  phrasing ("namma Google ranking software — RankMapp"), same close
+  ("Enna follow pannitu... Udane anupparen").
 

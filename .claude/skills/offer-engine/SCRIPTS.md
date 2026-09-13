@@ -372,6 +372,51 @@ them; the Maps audit reaches everyone with a GBP, matches the pain the
 hook just named, is far more visual, and demos the core product. Website
 score stays as a bonus - it costs nothing and thickens the stack.
 
+LOCKED SCRIPTS (founder-approved, shoot from these)
+
+Ad 1 - WASTE - DM 'MAP' (~21s) - founder wrote this one himself
+  HOOK     Unga business Google Maps-la rank aagaama, neenga evlo
+           Instagram post pottaalum waste thaan.
+  PAIN     Unga Instagram post paakravanga customer illa. Customer
+           Google Maps-la thaan irukaanga.
+  QUALIFY  Unga business-um Google Maps-la rank aaganuma?
+  OFFER    Unga business name mattum kudunga. 2 nimishathula unga
+           map-oda full ranking report kudukren. Plus namma Google
+           ranking software - RankMapp - 1 month ku full FREE link.
+  CTA      Enna follow pannitu 'MAP'nu comment pannunga. Udane anupparen.
+  ON-SCREEN  INSTAGRAM POST WASTE / POST PAAKRAVANGA CUSTOMER ILLA /
+           RANK AAGANUMA? / 2 NIMISHAM - FULL RANKING REPORT /
+           RANKMAPP 1 MONTH FREE - COMMENT 'MAP'
+
+Ad 2 - TOP 3 - DM 'MAP' (~20s) - tone matched to Ad 1
+  HOOK     Unga business Google Maps-la top 3-la illainaa, customer
+           ungala paakave maataanga.
+  PAIN     Ungalukku 10 varusham experience irukku. Aana nethu open
+           panna business unga mela irukku.
+  QUALIFY  Unga business-um Google Maps-la top 3-la varanuma?
+  OFFER    Unga business name mattum kudunga. 2 nimishathula unga full
+           ranking report kudukren - neenga eththanaavadhu, yaaru unga
+           mela. Plus namma Google ranking software - RankMapp - 1 month
+           ku full FREE link.
+  CTA      Enna follow pannitu 'MAP'nu comment pannunga. Udane anupparen.
+  ON-SCREEN  TOP 3-LA ILLAINA = CUSTOMER ILLA / 10 VARUSHAM vs NETHU
+           OPEN PANNADHU / TOP 3-LA VARANUMA? / 2 NIMISHAM - FULL
+           RANKING REPORT / RANKMAPP 1 MONTH FREE - COMMENT 'MAP'
+
+Ad 3 - not yet written.
+
+SHARED VISUAL: slide 1 hook to camera (shot once per ad) · slide 2 phone
+showing the Maps search · slide 3 screen record of the report building ·
+slide 4 end frame. Slides 3-4 exported once and reused.
+PAID CUT of every CTA: drop follow+comment, use "'MAP'nu DM pannunga.
+Udane anupparen."
+
+REJECTED HOOK - do not pitch again: the self-search trap ("neenge thedina
+mudhal-la varum, customer thedina varaadhu"). True, but it rests on
+Google personalising results, which a cold viewer cannot absorb in four
+seconds. Rule: never build a hook on a mechanism the viewer must first
+understand.
+
 ACCURACY FLAG ON AD 3: "2 nimishathula solren" must point at the
 SELF-SCAN inside the app (about 2 minutes), not at our own manual audit,
 which takes about 8 minutes. Promise the app's speed, not ours.
