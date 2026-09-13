@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Reddit Lead Threads</title>
+<style>
+  body { width: 980px; margin: 0; font: 12px/1.4 system-ui, sans-serif; color: #1a1a1a; background: #fafafa; }
+  header { display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: #fff; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 2; }
+  header .grow { flex: 1; color: #666; }
+  button, select, input { font: inherit; padding: 4px 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+  th { background: #f1f1f1; position: sticky; top: 41px; cursor: pointer; white-space: nowrap; z-index: 1; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .title { max-width: 380px; }
+  .title a { color: #0645ad; text-decoration: none; }
+  .tag { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 11px; margin-right: 4px; }
+  .offer { background: #e3f2fd; } .demand { background: #fff3e0; } .freebie { background: #f3e5f5; } .value { background: #e0f7fa; } .other { background: #eee; }
+  .closed { background: #c8e6c9; } .lead { background: #e8f5e9; } .heckle { background: #ffebee; }
+  .hot { font-weight: 600; color: #c62828; }
+  .muted { color: #888; }
+  .sample { color: #555; font-style: italic; }
+  .kw { color: #777; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <select id="type"><option value="all">All types</option><option value="offer">Offers</option><option value="freebie">Freebies</option><option value="value">Value bombs</option><option value="demand">Demand</option></select>
+  <select id="days"><option value="7">7 days</option><option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select>
+  <input id="q" placeholder="filter title / keyword / sub" style="width:200px">
+  <span class="grow" id="status">Loading…</span>
+  <button id="refresh">Refresh now</button>
+  <button id="csv">Export CSV</button>
+  <button id="opts">Options</button>
+</header>
+<table id="t">
+  <thead><tr>
+    <th data-k="leadScore" class="num" title="lead replies×5 + buyer questions×4 + OP replies×2 + 20 if booked + unique commenters − heckles×2">Lead</th>
+    <th data-k="heat" class="num" title="Δcomments48h×3 + Δupvotes48h + lead">Heat</th>
+    <th data-k="type">Type</th>
+    <th data-k="sub">Sub</th>
+    <th data-k="price">Price</th>
+    <th data-k="score" class="num">Up</th>
+    <th data-k="comments" class="num">Cmts</th>
+    <th data-k="dComments48h" class="num">Δ48h</th>
+    <th data-k="leadReplies" class="num" title="hand-raises: DM'd, interested, send me">Hands</th>
+    <th data-k="buyerReplies" class="num" title="client-style questions">Buyer</th>
+    <th data-k="opReplies" class="num" title="OP replying to people">OP↩</th>
+    <th data-k="heckles" class="num">Heckle</th>
+    <th data-k="posted">Posted</th>
+    <th data-k="title">Title</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+<script src="lib.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
