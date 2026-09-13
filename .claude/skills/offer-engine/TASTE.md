@@ -51,3 +51,20 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
   under ONE theme — a mix-and-match grid, not three finished scripts.
   Different hook per row, same theme. One-word label each, plus a
   recommended combination. He assembles.
+- 2026-09-13 — RankMapp value-bomb Ad 1: founder rewrote it himself. What
+  he changed, and what it teaches:
+  * Opens "Unga business Google Maps-la..." — address them, THEN the
+    platform. 3b1 relaxed to "first clause", not "first word".
+  * Added a QUALIFY question before the offer ("Unga business-um Google
+    Maps-la rank aaganuma?") — new block, now rule 3z.
+  * "full ranking report" instead of "scan" — the freebie must sound like
+    a DELIVERABLE, not an action.
+  * Brand described before it is named: "namma Google ranking software —
+    RankMapp".
+  * "Udane anupparen" at the end — kills the how-long-will-it-take doubt.
+  * Best line he wrote: "Unga Instagram post paakravanga customer illa."
+    Belief-breaker. Prefer pain that breaks a belief over pain that
+    states a loss.
+  * He DROPPED the scarcity line and the website score. Scarcity is still
+    the rule — flag its absence once, then respect his call.
+

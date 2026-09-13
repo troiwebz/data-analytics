@@ -234,6 +234,11 @@ website.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
+3z. OPTIONAL QUALIFY BLOCK, between pain and offer: one short direct
+   question that makes them answer yes in their head before the offer
+   lands ("Unga business-um Google Maps-la rank aaganuma?"). Founder-
+   invented and approved. Use it when the offer is a free service they
+   must ask for; skip it when the ad is already at 14s or under.
 3a0. THREE VARIATIONS OF EVERY BLOCK, ONE THEME. Never hand over a
    single version of anything the founder will shoot or post. Deliver a
    BLOCK MATRIX: three hooks, three pains, three offers, three CTAs — all
@@ -251,9 +256,11 @@ website.
    script from the thread, and that is where mistakes get filmed. Show the
    change first if it helps, but the full script is always the last thing
    in the message.
-3b1. PLATFORM NAME OPENS THE HOOK. When the offer is about a platform
-   (Google Maps, Instagram, Google), the hook must START with that name —
-   first word, not buried mid-line and never absent. It is what makes a
+3b1. PLATFORM NAME IN THE FIRST BREATH. When the offer is about a
+   platform (Google Maps, Instagram, Google), the name must land in the
+   hook's FIRST clause — never absent, never held back to a second
+   sentence. It may be preceded by "Unga business" (the founder's own
+   opener: address them, then name the platform), but nothing longer. It is what makes a
    scrolling owner recognise the ad is about them, and it is the strongest
    semantic signal Meta reads. "Google Maps-la 1km thooram poonaa..." not
    "1km thooram poonaa, Google Maps-la...". Check EVERY hook in a set: one
