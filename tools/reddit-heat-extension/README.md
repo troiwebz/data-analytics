@@ -99,7 +99,7 @@ The CSV also carries author, flair, the post body excerpt, the outbound link if 
 2. Optional: icon → **Options** to edit the ~250 prefilled keywords (lines starting with `#` are categories).
 3. **Update**: double-click `update.bat` (Windows) or run `./update.sh` (Mac/Linux) inside the folder. It downloads the latest files from GitHub into that same folder, no Git and no unzipping. Within a minute the extension notices the new version on disk and reloads itself; the popup's version number changes. It never reloads while a sweep is running. Saved threads, batches and settings are kept.
 
-To make it fully hands-off, schedule the script: Windows Task Scheduler → run `update.bat` daily; Mac → `crontab -e` with `0 9 * * * /path/to/update.sh`.
+**Fully automatic updates.** Run `./autoupdate-install.sh` once (Mac/Linux) or double-click `autoupdate-install.bat` (Windows). It schedules the updater every hour in the background; the extension sees the new version on disk and reloads itself within a minute, never mid-sweep. Turn it off with `autoupdate-uninstall.sh` / `.bat`. Pass a number of seconds to change the interval, e.g. `./autoupdate-install.sh 1800` for every 30 minutes. Progress is logged to `autoupdate.log` in the same folder.
 
 ## Optional background crawler
 

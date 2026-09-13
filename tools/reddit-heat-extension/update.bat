@@ -21,4 +21,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$v=(Get-Content (Join-Path '%HERE%' 'manifest.json') | ConvertFrom-Json).version;" ^
   "Write-Host ('Updated to v' + $v + '. The extension reloads itself within a minute (or click Reload code).')"
 if errorlevel 1 (echo. & echo Update failed. Check your internet connection and try again.)
-pause
+if not "%1"=="/quiet" pause
