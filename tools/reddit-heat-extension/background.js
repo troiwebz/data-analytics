@@ -47,7 +47,11 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "ingest") { ingest(msg.posts || [], msg.source).then(reply); return true; }
   if (msg.type === "signals") { saveSignals(msg.post, msg.signals, msg.source).then(reply); return true; }
   if (msg.type === "open-dashboard") { chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }); reply({ ok: true }); return; }
-  if (msg.type === "queue") { buildQueue(msg.limit || 30).then((queue) => reply({ queue })); return true; }
+  if (msg.type === "queue") { buildQueue(msg.limit || 30, msg.newest).then((queue) => reply({ queue })); return true; }
+  if (msg.type === "sweep-start") { startSweep(msg.queue || [], msg.read || 0, msg.delay || 3).then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "sweep-stop") { stopSweep(true).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "sweep-progress") { chrome.storage.local.get(["sweep"]).then(({ sweep }) => { if (sweep) { const p = { ...msg.patch }; const inc = p._inc; delete p._inc; const next = { ...sweep }; for (const k of Object.keys(p)) next[k] = inc && typeof p[k] === "number" ? (sweep[k] || 0) + p[k] : p[k]; chrome.storage.local.set({ sweep: next }); } reply({ ok: true }); }); return true; }
+  if (msg.type === "sweep-finish") { stopSweep(false).then(() => reply({ ok: true })); return true; }
 });
 
 // --- Page-scrape ingestion (from content.js). Same store as the crawler.
@@ -96,15 +100,37 @@ async function saveSignals(post, signals, source) {
   return r;
 }
 
-// Threads worth reading next: most comments first, unread or stale.
-async function buildQueue(limit) {
+// Threads worth reading next: unread or stale; most comments first, or
+// newest first when `newest` is set (used after a sweep).
+async function buildQueue(limit, newest = false) {
   const { posts = {} } = await chrome.storage.local.get(["posts"]);
   const now = Date.now();
   return Object.values(posts)
     .filter((p) => p.comments > 0 && p.permalink && (!p.signals || now - (p.signals.t || 0) > 24 * 3600 * 1000))
-    .sort((a, b) => b.comments - a.comments || b.created - a.created)
+    .sort((a, b) => newest ? (b.created - a.created || b.comments - a.comments) : (b.comments - a.comments || b.created - a.created))
     .slice(0, limit)
     .map((p) => p.permalink);
+}
+
+// --- Batch sweep: one tab walks the queue; content.js does the moving.
+async function startSweep(queue, read, delay) {
+  if (!queue.length) throw new Error("empty queue");
+  const first = queue[0];
+  const auto = { mode: "sweep", queue: queue.slice(1), current: { ...first, pagesLeft: first.pages }, read, delay, started: Date.now() };
+  const sweep = { running: true, stage: `starting ${first.label}`, items: queue.length, totalPages: queue.reduce((n, q) => n + q.pages, 0), pagesDone: 0, kept: 0, read, threadsDone: 0, started: Date.now() };
+  await chrome.storage.local.set({ auto, sweep });
+  const tab = await chrome.tabs.create({ url: first.url, active: true });
+  await chrome.storage.local.set({ sweepTab: tab.id });
+}
+
+async function stopSweep(stopped) {
+  const { sweep, sweepLog = [] } = await chrome.storage.local.get(["sweep", "sweepLog"]);
+  await chrome.storage.local.remove(["auto", "sweepTab"]);
+  if (sweep && sweep.running) {
+    const done = { ...sweep, running: false, stopped, finishedAt: Date.now() };
+    sweepLog.push({ items: done.items, pagesDone: done.pagesDone, kept: done.kept, threadsDone: done.threadsDone, stopped, finishedAt: done.finishedAt });
+    await chrome.storage.local.set({ sweep: done, sweepLog: sweepLog.slice(-100) });
+  }
 }
 
 // --- OAuth (installed app, userless). Token lasts ~1h; cached in storage.

@@ -123,3 +123,13 @@ assert.strictEqual(ideas[0].opps[0].id, "a");
 assert.ok(ideas.some((i) => i.key === "google-visibility" && i.matched === 1));
 assert.ok(ideas.every((i) => i.title && i.body && i.price));
 console.log("campaign ideas: ok");
+
+// sweep queue
+const sq = H.buildSweepQueue(["forhire", "lovable"], ["need", "nope"], 5, "new");
+assert.strictEqual(sq.length, 3);
+assert.strictEqual(sq[0].url, "https://old.reddit.com/r/forhire/new/");
+assert.strictEqual(sq[2].kind, "query");
+assert.ok(sq[2].url.startsWith("https://old.reddit.com/search?q=") && sq[2].url.endsWith("&sort=new"));
+assert.strictEqual(H.sweepUrl({ kind: "sub", sub: "Wix" }, "week"), "https://old.reddit.com/r/Wix/top/?t=week");
+assert.ok(H.CANDIDATE_SUBS.reduce((n, g) => n + g.subs.length, 0) >= 55);
+console.log("sweep: ok");

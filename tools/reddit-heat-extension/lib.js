@@ -685,3 +685,41 @@ HEAT.buildIdeas = function (posts, confirmedSubs = [], now = Date.now()) {
   });
   return ideas.sort((a, b) => b.evidence - a.evidence).slice(0, 10);
 };
+
+// ---------------------------------------------------------------------------
+// Batch sweep: candidate subreddits (grouped), discovery searches, and the
+// URL builder for one sweep item.
+// ---------------------------------------------------------------------------
+HEAT.CANDIDATE_SUBS = [
+  { group: "AI & no-code builders", subs: ["lovable", "vibecoding", "boltnewbuilders", "cursor", "nocode", "webflow", "framer", "Wix", "squarespace", "GoDaddy", "Wordpress", "elementor", "shopify", "ecommerce", "woocommerce"] },
+  { group: "Business owners", subs: ["smallbusiness", "smallbusinessowners", "sweatystartup", "Entrepreneur", "EntrepreneurRideAlong", "startups", "SaaS", "microsaas", "indiehackers", "SideProject", "Solopreneur"] },
+  { group: "Niche owners", subs: ["restaurantowners", "EtsySellers", "realtors", "Contractor", "HVAC", "Plumbing", "electricians", "lawncare", "Landscaping", "cleaningbusiness", "photographybusiness", "Salon", "gymowners", "dentistry", "LawFirm", "therapists"] },
+  { group: "Marketing", subs: ["PPC", "FacebookAds", "googleads", "localseo", "SEO", "GoogleMyBusiness", "DigitalMarketing", "AskMarketing"] },
+  { group: "Hiring boards", subs: ["forhire", "b2bforhire", "jobbit", "DesignJobs", "freelance_forhire", "slavelabour", "hireaideveloper", "developers_hire"] },
+  { group: "Regional", subs: ["smallbusinessUS", "smallbusinessuk", "ausbusiness", "Startups_EU", "uae_startups"] },
+];
+
+HEAT.DISCOVERY_QUERIES = [
+  { key: "need", label: "need a website / developer / designer", q: '"need a website" OR "need a web developer" OR "need a web designer" OR "need a landing page"' },
+  { key: "ai-fix", label: "AI-built site: fix / finish / broken", q: '(lovable OR "bolt.new" OR "vibe coded" OR "built with ai" OR chatgpt) (website OR site OR app) (fix OR finish OR broken OR help OR deploy)' },
+  { key: "stuck", label: "Wix / Squarespace / Shopify owners stuck", q: '(wix OR squarespace OR godaddy OR shopify) ("not showing" OR broken OR "help with my" OR "not converting" OR "not working")' },
+  { key: "designer", label: "quoted / ghosted / recommend a web designer", q: '"web designer" (ghosted OR quoted OR recommend OR "how much" OR scammed)' },
+  { key: "ads", label: "landing page for ads: need / looking for", q: '"landing page" (need OR "looking for" OR ads OR "not converting")' },
+  { key: "hiring", label: "[Hiring] website / developer, all subreddits", q: '"[hiring]" (website OR "web developer" OR "landing page" OR wordpress OR shopify)' },
+  { key: "fix", label: "fix / rebuild / finish my website", q: '"fix my website" OR "rebuild my website" OR "finish my website" OR "my website is broken" OR "website not loading"' },
+  { key: "google", label: "not showing up on Google", q: '"not showing up on google" OR "not ranking" OR "can\'t find my website on google"' },
+];
+
+// One sweep item → the first page URL. kind: "sub" | "query"
+HEAT.sweepUrl = function (item, sort = "new") {
+  if (item.kind === "query") return `https://old.reddit.com/search?q=${encodeURIComponent(item.q)}&sort=${sort === "new" ? "new" : "top"}${sort !== "new" ? `&t=${sort}` : ""}`;
+  if (sort === "new") return `https://old.reddit.com/r/${encodeURIComponent(item.sub)}/new/`;
+  return `https://old.reddit.com/r/${encodeURIComponent(item.sub)}/top/?t=${sort}`;
+};
+
+HEAT.buildSweepQueue = function (subs, queryKeys, pages, sort) {
+  const q = [];
+  for (const s of subs || []) q.push({ kind: "sub", sub: s, label: `r/${s}`, pages, url: HEAT.sweepUrl({ kind: "sub", sub: s }, sort) });
+  for (const k of queryKeys || []) { const d = HEAT.DISCOVERY_QUERIES.find((x) => x.key === k); if (d) q.push({ kind: "query", key: k, label: d.label, pages, url: HEAT.sweepUrl({ kind: "query", q: d.q }, sort) }); }
+  return q;
+};

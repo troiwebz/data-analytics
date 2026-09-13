@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Batch Sweep · Reddit Lead Threads</title>
+<style>
+  :root { --bg: #f5f6f8; --panel: #fff; --line: #e4e6ea; --text: #17191c; --muted: #6b7280; --accent: #ff4500; --good: #dcfce7; --good-t: #166534; --bad: #fee2e2; --bad-t: #991b1b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  a { color: #1d4ed8; text-decoration: none; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .btn { padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; }
+  .btn:hover { background: #f1f2f4; } .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; } .btn.primary:hover { background: #e63e00; }
+  .btn.stop { background: var(--bad); border-color: #fca5a5; color: var(--bad-t); font-weight: 600; } .btn:disabled { opacity: .5; cursor: default; }
+  .btn.sm { padding: 2px 8px; font-size: 12px; }
+  .top { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; } .top .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .top .sp { flex: 1; } .top .actions { display: flex; gap: 8px; }
+  .wrap { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px 22px 60px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; }
+  .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card h3 .r { display: flex; gap: 6px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .body { padding: 10px 14px; }
+  .group { padding: 8px 14px; border-bottom: 1px solid var(--line); } .group:last-child { border-bottom: 0; }
+  .group .gh { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; } .group .gh b { flex: 1; } .group .gh .c { color: var(--muted); font-size: 12px; }
+  .subs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sub { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 6px; border-radius: 999px; border: 1px solid var(--line); background: #fafafa; font-size: 12px; cursor: pointer; user-select: none; }
+  .sub.on { background: var(--text); color: #fff; border-color: var(--text); } .sub .n { color: var(--muted); font-size: 11px; } .sub.on .n { color: #d1d5db; }
+  .sub input { margin: 0; }
+  .side { position: sticky; top: 62px; }
+  label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 4px; }
+  input[type=number], select, input[type=text], textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .est { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .prog { display: grid; gap: 6px; } .prog .bar { height: 10px; background: #eef0f3; border-radius: 5px; overflow: hidden; } .prog .fill { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .prog .st { font-size: 12px; color: var(--muted); } .prog.live .st { color: var(--text); }
+  .batch { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 12px; } .batch:last-child { border-bottom: 0; }
+  .batch .m { color: var(--muted); }
+  .log { max-height: 220px; overflow: auto; font-size: 12px; } .log .e { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 4px 0; border-bottom: 1px dashed var(--line); } .log .u { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--good); color: var(--good-t); }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1><span class="dot"></span> Batch Sweep</h1>
+  <span class="sp"></span>
+  <div class="actions">
+    <button class="btn" id="dash">Dashboard</button>
+    <button class="btn" id="plan">Campaign planner</button>
+  </div>
+</div>
+<div class="wrap">
+  <main>
+    <div class="card">
+      <h3>1 · Subreddits to sweep <span class="r"><button class="btn sm" id="all">select all</button><button class="btn sm" id="none">none</button><button class="btn sm" id="conf">confirmed only</button></span></h3>
+      <div id="groups"></div>
+      <div class="group"><div class="gh"><b>Your own</b><span class="c">one per line, no r/</span></div><textarea id="custom" style="height:60px" placeholder="e.g. Bangalorestartups&#10;smallbusinessesowners"></textarea></div>
+    </div>
+    <div class="card">
+      <h3>2 · Discovery searches across all of Reddit <span class="r"><button class="btn sm" id="qall">all</button><button class="btn sm" id="qnone">none</button></span></h3>
+      <div class="body subs" id="queries"></div>
+    </div>
+    <div class="card">
+      <h3>Recent sweeps</h3>
+      <div class="body log" id="log"></div>
+    </div>
+  </main>
+  <aside class="side">
+    <div class="card">
+      <h3>3 · Settings</h3>
+      <div class="body">
+        <div class="row2">
+          <div><label class="f">Pages per item</label><input type="number" id="pages" min="1" max="20" value="5"></div>
+          <div><label class="f">Sort</label><select id="sort"><option value="new">newest first</option><option value="week">top this week</option><option value="month">top this month</option></select></div>
+        </div>
+        <div class="row2">
+          <div><label class="f">Then read comments of newest</label><input type="number" id="read" min="0" max="200" value="30"></div>
+          <div><label class="f">Seconds between pages</label><input type="number" id="delay" min="2" max="15" value="3"></div>
+        </div>
+        <div class="est" id="est"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>4 · Run</h3>
+      <div class="body">
+        <button class="btn primary" id="run" style="width:100%">Run this selection now</button>
+        <div class="row2" style="margin-top:8px"><input type="text" id="bname" placeholder="save as batch, e.g. Daily recent"><button class="btn" id="saveb">Save batch</button></div>
+        <div id="batches" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Progress</h3>
+      <div class="body prog" id="prog"><div class="bar"><div class="fill" id="fill"></div></div><div class="st" id="st">Idle.</div><button class="btn stop" id="stop" hidden>■ Stop sweep</button></div>
+    </div>
+  </aside>
+</div>
+<script src="lib.js"></script>
+<script src="sweep.js"></script>
+</body>
+</html>

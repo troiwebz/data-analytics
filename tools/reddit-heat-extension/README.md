@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.4 (private Chrome extension)
+# Reddit Lead Threads v1.5 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -13,6 +13,14 @@ An orange panel appears bottom-right on every `old.reddit.com` page.
 - **Read comments of top threads ▶**: opens the most-commented saved threads one after another, scrapes and classifies every comment on each, and moves to the next one automatically.
 
 **On a thread page**: the panel shows the counts it found (hand-raises, buyer questions, OP replies, booked) and a **Save this thread's comments** button.
+
+## Batch sweep: bulk-select subreddits, run N pages each
+
+Popup → **Batch sweep**. About 60 candidate subreddits are listed in groups (AI and no-code builders, business owners, niche owners, marketing, hiring boards, regional) plus your confirmed ones and a box for your own. Tick subreddits one by one or a whole group, tick any of the eight site-wide discovery searches, set pages per item (default 5), sort (newest, top this week, top this month), how many of the newest threads to read comments on afterwards, and the delay between pages.
+
+**Run this selection now** opens one tab that walks every item page by page, then reads the comments, then stops. Progress and a Stop button are on the sweep page and on the orange panel. **Save batch** stores the selection under a name so future runs are one click; the page remembers your last selection. If Reddit shows its "too many requests" page mid-sweep, the tab waits 60 seconds and retries instead of skipping.
+
+Suggested batches: *Discovery* (all eight searches, 5 pages, monthly) to find new subreddits, then confirm them on the dashboard; *Daily recent* (confirmed subreddits, newest, 3 pages, read 30 threads).
 
 ## Where the results live: the dashboard
 
