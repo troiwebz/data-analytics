@@ -83,17 +83,25 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "sweep-page") { handlePage(_s.tab && _s.tab.id, msg).then(reply); return true; }
   if (msg.type === "sweep-thread") { handleThread(_s.tab && _s.tab.id, msg).then(reply); return true; }
   if (msg.type === "sweep-429") { handle429(_s.tab && _s.tab.id).then(reply); return true; }
+  if (msg.type === "diag") { (async () => { const bytes = await chrome.storage.local.getBytesInUse(null); const { posts = {}, log = [], runs = {}, errors = [], sweepState = null, auto = null } = await chrome.storage.local.get(["posts", "log", "runs", "errors", "sweepState", "auto"]); reply({ bytes, posts: Object.keys(posts).length, log: log.length, runs: Object.keys(runs).length, errors: errors.slice(-5), sweepRunning: !!sweepState, autoMode: auto && auto.mode, version: chrome.runtime.getManifest().version }); })(); return true; }
+  if (msg.type === "prune") { (async () => { const { posts = {}, snaps = {} } = await chrome.storage.local.get(["posts", "snaps"]); const cutoff = Date.now() - (msg.days || 90) * 86400000; let n = 0; for (const [id, p] of Object.entries(posts)) { if ((p.created || 0) < cutoff && !p.replied && !p.manual) { delete posts[id]; delete snaps[id]; n += 1; } } await chrome.storage.local.set({ posts, snaps }); reply({ removed: n }); })(); return true; }
   if (msg.type === "reclassify") { reclassifyAll().then((n) => reply({ changed: n })); return true; }
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
 });
 
 // --- Page-scrape ingestion (from content.js). Same store as the crawler.
+async function noteError(where, e) {
+  try { const { errors = [] } = await chrome.storage.local.get(["errors"]); errors.push({ t: Date.now(), where, msg: String(e && e.message || e).slice(0, 300) }); await chrome.storage.local.set({ errors: errors.slice(-50) }); } catch (_) { /* storage itself is broken */ }
+  console.error("[RLT]", where, e);
+}
+
 async function withStore(fn) {
   const store = await chrome.storage.local.get(["posts", "snaps", "meta"]);
   const posts = store.posts || {}, snaps = store.snaps || {};
   const result = await fn(posts, snaps);
   const meta = { ...(store.meta || {}), count: Object.keys(posts).length, analysed: Object.values(posts).filter((p) => p.signals).length, lastPage: Date.now() };
-  await chrome.storage.local.set({ posts, snaps, meta });
+  try { await chrome.storage.local.set({ posts, snaps, meta }); }
+  catch (e) { await noteError("save posts", e); throw e; }
   return result;
 }
 
@@ -120,9 +128,11 @@ async function touchRun(name, inc = {}) {
 }
 
 async function addLog(entry) {
-  const { log = [] } = await chrome.storage.local.get(["log"]);
-  log.push({ t: Date.now(), ...entry });
-  await chrome.storage.local.set({ log: log.slice(-300) });
+  try {
+    const { log = [] } = await chrome.storage.local.get(["log"]);
+    log.push({ t: Date.now(), ...entry });
+    await chrome.storage.local.set({ log: log.slice(-300) });
+  } catch (e) { await noteError("save log", e); }
 }
 
 async function ingest(list, source, run) {

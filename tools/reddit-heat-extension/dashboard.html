@@ -110,6 +110,7 @@
   <div class="stat"><div class="v" id="s-last" style="font-size:14px;padding-top:6px">—</div><div class="l">last collected</div></div>
 </div>
 
+<div id="errbar" hidden style="margin:14px 22px 0;padding:10px 14px;background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;color:#991b1b;font-size:12px"></div>
 <div class="runbar" id="runbar">
   <div class="rb-l"><span class="rb-t">Showing</span><select id="run-select"></select><label class="rb-chk"><input type="checkbox" id="only-new"> only new in this run</label></div>
   <div class="rb-r" id="run-info"></div>
@@ -133,7 +134,7 @@
     <div class="insights">
       <div class="card"><h3>Offers by price band · lead evidence</h3><div class="body bars" id="i-price"></div><div class="foot">Sum of hand-raises + buyer questions in offer threads, by stated price.</div></div>
       <div class="card"><h3>Keywords that found leads</h3><div class="body bars" id="i-kw"></div><div class="foot">Lead evidence in threads each keyword matched.</div></div>
-      <div class="card"><h3>Collection log</h3><div class="body log" id="log"></div><div class="foot">Every page and thread you scraped, newest first.</div></div>
+      <div class="card"><h3>Collection log <span class="hint-s" id="diag" style="color:var(--muted)"></span></h3><div class="body log" id="log"></div><div class="foot">Every page and thread you scraped, newest first. <button class="link" id="prune">prune threads older than 90 days</button></div></div>
     </div>
 
     <div class="insights">

@@ -1,4 +1,8 @@
 const $ = (id) => document.getElementById(id);
+function showError(where, e) { const b = $("errbar"); b.hidden = false; b.textContent = `Dashboard error in ${where}: ${e && e.message ? e.message : e}. Please copy this line and send it.`; console.error("[RLT dashboard]", where, e); }
+window.addEventListener("error", (ev) => showError("page", ev.error || ev.message));
+window.addEventListener("unhandledrejection", (ev) => showError("async", ev.reason));
+const safe = (name, fn) => { try { fn(); } catch (e) { showError(name, e); } };
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const TYPES = ["offer", "freebie", "value", "demand", "job", "other"];
 let showIgnored = false;
@@ -94,10 +98,19 @@ function apply() {
     (!f.evidence || r.leadReplies + r.buyerReplies > 0 || r.closed) &&
     (!f.confirmed || (config.confirmedSubs || []).includes(r.sub.toLowerCase())) &&
     (!f.q || [r.title, r.body, r.sub, r.keywords.join(" "), r.author].join(" ").toLowerCase().includes(f.q)));
-  renderInsights();
-  renderDiscovery();
-  renderTable();
-  renderLog();
+  safe("insights", renderInsights);
+  safe("discovery", renderDiscovery);
+  safe("table", renderTable);
+  safe("log", renderLog);
+  safe("diagnostics", renderDiag);
+}
+
+async function renderDiag() {
+  const r = await chrome.runtime.sendMessage({ type: "diag" });
+  if (!r) return;
+  const mb = (r.bytes / 1048576).toFixed(1);
+  $("diag").textContent = `${r.log} entries · ${r.posts} threads · ${mb} MB used${r.sweepRunning ? " · sweep running" : ""}${r.autoMode ? " · panel walk running" : ""} · v${r.version}`;
+  if (r.errors && r.errors.length) { const e = r.errors[r.errors.length - 1]; showError(e.where + " (background, " + new Date(e.t).toLocaleTimeString() + ")", e.msg); }
 }
 
 async function saveConfig(patch) {
@@ -230,6 +243,7 @@ $("clear-group").addEventListener("click", () => { f.group.clear(); renderFilter
 $("clear-sub").addEventListener("click", () => { f.sub.clear(); renderFilters(); apply(); });
 $("reclass").addEventListener("click", async () => { const r = await chrome.runtime.sendMessage({ type: "reclassify" }); $("reclass").textContent = `re-checked (${r.changed} changed)`; setTimeout(() => ($("reclass").textContent = "re-check types"), 2500); load(); });
 $("show-ignored").addEventListener("click", () => { showIgnored = !showIgnored; $("show-ignored").textContent = showIgnored ? "hide ignored" : "show ignored"; load(); });
+$("prune").addEventListener("click", async () => { if (!confirm("Delete saved threads older than 90 days that you haven't replied to or marked manually?")) return; const r = await chrome.runtime.sendMessage({ type: "prune", days: 90 }); alert(`Removed ${r.removed} threads.`); load(); });
 $("expand-all").addEventListener("click", () => { if (open.size) open.clear(); else rows.forEach((r) => open.add(r.id)); renderTable(); });
 $("csv").addEventListener("click", () => {
   const blob = new Blob(["﻿" + toCsv(rows.slice().sort((a, b) => b.leadScore - a.leadScore || b.heat - a.heat))], { type: "text/csv" });
