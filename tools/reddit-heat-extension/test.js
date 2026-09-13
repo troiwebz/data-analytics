@@ -43,6 +43,20 @@ assert.strictEqual(H.classifyPost("Looking for a co-founder for my startup", "")
 assert.strictEqual(H.classifyPost("How much should I charge my roommate for rent?", ""), "other");
 // but a real web ask with a hiring tag is still demand
 assert.strictEqual(H.classifyPost("[Hiring] Need a landing page for our ad campaign, budget $400", ""), "demand");
+// sellers phrased as questions must be offers, not demand
+assert.strictEqual(H.classifyPost("Need a website? I'll build you a 5-page site for $499", ""), "offer");
+assert.strictEqual(H.classifyPost("Need a website for your business? I build them fast and affordable", ""), "offer");
+assert.strictEqual(H.classifyPost("Looking for clients: web developer available, $25/hr", ""), "offer");
+assert.strictEqual(H.classifyPost("I'm a web designer taking on 3 new clients this month", "DM me for rates"), "offer");
+assert.strictEqual(H.classifyPost("Anyone need a website built? DM me for a free quote", ""), "offer");
+assert.strictEqual(H.classifyPost("Website not showing on Google? I can fix that", "starting at $99"), "offer");
+assert.strictEqual(H.classifyPost("Looking for a web developer? We build landing pages that convert", ""), "offer");
+assert.strictEqual(H.classifyPost("Small business owners: how much are you paying for your website?", "I build websites and I'm curious. My rates start at $300."), "offer");
+// genuine buyers still demand
+assert.strictEqual(H.classifyPost("Need a website for my HVAC company, what's a fair budget?", ""), "demand");
+assert.strictEqual(H.classifyPost("We need someone to fix our Shopify checkout, budget $200", ""), "demand");
+assert.strictEqual(H.classifyPost("Looking for a web developer to rebuild my restaurant site", "current one is on Wix and broken"), "demand");
+assert.strictEqual(H.classifyPost("How much should I pay for a 5 page website?", "got quoted $3000"), "demand");
 assert.ok(!H.keepPost({ type: "job", keywords: [] }));
 assert.ok(!H.keepPost({ type: "other", keywords: ["restaurant website"], title: "Best restaurant in town?", body: "looking for dinner" }));
 assert.ok(H.keepPost({ type: "other", keywords: ["restaurant website"], title: "Restaurant website menu page keeps breaking", body: "" }));

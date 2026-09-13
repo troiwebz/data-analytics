@@ -9,7 +9,7 @@ let showIgnored = false;
 const PRICE_BANDS = ["free", "under $200", "$200–599", "$600–1499", "$1500+", "hourly", "no price"];
 
 let all = [], rows = [], log = [];
-const f = { type: new Set(["offer", "demand", "freebie", "value"]), group: new Set(), run: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
+const f = { type: new Set(["demand"]), group: new Set(), run: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
 const selected = new Set();
 let runsReg = {}, runOrder = [], onlyNew = false, runInitialised = false;
 let config = {};

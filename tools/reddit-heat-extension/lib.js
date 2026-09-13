@@ -404,18 +404,31 @@ const JOBPOST_RE = /\b(salary|per annum|\blpa\b|\bctc\b|full[- ]time (position|r
 // The ask must be about something a web builder can deliver.
 const WEBCTX_RE = /web ?site|\bsite\b|landing ?page|home ?page|web (dev|design|developer|designer|page|app)|wordpress|shopify|wix|squarespace|godaddy|webflow|framer|lovable|bolt\.new|\bv0\b|vibe.?cod|online store|e-?commerce|\bapp\b|domain|hosting|\bseo\b|google (business|maps|profile)|not (showing|ranking) (up )?on google|booking (system|page)|portfolio site/i;
 
+// Sellers phrase offers as questions ("Need a website? I'll build it"), so
+// seller language is checked before buyer language.
+const SELLER_RE = /\[(for hire|offer|selling)\]|\bfor hire\b|\bhire me\b|\bi(?:'m| am) (?:a|an) (?:web|wordpress|shopify|freelance|full[- ]stack|front[- ]end|ui|ux|graphic|seo)\b|\bi (?:build|design|develop|create|make|offer|specialize|specialise|help (?:businesses|companies|brands|founders))\b|\bi(?:'ll| will| can) (?:build|design|develop|create|make|fix|set up|setup|handle|deliver)\b|\bwe (?:build|design|develop|create|offer|specialize|specialise|help (?:businesses|companies|brands))\b|\bmy (?:services|rates|portfolio|agency|studio|clients)\b|\bour (?:services|rates|agency|studio|clients|team)\b|\b(?:taking|accepting|looking for) (?:new )?clients\b|\bavailable for (?:work|projects|hire|freelance|new)\b|\bdm me (?:for|if|to)\b|\bstarting (?:at|from) (?:\$|€|£)|\b(?:\$|€|£)\s?\d+\s?(?:\/|per)\s?(?:hr|hour|h)\b|\bflat (?:fee|rate)\b|\bfree (?:consultation|quote|audit) (?:for|if)\b|\byour (?:business|website|site|store|brand|company) (?:needs|deserves|could|will|to the next)\b|\bneed (?:a |an )?(?:website|site|landing page|logo|store)\??\s*(?:i|we|dm|let)\b|\bportfolio:|\bcheck (?:out )?my (?:work|portfolio)\b|\bturnaround\b|\brevisions? included\b|\bmoney[- ]back\b/i;
+// Buyers speak in first person about their own thing.
+const BUYER_VOICE_RE = /\b(?:i|we)(?:'m| am|'re| are|'ve| have|'d| would)? (?:need|looking|searching|trying|want|wondering|hoping|struggling|paid|hired|got quoted|was quoted)\b|\bmy (?:website|site|web ?site|store|shop|app|landing page|business|company|restaurant|salon|clinic|practice|domain|designer|developer|dev)\b|\bour (?:website|site|store|shop|app|landing page|business|company|team's site)\b|\bfor my (?:business|company|shop|store|restaurant|salon|clinic|practice|startup|side hustle)\b|\bwho (?:can|should) (?:i|we)\b|\bcan (?:anyone|someone|somebody)\b|\bany(?:one|body) (?:know|recommend|have)\b|\brecommend(?:ations?)?\b|\bhow much (?:should|does|would|do|to|for)\b|\bis it worth\b|\bwhat should i\b|\bquoted (?:me|us)\b|\bghosted (?:me|us)\b|\bscammed\b|\bbudget\b/i;
+
 HEAT.classifyPost = function (title, body) {
   const t = (title || "").toLowerCase();
   const b = (body || "").slice(0, 2000).toLowerCase();
   const all = t + "\n" + b;
   if (JOBSEEKER_RE.test(t) || (JOBSEEKER_RE.test(b) && !WEBCTX_RE.test(t))) return "job";
   if (JOBPOST_RE.test(all) && !/landing page|website (for|redesign|build)/i.test(t)) return "job";
-  const demandAsk = /\[(hiring|task)\]|\bhiring\b|need (a |an |some |someone to )?(web|website|developer|designer|landing|dev\b|help)|looking for (a |an |someone )?(web|website|developer|designer|dev\b|freelancer|agency|someone to (build|fix|make|finish))|who can (build|fix|finish|help|make)|can (anyone|someone) (build|fix|finish|help|make|recommend)|recommend(ations?)? (a |an |for )?(web|website|developer|designer|agency|freelancer)|how much (does|should|would|to|for|is)|quoted me|got quoted|is it worth|worth (hiring|paying)|my (website|site|app|store) (sucks|is outdated|is broken|isn'?t working|won'?t|looks|doesn'?t)|website help|help with my (website|site|store|landing|app)|(fix|finish|rebuild|redo|migrate|deploy|update) my (website|site|app|store)|(lovable|bolt|v0|vibe.?cod|ai.?(built|made|generated)|chatgpt|cursor)\b.*\b(site|website|app|landing|store)|(site|website|app|landing|store)\b.*\b(lovable|bolt\.new|vibe.?cod|built with ai)|not (showing|ranking|converting|loading|working)|(designer|developer|dev|agency) (ghosted|scammed|disappeared)|ghosted (me|us)|scammed (me|us)/;
-  if (demandAsk.test(t) && WEBCTX_RE.test(all)) return "demand";
-  if (/\bfree\b|giveaway|for a testimonial|in exchange for|first (3|5|10)\b/.test(t) && WEBCTX_RE.test(all)) return "freebie";
+  const web = WEBCTX_RE.test(all);
+  // Freebies (seller giving something away) before general seller check.
+  const freeThing = /\bfree (?:website|site|landing page|home ?page|mockup|redesign|template|tool|audit|roast|feedback|review|seo audit|website audit)s?\b|giveaway|giving away|for a testimonial|in exchange for|first (3|5|10)\b/.test(t);
+  const freeBait = /\bfree (?:quote|consultation|estimate|call|demo|trial)s?\b/.test(t);
+  if (freeThing && !freeBait && web) return "freebie";
   if (/\bama\b|here'?s how|here is how|lessons? learned|what i learned|i made \$|case study|breakdown|value bomb|how i (got|landed|built|made)/.test(t)) return "value";
-  if (/\[(for hire|offer)\]|\bfor hire\b|\boffer\b|i(?:'ll| will) build|build you(?:r)? (?:a )?website|websites? for \$?\d|starting at|flat fee|\$\d+/.test(t) && WEBCTX_RE.test(all)) return "offer";
-  if (/\[(for hire|offer)\]/.test(all) && WEBCTX_RE.test(all)) return "offer";
+  const sellerTitle = SELLER_RE.test(t);
+  const sellerBody = SELLER_RE.test(b.slice(0, 600));
+  const buyerTitle = BUYER_VOICE_RE.test(t);
+  if (sellerTitle && !(buyerTitle && /\b(?:i|we) (?:need|paid|hired|got quoted|was quoted)|\bmy (?:website|site|designer|developer)\b|ghosted|scammed/.test(t))) return web ? "offer" : "other";
+  const demandAsk = /\[(hiring|task)\]|\bhiring\b|need (a |an |some |someone to )?(web|website|developer|designer|landing|dev\b|help)|need (?:someone|somebody|a dev|a developer|a designer|an expert) (?:to |who can )?(?:fix|finish|build|make|redo|rebuild|migrate|set up|update|deploy|help)|looking for (a |an |someone )?(web|website|developer|designer|dev\b|freelancer|agency|someone to (build|fix|make|finish))|who can (build|fix|finish|help|make)|can (anyone|someone) (build|fix|finish|help|make|recommend)|recommend(ations?)? (a |an |for )?(web|website|developer|designer|agency|freelancer)|how much (does|should|would|to|for|is)|quoted me|got quoted|is it worth|worth (hiring|paying)|my (website|site|app|store) (sucks|is outdated|is broken|isn'?t working|won'?t|looks|doesn'?t)|website help|help with my (website|site|store|landing|app)|(fix|finish|rebuild|redo|migrate|deploy|update) my (website|site|app|store)|(lovable|bolt|v0|vibe.?cod|ai.?(built|made|generated)|chatgpt|cursor)\b.*\b(site|website|app|landing|store)|(site|website|app|landing|store)\b.*\b(lovable|bolt\.new|vibe.?cod|built with ai)|not (showing|ranking|converting|loading|working)|(designer|developer|dev|agency) (ghosted|scammed|disappeared)|ghosted (me|us)|scammed (me|us)/;
+  if (demandAsk.test(t) && web && (buyerTitle || !sellerBody)) return "demand";
+  if (sellerBody && web) return "offer";
   return "other";
 };
 

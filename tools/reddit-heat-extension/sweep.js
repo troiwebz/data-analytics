@@ -54,6 +54,7 @@ function estimate() {
 $("workers").addEventListener("change", estimate);
 $("kbatch").addEventListener("input", () => { renderKeywordGroups(); estimate(); });
 $("kall").addEventListener("click", () => { kwEntries.forEach((e) => ksel.add(e.group)); renderKeywordGroups(); estimate(); });
+$("kbuy").addEventListener("click", () => { ksel.clear(); kwEntries.forEach((e) => { if (!/^(Offers|Value bombs|Freebies)$/i.test(e.group)) ksel.add(e.group); }); renderKeywordGroups(); estimate(); });
 $("knone").addEventListener("click", () => { ksel.clear(); renderKeywordGroups(); estimate(); });
 
 async function run(s) {
