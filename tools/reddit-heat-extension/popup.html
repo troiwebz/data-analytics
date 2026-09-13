@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Reddit Lead Threads</title>
 <style>
-  body { width: 300px; margin: 0; font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; color: #17191c; background: #fff; }
+  body { width: 320px; margin: 0; font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; color: #17191c; background: #fff; }
   .h { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e4e6ea; font-weight: 600; }
   .h .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4500; }
   .h .v { color: #6b7280; font-weight: 400; margin-left: auto; font-size: 12px; }
@@ -26,7 +26,15 @@
 </div>
 <div class="b">
   <button class="p" id="dash">Open dashboard</button>
-  <button id="go">Open r/forhire search to start scraping</button>
+  <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:6px">Recent · open and scrape</div>
+  <button data-url="https://old.reddit.com/r/forhire/new/">r/forhire · newest posts</button>
+  <button data-url="https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=new">r/forhire · "for hire" website · newest</button>
+  <button data-url="https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=top&t=week">r/forhire · website offers · top this week</button>
+  <button data-url="https://old.reddit.com/r/forhire/search?q=hiring+website&restrict_sr=on&sort=new">r/forhire · hiring website · newest</button>
+  <button data-url="https://old.reddit.com/r/smallbusiness/search?q=%22need+a+website%22&restrict_sr=on&sort=new">r/smallbusiness · need a website · newest</button>
+  <button data-url="https://old.reddit.com/r/sweatystartup/search?q=website&restrict_sr=on&sort=new">r/sweatystartup · website · newest</button>
+  <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:6px">All time</div>
+  <button data-url="https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=top&t=year">r/forhire · website offers · top past year</button>
   <button id="opts">Options · keywords</button>
   <button id="reload">Reload code (after an update)</button>
 </div>

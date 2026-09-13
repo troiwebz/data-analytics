@@ -10,7 +10,7 @@ async function load() {
   $("last").textContent = last ? "Last collected " + new Date(last).toLocaleString() : "Nothing collected yet. Use the orange panel on any old.reddit.com page.";
 }
 $("dash").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }));
-$("go").addEventListener("click", () => chrome.tabs.create({ url: "https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=top&t=year" }));
+document.querySelectorAll("button[data-url]").forEach((b) => b.addEventListener("click", () => chrome.tabs.create({ url: b.dataset.url })));
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("reload").addEventListener("click", () => chrome.runtime.reload());
 load();
