@@ -234,6 +234,14 @@ website.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
+3b1. PLATFORM NAME OPENS THE HOOK. When the offer is about a platform
+   (Google Maps, Instagram, Google), the hook must START with that name —
+   first word, not buried mid-line and never absent. It is what makes a
+   scrolling owner recognise the ad is about them, and it is the strongest
+   semantic signal Meta reads. "Google Maps-la 1km thooram poonaa..." not
+   "1km thooram poonaa, Google Maps-la...". Check EVERY hook in a set: one
+   hook missing the platform name fails the whole test, because the three
+   hooks are then no longer comparable.
 3b. Hooks are DIRECT, not conversational. No chatty tags or games with the
    viewer ("...right?", "guess who wins?", "let me tell you something").
    A plain statement or one plain question: "Your shop has no videos?

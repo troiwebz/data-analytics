@@ -326,6 +326,56 @@ C  Weekly series. "Chennai-la top 3 salon Maps-la yaaru?" One scan, one reel.
 D  Before/after. Client day 1 vs day 60. Red turning green = proof forever.
 E  Category sweep. "10 dentists in Coimbatore — 7 invisible past 1km."
 
+## VALUE BOMB CAMPAIGN — Free Google Maps Audit + 1 Month Free
+Structure: ONE value bomb, THREE hooks. Never 3 bombs x 3 hooks (9 ads
+splits the budget nine ways, nothing exits learning, and a winner tells
+you nothing because offer and hook moved together).
+
+Value bomb: (1) Google Maps audit - full area scan, green/red map ·
+(2) Website score - 18 checks, mark out of 100 (bonus) · (3) RankMapp
+1 month FULLY FREE. Cap: 20 businesses this month.
+
+Campaign: 1 CBO campaign · 1 ad set only · 3 ads · broad (location + age)
+· Rs.600-800/day · judge after 5 days on 3-sec hold + CTR.
+
+THE THREE HOOKS (the only thing that changes)
+  Ad 1 PAIN       Google Maps-la top 3-la illainaa, customer ungala
+                  paakave maataanga.
+  Ad 2 CURIOSITY  Google Maps-la unga area-la neenga eththanaavadhu
+                  place? Ungalukke theriyaadhu.
+  Ad 3 SHOCK      Google Maps-la 1km thooram poonaa, unga business
+                  kaanamaa poidum.
+
+CONSTANT BLOCK (identical in all three)
+  OFFER   Unga business-a naan free-a scan panren. Unga area muzhukka
+          check panni, enga top enga illainu map-la kaamikkren.
+  BONUS   Koodave unga website score - 18 check, 100-kku mark. Plus
+          RankMapp 1 month FULLY FREE.
+  CTA     Indha maasam 20 business mattum. Enna follow pannitu 'MAP'nu
+          comment pannunga.
+
+ON-SCREEN
+  Card 1 per ad: TOP 3-LA ILLAINA = CUSTOMER ILLA / GOOGLE MAPS-LA
+  EVLO-VADHU PLACE? / 1KM THOORAM = NEENGA KAANAM
+  Cards 2-4 shared: FREE MAP SCAN -> + WEBSITE SCORE /100 ->
+  1 MONTH FREE - COMMENT 'MAP'
+
+SHOOT: slide 1 hook shot 3 times; slide 2 screen-record of the scan
+running (green fading to red); slide 3 website score appearing; slide 4
+end frame. Slides 2-4 exported once, reused in all three.
+
+WHY MAPS AUDIT, NOT WEBSITE SCORE, AS THE HEADLINE FREEBIE: many Tamil
+Nadu businesses have no website at all, so a website-score bomb excludes
+them; the Maps audit reaches everyone with a GBP, matches the pain the
+hook just named, is far more visual, and demos the core product. Website
+score stays as a bonus - it costs nothing and thickens the stack.
+
+TEST ORDER, when more than one bomb is in play: Round 1 tests 3 OFFERS
+against one fixed hook (offer is the 3x lever and needs real conversions,
+so spend the expensive test there). Round 2 tests 3 HOOKS against the
+winning offer (hooks read cheaply off 3-sec hold and CTR in 3-4 days).
+
+
 ## Campaign mode — PIPELINE (Portie two-step), RankMapp only
 RankMapp's entry is a free app signup, so warm-audience conversion costs
 almost nothing. Run it as a two-step instead of single-step direct response:
