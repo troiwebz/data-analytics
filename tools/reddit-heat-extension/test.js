@@ -129,7 +129,7 @@ assert.strictEqual(H.heatScore({ created: now - 3600000, score: 5, comments: 4 }
 const row = H.toRow({ ...post, ...rec, groups: ["Offers"], keywords: ["a", "b"] }, snaps, now);
 assert.strictEqual(row.leadScore, H.leadScore(post));
 const csv = H.toCsv([row]);
-assert.ok(csv.split("\n")[0].startsWith("leadScore,opportunity,heat,type,groups,sub,price"));
+assert.ok(csv.split("\n")[0].startsWith("status,statusAt,note,leadScore,opportunity,heat,type,groups,sub,price"));
 assert.ok(csv.includes('"a | b"') && csv.includes('"Offers"') && csv.includes("[buyer] u/a:"));
 
 console.log("lib.js: all tests passed");

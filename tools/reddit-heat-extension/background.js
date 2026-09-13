@@ -84,9 +84,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "sweep-thread") { handleThread(_s.tab && _s.tab.id, msg).then(reply); return true; }
   if (msg.type === "sweep-429") { handle429(_s.tab && _s.tab.id).then(reply); return true; }
   if (msg.type === "diag") { (async () => { const bytes = await chrome.storage.local.getBytesInUse(null); const { posts = {}, log = [], runs = {}, errors = [], sweepState = null, auto = null } = await chrome.storage.local.get(["posts", "log", "runs", "errors", "sweepState", "auto"]); reply({ bytes, posts: Object.keys(posts).length, log: log.length, runs: Object.keys(runs).length, errors: errors.slice(-5), sweepRunning: !!sweepState, autoMode: auto && auto.mode, version: chrome.runtime.getManifest().version }); })(); return true; }
-  if (msg.type === "prune") { (async () => { const { posts = {}, snaps = {} } = await chrome.storage.local.get(["posts", "snaps"]); const cutoff = Date.now() - (msg.days || 90) * 86400000; let n = 0; for (const [id, p] of Object.entries(posts)) { if ((p.created || 0) < cutoff && !p.replied && !p.manual) { delete posts[id]; delete snaps[id]; n += 1; } } await chrome.storage.local.set({ posts, snaps }); reply({ removed: n }); })(); return true; }
+  if (msg.type === "prune") { (async () => { const { posts = {}, snaps = {} } = await chrome.storage.local.get(["posts", "snaps"]); const cutoff = Date.now() - (msg.days || 90) * 86400000; let n = 0; for (const [id, p] of Object.entries(posts)) { if ((p.created || 0) < cutoff && statusOf(p) === "new" && !p.manual) { delete posts[id]; delete snaps[id]; n += 1; } } await chrome.storage.local.set({ posts, snaps }); reply({ removed: n }); })(); return true; }
   if (msg.type === "reclassify") { reclassifyAll().then((n) => reply({ changed: n })); return true; }
-  if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
+  if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
+  if (msg.type === "status-by-url") { chrome.storage.local.get(["posts"]).then(({ posts = {} }) => { const path = (msg.permalink || "").replace(/^https?:\/\/[^/]+/, ""); const p = Object.values(posts).find((x) => x.permalink && path.startsWith(x.permalink.replace(/\/$/, ""))); reply(p ? { id: p.id, status: statusOf(p), type: p.type, title: p.title } : { id: null }); }); return true; }
 });
 
 // --- Page-scrape ingestion (from content.js). Same store as the crawler.
@@ -108,7 +109,7 @@ async function withStore(fn) {
 function recordPost(posts, snaps, p, now) {
   const prev = posts[p.id] || {};
   const keepType = prev.manual ? { type: prev.type, ignored: prev.ignored } : {};
-  posts[p.id] = { ...prev, ...p, ...keepType, body: p.body || prev.body || "", signals: prev.signals, runs: prev.runs, replied: prev.replied, manual: prev.manual, firstSeen: prev.firstSeen || now, lastSeen: now };
+  posts[p.id] = { ...prev, ...p, ...keepType, body: p.body || prev.body || "", signals: prev.signals, runs: prev.runs, replied: prev.replied, manual: prev.manual, status: prev.status, statusAt: prev.statusAt, note: prev.note, ignored: prev.ignored, firstSeen: prev.firstSeen || now, lastSeen: now };
   const arr = snaps[p.id] || [];
   const last = arr[arr.length - 1];
   if (!last || last.score !== p.score || last.comments !== p.comments || now - last.t > 6 * 3600 * 1000) arr.push({ t: now, score: p.score, comments: p.comments });

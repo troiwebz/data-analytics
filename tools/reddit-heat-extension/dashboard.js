@@ -1,20 +1,15 @@
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function showError(where, e) { const b = $("errbar"); b.hidden = false; b.textContent = `Dashboard error in ${where}: ${e && e.message ? e.message : e}. Please copy this line and send it.`; console.error("[RLT dashboard]", where, e); }
 window.addEventListener("error", (ev) => showError("page", ev.error || ev.message));
 window.addEventListener("unhandledrejection", (ev) => showError("async", ev.reason));
 const safe = (name, fn) => { try { fn(); } catch (e) { showError(name, e); } };
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const TYPES = ["offer", "freebie", "value", "demand", "job", "other"];
-let showIgnored = false;
 const PRICE_BANDS = ["free", "under $200", "$200–599", "$600–1499", "$1500+", "hourly", "no price"];
 
-let all = [], rows = [], log = [];
-const f = { type: new Set(["demand"]), group: new Set(), run: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
-const selected = new Set();
-let runsReg = {}, runOrder = [], onlyNew = false, runInitialised = false;
-let config = {};
-let sortKey = "leadScore", sortDir = -1;
-const open = new Set();
+let all = [], rows = [], log = [], config = {}, runsReg = {}, rawPosts = {};
+const f = { days: 7, who: "buyers", status: "new", q: "", kw: "", sub: "", run: "" };
+let sortKey = "posted", sortDir = -1;
+const open = new Set(), selected = new Set();
 
 function priceBand(p) {
   if (!p) return "no price";
@@ -24,236 +19,213 @@ function priceBand(p) {
   if (n < 200) return "under $200"; if (n < 600) return "$200–599"; if (n < 1500) return "$600–1499"; return "$1500+";
 }
 
+// ----------------------------------------------------------------- load
 async function load() {
   const { posts = {}, snaps = {}, meta = {}, log: lg = [], config: cfg = {}, runs = {} } = await chrome.storage.local.get(["posts", "snaps", "meta", "log", "config", "runs"]);
-  config = cfg; runsReg = runs;
+  config = cfg; runsReg = runs; rawPosts = posts; log = lg;
   const now = Date.now();
-  all = Object.values(posts).filter((p) => showIgnored || !p.ignored).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price), ignored: !!p.ignored, manual: !!p.manual, runs: p.runs || [], replied: p.replied || 0 }));
-  log = lg;
+  all = Object.values(posts).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price), manual: !!p.manual, ignored: !!p.ignored, runs: p.runs || [], firstRun: p.firstRun || (p.runs || [])[0] || "", statusAtMs: p.statusAt || 0 }));
   $("ver").textContent = "v" + chrome.runtime.getManifest().version;
-  const read = all.filter((r) => r.analysed);
-  $("s-tracked").textContent = all.length;
-  $("s-read").textContent = read.length;
-  $("s-hands").textContent = read.reduce((a, r) => a + r.leadReplies, 0);
-  $("s-buyer").textContent = read.reduce((a, r) => a + r.buyerReplies, 0);
-  $("s-booked").textContent = read.filter((r) => r.closed).length;
-  const last = Math.max(meta.lastPage || 0, meta.lastRun || 0);
-  $("s-last").textContent = last ? new Date(last).toLocaleString() : "nothing yet";
-  renderRunBar();
-  renderFilters();
+  safe("filters", renderFilterOptions);
   apply();
+  safe("trends", renderTrends);
+  safe("diagnostics", renderDiag);
+  scheduleFileSync();
 }
 
-function runStats(name) {
-  const inRun = all.filter((r) => r.runs.includes(name));
-  return { total: inRun.length, fresh: inRun.filter((r) => r.firstRun === name).length, demand: inRun.filter((r) => r.type === "demand").length };
-}
+// --------------------------------------------------------------- filters
+function inTime(r) { return !f.days || Date.now() - Date.parse(r.posted) <= f.days * 86400000; }
+function inWho(r) { return f.who === "all" ? r.type !== "job" : f.who === "buyers" ? r.type === "demand" : ["offer", "freebie", "value"].includes(r.type); }
+function base() { return all.filter((r) => inTime(r) && inWho(r) && (!f.run || r.runs.includes(f.run))); }
 
-function renderRunBar() {
-  // Order runs by most recent activity; include runs only known from posts.
-  const names = new Set([...Object.keys(runsReg), ...all.flatMap((r) => r.runs)]);
-  runOrder = Array.from(names).map((n) => ({ name: n, t: (runsReg[n] && (runsReg[n].last || runsReg[n].started)) || Math.max(0, ...all.filter((r) => r.runs.includes(n)).map((r) => r.lastSeen)) })).sort((a, b) => b.t - a.t).map((x) => x.name);
-  if (!runInitialised) { runInitialised = true; if (runOrder.length) f.run = new Set([runOrder[0]]); }
-  const sel = $("run-select");
-  const cur = f.run.size ? Array.from(f.run)[0] : "";
-  sel.innerHTML = `<option value="">All runs · ${all.length} threads</option>` + runOrder.map((n, i) => { const s = runStats(n); const t = runsReg[n] && (runsReg[n].finished || runsReg[n].last); return `<option value="${esc(n)}">${i === 0 ? "Latest · " : ""}${esc(n)} · ${s.total} threads, ${s.fresh} new${t ? " · " + new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</option>`; }).join("");
-  sel.value = runOrder.includes(cur) ? cur : "";
-  if (!runOrder.includes(cur)) f.run.clear();
-  const r = runsReg[cur];
-  $("run-info").textContent = cur ? `${r && r.pages ? r.pages + " pages · " : ""}${runStats(cur).demand} demand threads${r && r.threads ? " · " + r.threads + " comment reads" : ""}${r && r.finished ? " · finished " + new Date(r.finished).toLocaleString() : r && !r.finished && r.started ? " · started " + new Date(r.started).toLocaleTimeString() : ""}` : "Every thread is stored once. A thread found by several runs shows how many.";
-  $("only-new").disabled = !cur;
-}
-
-function chips(el, items, set, cls) {
-  el.innerHTML = items.map(([v, n]) => `<span class="chip ${set.has(v) ? "on" : ""}" data-v="${esc(v)}">${cls ? `<span class="tag t-${esc(v)}">${esc(v)}</span>` : esc(v)}<span class="n">${n}</span></span>`).join("") || '<span class="chip" style="cursor:default;color:var(--muted)">none yet</span>';
-  el.querySelectorAll(".chip[data-v]").forEach((c) => c.addEventListener("click", () => { const v = c.dataset.v; set.has(v) ? set.delete(v) : set.add(v); renderFilters(); apply(); }));
-}
-
-function renderFilters() {
-  const count = (fn) => { const m = {}; for (const r of all) for (const v of fn(r)) m[v] = (m[v] || 0) + 1; return m; };
-  const tc = count((r) => [r.type]), gc = count((r) => r.groups), sc = count((r) => [r.sub]), pc = count((r) => [r.band]);
-  chips($("f-type"), TYPES.filter((t) => tc[t]).map((t) => [t, tc[t]]), f.type, true);
-  chips($("f-group"), Object.entries(gc).sort((a, b) => b[1] - a[1]), f.group);
-  chips($("f-sub"), Object.entries(sc).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([s, n]) => ["r/" + s, n]), f.sub);
-  chips($("f-price"), PRICE_BANDS.filter((b) => pc[b]).map((b) => [b, pc[b]]), f.price);
-  const kc = {};
-  for (const r of all) if (!f.group.size || r.groups.some((g) => f.group.has(g))) for (const k of r.keywords) kc[k] = (kc[k] || 0) + 1;
-  const sel = $("f-kw");
-  sel.innerHTML = '<option value="">All keywords</option>' + Object.entries(kc).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<option value="${esc(k)}">${esc(k)} (${n})</option>`).join("");
-  sel.value = kc[f.kw] ? f.kw : ""; if (!kc[f.kw]) f.kw = "";
+function renderFilterOptions() {
+  const b = base();
+  const sc = {}, kc = {};
+  for (const r of b) { sc[r.sub] = (sc[r.sub] || 0) + 1; for (const k of r.keywords) kc[k] = (kc[k] || 0) + 1; }
+  const subSel = $("f-sub"); subSel.innerHTML = '<option value="">any subreddit</option>' + Object.entries(sc).sort((a, b) => b[1] - a[1]).map(([s, n]) => `<option value="${esc(s)}">r/${esc(s)} (${n})</option>`).join(""); subSel.value = sc[f.sub] ? f.sub : ""; if (!sc[f.sub]) f.sub = "";
+  const kwSel = $("kw"); kwSel.innerHTML = '<option value="">any keyword</option>' + Object.entries(kc).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<option value="${esc(k)}">${esc(k)} (${n})</option>`).join(""); kwSel.value = kc[f.kw] ? f.kw : ""; if (!kc[f.kw]) f.kw = "";
+  const names = Array.from(new Set([...Object.keys(runsReg), ...all.flatMap((r) => r.runs)])).sort((a, b) => ((runsReg[b] && (runsReg[b].last || 0)) || 0) - ((runsReg[a] && (runsReg[a].last || 0)) || 0));
+  const rs = $("run-select"); rs.innerHTML = '<option value="">any run</option>' + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join(""); rs.value = names.includes(f.run) ? f.run : ""; if (!names.includes(f.run)) f.run = "";
+  const cnt = {}; for (const r of b) cnt[r.status] = (cnt[r.status] || 0) + 1;
+  $("f-status").innerHTML = `<button data-v="" class="${f.status === "" ? "on" : ""}">All<span class="n">${b.length}</span></button>` + STATUSES.map((s) => `<button data-v="${s.key}" class="s-${s.key} ${f.status === s.key ? "on" : ""}" title="${esc(s.hint)}">${s.label}<span class="n">${cnt[s.key] || 0}</span></button>`).join("");
+  $("f-status").querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => { f.status = btn.dataset.v; renderFilterOptions(); apply(); }));
+  $("f-time").querySelectorAll("button").forEach((btn) => btn.classList.toggle("on", Number(btn.dataset.v) === f.days));
+  $("f-who").querySelectorAll("button").forEach((btn) => btn.classList.toggle("on", btn.dataset.v === f.who));
 }
 
 function apply() {
-  const now = Date.now();
-  rows = all.filter((r) =>
-    (now - Date.parse(r.posted) <= f.days * 86400000) &&
-    (!f.type.size || f.type.has(r.type)) &&
-    (!f.group.size || r.groups.some((g) => f.group.has(g))) &&
-    (!f.run.size || (r.runs.length ? r.runs : ["(untagged)"]).some((x) => f.run.has(x))) &&
-    (!onlyNew || !f.run.size || r.firstRun === Array.from(f.run)[0]) &&
-    (!f.sub.size || f.sub.has("r/" + r.sub)) &&
-    (!f.price.size || f.price.has(r.band)) &&
+  const q = f.q.toLowerCase();
+  rows = base().filter((r) =>
+    (!f.status || r.status === f.status) &&
+    (!f.sub || r.sub === f.sub) &&
     (!f.kw || r.keywords.includes(f.kw)) &&
-    (!f.read || r.analysed) &&
-    (!f.evidence || r.leadReplies + r.buyerReplies > 0 || r.closed) &&
-    (!f.confirmed || (config.confirmedSubs || []).includes(r.sub.toLowerCase())) &&
-    (!f.q || [r.title, r.body, r.sub, r.keywords.join(" "), r.author].join(" ").toLowerCase().includes(f.q)));
-  safe("insights", renderInsights);
-  safe("discovery", renderDiscovery);
+    (!q || [r.title, r.body, r.sub, r.keywords.join(" "), r.author, r.note].join(" ").toLowerCase().includes(q)));
   safe("table", renderTable);
-  safe("log", renderLog);
-  safe("diagnostics", renderDiag);
 }
 
-async function renderDiag() {
-  const r = await chrome.runtime.sendMessage({ type: "diag" });
-  if (!r) return;
-  const mb = (r.bytes / 1048576).toFixed(1);
-  $("diag").textContent = `${r.log} entries · ${r.posts} threads · ${mb} MB used${r.sweepRunning ? " · sweep running" : ""}${r.autoMode ? " · panel walk running" : ""} · v${r.version}`;
-  if (r.errors && r.errors.length) { const e = r.errors[r.errors.length - 1]; showError(e.where + " (background, " + new Date(e.t).toLocaleTimeString() + ")", e.msg); }
-}
-
-async function saveConfig(patch) {
-  const { config: cur = {} } = await chrome.storage.local.get(["config"]);
-  config = { ...cur, ...patch };
-  await chrome.storage.local.set({ config });
-}
-
-function renderDemandByKeyword() {
-  const days = Number($("dk-days").value) || 7;
-  const groupsOf = {};
-  for (const e of parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT)) groupsOf[e.kw] = e.group;
-  const postsObj = {};
-  for (const r of all) postsObj[r.id] = { type: r.type, created: Date.parse(r.posted), keywords: r.keywords, comments: r.comments, signals: r.analysed ? { lead: r.leadReplies, buyer: r.buyerReplies } : null };
-  const list = demandByKeyword(postsObj, days, Date.now(), groupsOf);
-  bars($("i-demand-kw"), list.slice(0, 14).map((e) => [e.kw, e.posts, e]), (v, e) => `${v} posts · ${e.comments} cmts`);
-  const g = {};
-  for (const e of list) { const x = g[e.group] || (g[e.group] = { posts: 0, comments: 0 }); x.posts += e.posts; x.comments += e.comments; }
-  bars($("i-demand-group"), Object.entries(g).sort((a, b) => b[1].posts - a[1].posts).map(([k, v]) => [k, v.posts, v]), (v, e) => `${v} posts · ${e.comments} cmts`);
-}
-
-function renderDiscovery() {
-  renderDemandByKeyword();
-  // Subreddits by demand volume, with confirm checkboxes.
-  const bySub = {};
-  for (const r of all) { const b = bySub[r.sub] || (bySub[r.sub] = { demand: 0, total: 0, ev: 0, recent: 0 }); b.total += 1; if (r.type === "demand") { b.demand += 1; if (Date.now() - Date.parse(r.posted) < 30 * 86400000) b.recent += 1; } b.ev += r.leadReplies + r.buyerReplies; }
-  const confirmed = new Set((config.confirmedSubs || []).map((s) => s.toLowerCase()));
-  const subs = Object.entries(bySub).sort((a, b) => b[1].demand - a[1].demand || b[1].total - a[1].total).slice(0, 15);
-  $("i-subs").innerHTML = subs.length ? subs.map(([s, b]) => `<label class="subrow"><input type="checkbox" data-sub="${esc(s)}" ${confirmed.has(s.toLowerCase()) ? "checked" : ""}><span>r/${esc(s)}</span><span class="c">${b.demand} demand (${b.recent} this month) · ${b.total} total · ${b.ev} buyer replies</span></label>`).join("") : '<div style="color:var(--muted)">No data yet.</div>';
-  $("i-subs").querySelectorAll("input[data-sub]").forEach((cb) => cb.addEventListener("change", async () => {
-    const set = new Set(config.confirmedSubs || []);
-    cb.checked ? set.add(cb.dataset.sub) : set.delete(cb.dataset.sub);
-    await saveConfig({ confirmedSubs: Array.from(set) });
-    apply();
-  }));
-
-  // Phrases from demand titles, add-as-keyword.
-  const demandTitles = all.filter((r) => r.type === "demand").map((r) => r.title);
-  const phrases = titlePhrases(demandTitles, 24);
-  const existing = new Set(parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT).map((e) => e.kw.toLowerCase().replace(/"/g, "")));
-  $("i-phrases").innerHTML = phrases.length ? `<div class="phr">${phrases.map(([p, n]) => `<span class="chip">${esc(p)}<span class="n">${n}</span>${existing.has(p) ? "" : `<button data-p="${esc(p)}" title="add as keyword">+</button>`}</span>`).join("")}</div>` : '<div style="color:var(--muted)">Scrape some demand threads first (site-wide searches in the popup).</div>';
-  $("i-phrases").querySelectorAll("button[data-p]").forEach((b) => b.addEventListener("click", async () => {
-    const text = (config.keywordText || DEFAULT_KEYWORD_TEXT).trimEnd();
-    const block = text.includes("# Discovered") ? text + `\n"${b.dataset.p}"` : text + `\n\n# Discovered — added from the dashboard\n"${b.dataset.p}"`;
-    await saveConfig({ keywordText: block });
-    b.textContent = "✓"; b.disabled = true;
-  }));
-
-  // Opportunities: demand rows, best first.
-  const opps = rows.filter((r) => r.type === "demand" && r.opportunity > 0).sort((a, b) => b.opportunity - a.opportunity).slice(0, 10);
-  $("i-opp").innerHTML = opps.length ? `<div class="opp">${opps.map((r) => `<div class="o"><b>${r.opportunity}</b><div><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a><div class="m">r/${esc(r.sub)} · ${r.posted} · ${r.comments} replies${r.price ? " · " + esc(r.price) : ""}</div></div></div>`).join("")}</div>` : '<div style="color:var(--muted)">No open demand threads in the current filter.</div>';
-}
-
-function bars(el, entries, fmt) {
-  const max = Math.max(1, ...entries.map((e) => e[1]));
-  el.innerHTML = entries.length ? entries.map(([k, v, extra]) => `<div class="bar"><span class="k" title="${esc(k)}">${esc(k)}</span><div class="track"><div class="fill" style="width:${Math.round((v / max) * 100)}%"></div></div><span class="num">${fmt ? fmt(v, extra) : v}</span></div>`).join("") : '<div style="color:var(--muted)">No data yet.</div>';
-}
-
-function renderInsights() {
-  const offers = rows.filter((r) => r.type === "offer");
-  const byBand = {};
-  for (const r of offers) { const b = byBand[r.band] || (byBand[r.band] = { ev: 0, n: 0, read: 0 }); b.n += 1; if (r.analysed) { b.read += 1; b.ev += r.leadReplies + r.buyerReplies + (r.closed ? 3 : 0); } }
-  bars($("i-price"), PRICE_BANDS.filter((b) => byBand[b]).map((b) => [b, byBand[b].ev, byBand[b]]), (v, b) => `${v} · ${b.read}/${b.n} read`);
-  const byKw = {};
-  for (const r of rows) if (r.analysed) for (const k of r.keywords) byKw[k] = (byKw[k] || 0) + r.leadReplies + r.buyerReplies + (r.closed ? 3 : 0);
-  bars($("i-kw"), Object.entries(byKw).filter((e) => e[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 8));
-}
-
-function renderLog() {
-  $("log").innerHTML = log.length ? log.slice().reverse().slice(0, 60).map((e) => `<div class="e"><a class="u" href="${esc(e.url)}" target="_blank" title="${esc(e.url)}">${esc(e.label || e.url)}</a><span class="n">${e.kind === "thread" ? `${e.total} cmts · ${e.lead} hands · ${e.buyer} buyer` : `${e.kept} of ${e.scanned} saved`} · ${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>`).join("") : '<div style="color:var(--muted)">Nothing scraped yet. Open <a href="https://old.reddit.com/r/forhire/new" target="_blank">old.reddit.com/r/forhire/new</a> and use the orange panel.</div>';
-}
-
+// ----------------------------------------------------------------- table
 function renderTable() {
   const tb = document.querySelector("#t tbody");
-  const sorted = rows.slice().sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
-  const top = sorted.reduce((m, r) => Math.max(m, r.leadScore), 0);
-  $("count").textContent = `${rows.length} thread${rows.length === 1 ? "" : "s"}`;
-  document.querySelectorAll("th").forEach((th) => { th.classList.toggle("sorted", th.dataset.k === sortKey); th.classList.toggle("asc", th.dataset.k === sortKey && sortDir === 1); });
-  const empty = $("empty");
-  empty.hidden = rows.length > 0;
-  if (!rows.length) empty.innerHTML = all.length ? "No threads match these filters." : "<b>Nothing collected yet.</b><br>Open <a href='https://old.reddit.com/r/forhire/search?q=%22for+hire%22+website&restrict_sr=on&sort=top&t=year' target='_blank'>this r/forhire search</a> and click <b>Save + walk next pages</b> in the orange panel.";
+  const val = (r) => sortKey === "posted" ? Date.parse(r.posted) : sortKey === "statusAt" ? r.statusAtMs : r[sortKey];
+  const sorted = rows.slice().sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * sortDir);
+  document.querySelectorAll("th[data-k]").forEach((th) => { th.classList.toggle("sorted", th.dataset.k === sortKey); th.classList.toggle("asc", th.dataset.k === sortKey && sortDir === 1); });
+  $("count").textContent = `${rows.length} thread${rows.length === 1 ? "" : "s"} shown · ${all.length} in database`;
+  const empty = $("empty"); empty.hidden = rows.length > 0;
+  if (!rows.length) empty.innerHTML = all.length ? "Nothing matches. Widen Time, switch Who, or pick a different Status." : "<b>Database is empty.</b> Run a Batch sweep with buyer categories.";
   tb.innerHTML = "";
   for (const r of sorted.slice(0, 600)) {
     const tr = document.createElement("tr"); tr.className = "row"; tr.dataset.id = r.id;
     const td = (html, cls) => { const d = document.createElement("td"); d.innerHTML = html; if (cls) d.className = cls; tr.appendChild(d); };
     td(`<input type="checkbox" data-sel="${esc(r.id)}" ${selected.has(r.id) ? "checked" : ""}>`);
-    td(`<span class="lead ${!r.analysed ? "na" : r.leadScore >= Math.max(8, top * 0.5) ? "hot" : ""}">${r.analysed ? r.leadScore : "·"}</span>`, "num");
-    td(r.type === "demand" ? `<span class="lead ${r.opportunity >= 15 ? "hot" : ""}">${r.opportunity}</span>` : '<span class="lead na">·</span>', "num");
+    td(`<select class="stsel s-${r.status}" data-st="${esc(r.id)}">${STATUSES.map((s) => `<option value="${s.key}" ${s.key === r.status ? "selected" : ""}>${s.label}</option>`).join("")}</select>${r.statusAt ? `<div style="color:var(--muted);font-size:11px">${esc(r.statusAt.slice(5))}</div>` : ""}`);
+    td(r.type === "demand" ? `<span class="opp ${r.opportunity >= 15 ? "hot" : ""}">${r.opportunity}</span>` : '<span style="color:#c4c8ce">·</span>', "num");
     td(`<span class="tag t-${r.type}">${r.type}</span>`);
     td(`r/${esc(r.sub)}`);
     td(r.price ? esc(r.price) : '<span style="color:#c4c8ce">—</span>');
-    td(r.score, "num"); td(r.comments, "num");
-    td(r.leadReplies ? `<span class="tag t-good">${r.leadReplies}</span>` : "0", "num");
-    td(r.buyerReplies ? `<span class="tag t-good">${r.buyerReplies}</span>` : "0", "num");
-    td(String(r.opReplies), "num");
-    td(r.heckles ? `<span class="tag t-bad">${r.heckles}</span>` : "0", "num");
-    td(r.posted);
-    td(`<div class="ttl"><div class="t">${f.run.size ? (r.firstRun === Array.from(f.run)[0] ? '<span class="tag t-new" title="first found in this run">new</span> ' : `<span class="tag t-seen" title="first found in ${esc(r.firstRun || "an earlier run")}">seen ×${r.runs.length}</span> `) : (r.runs.length > 1 ? `<span class="tag t-seen" title="${esc(r.runs.join(", "))}">×${r.runs.length} runs</span> ` : "")}${r.replied ? '<span class="tag t-good" title="you marked this replied">replied</span> ' : ""}${r.closed ? '<span class="tag t-good">booked</span> ' : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) + (r.keywords.length > 3 ? ` +${r.keywords.length - 3}` : "") : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
-    tr.querySelector("[data-sel]").addEventListener("click", (e) => { e.stopPropagation(); e.target.checked ? selected.add(r.id) : selected.delete(r.id); updateSelCount(); });
-    tr.addEventListener("click", (e) => { if (e.target.closest("a") || e.target.closest("input")) return; open.has(r.id) ? open.delete(r.id) : open.add(r.id); renderTable(); });
+    td(String(r.comments), "num");
+    td(r.analysed ? String(r.leadScore) : '<span style="color:#c4c8ce" title="comments not read">·</span>', "num");
+    td(r.posted.slice(5));
+    td(`<div class="ttl"><div class="t">${r.runs.length > 1 ? `<span class="tag t-seen" title="${esc(r.runs.join(", "))}">×${r.runs.length}</span> ` : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) : ""}${r.note ? ` · <i>${esc(r.note.slice(0, 80))}</i>` : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
+    td(`<div class="acts"><button class="btn sm" data-reply="${esc(r.id)}" title="write a value-bomb reply">Reply</button><button class="btn sm" data-more="${esc(r.id)}" title="details, note, change type">${open.has(r.id) ? "▴" : "▾"}</button></div>`);
+    tr.querySelector("[data-sel]").addEventListener("change", (e) => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); updateSelCount(); });
+    tr.querySelector("[data-st]").addEventListener("change", async (e) => { await setStatus(r.id, e.target.value); });
+    tr.querySelector("[data-reply]").addEventListener("click", async () => { await chrome.storage.local.set({ replySelection: [r.id] }); location.href = "replies.html"; });
+    tr.querySelector("[data-more]").addEventListener("click", () => { open.has(r.id) ? open.delete(r.id) : open.add(r.id); renderTable(); });
     tb.appendChild(tr);
     if (open.has(r.id)) {
       const d = document.createElement("tr"); d.className = "detail";
-      d.innerHTML = `<td colspan="12"><div class="detail"><div class="grid"><div><h4>Post by u/${esc(r.author)}${r.flair ? " · " + esc(r.flair) : ""}</h4><div class="body-text">${esc(r.body) || "<i>no body captured</i>"}</div>${r.linkUrl ? `<div style="margin-top:6px"><a href="${esc(r.linkUrl)}" target="_blank">${esc(r.linkUrl)}</a></div>` : ""}</div><div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${r.ignored ? `<button class="btn" data-ov="restore" data-id="${esc(r.id)}">Restore</button>` : `<button class="btn" data-ov="ignore" data-id="${esc(r.id)}" title="wrong identification: hide it everywhere and keep it out of ideas">✕ Not a lead</button>`}${["demand", "offer", "freebie", "value", "job", "other"].filter((t) => t !== r.type).map((t) => `<button class="btn" data-ov="type" data-t="${t}" data-id="${esc(r.id)}" title="change type">${t}</button>`).join("")}${r.manual ? '<span class="tag t-good" style="align-self:center">manually set</span>' : ""}</div><h4>Matched keywords</h4><div>${r.keywords.map((k) => `<span class="chip" style="cursor:default">${esc(k)}</span>`).join(" ") || "<i>none, kept by type</i>"}</div><h4 style="margin-top:12px">Classified replies ${r.analysed ? `(${r.uniqueCommenters} people)` : ""}</h4>${r.analysed ? (r.replies.length ? `<ul>${r.replies.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<i>no buyer / hand-raise / booked replies found</i>") : `<i>Comments not read yet. <a href="${esc(r.url)}" target="_blank">Open the thread</a> and click “Save this thread's comments”.</i>`}</div></div></div></td>`;
-      d.querySelectorAll("[data-ov]").forEach((b) => b.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const patch = b.dataset.ov === "ignore" ? { ignored: true } : b.dataset.ov === "restore" ? { ignored: false } : { type: b.dataset.t, ignored: false };
-        await chrome.runtime.sendMessage({ type: "override", id: b.dataset.id, patch });
-        load();
-      }));
+      d.innerHTML = `<td colspan="11"><div class="detail"><div class="grid">
+        <div><h4>Post by u/${esc(r.author)}${r.flair ? " · " + esc(r.flair) : ""} · first seen ${r.firstRun ? esc(r.firstRun) : "manually"}</h4><div class="body-text">${esc(r.body) || "<i>no body captured</i>"}</div>${r.linkUrl ? `<div style="margin-top:6px"><a href="${esc(r.linkUrl)}" target="_blank">${esc(r.linkUrl)}</a></div>` : ""}
+          <h4 style="margin-top:12px">Your note</h4><textarea data-note="${esc(r.id)}" placeholder="what you did, what they said, price quoted…">${esc(r.note)}</textarea></div>
+        <div><h4>Type</h4><div>${["demand", "offer", "freebie", "value", "job", "other"].map((t) => `<button class="btn sm ${t === r.type ? "primary" : ""}" data-type="${t}" data-id="${esc(r.id)}">${t}</button>`).join(" ")}${r.manual ? ' <span class="tag t-good">manually set</span>' : ""}</div>
+          <h4 style="margin-top:12px">Matched keywords</h4><div>${r.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join(" ") || "<i>none, kept by type</i>"}</div>
+          <h4 style="margin-top:12px">Classified replies ${r.analysed ? `(${r.uniqueCommenters} people)` : ""}</h4>${r.analysed ? (r.replies.length ? `<ul>${r.replies.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<i>no buyer / hand-raise / booked replies found</i>") : `<i>Comments not read yet. <a href="${esc(r.url)}" target="_blank">Open the thread</a> and use the orange panel.</i>`}</div>
+      </div></div></td>`;
+      d.querySelector("[data-note]").addEventListener("change", async (e) => { await chrome.runtime.sendMessage({ type: "override", id: r.id, patch: { note: e.target.value } }); r.note = e.target.value; scheduleFileSync(); });
+      d.querySelectorAll("[data-type]").forEach((b) => b.addEventListener("click", async () => { await chrome.runtime.sendMessage({ type: "override", id: b.dataset.id, patch: { type: b.dataset.type, ignored: false } }); load(); }));
       tb.appendChild(d);
     }
   }
 }
 
+async function setStatus(id, status) {
+  await chrome.runtime.sendMessage({ type: "override", id, patch: { status } });
+  const r = all.find((x) => x.id === id); if (r) { r.status = status; r.statusAtMs = Date.now(); r.statusAt = new Date().toISOString().slice(0, 16).replace("T", " "); }
+  renderFilterOptions(); apply(); scheduleFileSync();
+}
 function updateSelCount() { $("replies").textContent = `Replies for selected (${selected.size})`; }
+
+// ------------------------------------------------------------- trends tab
+function bars(el, entries, fmt) {
+  const max = Math.max(1, ...entries.map((e) => e[1]));
+  el.innerHTML = entries.length ? entries.map(([k, v, extra]) => `<div class="bar-r"><span class="k" title="${esc(k)}">${esc(k)}</span><div class="track"><div class="fill" style="width:${Math.round((v / max) * 100)}%"></div></div><span class="num">${fmt ? fmt(v, extra) : v}</span></div>`).join("") : '<div style="color:var(--muted)">No data yet.</div>';
+}
+async function saveConfig(patch) { const { config: cur = {} } = await chrome.storage.local.get(["config"]); config = { ...cur, ...patch }; await chrome.storage.local.set({ config }); }
+
+function renderTrends() {
+  const buyers = all.filter((r) => r.type === "demand");
+  $("s-tracked").textContent = all.length; $("s-buyers").textContent = buyers.length;
+  $("s-done").textContent = all.filter((r) => r.status !== "new").length;
+  $("s-replied").textContent = all.filter((r) => ["replied", "dm", "quoted"].includes(r.status)).length;
+  $("s-won").textContent = all.filter((r) => r.status === "won").length;
+  const last = Math.max(0, ...all.map((r) => r.lastSeen)); $("s-last").textContent = last ? new Date(last).toLocaleString() : "nothing yet";
+  renderDemandByKeyword();
+  const bySub = {};
+  for (const r of all) { const b = bySub[r.sub] || (bySub[r.sub] = { demand: 0, total: 0, recent: 0 }); b.total += 1; if (r.type === "demand") { b.demand += 1; if (Date.now() - Date.parse(r.posted) < 30 * 86400000) b.recent += 1; } }
+  const confirmed = new Set((config.confirmedSubs || []).map((s) => s.toLowerCase()));
+  const subs = Object.entries(bySub).sort((a, b) => b[1].demand - a[1].demand || b[1].total - a[1].total).slice(0, 15);
+  $("i-subs").innerHTML = subs.length ? subs.map(([s, b]) => `<label class="subrow"><input type="checkbox" data-sub="${esc(s)}" ${confirmed.has(s.toLowerCase()) ? "checked" : ""}><span>r/${esc(s)}</span><span class="c">${b.demand} buyers (${b.recent} this month) · ${b.total} total</span></label>`).join("") : '<div style="color:var(--muted)">No data yet.</div>';
+  $("i-subs").querySelectorAll("input[data-sub]").forEach((cb) => cb.addEventListener("change", async () => { const set = new Set(config.confirmedSubs || []); cb.checked ? set.add(cb.dataset.sub) : set.delete(cb.dataset.sub); await saveConfig({ confirmedSubs: Array.from(set) }); }));
+  const byBand = {};
+  for (const r of all.filter((x) => x.type === "offer")) { const b = byBand[r.band] || (byBand[r.band] = { ev: 0, n: 0, read: 0 }); b.n += 1; if (r.analysed) { b.read += 1; b.ev += r.leadReplies + r.buyerReplies + (r.closed ? 3 : 0); } }
+  bars($("i-price"), PRICE_BANDS.filter((b) => byBand[b]).map((b) => [b, byBand[b].ev, byBand[b]]), (v, b) => `${v} · ${b.read}/${b.n} read`);
+  const phrases = titlePhrases(buyers.map((r) => r.title), 24);
+  const existing = new Set(parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT).map((e) => e.kw.toLowerCase().replace(/"/g, "")));
+  $("i-phrases").innerHTML = phrases.length ? phrases.map(([p, n]) => `<span class="chip">${esc(p)} <span style="color:var(--muted)">${n}</span>${existing.has(p) ? "" : `<button data-p="${esc(p)}" title="add as keyword">+</button>`}</span>`).join(" ") : '<div style="color:var(--muted)">Scrape some buyer threads first.</div>';
+  $("i-phrases").querySelectorAll("button[data-p]").forEach((b) => b.addEventListener("click", async () => { const text = (config.keywordText || DEFAULT_KEYWORD_TEXT).trimEnd(); const block = text.includes("# Discovered") ? text + `\n"${b.dataset.p}"` : text + `\n\n# Discovered — added from the dashboard\n"${b.dataset.p}"`; await saveConfig({ keywordText: block }); b.textContent = "✓"; b.disabled = true; }));
+  renderLog();
+}
+function renderDemandByKeyword() {
+  const days = Number($("dk-days").value) || 7;
+  const groupsOf = {}; for (const e of parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT)) groupsOf[e.kw] = e.group;
+  const postsObj = {}; for (const r of all) postsObj[r.id] = { type: r.type, created: Date.parse(r.posted), keywords: r.keywords, comments: r.comments, signals: r.analysed ? { lead: r.leadReplies, buyer: r.buyerReplies } : null };
+  const list = demandByKeyword(postsObj, days, Date.now(), groupsOf);
+  bars($("i-demand-kw"), list.slice(0, 14).map((e) => [e.kw, e.posts, e]), (v, e) => `${v} posts · ${e.comments} cmts`);
+  const g = {}; for (const e of list) { const x = g[e.group] || (g[e.group] = { posts: 0, comments: 0 }); x.posts += e.posts; x.comments += e.comments; }
+  bars($("i-demand-group"), Object.entries(g).sort((a, b) => b[1].posts - a[1].posts).map(([k, v]) => [k, v.posts, v]), (v, e) => `${v} posts · ${e.comments} cmts`);
+}
+function renderLog() {
+  $("log").innerHTML = log.length ? log.slice().reverse().slice(0, 60).map((e) => `<div class="e"><a class="u" href="${esc(e.url)}" target="_blank" title="${esc(e.url)}">${esc(e.label || e.url)}</a><span>${e.kind === "thread" ? `${e.total} cmts · ${e.lead} hands · ${e.buyer} buyer` : `${e.kept} of ${e.scanned} saved`} · ${new Date(e.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>`).join("") : '<div style="color:var(--muted)">Nothing scraped yet.</div>';
+}
+async function renderDiag() {
+  const r = await chrome.runtime.sendMessage({ type: "diag" }); if (!r) return;
+  $("diag").textContent = `${r.log} entries · ${r.posts} threads · ${(r.bytes / 1048576).toFixed(1)} MB${r.sweepRunning ? " · sweep running" : ""}`;
+  if (r.errors && r.errors.length) { const e = r.errors[r.errors.length - 1]; showError(e.where + " (background, " + new Date(e.t).toLocaleTimeString() + ")", e.msg); }
+}
+
+// ----------------------------------------------------- central file sync
+const idb = { open: () => new Promise((res, rej) => { const q = indexedDB.open("rlt", 1); q.onupgradeneeded = () => q.result.createObjectStore("kv"); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }),
+  get: async (k) => { const db = await idb.open(); return new Promise((res, rej) => { const t = db.transaction("kv").objectStore("kv").get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); },
+  set: async (k, v) => { const db = await idb.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite").objectStore("kv").put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); },
+  del: async (k) => { const db = await idb.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite").objectStore("kv").delete(k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); } };
+let fileHandle = null, syncTimer = null, lastSync = 0;
+
+async function initFile() { try { fileHandle = (await idb.get("central")) || null; } catch { fileHandle = null; } await renderFileState(); }
+async function renderFileState() {
+  const el = $("file");
+  if (!window.showSaveFilePicker) { el.innerHTML = '<span class="warn">central file needs Chrome 86+</span>'; return; }
+  if (!fileHandle) { el.innerHTML = '<button class="btn sm" id="pick-file" title="pick one CSV on your disk; it is rewritten in place after every change">Choose central file…</button>'; $("pick-file").addEventListener("click", pickFile); return; }
+  let perm = "prompt"; try { perm = await fileHandle.queryPermission({ mode: "readwrite" }); } catch {}
+  if (perm !== "granted") { el.innerHTML = `<span class="warn">${esc(fileHandle.name)}</span><button class="btn sm" id="reconnect">Reconnect file</button><button class="link" id="unlink" title="stop syncing to this file">✕</button>`; $("reconnect").addEventListener("click", async () => { try { await fileHandle.requestPermission({ mode: "readwrite" }); } catch {} await renderFileState(); syncFile(true); }); $("unlink").addEventListener("click", unlinkFile); return; }
+  el.innerHTML = `<span class="ok">● ${esc(fileHandle.name)}</span><span>${lastSync ? "synced " + new Date(lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not synced yet"}</span><button class="btn sm" id="sync-now">Sync now</button><button class="link" id="unlink" title="stop syncing to this file">✕</button>`;
+  $("sync-now").addEventListener("click", () => syncFile(true)); $("unlink").addEventListener("click", unlinkFile);
+}
+async function pickFile() {
+  try {
+    fileHandle = await window.showSaveFilePicker({ suggestedName: "reddit-leads.csv", types: [{ description: "CSV", accept: { "text/csv": [".csv"] } }] });
+    await idb.set("central", fileHandle);
+    await renderFileState(); await syncFile(true);
+  } catch (e) { if (e && e.name !== "AbortError") showError("choose file", e); }
+}
+async function unlinkFile() { fileHandle = null; await idb.del("central"); renderFileState(); }
+function scheduleFileSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncFile(false), 2500); }
+async function syncFile(force) {
+  if (!fileHandle) return;
+  try {
+    const perm = await fileHandle.queryPermission({ mode: "readwrite" });
+    if (perm !== "granted") { if (force) renderFileState(); return; }
+    const { posts = {}, snaps = {} } = await chrome.storage.local.get(["posts", "snaps"]);
+    const now = Date.now();
+    const order = Object.fromEntries(STATUSES.map((s, i) => [s.key, i]));
+    const list = Object.values(posts).map((p) => toRow(p, snaps[p.id], now)).sort((a, b) => (order[a.status] - order[b.status]) || (Date.parse(b.posted) - Date.parse(a.posted)));
+    const w = await fileHandle.createWritable();
+    await w.write("﻿" + toCsv(list));
+    await w.close();
+    lastSync = now; renderFileState();
+  } catch (e) { showError("central file sync", e); }
+}
+
+// ------------------------------------------------------------ wiring
+$("f-time").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { f.days = Number(b.dataset.v); renderFilterOptions(); apply(); }));
+$("f-who").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { f.who = b.dataset.v; renderFilterOptions(); apply(); }));
+$("sort").addEventListener("change", (e) => { sortKey = e.target.value; sortDir = -1; renderTable(); });
+$("q").addEventListener("input", (e) => { f.q = e.target.value.trim(); apply(); });
+$("kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); });
+$("f-sub").addEventListener("change", (e) => { f.sub = e.target.value; apply(); });
+$("run-select").addEventListener("change", (e) => { f.run = e.target.value; renderFilterOptions(); apply(); });
+$("clear").addEventListener("click", () => { Object.assign(f, { days: 7, who: "buyers", status: "new", q: "", kw: "", sub: "", run: "" }); $("q").value = ""; renderFilterOptions(); apply(); });
+document.querySelectorAll("th[data-k]").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = ["title", "sub", "type", "status"].includes(k) ? 1 : -1; } if (["posted", "opportunity", "comments", "leadScore", "statusAt"].includes(k)) $("sort").value = k; renderTable(); }));
 $("sel-all").addEventListener("change", (e) => { rows.forEach((r) => e.target.checked ? selected.add(r.id) : selected.delete(r.id)); renderTable(); updateSelCount(); });
-$("replies").addEventListener("click", async () => { if (!selected.size) return alert("Tick one or more threads in the table first."); await chrome.storage.local.set({ replySelection: Array.from(selected) }); location.href = "replies.html"; });
-$("run-select").addEventListener("change", (e) => { f.run = e.target.value ? new Set([e.target.value]) : new Set(); renderRunBar(); renderFilters(); apply(); });
-$("only-new").addEventListener("change", (e) => { onlyNew = e.target.checked; apply(); });
-document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (!k) return; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "title" || k === "sub" || k === "type" ? 1 : -1; } renderTable(); }));
-$("f-kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); });
-$("dk-days").addEventListener("change", renderDemandByKeyword);
-$("f-days").addEventListener("change", (e) => { f.days = Number(e.target.value); apply(); });
-$("f-read").addEventListener("change", (e) => { f.read = e.target.checked; apply(); });
-$("f-evidence").addEventListener("change", (e) => { f.evidence = e.target.checked; apply(); });
-$("f-confirmed").addEventListener("change", (e) => { f.confirmed = e.target.checked; apply(); });
-$("q").addEventListener("input", (e) => { f.q = e.target.value.trim().toLowerCase(); apply(); });
-$("clear-group").addEventListener("click", () => { f.group.clear(); renderFilters(); apply(); });
-$("clear-sub").addEventListener("click", () => { f.sub.clear(); renderFilters(); apply(); });
-$("reclass").addEventListener("click", async () => { const r = await chrome.runtime.sendMessage({ type: "reclassify" }); $("reclass").textContent = `re-checked (${r.changed} changed)`; setTimeout(() => ($("reclass").textContent = "re-check types"), 2500); load(); });
-$("show-ignored").addEventListener("click", () => { showIgnored = !showIgnored; $("show-ignored").textContent = showIgnored ? "hide ignored" : "show ignored"; load(); });
-$("prune").addEventListener("click", async () => { if (!confirm("Delete saved threads older than 90 days that you haven't replied to or marked manually?")) return; const r = await chrome.runtime.sendMessage({ type: "prune", days: 90 }); alert(`Removed ${r.removed} threads.`); load(); });
-$("expand-all").addEventListener("click", () => { if (open.size) open.clear(); else rows.forEach((r) => open.add(r.id)); renderTable(); });
-$("csv").addEventListener("click", () => {
-  const blob = new Blob(["﻿" + toCsv(rows.slice().sort((a, b) => b.leadScore - a.leadScore || b.heat - a.heat))], { type: "text/csv" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `reddit-lead-threads-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
-});
-$("crawl").addEventListener("click", () => { chrome.runtime.sendMessage({ type: "refresh" }, () => load()); $("s-last").textContent = "crawling…"; });
-$("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
-$("plan").addEventListener("click", () => { location.href = "campaign.html"; });
+$("replies").addEventListener("click", async () => { if (!selected.size) return alert("Tick one or more threads first."); await chrome.storage.local.set({ replySelection: Array.from(selected) }); location.href = "replies.html"; });
+$("tab-threads").addEventListener("click", () => { $("pane-threads").hidden = false; $("pane-trends").hidden = true; $("bar").hidden = false; $("tab-threads").classList.add("on"); $("tab-trends").classList.remove("on"); });
+$("tab-trends").addEventListener("click", () => { $("pane-threads").hidden = true; $("pane-trends").hidden = false; $("bar").hidden = true; $("tab-trends").classList.add("on"); $("tab-threads").classList.remove("on"); safe("trends", renderTrends); });
+$("dk-days").addEventListener("change", () => safe("trends", renderDemandByKeyword));
 $("sweep").addEventListener("click", () => { location.href = "sweep.html"; });
+$("plan").addEventListener("click", () => { location.href = "campaign.html"; });
+$("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("reload").addEventListener("click", () => chrome.runtime.reload());
-$("clear-data").addEventListener("click", async () => { if (confirm("Delete all saved threads, comments and the collection log? Keywords and settings are kept.")) { await chrome.storage.local.remove(["posts", "snaps", "meta", "log", "auto"]); load(); } });
-chrome.storage.onChanged.addListener((ch) => { if (ch.posts || ch.meta || ch.log) load(); });
-load();
+$("reclass").addEventListener("click", async () => { const r = await chrome.runtime.sendMessage({ type: "reclassify" }); $("reclass").textContent = `re-checked (${r.changed} changed)`; setTimeout(() => ($("reclass").textContent = "re-check types"), 2500); load(); });
+$("prune").addEventListener("click", async () => { if (!confirm("Delete saved threads older than 90 days that are still New?")) return; const r = await chrome.runtime.sendMessage({ type: "prune", days: 90 }); alert(`Removed ${r.removed} threads.`); load(); });
+$("clear-data").addEventListener("click", async () => { if (confirm("Delete ALL saved threads, statuses, notes and the log? Keywords and settings are kept. Your central file keeps its last copy.")) { await chrome.storage.local.remove(["posts", "snaps", "meta", "log", "auto", "runs"]); load(); } });
+chrome.storage.onChanged.addListener((ch) => { if (ch.posts || ch.meta || ch.log || ch.runs) load(); });
+initFile().then(load);

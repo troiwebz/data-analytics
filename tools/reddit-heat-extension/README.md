@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.9 (private Chrome extension)
+# Reddit Lead Threads v2.0 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -27,6 +27,18 @@ Popup → **Batch sweep**. About 60 candidate subreddits are listed in groups (A
 **Parallel tabs.** Settings → Parallel tabs (1 to 4, default 2) and Max pages per minute across all tabs (default 24). All tabs pull from one shared queue under one global speed limit with random jitter. If Reddit answers "too many requests", every tab pauses 90 seconds and the cap drops 30 percent for the rest of the run. Closing a worker tab puts its item back in the queue for the others. Reading pages does not get an account banned; automated posting does, and this extension never posts.
 
 Suggested batches: *Discovery* (all eight searches, 5 pages, monthly) to find new subreddits, then confirm them on the dashboard; *Daily recent* (confirmed subreddits, newest, 3 pages, read 30 threads).
+
+## Central database, statuses, one file
+
+Everything lives in one database inside the extension. The dashboard opens on **Buyers · last 7 days · New**. Top bar: Time (Today / 7 / 30 / All), Who (Buyers / Sellers / Everything), Status tabs with counts (New, Seen, Replied, DM'd, Quoted, Won, Lost, Not a lead), a find box, keyword and subreddit dropdowns, a run dropdown, and Sort. Each row has a status dropdown, a Reply button, and a details toggle with a note field. The orange panel on a thread page also shows the status dropdown, so you can mark "Replied" right after posting. Statuses and notes survive future sweeps; a thread never comes back as New once you've touched it.
+
+**Central file.** Click **Choose central file…** in the header once and pick `reddit-leads.csv` anywhere on your disk. From then on the dashboard rewrites that same file after every sweep and every status or note change (while the dashboard is open), sorted by status. No more downloads. After a Chrome restart click **Reconnect file** once. Trends (stats, demand by keyword, subreddits, phrases, collection log) are on the second tab.
+
+## Central database, statuses, one file
+
+Everything lives in one database inside the extension. The dashboard opens on **Buyers · last 7 days · New**. Top bar: Time (Today / 7 / 30 / All), Who (Buyers / Sellers / Everything), Status tabs with counts (New, Seen, Replied, DM'd, Quoted, Won, Lost, Not a lead), a find box, keyword and subreddit dropdowns, a run dropdown, and Sort. Each row has a status dropdown, a Reply button, and a details toggle with a note field. The orange panel on a thread page also shows the status dropdown, so you can mark "Replied" right after posting. Statuses and notes survive future sweeps; a thread never comes back as New once you've touched it.
+
+**Central file.** Click **Choose central file…** in the header once and pick `reddit-leads.csv` anywhere on your disk. From then on the dashboard rewrites that same file after every sweep and every status or note change (while the dashboard is open), sorted by status. No more downloads. After a Chrome restart click **Reconnect file** once. Trends (stats, demand by keyword, subreddits, phrases, collection log) are on the second tab.
 
 ## Runs and duplicates
 

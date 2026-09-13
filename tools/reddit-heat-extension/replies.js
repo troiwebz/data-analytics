@@ -52,7 +52,7 @@ function render() {
     el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
       if (b.dataset.act === "copy") { await navigator.clipboard.writeText(ta.value); b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy reply"), 1500); }
       if (b.dataset.act === "regen") { it.text = generate(p); ta.value = it.text; count(); const { drafts = {} } = await chrome.storage.local.get(["drafts"]); delete drafts[p.id]; await chrome.storage.local.set({ drafts }); }
-      if (b.dataset.act === "replied") { p.replied = Date.now(); await chrome.runtime.sendMessage({ type: "override", id: p.id, patch: { replied: p.replied } }); render(); }
+      if (b.dataset.act === "replied") { p.replied = Date.now(); p.status = "replied"; await chrome.runtime.sendMessage({ type: "override", id: p.id, patch: { status: "replied", replied: p.replied } }); render(); }
     }));
     list.appendChild(el);
   }

@@ -163,6 +163,17 @@
     const s = r.signals;
     say(`${r.scraped} comments: ${s.lead} hand-raises, ${s.buyer} buyer questions, ${s.opReplies} OP replies${s.closed ? ", OP says booked" : ""}.`);
     btn("Save this thread's comments", "", async () => { await send({ type: "signals", post: r.post, signals: s, source: source() }); say("Saved."); });
+    const st = await send({ type: "status-by-url", permalink: location.pathname });
+    const stBox = document.createElement("div"); stBox.className = "pg"; stBox.style.marginTop = "4px";
+    const cur = st && st.id ? st.status : "new";
+    stBox.innerHTML = `<span>Status:</span> <select id="rlt-st" style="width:auto;font:inherit;padding:2px 4px;border:1px solid #e4e6ea;border-radius:4px">${STATUSES.map((x) => `<option value="${x.key}" ${x.key === cur ? "selected" : ""}>${x.label}</option>`).join("")}</select>`;
+    body.appendChild(stBox);
+    $("#rlt-st", panel).addEventListener("change", async (e) => {
+      let id = st && st.id;
+      if (!id) { await send({ type: "signals", post: r.post, signals: s, source: source() }); id = r.post.id; }
+      await send({ type: "override", id, patch: { status: e.target.value } });
+      say(`Marked ${e.target.options[e.target.selectedIndex].text}.`);
+    });
     const sw = await send({ type: "sweep-thread", post: r.post, signals: s, source: source() });
     if (sw && !sw.ignore) {
       btn("■ Stop sweep (all tabs)", "stop", async () => { await send({ type: "sweep-stop" }); say("Stopped."); });

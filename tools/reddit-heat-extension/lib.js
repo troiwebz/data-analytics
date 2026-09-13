@@ -559,7 +559,7 @@ HEAT.postFromChild = function (c, sub, compiled) {
 // Keep a crawled post if any keyword matched, or it is clearly an offer /
 // demand / freebie / value post even without a keyword hit.
 HEAT.keepPost = function (post) {
-  if (post.ignored) return false;
+  if (post.ignored || post.status === "not_lead") return false;
   if (["offer", "demand", "freebie", "value"].includes(post.type)) return true;
   if (post.type === "job") return false;
   // keyword-only hit: only if the thread is actually about a website / web work
@@ -618,7 +618,7 @@ HEAT.titlePhrases = function (titles, max = 25) {
   return Object.entries(counts).filter((e) => e[1] >= 2).sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).slice(0, max);
 };
 
-HEAT.CSV_COLS = ["leadScore", "opportunity", "heat", "type", "groups", "sub", "price", "score", "ratio", "comments", "dComments48h", "cmtsPerDay", "leadReplies", "buyerReplies", "opReplies", "uniqueCommenters", "heckles", "closed", "posted", "author", "flair", "keywords", "title", "url", "linkUrl", "body", "replies"];
+HEAT.CSV_COLS = ["status", "statusAt", "note", "leadScore", "opportunity", "heat", "type", "groups", "sub", "price", "score", "ratio", "comments", "dComments48h", "cmtsPerDay", "leadReplies", "buyerReplies", "opReplies", "uniqueCommenters", "heckles", "closed", "posted", "author", "flair", "keywords", "title", "url", "linkUrl", "body", "replies"];
 
 HEAT.toCsv = function (rows) {
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
@@ -635,6 +635,7 @@ HEAT.toRow = function (p, snaps, now = Date.now()) {
     author: p.author || "", flair: p.flair || "", keywords: p.keywords || [], title: p.title, url: p.url, linkUrl: p.linkUrl || "", body: p.body || "",
     replies: s.replies || [], sampleReply: s.sampleBuyer || "", analysed: !!p.signals,
     runs: p.runs || [], firstRun: p.firstRun || (p.runs || [])[0] || "", firstSeen: p.firstSeen || 0, lastSeen: p.lastSeen || 0,
+    status: HEAT.statusOf(p), statusAt: p.statusAt ? new Date(p.statusAt).toISOString().slice(0, 16).replace("T", " ") : "", note: p.note || "",
   };
 };
 
@@ -892,3 +893,20 @@ HEAT.valueBombReply = function (post, profile = {}) {
   const sign = profile.name ? `\n\n– ${profile.name}${profile.role ? `, ${profile.role}` : ""}` : "";
   return `Re: "${HEAT.situationLine(post)}"\n\n${pb.diagnose}${platform}${budgetLine}\n\nHere's exactly what I'd do, in order:\n\n${steps}\n\n${pb.watch}\n\nIf you get stuck on any step, reply here with what you see and I'll walk you through it. No charge for that, and no need to hire anyone for most of the above.${sign}`;
 };
+
+// ---------------------------------------------------------------------------
+// Status pipeline. "Done" = anything that is not "new".
+// ---------------------------------------------------------------------------
+HEAT.STATUSES = [
+  { key: "new", label: "New", hint: "found, not looked at" },
+  { key: "seen", label: "Seen", hint: "opened, nothing to do yet" },
+  { key: "replied", label: "Replied", hint: "value-bomb comment submitted" },
+  { key: "dm", label: "DM'd", hint: "private conversation started" },
+  { key: "quoted", label: "Quoted", hint: "price sent" },
+  { key: "won", label: "Won", hint: "booked" },
+  { key: "lost", label: "Lost", hint: "went elsewhere / no reply" },
+  { key: "not_lead", label: "Not a lead", hint: "seller, job post, junk" },
+];
+HEAT.statusOf = function (p) { return p.status || (p.ignored ? "not_lead" : p.replied ? "replied" : "new"); };
+HEAT.isBuyer = function (p) { return p.type === "demand"; };
+HEAT.isSeller = function (p) { return p.type === "offer" || p.type === "freebie" || p.type === "value"; };
