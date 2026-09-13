@@ -44,3 +44,6 @@ Append one line per approval/rejection: date, offer, variables used, verdict.
   price/guarantee/freebie alone is rejected.
 - Liked freebie types: free trial (capped), free result taste (without our
   ad spend), free fix. Every offer must pull into the monthly funnel.
+- ALWAYS end a reply with the full final script including every
+  correction so far — never only the changed line. He shoots from the
+  last message.

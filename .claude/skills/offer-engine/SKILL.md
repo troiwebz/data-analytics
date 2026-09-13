@@ -234,6 +234,14 @@ website.
    banned — say "every day", "show up", "fix").
 3. Structure is always: HOOK (0–3s) → PAIN/PROOF (3–9s) → OFFER (9–15s) →
    CTA (15–19s).
+3a1. ALWAYS CLOSE WITH THE FULL FINAL SCRIPT. Every reply that touches
+   a script — a hook swap, one corrected word, a block rewritten, a rule
+   applied — ends with the COMPLETE script carrying every correction made
+   so far, not just the changed line. The founder shoots from the last
+   message; a reply that shows only the delta forces him to reassemble the
+   script from the thread, and that is where mistakes get filmed. Show the
+   change first if it helps, but the full script is always the last thing
+   in the message.
 3b1. PLATFORM NAME OPENS THE HOOK. When the offer is about a platform
    (Google Maps, Instagram, Google), the hook must START with that name —
    first word, not buried mid-line and never absent. It is what makes a
