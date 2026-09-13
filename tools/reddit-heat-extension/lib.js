@@ -621,6 +621,7 @@ HEAT.toRow = function (p, snaps, now = Date.now()) {
     uniqueCommenters: s.uniqueCommenters || 0, heckles: s.heckle || 0, closed: !!s.closed, posted: new Date(p.created).toISOString().slice(0, 10),
     author: p.author || "", flair: p.flair || "", keywords: p.keywords || [], title: p.title, url: p.url, linkUrl: p.linkUrl || "", body: p.body || "",
     replies: s.replies || [], sampleReply: s.sampleBuyer || "", analysed: !!p.signals,
+    runs: p.runs || [], firstRun: p.firstRun || (p.runs || [])[0] || "", firstSeen: p.firstSeen || 0, lastSeen: p.lastSeen || 0,
   };
 };
 

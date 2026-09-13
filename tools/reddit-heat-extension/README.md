@@ -1,4 +1,4 @@
-# Reddit Lead Threads v1.8 (private Chrome extension)
+# Reddit Lead Threads v1.9 (private Chrome extension)
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 
@@ -27,6 +27,10 @@ Popup → **Batch sweep**. About 60 candidate subreddits are listed in groups (A
 **Parallel tabs.** Settings → Parallel tabs (1 to 4, default 2) and Max pages per minute across all tabs (default 24). All tabs pull from one shared queue under one global speed limit with random jitter. If Reddit answers "too many requests", every tab pauses 90 seconds and the cap drops 30 percent for the rest of the run. Closing a worker tab puts its item back in the queue for the others. Reading pages does not get an account banned; automated posting does, and this extension never posts.
 
 Suggested batches: *Discovery* (all eight searches, 5 pages, monthly) to find new subreddits, then confirm them on the dashboard; *Daily recent* (confirmed subreddits, newest, 3 pages, read 30 threads).
+
+## Runs and duplicates
+
+The bar at the top of the dashboard lists your runs newest first with thread counts and how many were new, and defaults to the latest run. Every thread is stored once. When you view a run, each row is tagged **new** (first found in that run) or **seen ×N** (found by N runs before). Tick **only new in this run** to see what a batch added. "All runs" shows everything.
 
 ## Where the results live: the dashboard
 

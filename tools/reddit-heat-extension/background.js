@@ -107,6 +107,18 @@ function recordPost(posts, snaps, p, now) {
   snaps[p.id] = arr.slice(-MAX_SNAPS);
 }
 
+// Runs registry: one entry per run name with counts, so the dashboard can
+// list recent batches with "new vs seen before".
+async function touchRun(name, inc = {}) {
+  const { runs = {} } = await chrome.storage.local.get(["runs"]);
+  const r = runs[name] || { name, started: Date.now(), pages: 0, kept: 0, fresh: 0, threads: 0 };
+  for (const k of ["pages", "kept", "fresh", "threads"]) r[k] = (r[k] || 0) + (inc[k] || 0);
+  r.last = Date.now();
+  if (inc.finished) r.finished = Date.now();
+  runs[name] = r;
+  await chrome.storage.local.set({ runs });
+}
+
 async function addLog(entry) {
   const { log = [] } = await chrome.storage.local.get(["log"]);
   log.push({ t: Date.now(), ...entry });
@@ -116,15 +128,23 @@ async function addLog(entry) {
 async function ingest(list, source, run) {
   const r = await withStore(async (posts, snaps) => {
     const now = Date.now();
-    let kept = 0;
+    let kept = 0, fresh = 0;
     for (const p of list) {
       if (!p || !p.id || !keepPost(p)) continue;
+      const isNew = !posts[p.id];
       recordPost(posts, snaps, p, now);
-      if (run) { const rs = posts[p.id].runs || []; if (!rs.includes(run)) rs.push(run); posts[p.id].runs = rs.slice(-10); }
+      if (run) {
+        const rs = posts[p.id].runs || [];
+        if (!rs.includes(run)) rs.push(run);
+        posts[p.id].runs = rs.slice(-20);
+        if (isNew) { posts[p.id].firstRun = run; fresh += 1; }
+        else if (!posts[p.id].firstRun) posts[p.id].firstRun = rs[0];
+      }
       kept += 1;
     }
-    return { kept, total: Object.keys(posts).length };
+    return { kept, fresh, total: Object.keys(posts).length };
   });
+  if (run) await touchRun(run, { kept: r.kept, fresh: r.fresh, pages: 1 });
   if (source) await addLog({ kind: "page", url: source.url, label: source.label, scanned: list.length, kept: r.kept });
   return r;
 }
@@ -160,7 +180,7 @@ async function loadS() { if (!S) { const { sweepState } = await chrome.storage.l
 async function saveS() { await chrome.storage.local.set({ sweepState: S }); }
 async function pushProgress(stage) {
   if (!S) return;
-  await chrome.storage.local.set({ sweep: { running: true, run: S.run, stage, items: S.items, totalPages: S.totalPages, pagesDone: S.stats.pagesDone, kept: S.stats.kept, read: S.read, threadsDone: S.stats.threadsDone, throttled: S.stats.throttled, workers: Object.keys(S.active).length, maxPerMin: S.maxPerMin, started: S.started } });
+  await chrome.storage.local.set({ sweep: { running: true, run: S.run, stage, items: S.items, totalPages: S.totalPages, pagesDone: S.stats.pagesDone, kept: S.stats.kept, fresh: S.stats.fresh || 0, read: S.read, threadsDone: S.stats.threadsDone, throttled: S.stats.throttled, workers: Object.keys(S.active).length, maxPerMin: S.maxPerMin, started: S.started } });
 }
 
 async function startSweep(queue, read, delay, workers = 2, maxPerMin = 24, run = "") {
@@ -170,6 +190,7 @@ async function startSweep(queue, read, delay, workers = 2, maxPerMin = 24, run =
     if (!queue.length) throw new Error("empty queue");
     workers = Math.min(4, Math.max(1, workers | 0));
     run = (run || "").trim() || new Date().toISOString().slice(0, 16).replace("T", " ");
+    await touchRun(run, {});
     S = { run, queue: queue.slice(), active: {}, read, delay: Math.max(2, delay), workers, maxPerMin: Math.max(6, maxPerMin | 0), nav: [], cooldownUntil: 0, commentQueue: null,
       items: queue.length, totalPages: queue.reduce((n, q) => n + q.pages, 0), started: Date.now(), stats: { pagesDone: 0, kept: 0, threadsDone: 0, throttled: 0 } };
     for (let i = 0; i < workers; i++) {
@@ -184,11 +205,12 @@ async function startSweep(queue, read, delay, workers = 2, maxPerMin = 24, run =
 // _stop runs without taking the lock (callers inside withLock use it directly).
 async function _stop(stopped) {
   const { sweep, sweepLog = [] } = await chrome.storage.local.get(["sweep", "sweepLog"]);
+  if (S && S.run) await touchRun(S.run, { finished: true });
   S = null;
   await chrome.storage.local.remove(["sweepState", "auto"]);
   if (sweep && sweep.running) {
     const done = { ...sweep, running: false, stopped, finishedAt: Date.now() };
-    sweepLog.push({ run: done.run, items: done.items, pagesDone: done.pagesDone, kept: done.kept, threadsDone: done.threadsDone, throttled: done.throttled, workers: done.workers, stopped, finishedAt: done.finishedAt });
+    sweepLog.push({ run: done.run, items: done.items, pagesDone: done.pagesDone, kept: done.kept, fresh: done.fresh || 0, threadsDone: done.threadsDone, throttled: done.throttled, workers: done.workers, stopped, finishedAt: done.finishedAt });
     await chrome.storage.local.set({ sweep: done, sweepLog: sweepLog.slice(-100) });
   }
 }
@@ -231,7 +253,7 @@ async function handlePage(tabId, payload) {
     if (a.thread) return { ignore: true }; // a listing page while assigned a thread: not ours
     const r = await ingest(payload.posts || [], payload.source, S.run);
     a.pagesLeft -= 1; a.nextUrl = payload.nextUrl || "";
-    S.stats.pagesDone += 1; S.stats.kept += r.kept;
+    S.stats.pagesDone += 1; S.stats.kept += r.kept; S.stats.fresh = (S.stats.fresh || 0) + r.fresh;
     const nx = await nextForTab(tabId);
     if (nx.done) { await saveS(); if (nx.last) { await pushProgress("finished"); await _stop(false); return { done: true, finished: true }; } await pushProgress("winding down"); return { done: true }; }
     const wait = throttle();
@@ -245,7 +267,7 @@ async function handleThread(tabId, payload) {
     await loadS();
     if (!S || !S.active[tabId] || !S.active[tabId].thread) return { ignore: true };
     await saveSignals(payload.post, payload.signals, payload.source);
-    S.stats.threadsDone += 1;
+    S.stats.threadsDone += 1; await touchRun(S.run, { threads: 1 });
     const nx = await nextForTab(tabId);
     if (nx.done) { await saveS(); if (nx.last) { await pushProgress("finished"); await _stop(false); return { done: true, finished: true }; } return { done: true }; }
     const wait = throttle();

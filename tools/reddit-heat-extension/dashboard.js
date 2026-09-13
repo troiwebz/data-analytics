@@ -7,6 +7,7 @@ const PRICE_BANDS = ["free", "under $200", "$200–599", "$600–1499", "$1500+"
 let all = [], rows = [], log = [];
 const f = { type: new Set(["offer", "demand", "freebie", "value"]), group: new Set(), run: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
 const selected = new Set();
+let runsReg = {}, runOrder = [], onlyNew = false, runInitialised = false;
 let config = {};
 let sortKey = "leadScore", sortDir = -1;
 const open = new Set();
@@ -20,8 +21,8 @@ function priceBand(p) {
 }
 
 async function load() {
-  const { posts = {}, snaps = {}, meta = {}, log: lg = [], config: cfg = {} } = await chrome.storage.local.get(["posts", "snaps", "meta", "log", "config"]);
-  config = cfg;
+  const { posts = {}, snaps = {}, meta = {}, log: lg = [], config: cfg = {}, runs = {} } = await chrome.storage.local.get(["posts", "snaps", "meta", "log", "config", "runs"]);
+  config = cfg; runsReg = runs;
   const now = Date.now();
   all = Object.values(posts).filter((p) => showIgnored || !p.ignored).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price), ignored: !!p.ignored, manual: !!p.manual, runs: p.runs || [], replied: p.replied || 0 }));
   log = lg;
@@ -34,8 +35,29 @@ async function load() {
   $("s-booked").textContent = read.filter((r) => r.closed).length;
   const last = Math.max(meta.lastPage || 0, meta.lastRun || 0);
   $("s-last").textContent = last ? new Date(last).toLocaleString() : "nothing yet";
+  renderRunBar();
   renderFilters();
   apply();
+}
+
+function runStats(name) {
+  const inRun = all.filter((r) => r.runs.includes(name));
+  return { total: inRun.length, fresh: inRun.filter((r) => r.firstRun === name).length, demand: inRun.filter((r) => r.type === "demand").length };
+}
+
+function renderRunBar() {
+  // Order runs by most recent activity; include runs only known from posts.
+  const names = new Set([...Object.keys(runsReg), ...all.flatMap((r) => r.runs)]);
+  runOrder = Array.from(names).map((n) => ({ name: n, t: (runsReg[n] && (runsReg[n].last || runsReg[n].started)) || Math.max(0, ...all.filter((r) => r.runs.includes(n)).map((r) => r.lastSeen)) })).sort((a, b) => b.t - a.t).map((x) => x.name);
+  if (!runInitialised) { runInitialised = true; if (runOrder.length) f.run = new Set([runOrder[0]]); }
+  const sel = $("run-select");
+  const cur = f.run.size ? Array.from(f.run)[0] : "";
+  sel.innerHTML = `<option value="">All runs · ${all.length} threads</option>` + runOrder.map((n, i) => { const s = runStats(n); const t = runsReg[n] && (runsReg[n].finished || runsReg[n].last); return `<option value="${esc(n)}">${i === 0 ? "Latest · " : ""}${esc(n)} · ${s.total} threads, ${s.fresh} new${t ? " · " + new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</option>`; }).join("");
+  sel.value = runOrder.includes(cur) ? cur : "";
+  if (!runOrder.includes(cur)) f.run.clear();
+  const r = runsReg[cur];
+  $("run-info").textContent = cur ? `${r && r.pages ? r.pages + " pages · " : ""}${runStats(cur).demand} demand threads${r && r.threads ? " · " + r.threads + " comment reads" : ""}${r && r.finished ? " · finished " + new Date(r.finished).toLocaleString() : r && !r.finished && r.started ? " · started " + new Date(r.started).toLocaleTimeString() : ""}` : "Every thread is stored once. A thread found by several runs shows how many.";
+  $("only-new").disabled = !cur;
 }
 
 function chips(el, items, set, cls) {
@@ -45,8 +67,7 @@ function chips(el, items, set, cls) {
 
 function renderFilters() {
   const count = (fn) => { const m = {}; for (const r of all) for (const v of fn(r)) m[v] = (m[v] || 0) + 1; return m; };
-  const tc = count((r) => [r.type]), gc = count((r) => r.groups), sc = count((r) => [r.sub]), pc = count((r) => [r.band]), rc = count((r) => r.runs.length ? r.runs : ["(untagged)"]);
-  chips($("f-run"), Object.entries(rc).sort((a, b) => b[1] - a[1]).slice(0, 12), f.run);
+  const tc = count((r) => [r.type]), gc = count((r) => r.groups), sc = count((r) => [r.sub]), pc = count((r) => [r.band]);
   chips($("f-type"), TYPES.filter((t) => tc[t]).map((t) => [t, tc[t]]), f.type, true);
   chips($("f-group"), Object.entries(gc).sort((a, b) => b[1] - a[1]), f.group);
   chips($("f-sub"), Object.entries(sc).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([s, n]) => ["r/" + s, n]), f.sub);
@@ -65,6 +86,7 @@ function apply() {
     (!f.type.size || f.type.has(r.type)) &&
     (!f.group.size || r.groups.some((g) => f.group.has(g))) &&
     (!f.run.size || (r.runs.length ? r.runs : ["(untagged)"]).some((x) => f.run.has(x))) &&
+    (!onlyNew || !f.run.size || r.firstRun === Array.from(f.run)[0]) &&
     (!f.sub.size || f.sub.has("r/" + r.sub)) &&
     (!f.price.size || f.price.has(r.band)) &&
     (!f.kw || r.keywords.includes(f.kw)) &&
@@ -173,7 +195,7 @@ function renderTable() {
     td(String(r.opReplies), "num");
     td(r.heckles ? `<span class="tag t-bad">${r.heckles}</span>` : "0", "num");
     td(r.posted);
-    td(`<div class="ttl"><div class="t">${r.replied ? '<span class="tag t-good" title="you marked this replied">replied</span> ' : ""}${r.closed ? '<span class="tag t-good">booked</span> ' : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) + (r.keywords.length > 3 ? ` +${r.keywords.length - 3}` : "") : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
+    td(`<div class="ttl"><div class="t">${f.run.size ? (r.firstRun === Array.from(f.run)[0] ? '<span class="tag t-new" title="first found in this run">new</span> ' : `<span class="tag t-seen" title="first found in ${esc(r.firstRun || "an earlier run")}">seen ×${r.runs.length}</span> `) : (r.runs.length > 1 ? `<span class="tag t-seen" title="${esc(r.runs.join(", "))}">×${r.runs.length} runs</span> ` : "")}${r.replied ? '<span class="tag t-good" title="you marked this replied">replied</span> ' : ""}${r.closed ? '<span class="tag t-good">booked</span> ' : ""}<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></div><div class="m">${esc(r.groups.join(", "))}${r.keywords.length ? " · " + esc(r.keywords.slice(0, 3).join(" · ")) + (r.keywords.length > 3 ? ` +${r.keywords.length - 3}` : "") : ""}${r.sampleReply ? `<br><i>“${esc(r.sampleReply)}”</i>` : ""}</div></div>`);
     tr.querySelector("[data-sel]").addEventListener("click", (e) => { e.stopPropagation(); e.target.checked ? selected.add(r.id) : selected.delete(r.id); updateSelCount(); });
     tr.addEventListener("click", (e) => { if (e.target.closest("a") || e.target.closest("input")) return; open.has(r.id) ? open.delete(r.id) : open.add(r.id); renderTable(); });
     tb.appendChild(tr);
@@ -194,7 +216,8 @@ function renderTable() {
 function updateSelCount() { $("replies").textContent = `Replies for selected (${selected.size})`; }
 $("sel-all").addEventListener("change", (e) => { rows.forEach((r) => e.target.checked ? selected.add(r.id) : selected.delete(r.id)); renderTable(); updateSelCount(); });
 $("replies").addEventListener("click", async () => { if (!selected.size) return alert("Tick one or more threads in the table first."); await chrome.storage.local.set({ replySelection: Array.from(selected) }); location.href = "replies.html"; });
-$("clear-run").addEventListener("click", () => { f.run.clear(); renderFilters(); apply(); });
+$("run-select").addEventListener("change", (e) => { f.run = e.target.value ? new Set([e.target.value]) : new Set(); renderRunBar(); renderFilters(); apply(); });
+$("only-new").addEventListener("change", (e) => { onlyNew = e.target.checked; apply(); });
 document.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.k; if (!k) return; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "title" || k === "sub" || k === "type" ? 1 : -1; } renderTable(); }));
 $("f-kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); });
 $("dk-days").addEventListener("change", renderDemandByKeyword);

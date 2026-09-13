@@ -24,6 +24,11 @@
   .top .sp { flex: 1; }
   .top .actions { display: flex; gap: 8px; }
 
+  .runbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 22px 0; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; flex-wrap: wrap; }
+  .runbar .rb-l { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .runbar .rb-t { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .runbar select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-weight: 600; min-width: 320px; }
+  .runbar .rb-chk { display: flex; align-items: center; gap: 6px; color: var(--muted); } .runbar .rb-r { color: var(--muted); font-size: 12px; }
+  .t-new { background: #fff7ed; color: #c2410c; } .t-seen { background: #eef0f3; color: #4b5563; }
   .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 16px 22px 0; }
   .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
   .stat .v { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; } .stat .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
@@ -105,12 +110,15 @@
   <div class="stat"><div class="v" id="s-last" style="font-size:14px;padding-top:6px">—</div><div class="l">last collected</div></div>
 </div>
 
+<div class="runbar" id="runbar">
+  <div class="rb-l"><span class="rb-t">Showing</span><select id="run-select"></select><label class="rb-chk"><input type="checkbox" id="only-new"> only new in this run</label></div>
+  <div class="rb-r" id="run-info"></div>
+</div>
 <div class="layout">
   <aside class="side">
     <div class="card"><h3>Type</h3><div class="body chips" id="f-type"></div></div>
     <div class="card"><h3>Category <button class="link" id="clear-group">clear</button></h3><div class="body chips" id="f-group"></div></div>
     <div class="card"><h3>Keyword</h3><div class="body"><select id="f-kw"><option value="">All keywords</option></select></div></div>
-    <div class="card"><h3>Run <button class="link" id="clear-run">clear</button></h3><div class="body chips" id="f-run"></div></div>
     <div class="card"><h3>Subreddit <button class="link" id="clear-sub">clear</button></h3><div class="body chips" id="f-sub"></div></div>
     <div class="card"><h3>Price</h3><div class="body chips" id="f-price"></div></div>
     <div class="card"><h3>More</h3><div class="body">
