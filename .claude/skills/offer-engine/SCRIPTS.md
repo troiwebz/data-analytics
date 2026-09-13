@@ -215,7 +215,129 @@ delivery - keep kadai, customer, Google, WhatsApp, website, Rs.500 in the
 text even when shortening.
 
 ================================================================
-# D. CAMPAIGN SETUP NOTES
+# D. RANKMAPP — India / Tamil Nadu — Google Maps rank tracker (SaaS)
+================================================================
+Audience: ALL local businesses (restaurant, hotel, spa, clinic, gym,
+tuition centre). Language: TANGLISH (founder's own written style —
+approved exception to the English-only default). Hidden funnel step:
+FREE SIGNUP IN THE APP. Offer: 1 month free coupon.
+Platform words: Google Maps, ranking, keyword, review, customer, area.
+
+## Offer set (feature-led — each ad sells ONE RankMapp feature)
+- Ad 1 — The map grid (core product)
+- Ad 2 — Newbie attack (zero-knowledge viewer)
+- Ad 3 — Easy-to-rank keywords
+- Ad 4 — AI assistant
+
+## CTA rule — ORGANIC vs PAID
+All four CTAs below are written for ORGANIC (follow + comment 'RANK' with
+a ManyChat auto-DM). Follow/comment asks are engagement bait and Meta
+suppresses delivery on PAID ads. For the paid cut, swap the last line to:
+  "Indha 1 month FREE coupon venum na, DM pannunga."
+
+## Accuracy flags — fix before running
+- Site trial is 14 days; these ads promise 1 MONTH. Create a real 30-day
+  coupon code first, or the lead arrives to a broken promise.
+- Grid is 49 points on Pro, 9 points on trial. Never say "49" in an ad
+  that sends people to the trial.
+- AI assistant is capped per plan (1 trial / 3 Starter / 5 Pro / 10
+  Agency per month). Never imply unlimited asking.
+
+## Ad 1 · Map grid · founder's own rewrite, shortened (~17s)
+HOOK     Unga business Google Maps-la top 3-la illainaa, customer-a reach
+         aaga maateenga.
+PAIN     Dhinamum evlo customer-a miss panreenganu ungalukke theriyaadhu.
+OFFER    RankMapp-nu oru website irukku — Google Maps ranking check panra
+         software. Unga area muzhukka scan panni, enga neenga rank
+         aagreenganu ellaame kaamikkum.
+CTA      1 month FREE coupon code irukku. Enna follow pannitu 'RANK'nu
+         comment pannunga — details anupparen.
+ON-SCREEN  TOP 3-LA ILLAINA = CUSTOMER ILLA / EVLO MISS PANREENGA? /
+         UNGA AREA MUZHUKKA SCAN / 1 MONTH FREE - COMMENT 'RANK'
+VISUAL   Slide 2 = the 7x7 demo map, green pins at centre fading to red
+         at the edges. Let it play under the offer line.
+
+## Ad 2 · Newbie attack · for a viewer who knows nothing (~22s)
+HOOK     Neenga oru shop thedumbodhu, Google Maps-la mudhal-la varradhukku
+         thaan poveenga.
+FLIP     Unga customer-um adhe thaan. Neenga munnaadi varalaina, vera
+         business-ukku poiduvaanga.
+TEACH    Maps-la ellaa business-um oru order-la varum. Top 3-la irukravanga
+         thaan customer-a edukkaraanga.
+OFFER    RankMapp — Google Maps-la neenga endha place-la irukeenganu
+         kaamikkura website. Unga area muzhukka scan panni, map-la pachai
+         sivappu-nu kaattum.
+CTA      1 month FREE coupon irukku. Enna follow pannitu 'RANK'nu comment
+         pannunga.
+ON-SCREEN  NEENGA EPPADI THEDREENGA? / CUSTOMER-UM ADHE THAAN /
+         TOP 3 THAAN JEYIKKUM / PACHAI = TOP - SIVAPPU = ILLA /
+         1 MONTH FREE - COMMENT 'RANK'
+NOTE     Runs 3s longer on purpose — a beginner ad needs it. If cutting,
+         drop TEACH; the FLIP already teaches.
+
+## Ad 3 · Easy-to-rank keywords (~19s)
+HOOK     Google Maps ranking kashtam-nu nenaikreengala? Neenga wrong
+         keyword-la fight panreenga.
+PAIN     Time poidhu, money poidhu, customer-um poidraanga.
+OFFER    Restaurant, hotel, spa, clinic, gym — enna business-a
+         irundhaalum, sila keyword-la neenga easy-a top-la varalaam.
+         'Biryani near me', 'foot massage', 'budget hotel' — indha
+         maadhiri. RankMapp edhu easy, edhu kashtamnu ovvoru keyword-kum
+         kaamikkum.
+CTA      Indha 1 month FREE coupon venum na, enna follow pannitu 'RANK'nu
+         comment pannunga.
+ON-SCREEN  RANKING KASHTAMA? / WRONG KEYWORD THAAN /
+         'BIRYANI NEAR ME' - 'FOOT MASSAGE' / EDHU EASY-NU KAAMIKKUM /
+         1 MONTH FREE - COMMENT 'RANK'
+LOCKED RULES  Never say "periya keyword" anywhere. Keyword examples must
+         be short enough to say in one breath. Niche list does the
+         self-identification — name several, never repeat one.
+ACCURACY RankMapp scores keywords YOU add (3 on trial, up to 50). It does
+         not discover new keywords. Promise "which of your keywords are
+         winnable", never "we find your keywords".
+
+## Ad 4 · AI assistant · straight to feature + benefit (~20s)
+HOOK     Google Maps-la enna pannanumnu yaarum sollala. Ippa oru AI sollum.
+FEATURE  RankMapp-la oru AI assistant irukku. Unga rank, unga review, unga
+         website score — ellaathayum adhu padikkum.
+BENEFIT  'Mudhal-la enna fix pannanum'nu kelunga. Unga own number-a vechu,
+         order-la list kudukkum. SEO theriya vendaam.
+CTA      Indha 1 month FREE coupon venum na, enna follow pannitu 'RANK'nu
+         comment pannunga.
+ON-SCREEN  YAARUM SOLLALA? / AI PADIKKUM: RANK - REVIEW - WEBSITE /
+         MUDHAL-LA ENNA FIX PANNANUM? / SEO THERIYA VENDAAM /
+         1 MONTH FREE - COMMENT 'RANK'
+NOTE     "SEO theriya vendaam" is the line doing the work — pause before it.
+
+## Remaining features — offers not yet scripted
+- Competitors — names who takes your customers, and shows their map
+- Reviews — the EXACT review count needed to reach top in your area
+- Website scan — 18 checks, score out of 100
+- Citations — 1,221 directories filtered to your country, submit links
+- Reports — agency white-label with their own logo
+- Overview — rank, competitor, review, website score on one screen
+
+## Technical plays — content made USING RankMapp
+A  Scan them in the DM. Comment 'RANK' -> you scan their business -> send
+   the map screenshot. One free scan buys a personalised asset. Run this
+   under EVERY RankMapp ad; it is the strongest lead mechanic.
+B  Public rank reveal. Scan a famous local business, post the map.
+C  Weekly series. "Chennai-la top 3 salon Maps-la yaaru?" One scan, one reel.
+D  Before/after. Client day 1 vs day 60. Red turning green = proof forever.
+E  Category sweep. "10 dentists in Coimbatore — 7 invisible past 1km."
+
+## Campaign mode — PIPELINE (Portie two-step), RankMapp only
+RankMapp's entry is a free app signup, so warm-audience conversion costs
+almost nothing. Run it as a two-step instead of single-step direct response:
+1  Cold: run Ads 1-4 as a VIDEO VIEWS campaign, ~Rs.400/day, broad Tamil
+   Nadu local businesses. Strip the CTA to "follow for more". Never stop it.
+2  Build custom audience: 50%+ video viewers last 30 days + page engagers.
+3  Warm: run the 1-month-free offer ad to that audience only, on Messages.
+DO NOT convert Venus Venture to this mode — its free 3-reel shoot costs a
+real day of labour, so it needs the hard-qualifying single-step ad.
+
+================================================================
+# E. CAMPAIGN SETUP NOTES
 ================================================================
 - Objective: Messages / click-to-WhatsApp (never boosted post with
   comment-bait).
