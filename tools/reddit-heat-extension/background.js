@@ -19,7 +19,7 @@ async function getConfig() {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const entries = parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT);
   return {
-    subs: config.subs && config.subs.length ? config.subs : DEFAULT_SUBS,
+    subs: Array.from(new Set([...(config.subs && config.subs.length ? config.subs : DEFAULT_SUBS), ...(config.confirmedSubs || [])])),
     entries,
     clientId: (config.clientId || "").trim(),
     windowDays: config.windowDays || 30,

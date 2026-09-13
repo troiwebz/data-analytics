@@ -4,7 +4,8 @@ const TYPES = ["offer", "freebie", "value", "demand", "other"];
 const PRICE_BANDS = ["free", "under $200", "$200–599", "$600–1499", "$1500+", "hourly", "no price"];
 
 let all = [], rows = [], log = [];
-const f = { type: new Set(), group: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, q: "" };
+const f = { type: new Set(), group: new Set(), sub: new Set(), price: new Set(), kw: "", days: 365, read: false, evidence: false, confirmed: false, q: "" };
+let config = {};
 let sortKey = "leadScore", sortDir = -1;
 const open = new Set();
 
@@ -17,7 +18,8 @@ function priceBand(p) {
 }
 
 async function load() {
-  const { posts = {}, snaps = {}, meta = {}, log: lg = [] } = await chrome.storage.local.get(["posts", "snaps", "meta", "log"]);
+  const { posts = {}, snaps = {}, meta = {}, log: lg = [], config: cfg = {} } = await chrome.storage.local.get(["posts", "snaps", "meta", "log", "config"]);
+  config = cfg;
   const now = Date.now();
   all = Object.values(posts).map((p) => ({ ...toRow(p, snaps[p.id], now), band: priceBand(p.price) }));
   log = lg;
@@ -64,10 +66,49 @@ function apply() {
     (!f.kw || r.keywords.includes(f.kw)) &&
     (!f.read || r.analysed) &&
     (!f.evidence || r.leadReplies + r.buyerReplies > 0 || r.closed) &&
+    (!f.confirmed || (config.confirmedSubs || []).includes(r.sub.toLowerCase())) &&
     (!f.q || [r.title, r.body, r.sub, r.keywords.join(" "), r.author].join(" ").toLowerCase().includes(f.q)));
   renderInsights();
+  renderDiscovery();
   renderTable();
   renderLog();
+}
+
+async function saveConfig(patch) {
+  const { config: cur = {} } = await chrome.storage.local.get(["config"]);
+  config = { ...cur, ...patch };
+  await chrome.storage.local.set({ config });
+}
+
+function renderDiscovery() {
+  // Subreddits by demand volume, with confirm checkboxes.
+  const bySub = {};
+  for (const r of all) { const b = bySub[r.sub] || (bySub[r.sub] = { demand: 0, total: 0, ev: 0, recent: 0 }); b.total += 1; if (r.type === "demand") { b.demand += 1; if (Date.now() - Date.parse(r.posted) < 30 * 86400000) b.recent += 1; } b.ev += r.leadReplies + r.buyerReplies; }
+  const confirmed = new Set((config.confirmedSubs || []).map((s) => s.toLowerCase()));
+  const subs = Object.entries(bySub).sort((a, b) => b[1].demand - a[1].demand || b[1].total - a[1].total).slice(0, 15);
+  $("i-subs").innerHTML = subs.length ? subs.map(([s, b]) => `<label class="subrow"><input type="checkbox" data-sub="${esc(s)}" ${confirmed.has(s.toLowerCase()) ? "checked" : ""}><span>r/${esc(s)}</span><span class="c">${b.demand} demand (${b.recent} this month) · ${b.total} total · ${b.ev} buyer replies</span></label>`).join("") : '<div style="color:var(--muted)">No data yet.</div>';
+  $("i-subs").querySelectorAll("input[data-sub]").forEach((cb) => cb.addEventListener("change", async () => {
+    const set = new Set(config.confirmedSubs || []);
+    cb.checked ? set.add(cb.dataset.sub) : set.delete(cb.dataset.sub);
+    await saveConfig({ confirmedSubs: Array.from(set) });
+    apply();
+  }));
+
+  // Phrases from demand titles, add-as-keyword.
+  const demandTitles = all.filter((r) => r.type === "demand").map((r) => r.title);
+  const phrases = titlePhrases(demandTitles, 24);
+  const existing = new Set(parseKeywordText(config.keywordText || DEFAULT_KEYWORD_TEXT).map((e) => e.kw.toLowerCase().replace(/"/g, "")));
+  $("i-phrases").innerHTML = phrases.length ? `<div class="phr">${phrases.map(([p, n]) => `<span class="chip">${esc(p)}<span class="n">${n}</span>${existing.has(p) ? "" : `<button data-p="${esc(p)}" title="add as keyword">+</button>`}</span>`).join("")}</div>` : '<div style="color:var(--muted)">Scrape some demand threads first (site-wide searches in the popup).</div>';
+  $("i-phrases").querySelectorAll("button[data-p]").forEach((b) => b.addEventListener("click", async () => {
+    const text = (config.keywordText || DEFAULT_KEYWORD_TEXT).trimEnd();
+    const block = text.includes("# Discovered") ? text + `\n"${b.dataset.p}"` : text + `\n\n# Discovered — added from the dashboard\n"${b.dataset.p}"`;
+    await saveConfig({ keywordText: block });
+    b.textContent = "✓"; b.disabled = true;
+  }));
+
+  // Opportunities: demand rows, best first.
+  const opps = rows.filter((r) => r.type === "demand" && r.opportunity > 0).sort((a, b) => b.opportunity - a.opportunity).slice(0, 10);
+  $("i-opp").innerHTML = opps.length ? `<div class="opp">${opps.map((r) => `<div class="o"><b>${r.opportunity}</b><div><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a><div class="m">r/${esc(r.sub)} · ${r.posted} · ${r.comments} replies${r.price ? " · " + esc(r.price) : ""}</div></div></div>`).join("")}</div>` : '<div style="color:var(--muted)">No open demand threads in the current filter.</div>';
 }
 
 function bars(el, entries, fmt) {
@@ -103,6 +144,7 @@ function renderTable() {
     const tr = document.createElement("tr"); tr.className = "row"; tr.dataset.id = r.id;
     const td = (html, cls) => { const d = document.createElement("td"); d.innerHTML = html; if (cls) d.className = cls; tr.appendChild(d); };
     td(`<span class="lead ${!r.analysed ? "na" : r.leadScore >= Math.max(8, top * 0.5) ? "hot" : ""}">${r.analysed ? r.leadScore : "·"}</span>`, "num");
+    td(r.type === "demand" ? `<span class="lead ${r.opportunity >= 15 ? "hot" : ""}">${r.opportunity}</span>` : '<span class="lead na">·</span>', "num");
     td(`<span class="tag t-${r.type}">${r.type}</span>`);
     td(`r/${esc(r.sub)}`);
     td(r.price ? esc(r.price) : '<span style="color:#c4c8ce">—</span>');
@@ -128,6 +170,7 @@ $("f-kw").addEventListener("change", (e) => { f.kw = e.target.value; apply(); })
 $("f-days").addEventListener("change", (e) => { f.days = Number(e.target.value); apply(); });
 $("f-read").addEventListener("change", (e) => { f.read = e.target.checked; apply(); });
 $("f-evidence").addEventListener("change", (e) => { f.evidence = e.target.checked; apply(); });
+$("f-confirmed").addEventListener("change", (e) => { f.confirmed = e.target.checked; apply(); });
 $("q").addEventListener("input", (e) => { f.q = e.target.value.trim().toLowerCase(); apply(); });
 $("clear-group").addEventListener("click", () => { f.group.clear(); renderFilters(); apply(); });
 $("clear-sub").addEventListener("click", () => { f.sub.clear(); renderFilters(); apply(); });

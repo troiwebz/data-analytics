@@ -228,6 +228,63 @@ AMA "web agency"
 "$3000" website quote
 "$5000" website quote
 
+# AI-era demand — people stuck with DIY / AI-built sites
+"vibe coded" website
+"vibe coding" help
+"lovable" website
+"lovable" fix
+"bolt.new"
+"v0" website
+"cursor" website broken
+"built with ai" website
+"ai built" website
+"ai made" website
+"chatgpt" built website
+"chatgpt made" website
+"ai website builder" broken
+"ai generated" website fix
+"wix" broken
+"wix" not showing google
+"squarespace" help website
+"godaddy" website builder help
+"durable" website
+"framer" site help
+"webflow" help fix
+"shopify" store help
+"shopify" not converting
+"finish my website"
+"finish my app"
+"someone to finish"
+"fix my website"
+"my website is broken"
+"website not loading"
+"website not working"
+"deploy my website"
+"connect my domain"
+"domain not working"
+"hosting" help website
+"not showing up on google"
+"not ranking" website
+"website not converting"
+"no leads from my website"
+"landing page for ads"
+"landing page" facebook ads
+"landing page" google ads
+"website for my business" ai
+"should I use ai" website
+"ai vs hiring" web designer
+"worth hiring" web designer ai
+"is web design dead"
+"replace my web designer"
+"fired my web designer"
+"web designer ghosted"
+"developer ghosted"
+"scammed" web designer
+"redo my website"
+"rebuild my website"
+"migrate my website"
+"move my website"
+
 # Niches — local service buyers
 plumber website
 plumbing website
@@ -344,7 +401,7 @@ HEAT.matchedKeywords = function (keywords, text) { return HEAT.matchKeywords(key
 HEAT.classifyPost = function (title, body) {
   const t = (title || "").toLowerCase();
   const all = (t + "\n" + (body || "").slice(0, 2000)).toLowerCase();
-  if (/\[(hiring|task)\]|\bhiring\b|need a (web|website|developer|designer)|looking for (a|an|someone)|who can build|recommend|how much|quoted me|is it worth|my website (sucks|is outdated)|website help/.test(t)) return "demand";
+  if (/\[(hiring|task)\]|\bhiring\b|need a (web|website|developer|designer|landing)|need (someone|help)|looking for (a|an|someone)|who can (build|fix|finish|help)|can (anyone|someone) (build|fix|finish|help)|recommend|how much|quoted me|is it worth|worth (hiring|paying)|my (website|site|app) (sucks|is outdated|is broken|isn'?t working|won'?t)|website help|help with my (website|site|store|landing)|(fix|finish|rebuild|redo|migrate|deploy) my (website|site|app|store)|(lovable|bolt|v0|vibe.?cod|ai.?(built|made|generated)|chatgpt|cursor)\b.*\b(site|website|app|landing|store)|(site|website|app|landing|store)\b.*\b(lovable|bolt\.new|vibe.?cod|built with ai)|not (showing|ranking|converting|loading|working)|ghosted|scammed/.test(t)) return "demand";
   if (/\bfree\b|giveaway|for a testimonial|in exchange for|first (3|5|10)\b/.test(t)) return "freebie";
   if (/\bama\b|here'?s how|here is how|lessons? learned|what i learned|i made \$|case study|breakdown|value bomb|how i (got|landed|built|made)/.test(t)) return "value";
   if (/\[(for hire|offer)\]|\bfor hire\b|\boffer\b|i(?:'ll| will) build|build you(?:r)? (?:a )?website|websites? for \$?\d|starting at|flat fee|\$\d+/.test(t)) return "offer";
@@ -501,7 +558,38 @@ HEAT.heatScore = function (post, snaps, now = Date.now(), windowMs = 48 * 3600 *
   return { heat: Math.round(heat * 10) / 10, lead, dComments, dScore, ageDays: Math.round(ageDays * 10) / 10, perDay: Math.round(((post.comments || 0) / ageDays) * 10) / 10 };
 };
 
-HEAT.CSV_COLS = ["leadScore", "heat", "type", "groups", "sub", "price", "score", "ratio", "comments", "dComments48h", "cmtsPerDay", "leadReplies", "buyerReplies", "opReplies", "uniqueCommenters", "heckles", "closed", "posted", "author", "flair", "keywords", "title", "url", "linkUrl", "body", "replies"];
+// Opportunity = a demand thread you could answer now: recent, unanswered,
+// with a budget or a clear ask, not already swarmed.
+HEAT.opportunityScore = function (post, now = Date.now()) {
+  if (post.type !== "demand") return 0;
+  const ageDays = Math.max(0, (now - (post.created || 0)) / 86400000);
+  const text = (post.title || "") + " " + (post.body || "");
+  const budget = /(\$|€|£)\s?\d{2,5}|\bbudget\b/i.test(text) ? 6 : 0;
+  const ask = /\?|recommend|looking for|need (a|someone|help)|who can|can (anyone|someone)/i.test(text) ? 3 : 0;
+  const fresh = Math.max(0, 14 - ageDays);
+  const unanswered = (post.comments || 0) === 0 ? 6 : (post.comments || 0) < 6 ? 4 : (post.comments || 0) < 15 ? 1 : 0;
+  return Math.round(fresh + budget + ask + unanswered);
+};
+
+const STOP = new Set("a an the and or of to for my our your with in on at is are was be it its this that i we you me they them from by as if any some please get got has have do does can would should could about just not after who up on off out so than then when where which what how why been being am into over under very really still also".split(" "));
+// Frequent 2–3 word phrases in titles, for discovering how buyers actually phrase things.
+HEAT.titlePhrases = function (titles, max = 25) {
+  const counts = {};
+  for (const t of titles || []) {
+    const words = String(t || "").toLowerCase().replace(/\[[^\]]*\]/g, " ").replace(/[^a-z0-9$' ]+/g, " ").split(/\s+/).filter(Boolean);
+    const seen = new Set();
+    for (let n = 2; n <= 3; n++) for (let i = 0; i + n <= words.length; i++) {
+      const g = words.slice(i, i + n);
+      if (STOP.has(g[0]) || STOP.has(g[g.length - 1])) continue;
+      if (g.every((w) => STOP.has(w) || w.length < 3)) continue;
+      const p = g.join(" ");
+      if (!seen.has(p)) { seen.add(p); counts[p] = (counts[p] || 0) + 1; }
+    }
+  }
+  return Object.entries(counts).filter((e) => e[1] >= 2).sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).slice(0, max);
+};
+
+HEAT.CSV_COLS = ["leadScore", "opportunity", "heat", "type", "groups", "sub", "price", "score", "ratio", "comments", "dComments48h", "cmtsPerDay", "leadReplies", "buyerReplies", "opReplies", "uniqueCommenters", "heckles", "closed", "posted", "author", "flair", "keywords", "title", "url", "linkUrl", "body", "replies"];
 
 HEAT.toCsv = function (rows) {
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
@@ -512,7 +600,7 @@ HEAT.toRow = function (p, snaps, now = Date.now()) {
   const h = HEAT.heatScore(p, snaps, now);
   const s = p.signals || {};
   return {
-    id: p.id, leadScore: h.lead, heat: h.heat, type: p.type, groups: p.groups || [], sub: p.sub, price: p.price || "", score: p.score, ratio: p.ratio || "",
+    id: p.id, leadScore: h.lead, opportunity: HEAT.opportunityScore(p, now), heat: h.heat, type: p.type, groups: p.groups || [], sub: p.sub, price: p.price || "", score: p.score, ratio: p.ratio || "",
     comments: p.comments, dComments48h: h.dComments, cmtsPerDay: h.perDay, leadReplies: s.lead || 0, buyerReplies: s.buyer || 0, opReplies: s.opReplies || 0,
     uniqueCommenters: s.uniqueCommenters || 0, heckles: s.heckle || 0, closed: !!s.closed, posted: new Date(p.created).toISOString().slice(0, 10),
     author: p.author || "", flair: p.flair || "", keywords: p.keywords || [], title: p.title, url: p.url, linkUrl: p.linkUrl || "", body: p.body || "",

@@ -70,6 +70,12 @@
   .log { max-height: 260px; overflow: auto; }
   .log .e { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
   .log .e:last-child { border-bottom: 0; } .log .u { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .log .n { white-space: nowrap; }
+  .hint-s { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .subrow { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 12px; } .subrow:last-child { border-bottom: 0; }
+  .subrow .c { color: var(--muted); white-space: nowrap; }
+  .phr { display: flex; flex-wrap: wrap; gap: 6px; }
+  .phr .chip button { border: 0; background: none; cursor: pointer; color: var(--accent); font-weight: 700; padding: 0 0 0 4px; }
+  .opp { display: grid; gap: 6px; } .opp .o { display: grid; grid-template-columns: 34px 1fr; gap: 8px; font-size: 12px; align-items: start; } .opp .o b { color: var(--accent); font-size: 14px; } .opp .o .m { color: var(--muted); }
   .foot { color: var(--muted); font-size: 12px; padding: 8px 14px; border-top: 1px solid var(--line); }
   @media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, 1fr); } .insights { grid-template-columns: 1fr; } .layout { grid-template-columns: 1fr; } .side { position: static; } }
 </style>
@@ -107,6 +113,7 @@
       <select id="f-days"><option value="7">Posted in last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365" selected>Last year</option><option value="36500">Any time</option></select>
       <label class="row"><input type="checkbox" id="f-read"> only threads with comments read</label>
       <label class="row"><input type="checkbox" id="f-evidence"> only threads with lead evidence</label>
+      <label class="row"><input type="checkbox" id="f-confirmed"> only confirmed subreddits</label>
     </div></div>
   </aside>
 
@@ -117,10 +124,17 @@
       <div class="card"><h3>Collection log</h3><div class="body log" id="log"></div><div class="foot">Every page and thread you scraped, newest first.</div></div>
     </div>
 
+    <div class="insights">
+      <div class="card"><h3>Subreddits where buyers post <span class="hint-s">tick to confirm</span></h3><div class="body" id="i-subs"></div><div class="foot">Demand posts per subreddit from everything you scraped. Confirmed ones get "newest" shortcuts in the popup and feed the crawler. Discover more with the site-wide searches in the popup.</div></div>
+      <div class="card"><h3>Phrases buyers actually use</h3><div class="body" id="i-phrases"></div><div class="foot">Frequent phrases in demand titles you scraped. Click + to add one as a keyword.</div></div>
+      <div class="card"><h3>Open opportunities · demand you can answer now</h3><div class="body" id="i-opp"></div><div class="foot">Recent demand threads with few replies, a budget, or a clear ask. Score = freshness + budget + ask + unanswered.</div></div>
+    </div>
+
     <div class="card">
       <h3><span id="count">0 threads</span><span><button class="link" id="expand-all">expand all</button> · <button class="link danger" id="clear-data">clear all data</button></span></h3>
       <table id="t"><thead><tr>
         <th data-k="leadScore" class="num sorted" title="hands×5 + buyer×4 + OP replies×2 + 20 if booked + unique commenters − heckles×2">Lead</th>
+        <th data-k="opportunity" class="num" title="demand threads only: freshness + budget + ask + unanswered">Opp</th>
         <th data-k="type">Type</th>
         <th data-k="sub">Sub</th>
         <th data-k="price">Price</th>

@@ -8,7 +8,7 @@ const entries = H.parseKeywordText('# Offers — priced\n"for hire" website\n\n#
 assert.deepStrictEqual(entries, [{ kw: '"for hire" website', group: "Offers" }, { kw: '"need a website"', group: "Demand" }, { kw: "plumber website", group: "Demand" }]);
 const defaults = H.parseKeywordText(H.DEFAULT_KEYWORD_TEXT);
 assert.ok(defaults.length >= 250, "default keyword list should be large: " + defaults.length);
-assert.deepStrictEqual(Array.from(new Set(defaults.map((e) => e.group))), ["Offers", "Freebies", "Value bombs", "Demand", "Niches"]);
+assert.deepStrictEqual(Array.from(new Set(defaults.map((e) => e.group))), ["Offers", "Freebies", "Value bombs", "Demand", "AI-era demand", "Niches"]);
 
 // compiled matching: every quoted phrase / bare word must appear
 const compiled = H.compileKeywords(entries);
@@ -30,6 +30,20 @@ assert.strictEqual(H.classifyPost("Here's how I got 12 web design clients from R
 assert.strictEqual(H.classifyPost("How much should a 5 page site cost?", ""), "demand");
 assert.strictEqual(H.classifyPost("Random title", "[For Hire] in body"), "offer");
 assert.strictEqual(H.classifyPost("Photo of my cat", "cute"), "other");
+assert.strictEqual(H.classifyPost("Built my site with Lovable, checkout is broken, who can fix it?", ""), "demand");
+assert.strictEqual(H.classifyPost("Can anyone finish my vibe coded app? Budget $400", ""), "demand");
+assert.strictEqual(H.classifyPost("Wix site not showing up on Google, help", ""), "demand");
+assert.strictEqual(H.classifyPost("My web designer ghosted me after the deposit", ""), "demand");
+
+// opportunity: fresh, budget, ask, unanswered
+const nowO = Date.now();
+assert.strictEqual(H.opportunityScore({ type: "demand", title: "Need someone to fix my Lovable site, budget $300?", created: nowO - 86400000, comments: 0 }, nowO), 13 + 6 + 3 + 6);
+assert.strictEqual(H.opportunityScore({ type: "offer", title: "x", created: nowO, comments: 0 }, nowO), 0);
+assert.ok(H.opportunityScore({ type: "demand", title: "old thread", created: nowO - 60 * 86400000, comments: 40 }, nowO) <= 3);
+
+// title phrases
+const ph = H.titlePhrases(["Need someone to fix my Lovable site", "Lovable site broken after deploy", "fix my lovable site please", "Random cat photo"]);
+assert.ok(ph.some(([p]) => p === "lovable site"), JSON.stringify(ph));
 
 // price extraction
 assert.strictEqual(H.extractPrice("[FOR HIRE] Websites for 500$"), "$500");
@@ -88,7 +102,7 @@ assert.strictEqual(H.heatScore({ created: now - 3600000, score: 5, comments: 4 }
 const row = H.toRow({ ...post, ...rec, groups: ["Offers"], keywords: ["a", "b"] }, snaps, now);
 assert.strictEqual(row.leadScore, H.leadScore(post));
 const csv = H.toCsv([row]);
-assert.ok(csv.split("\n")[0].startsWith("leadScore,heat,type,groups,sub,price"));
+assert.ok(csv.split("\n")[0].startsWith("leadScore,opportunity,heat,type,groups,sub,price"));
 assert.ok(csv.includes('"a | b"') && csv.includes('"Offers"') && csv.includes("[buyer] u/a:"));
 
 console.log("lib.js: all tests passed");
