@@ -338,13 +338,15 @@ Value bomb: (1) Google Maps audit - full area scan, green/red map ·
 Campaign: 1 CBO campaign · 1 ad set only · 3 ads · broad (location + age)
 · Rs.600-800/day · judge after 5 days on 3-sec hold + CTR.
 
-THE THREE HOOKS (the only thing that changes)
-  Ad 1 PAIN       Google Maps-la top 3-la illainaa, customer ungala
-                  paakave maataanga.
-  Ad 2 CURIOSITY  Google Maps-la unga area-la neenga eththanaavadhu
-                  place? Ungalukke theriyaadhu.
-  Ad 3 SHOCK      Google Maps-la 1km thooram poonaa, unga business
-                  kaanamaa poidum.
+THE THREE HOOKS (the only thing that changes) - founder-picked
+  Ad 1 WASTE   Google Maps-la rank illaama, Instagram-la post pottu enna
+               prayojanam?
+  Ad 2 TRUTH   Google Maps-la top 3-la irukravanga mattum thaan call
+               vaangraanga.
+  Ad 3 SPEED   Google Maps-la unga problem enna-nu 2 nimishathula solren.
+               Free.
+  Spread is deliberate: two pain-led, one offer-led. Every hook opens on
+  "Google Maps" (rule 3b1).
 
 CONSTANT BLOCK (identical in all three)
   OFFER   Unga business-a naan free-a scan panren. Unga area muzhukka
@@ -355,8 +357,8 @@ CONSTANT BLOCK (identical in all three)
           comment pannunga.
 
 ON-SCREEN
-  Card 1 per ad: TOP 3-LA ILLAINA = CUSTOMER ILLA / GOOGLE MAPS-LA
-  EVLO-VADHU PLACE? / 1KM THOORAM = NEENGA KAANAM
+  Card 1 per ad: POST POTTU ENNA PRAYOJANAM? / TOP 3 MATTUM CALL
+  VAANGURAANGA / 2 NIMISHAM - FREE
   Cards 2-4 shared: FREE MAP SCAN -> + WEBSITE SCORE /100 ->
   1 MONTH FREE - COMMENT 'MAP'
 
@@ -369,6 +371,10 @@ Nadu businesses have no website at all, so a website-score bomb excludes
 them; the Maps audit reaches everyone with a GBP, matches the pain the
 hook just named, is far more visual, and demos the core product. Website
 score stays as a bonus - it costs nothing and thickens the stack.
+
+ACCURACY FLAG ON AD 3: "2 nimishathula solren" must point at the
+SELF-SCAN inside the app (about 2 minutes), not at our own manual audit,
+which takes about 8 minutes. Promise the app's speed, not ours.
 
 TEST ORDER, when more than one bomb is in play: Round 1 tests 3 OFFERS
 against one fixed hook (offer is the 3x lever and needs real conversions,
