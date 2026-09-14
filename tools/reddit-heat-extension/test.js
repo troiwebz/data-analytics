@@ -231,10 +231,12 @@ assert.ok(opts[0].includes("Equity-only"), "equity-only posts lead with the equi
 assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage: "revenue" }, {})[0].includes("pay for execution"), "funded posts lead with money");
 for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
-assert.ok(dm.length > 500 && dm.length < 1600, "the long DM is an introduction, not a letter: " + dm.length);
+assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a letter: " + dm.length);
 assert.ok(dm.startsWith("Hi Jane,") && dm.includes("— Troi, web developer"));
 assert.ok(!/\$\d|\d+%/.test(dm), "no price and no percentage in the first DM: " + dm);
-assert.ok(dm.includes("share the income and the expenses") && /open (?:for you|to)\?/.test(dm), "the shape is the pitch, then the one question");
+assert.ok(/share the income and the expenses/.test(dm) && /You keep the company and the IP\./.test(dm), "the shape is the pitch: " + dm);
+assert.ok(!/https?:\/\//.test(dm), "no link in a first DM, it sends Reddit chat to the requests folder: " + dm);
+assert.ok(!/30 to 50 percent|three to six months|2 to 4 weeks/.test(dm), "no essay about co-founders: " + dm);
 assert.ok(!/48 hours|prototype|no charge|costs you nothing|free build/i.test(dm), "no free work promised: " + dm);
 assert.ok(H.huntComposeUrl(hp, dm).startsWith("https://www.reddit.com/message/compose/?to=jane&subject="));
 assert.ok(H.huntScore({ ...hp, created: Date.now() }) > H.huntScore({ ...hp, created: Date.now() - 5 * 86400000 }), "fresher posts rank higher");
@@ -242,14 +244,15 @@ assert.ok(H.huntScore({ ...hp, hasBudget: true, equityOnly: false }) > H.huntSco
 console.log("co-founder hunt: ok");
 
 // DM close: the free offer, then the private channel
-const dm2 = H.huntDM(hp, { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210", telegram: "@troibuilds" });
-assert.ok(dm2.includes("How we work") && dm2.includes("income and expenses") && !/\$\d/.test(dm2), "every DM says how we work, without a price");
-assert.ok(dm2.includes("https://wa.me/919876543210") && dm2.includes("https://t.me/troibuilds"), "both private channels appear");
-assert.ok(dm2.indexOf("wa.me") > dm2.indexOf("How we work"), "the channel comes after how we work");
+const prof2 = { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210", telegram: "@troibuilds" };
+const dm2 = H.huntDM(hp, prof2);
+assert.ok(/share the income and the expenses/.test(dm2) && !/\$\d/.test(dm2), "every DM says how we work, without a price");
+assert.ok(!/wa\.me|t\.me/.test(dm2), "channels set but no links in the DM by default");
+assert.ok(/WhatsApp or Telegram/.test(dm2), "the move to a private channel is offered in words");
 assert.ok(dm2.trim().endsWith("— Troi, web developer"));
-const dm3 = H.huntDM({ ...hp, role: "marketing" }, { name: "Troi", whatsapp: "https://wa.me/1555" });
-assert.ok(dm3.includes("growth team") && dm3.includes("https://wa.me/1555") && !dm3.includes("t.me"));
-assert.ok(H.huntDM(hp, {}).includes("Reply here and I'll get started"), "no channels set: falls back to replying on Reddit");
+const dmLinks = H.huntDM(hp, { ...prof2, dmLinks: true });
+assert.ok(dmLinks.includes("https://wa.me/919876543210") && dmLinks.includes("https://t.me/troibuilds"), "links appear only when switched on");
+assert.ok(!/wa\.me/.test(H.huntDM(hp, {})), "no channels set, nothing to offer");
 assert.strictEqual(H.waLink("98765 43210"), "https://wa.me/9876543210");
 assert.strictEqual(H.waLink("123"), "");
 assert.strictEqual(H.tgLink("troi"), "https://t.me/troi");
@@ -274,12 +277,13 @@ assert.strictEqual(H.huntName(""), "there");
 const sizes = ["short", "long", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
 assert.ok(sizes[0].length < sizes[2].length, "short < long: " + sizes.map((x) => x.length));
 assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
-sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(/wa\.me\/919000000000/.test(d)); assert.ok(!/\$\d/.test(d), "no price in the DM"); });
+sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(!/https?:\/\//.test(d), "no links"); assert.ok(!/\$\d/.test(d), "no price in the DM"); });
 const builtDm = H.huntDM({ ...hp, stage: "building", body: "We already have a working product with paying recruiters." }, { name: "Noah" }, "short");
-assert.ok(/working product/.test(builtDm) && !/2 to 4 weeks|first version/.test(builtDm), "a built product is not told to build v1: " + builtDm);
+assert.ok(/already built/.test(builtDm) && !/2 to 4 weeks|first version/.test(builtDm), "a built product is not told to build v1: " + builtDm);
 assert.strictEqual(H.huntThing({ title: "Looking for a Technical Co-Founder", body: "We started with an ATS for recruiters. This is not an idea-stage project, we have a working product. I'm looking for someone to build this long term with me." }), "your ats");
 assert.strictEqual(H.huntThing({ title: "Looking for a co-founder for my company", body: "Our company does things." }), "what you're building", "'company' is not a thing");
 assert.ok(!/\n1\. /.test(sizes[0]) && !/\n1\. /.test(sizes[2]), "short and long are introductions, no numbered plan");
+assert.strictEqual(H.huntThing({ title: "Looking for a co-founder for my Liquor & wine delivery app", body: "" }), "your Liquor & wine delivery app", "an ampersand does not cut the name in half");
 
 // the reading of a post
 const syn = H.huntSynopsis({ title: "Looking for a technical co-founder for my fitness app", body: "I run a gym business in Bangalore. 400 users on the waitlist. Equity only (10%), nights and weekends.", role: "technical", stage: "idea", equityOnly: true, sub: "startups" });
@@ -301,7 +305,8 @@ const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: 
 assert.ok(pr.system.includes("Noah") && pr.system.includes("partner team") && pr.system.includes("exactly two lines"));
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane,") && !pr.system.includes("Jane"));
 assert.ok(pr.user.includes("GREETING (first line of every DM, verbatim)\nHi Jane,"), "the greeting is fixed, in the user turn so the system prompt stays cacheable");
-assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
+assert.ok(/WhatsApp or Telegram/.test(pr.user) && !/wa\.me/.test(pr.user), "no link goes into a first DM by default");
+assert.ok(H.huntAiPrompt(aiP, { name: "Noah", whatsapp: "+91 98765 43210", dmLinks: true }).user.includes("https://wa.me/919876543210"), "links are passed verbatim once switched on");
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
 assert.ok(pr.system.includes("never offer free work"), "no free work in the instructions");
@@ -388,15 +393,21 @@ console.log("single public reply: ok");
   for (const size of ["short", "long"]) {
     const d = H.huntDM(p, prof, size);
     assert.ok(!/first version|2 to 4 weeks|v1\b/i.test(d), size + " DM must not pitch a first build to someone who has a product:\n" + d);
-    assert.ok(/runs and grows|running and growing|already have something working/i.test(d), size + " DM should talk about running and growing");
+    assert.ok(/already built|running and growing|who runs it every day/i.test(d), size + " DM should talk about running what exists, not building it:\n" + d);
     assert.ok(!/[$%]/.test(d), size + " DM has no price or percentage");
     assert.ok(!/that paragraph/.test(d), "no dangling reference to a paragraph we never asked for");
   }
   const idea = { ...raw, body: "Just an idea for now, nothing built yet, need someone to build it." };
   const pi = { ...idea, ...H.classifyCofounder(idea.title, idea.body) };
-  assert.ok(/first version/i.test(H.huntDM(pi, prof, "long")), "idea stage still talks about the first version");
+  const ideaDm = H.huntDM(pi, prof, "long");
+  assert.ok(/three screens|in front of ten people|needing the thing to exist/i.test(ideaDm), "idea stage gets a build-first step: " + ideaDm);
+  assert.ok(!/already built|running and growing/i.test(ideaDm), "idea stage is not told it has a product");
+  // the long team description stays out of a first DM (it was the noise); it
+  // still drives the inbox, where they have asked what the team actually does
   const own = H.huntDM(p, { ...prof, deal: { teamDoes: "does the customer support" } }, "long");
-  assert.ok(own.includes("does the customer support"), "the user's own team wording always wins");
+  assert.ok(!own.includes("does the customer support"), "a first DM stays short: " + own);
+  const thrOwn = { with: "jane", messages: [{ mine: true, body: "hi" }, { mine: false, body: "What are your terms?" }] };
+  assert.ok(H.inboxTemplateReply(thrOwn, { ...prof, deal: { teamDoes: "does the customer support" } }).reply.includes("does the customer support"), "the user's own team wording is used when they ask");
 }
 console.log("stage-aware dm: ok");
 
@@ -411,13 +422,13 @@ console.log("stage-aware dm: ok");
   assert.ok(/share the income and the expenses with you, equally/.test(dflt), "default DM says the split in words:\n" + dflt);
   assert.ok(!/[$%]/.test(dflt), "no numbers in the first DM by default");
   const withNums = H.huntDM(p, { ...prof, deal: { numbersInDm: true } }, "long");
-  assert.ok(withNums.includes("50% of income") && withNums.includes("50/50"), "numbers appear when switched on:\n" + withNums);
+  assert.ok(withNums.includes("50% of income to us") && withNums.includes("50/50"), "numbers appear when switched on:\n" + withNums);
   const up = H.huntDM(p, { ...prof, deal: { mode: "upfront_share" } }, "short");
-  assert.ok(/small upfront to start, then a share of the income/.test(up) && !/\$/.test(up), up);
+  assert.ok(/take a small amount upfront to start, then a share of the income/.test(up) && !/\$/.test(up), up);
   const shareOnly = H.huntDM(p, { ...prof, deal: { mode: "share" } }, "long");
-  assert.ok(/no upfront: we carry our own costs/.test(shareOnly), shareOnly);
+  assert.ok(/take nothing upfront and a share of the income/.test(shareOnly), shareOnly);
   const paid = H.huntDM(p, { ...prof, deal: { mode: "upfront", numbersInDm: true, upfront: 900 } }, "long");
-  assert.ok(paid.includes("$900 per block") && /no share of your income/.test(paid) && /a paid team, rather than a co-founder/.test(paid), paid);
+  assert.ok(paid.includes("$900 per block") && /no share of your income/.test(paid), paid);
   for (const mode of ["split", "upfront_share", "share", "upfront"]) {
     const pr = H.huntAiPrompt(p, { ...prof, deal: { mode } });
     assert.ok(pr.user.includes("THE DEAL SHAPE: " + H.dealShape({ mode }).label), mode + " named in the prompt");
@@ -443,7 +454,7 @@ console.log("deal shapes: ok");
   const custom = { mode: "custom:c1", custom: [{ id: "c1", name: "VA · 50/50", dm: "we run your day-to-day as your VA team and split income and expenses 50/50" }] };
   assert.deepStrictEqual(H.dealOffers(custom).map((o) => o.key).slice(-1), ["custom:c1"]);
   const dm = H.huntDM({ title: "Need a co-founder for my app", body: "idea", author: "x", role: "unclear" }, { ...prof, deal: custom }, "short");
-  assert.ok(dm.includes("We run your day-to-day as your VA team and split income and expenses 50/50; you keep the company."), dm);
+  assert.ok(/run your day-to-day as your VA team and split income and expenses 50\/50\./.test(dm) && /You keep the company and the IP\./.test(dm), dm);
   assert.ok(H.huntAiPrompt({ title: "t", body: "b", author: "x", role: "unclear" }, { ...prof, deal: custom }).user.includes("THE DEAL SHAPE: VA · 50/50"));
   assert.strictEqual(H.dealShape({ mode: "custom:missing", custom: [] }).mode, "split", "unknown custom falls back to the default");
 }
@@ -479,7 +490,9 @@ console.log("claude in chrome brief + parse: ok");
   assert.ok(a.dm_short.startsWith("Hi User0,") || a.dm_short.startsWith("Hi there,"), a.dm_short.slice(0, 30));
   assert.ok(!/https?:|[$%]/.test(a.dm_short), "the first DM carries no link, no price, no percentage");
   assert.ok(a.dm_short.length > 300 && a.dm_short.length < 900, "short enough for Reddit's chat filter: " + a.dm_short.length);
-  assert.ok(a.dm_long.includes("wa.me"), "the long one carries the contact line");
+  assert.ok(!/https?:\/\//.test(a.dm_long) && /WhatsApp or Telegram/.test(a.dm_long), "no links in either DM by default");
+  assert.ok(H.huntSlotAssemble(post(0), { ...prof, dmLinks: true }, slots(0)).dm_long.includes("wa.me"), "links only when switched on");
+  assert.ok(a.dm_long.length > a.dm_short.length, "the long one adds the step and the proof line");
   assert.ok(a.dm_short.includes("the gym scheduling app"), "their product in their words, with an article");
   assert.ok(H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("HeySakhi") && !H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("the HeySakhi"), "a product name keeps its own form");
   assert.strictEqual(a.public_reply.split("\n")[1], H.PUBLIC_CLOSE);

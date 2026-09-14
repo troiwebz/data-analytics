@@ -1110,6 +1110,7 @@ HEAT.customOffer = function (c) {
   return {
     mode: "custom:" + c.id, custom: true, label: String(c.name || "").trim(),
     shape: dm, shapeShort: dm.length > 160 ? dm.slice(0, 157).replace(/\s+\S*$/, "") + "…" : dm,
+    clause: dm.replace(/^we\s+/i, ""),
     question: q, terms: String(c.terms || "").trim() || dm + ".",
     qualify: String(c.qualify || "").trim() || "is there a budget to start, yes or no? And is that shape open for you?",
     numbers: false, upfront: 0, share: 0, expenseShare: 0, hasUpfront: false,
@@ -1135,6 +1136,7 @@ HEAT.dealShape = function (deal) {
       label: "income + expense split",
       shape: nums ? `we share the income and the expenses with you — ${sh} of income to our team, expenses split ${ex} — agreed in writing before anything is spent` : `we share the income and the expenses with you${equal ? ", equally" : ""}, agreed in writing before anything is spent`,
       shapeShort: nums ? `share income and expenses with you (${sh} of income, expenses ${ex})` : `share the income and expenses with you${equal ? " equally" : ""}`,
+      clause: nums ? `share the income and the expenses with you, ${sh} of income to us and expenses split ${ex}` : `share the income and the expenses with you${equal ? ", equally" : ""}`,
       question: `is a partner team on a share of income and expenses, rather than a co-founder on equity, a shape you're open to?`,
       terms: `No upfront. ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing before anything is spent. You keep the company and the IP.`,
       qualify: `can you carry your side of the expenses to start, yes or no? And are you open to a partner team on a share of income and expenses rather than a co-founder on equity?`,
@@ -1143,6 +1145,7 @@ HEAT.dealShape = function (deal) {
       label: "upfront + income share",
       shape: nums ? `${up} upfront to start, then ${sh} of income to our team for as long as we run it, agreed in writing` : `a small amount upfront to start, then a share of the income for as long as we run it, agreed in writing`,
       shapeShort: nums ? `${up} to start, then ${sh} of income` : `a small upfront to start, then a share of the income`,
+      clause: nums ? `take ${up} upfront to start, then ${sh} of the income for as long as we run it` : `take a small amount upfront to start, then a share of the income for as long as we run it`,
       question: `is a partner team paid to start and then on a share of income, rather than a co-founder on equity, a shape you're open to?`,
       terms: `${up} upfront to start, which covers our team's first block of work. Then ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing. You keep the company and the IP.`,
       qualify: `is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?`,
@@ -1151,6 +1154,7 @@ HEAT.dealShape = function (deal) {
       label: "income share only",
       shape: nums ? `no upfront: we carry our own costs and take ${sh} of income for as long as we run it, agreed in writing` : `no upfront: we carry our own costs and take a share of the income for as long as we run it, agreed in writing`,
       shapeShort: nums ? `no upfront, ${sh} of income` : `no upfront, a share of the income`,
+      clause: nums ? `take nothing upfront and ${sh} of the income once it earns` : `take nothing upfront and a share of the income once it earns`,
       question: `is a partner team on a share of income, rather than a co-founder on equity, a shape you're open to?`,
       terms: `No upfront. ${sh} of income to our team for as long as we run it, agreed in writing; we carry our own costs. You keep the company and the IP.`,
       qualify: `is there income today, or a clear path to it? And are you open to a partner team on a share of income rather than a co-founder on equity?`,
@@ -1159,6 +1163,7 @@ HEAT.dealShape = function (deal) {
       label: "upfront only, paid work",
       shape: nums ? `paid work, ${up} per block, no equity and no share of your income` : `paid work in fixed blocks, no equity and no share of your income`,
       shapeShort: nums ? `paid work, ${up} per block, no equity` : `paid work in blocks, no equity, no share`,
+      clause: nums ? `work at ${up} per block, with no equity and no share of your income` : `work in fixed paid blocks, with no equity and no share of your income`,
       question: `is a paid team, rather than a co-founder on equity, a shape you're open to?`,
       terms: `${up} per block of work, paid before each block starts; no equity and no share of your income. You keep the company and the IP.`,
       qualify: `is there a budget to start, yes or no? And is a paid team, rather than an equity co-founder, open for you?`,
@@ -1213,9 +1218,16 @@ HEAT.tgLink = function (v) {
   if (/^https?:\/\//i.test(s)) return s;
   return "https://t.me/" + s.replace(/^@/, "");
 };
+// Links in a first Reddit DM are the surest way into the "requests" folder,
+// so by default no DM carries one: the numbers go over once they answer.
+// Switch them back on with profile.dmLinks = true.
 HEAT.huntContactLine = function (profile = {}, short = false) {
   const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
   const both = [wa ? "WhatsApp: " + wa : "", tg ? "Telegram: " + tg : ""].filter(Boolean);
+  if (!profile.dmLinks) {
+    if (!both.length) return "";
+    return short ? "Say the word and I'll move this to WhatsApp or Telegram." : "If it's easier we can carry on over WhatsApp or Telegram — say which and I'll send the number.";
+  }
   if (!both.length) return "Reply here and I'll get started on it today.";
   if (short) return `Faster here than Reddit DMs — ${both.join("  ·  ")}`;
   return `Reddit DMs get buried, so it's faster to send it here — ${both.join("  ·  ")}\nOne message with a yes or a no is enough and I'll send the next step. Reply here if you'd rather stay on Reddit.`;
@@ -1445,15 +1457,23 @@ HEAT.huntThing = function (p) {
   const junk = /^(?:co[- ]?founder|cofounder|partner|someone|somebody|anyone|help|equity|my (?:startup|idea|project)|our (?:startup|idea|project)|the (?:project|idea)|this|it)\b/i;
   // "more product ideas", "advice", "feedback": not a venture, so never "your more product ideas"
   const filler = /\b(?:ideas?|advice|feedback|thoughts|tips|suggestions|opinions?|input|recommendations?|guidance|mentor|mentorship|networking|connections?|people|folks|anyone|everyone|founders?|partners?|team ?mates?|members?|investors?|funding|money|equity|job|work|role|position|opportunit|company|business|startup|venture|project)\b|^(?:more|some|any|new|good|great|the best|a few|few|other|fellow)\b/i;
-  const clean = (x) => x.replace(/\s*[-–—|(,.:;!?]+\s*$/, "").replace(/\s+/g, " ").trim();
+  const clean = (x) => x.replace(/\s*[-–—|(,.:;!?&/+]+\s*$/, "").replace(/\s+/g, " ").trim();
+  // one bare word that is only a category ("Liquor", "Fitness") reads wrong on
+  // its own, so add the noun the post used if there is one
+  const bare = /^(?:[A-Z][a-z]+|[a-z]+)$/;
+  const nounAfter = (word) => {
+    const m2 = t.match(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s+([A-Za-z][\\w-]{2,20}(?:\\s+[A-Za-z][\\w-]{2,20})?)", "i"));
+    return m2 ? word + " " + m2[1] : "";
+  };
   const tries = [
-    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing|to build)\s+(?:my|our|a|an|the)\s+([A-Za-z0-9][\w' -]{2,40})/,
-    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing)\s+([A-Za-z0-9][\w' -]{2,40})/,
+    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing|to build)\s+(?:my|our|a|an|the)\s+([A-Za-z0-9][\w'&/+. -]{2,44})/,
+    /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing)\s+([A-Za-z0-9][\w'&/+. -]{2,44})/,
   ];
   for (const re of tries) {
     const m = t.match(re);
     if (m) {
-      const phrase = clean(m[1]);
+      let phrase = clean(m[1]);
+      if (bare.test(phrase)) phrase = nounAfter(phrase) || phrase;
       if (phrase.length > 2 && !junk.test(phrase) && !filler.test(phrase)) return "your " + phrase;
     }
   }
@@ -1540,19 +1560,24 @@ const DM_STEPS = {
   ],
 };
 
-HEAT.huntDmShort = function (p, profile = {}) {
-  const m = HEAT.huntVars(p, profile);
+// Without the AI, the slots are filled from what the classifier already knows,
+// so a template DM reads like the written ones: same skeleton, same length,
+// same five shapes, no essay and no links.
+HEAT.huntLocalSlots = function (p) {
   const role = HEAT.SHORT_ROLE(p);
-  const offerShort = (HEAT.HUNT_OFFER_SHORT[role] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
-  return `Hi ${m.name},
-
-Saw your post about ${m.thing}. I'm not applying for the co-founder seat — but ${DM_ONELINE[role](m)}.
-
-${offerShort}
-
-${m.shortContact}
-
-${m.sign}`;
+  const thing = HEAT.huntThing(p).replace(/^your /, "");
+  const stage = p.stage;
+  const observation = stage === "revenue" ? `Money already coming in changes the question from whether it works to who runs it every day`
+    : stage === "building" ? `Something already built puts you past the part where most of these posts are still stuck`
+    : p.equityOnly ? `Equity-only is a hard sell to anyone good, and the first version is usually cheaper than the search for a partner`
+    : p.hasBudget ? `Being able to pay for execution makes a co-founder a choice here rather than the only route`
+    : `Two different things look identical from the inside: needing a partner, and needing the thing to exist`;
+  const move = { technical: `cut it to the three screens that carry the whole idea and put those in front of ten people`, marketing: `work one channel by hand for twenty customers before hiring anyone to scale it`, design: `watch five people use it without helping them and write down every hesitation`, business: `try to sell it once, manually, to one real buyer before splitting anything`, unclear: `write down what has to be true in ninety days, then ask what actually stands in the way` }[role];
+  const question = { technical: `what is the one thing it has to do on day one?`, marketing: `where did the last handful of interested people come from?`, design: `where do people stop today?`, business: `who has already told you they would pay for this?`, unclear: `what would tell you in ninety days that this is worth continuing?` }[role];
+  return { product: thing, observation, move, question, reply_line: observation, phrase: "", fit: "yes", fit_reason: "" };
+};
+HEAT.huntDmShort = function (p, profile = {}) {
+  return HEAT.huntSlotBuild(p, profile, HEAT.huntLocalSlots(p)).text;
 };
 
 HEAT.huntDmMedium = function (p, profile = {}) {
@@ -1587,19 +1612,7 @@ HEAT.huntDM = function (p, profile = {}, size = "long") {
   return HEAT.huntDmLong(p, profile);
 };
 HEAT.huntDmLong = function (p, profile = {}) {
-  const m = HEAT.huntVars(p, profile);
-  const role = HEAT.SHORT_ROLE(p);
-  return `Hi ${m.name},
-
-Saw your post about ${m.thing}. I'm not applying for the co-founder seat — one thought, and then how we work, so you can decide quickly.
-
-${DM_WHY[role](m)}
-
-${m.offer}
-
-${m.contact}
-
-${m.sign}`;
+  return HEAT.huntSlotBuild(p, profile, HEAT.huntLocalSlots(p), { long: true }).text;
 };
 HEAT.huntDmLetter = function (p, profile = {}) {
   const fn = HEAT.HUNT_DM[p.role] || HEAT.HUNT_DM.unclear;
@@ -1880,7 +1893,7 @@ HEAT.INBOX_SCHEMA = {
 // Build the drafting prompt from the whole conversation, their original post
 // (when we have it), your profile, and the plan.
 HEAT.inboxAiPrompt = function (thread, post, profile = {}, plan) {
-  const contact = HEAT.huntContactLine(profile, true);
+  const contact = HEAT.huntContactLine({ ...profile, dmLinks: true }, true);   // they already replied; a link is fine here
   const name = HEAT.huntName(thread.with);
   const history = (thread.messages || []).map((m) => `${m.mine ? "ME" : "THEM"} (${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}):\n${(m.body || "").trim()}`).join("\n\n---\n\n");
   const system = `You draft private replies on Reddit for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}. You are continuing ONE conversation with ${thread.with} (first name to use: ${name}). Everything you write must be about this person and this conversation only; if anything in the history looks like it belongs to someone else, ignore it.
@@ -1915,7 +1928,7 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
   const name = HEAT.huntName(thread.with);
   const last = [...(thread.messages || [])].reverse().find((m) => !m.mine) || {};
   const t = (last.body || "").toLowerCase();
-  const contact = HEAT.huntContactLine(profile, true);
+  const contact = HEAT.huntContactLine({ ...profile, dmLinks: true }, true);   // reply in an open thread: links are fine
   const sign = profile.name ? `\n\n— ${profile.name}` : "";
   const d = { ...HEAT.DEAL_DEFAULT, ...(deal || profile.deal || {}) };
   const sh = HEAT.dealShape({ ...d, numbersInDm: true });   // the inbox always says the numbers
@@ -2194,18 +2207,27 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       let n = 0;
       const pick = (pool) => pool[(seed + vi * 7 + (n++) * 3) % pool.length];
       // the offer is always your chosen shape, in one sentence, worded a few ways
+      const cl = lower(sh.clause || sh.shapeShort);
       const shapes = [
-        `We come in as your team and ${lower(sh.shapeShort)}`,
-        `We'd work as your team, and ${lower(sh.shapeShort)}`,
-        `The shape is simple: we're your team, and we ${lower(sh.shapeShort).replace(/^we\s+/i, "")}`,
-        `We'd be your team on this, and ${lower(sh.shapeShort)}`,
-        `Rather than equity, we work as your team and ${lower(sh.shapeShort)}`,
-        `No equity and no free work: we're your team, and we ${lower(sh.shapeShort).replace(/^we\s+/i, "")}`,
+        `We come in as your team and ${cl}`,
+        `We'd work as your team and ${cl}`,
+        `The shape is simple: we're your team, and we ${cl}`,
+        `We'd be your team on this and ${cl}`,
+        `Rather than equity, we work as your team and ${cl}`,
+        `No equity and no free work: we're your team, and we ${cl}`,
       ];
       let offer = pick(shapes);
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
       const m = { ...base, offer: `${offer}. You keep the company and the IP.` };
-      const body = style.build(m, pick).filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      let lines = style.build(m, pick);
+      if (opts.long) {
+        // the longer one adds the step and the proof line, never a link
+        if (!lines.some((x) => typeof x === "string" && (x.includes(m.move) || x.includes(m.moveLower)))) lines = [...lines.slice(0, 2), "", pick(S_MOVE_IN)(m), "", ...lines.slice(2)];
+        if (!lines.some((x) => typeof x === "string" && /portfolio|examples of our work|one-page plan/i.test(x))) lines = [...lines, "", pick(S_PROOF)()];
+      }
+      const contact = HEAT.huntContactLine(profile, true);
+      if (contact) lines = [...lines, "", contact];
+      const body = lines.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
       const text = `Hi ${base.name},\n\n${body}\n\n${v.sign || (profile.name ? "— " + profile.name : "")}`.trim();
       tries.push({ style: style.key, variant: vi, text: clean(text) });
     }
@@ -2228,7 +2250,7 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   }
   function clean(s) {
     return s
-      .replace(/https?:\/\/\S+/g, "")                                   // never a link in the first message
+      .replace(profile.dmLinks ? /$^/ : /https?:\/\/\S+/g, "")           // no link in a first message unless you switch them on
       .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")          // no emoji
       .replace(/ {2,}/g, " ")
       .replace(/ \n/g, "\n")
@@ -2241,7 +2263,7 @@ HEAT.huntSlotAssemble = function (p, profile = {}, slots = {}, opts = {}) {
   const built = HEAT.huntSlotBuild(p, profile, slots, opts);
   const v = HEAT.huntVars(p, profile);
   const line = String(slots.reply_line || "").replace(/\s+/g, " ").trim().replace(/[.!?]*$/, ".");
-  const long = `${built.text.replace(/\n\n(— .*)$/, "\n\n" + HEAT.huntContactLine(profile) + "\n\n$1")}`;
+  const long = HEAT.huntSlotBuild(p, profile, slots, { ...opts, long: true }).text;
   return {
     concept: { product: String(slots.product || ""), customer: "", problem: "", stage_now: "", missing: "", type: "other", phrases: [], biggest_unknown: String(slots.question || "") },
     public_reply: `${line}\n${HEAT.PUBLIC_CLOSE}`,
