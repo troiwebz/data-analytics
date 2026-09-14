@@ -1597,7 +1597,22 @@ HOW TO GET THERE:
 4. Objections ("too expensive", "can you do it for equity", "I'll think about it"): answer honestly. Equity: no, but the $350 covers the VA's time and I take no cut. Price: compare with what a freelancer charges for the same. Thinking: fine, say what would change their mind and leave the door open.
 5. Close: move to WhatsApp/Telegram, agree the scope in three lines, say how to pay (I will confirm the payment method), and what they will receive first.
 
+COMMON ASKS:
+- "Share your LinkedIn / portfolio": give it — {{LINKEDIN}}. If none is set, say a quick call shows more than a profile and offer one.
+- "Can we have a call / short meet": yes, always. Offer {{CALL}} and two concrete time windows today or tomorrow; ask which suits. Keep the free offer on the table in the same message.
+- "Send me examples of your work": give {{PORTFOLIO}} if set; otherwise the free 48-hour prototype IS the example — say so.
+
 VOICE: same as before — one founder to another, direct, warm, specific, no marketing words, never a compliment opener.`;
+
+// The plan with the user's own links filled in.
+HEAT.inboxPlanFor = function (plan, profile = {}) {
+  const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
+  const call = profile.booking ? `my booking link ${profile.booking}` : wa ? `a WhatsApp call on ${wa}` : tg ? `a Telegram call on ${tg}` : "a call (ask which app suits them)";
+  return String(plan || HEAT.INBOX_PLAN_DEFAULT)
+    .replace(/\{\{LINKEDIN\}\}/g, profile.linkedin || "(no LinkedIn set)")
+    .replace(/\{\{CALL\}\}/g, call)
+    .replace(/\{\{PORTFOLIO\}\}/g, profile.portfolio || "(no portfolio set)");
+};
 
 HEAT.INBOX_STAGES = [
   { key: "answer", label: "Answering" },
@@ -1628,7 +1643,7 @@ HEAT.inboxAiPrompt = function (thread, post, profile = {}, plan) {
   const system = `You draft private replies on Reddit for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}. You are continuing a conversation that started when they replied to a public post asking for a co-founder, then a DM. The person's first name is ${name}. Follow THE PLAN below exactly, one step at a time — do not skip to the offer before the person has shown interest, and do not repeat an offer already made. Reply to what the latest message actually says. Never invent facts about the user's team, pricing or timelines beyond what the plan states; if something is unknown, say it will be confirmed. Never mention Reddit's rules, never say you are an AI. Plain text only. Sign off as "${profile.name || ""}".
 
 THE PLAN
-${plan || HEAT.INBOX_PLAN_DEFAULT}
+${HEAT.inboxPlanFor(plan, profile)}
 
 CONTACT LINE (use verbatim when moving to a private channel)
 ${contact}`;
@@ -1655,6 +1670,11 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan) {
   const contact = HEAT.huntContactLine(profile, true);
   const sign = profile.name ? `\n\n— ${profile.name}` : "";
   const price = ((plan || HEAT.INBOX_PLAN_DEFAULT).match(/\$\s?(\d[\d,]*)/) || [, "350"])[1];
+  if (/linkedin|portfolio|your work|examples?/.test(t) || /meet|call|zoom|google meet|hop on|chat (today|tomorrow)/.test(t)) {
+    const li = profile.linkedin ? `LinkedIn: ${profile.linkedin}\n` : "";
+    const call = profile.booking ? `pick a slot here: ${profile.booking}` : `${contact} — say a time today or tomorrow and I'll be there`;
+    return { stage: "answer", note: "they asked for LinkedIn / a call — give both, keep the free offer alive", reply: `Hi ${name},\n\nHappy to. ${li}And yes to a short call — ${call}. Two windows that work for me: this evening or tomorrow morning, your time; tell me which.\n\nMeanwhile the free piece stands: one paragraph on what it does today and who the first user is, and you get the 3-screen prototype and build list within 48 hours, call or no call.${sign}` };
+  }
   if (/how much|price|cost|charge|rate|\$/.test(t)) {
     return { stage: "offer", note: "they asked about price", reply: `Hi ${name},\n\nStraight answer: $${price}. For that a dedicated person from my team takes the task end to end — you get daily updates, unlimited revisions inside the scope we agree, and you keep everything. I stay on as the technical partner you can call afterwards; the $${price} covers their time, I take no cut.\n\nIf that works, easiest is to agree the scope in three lines here: ${contact}${sign}` };
   }

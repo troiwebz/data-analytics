@@ -327,3 +327,12 @@ assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { 
 assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "It is a gym app, first users are my members" }] }, {}).stage, "answer");
 assert.ok(H.inboxTemplateReply(thr, {}, "GOAL: a $500 engagement").reply.includes("$500"), "the price is read from the plan");
 console.log("inbox: ok");
+
+// plan links + the LinkedIn / call template
+const planned = H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { linkedin: "https://linkedin.com/in/noah", whatsapp: "+919000000000" });
+assert.ok(planned.includes("https://linkedin.com/in/noah") && planned.includes("a WhatsApp call on https://wa.me/919000000000") && !planned.includes("{{"));
+assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { booking: "https://cal.com/noah" }).includes("my booking link https://cal.com/noah"));
+const askLi = H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Would you be open for a short meet today? Also could you share your LinkedIn?" }] }, { name: "Noah", linkedin: "https://linkedin.com/in/noah", whatsapp: "+919000000000" });
+assert.strictEqual(askLi.stage, "answer");
+assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && askLi.reply.includes("48 hours"), askLi.reply);
+console.log("plan links: ok");

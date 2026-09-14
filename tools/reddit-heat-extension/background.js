@@ -122,6 +122,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "chat-observe") { chatObserve(msg.with, msg.messages).then(reply); return true; }
+  if (msg.type === "chat-draft") { chatDraft(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "chat-fill") { chatFill(msg.with, msg.text).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "chat-open") { chatTab(true).then((t) => { chrome.tabs.update(t.id, { active: true }); reply({ ok: true }); }); return true; }
   if (msg.type === "chat-status") { (async () => { const t = await chatTab(false); const { inbox = {} } = await chrome.storage.local.get(["inbox"]); reply({ open: !!t, url: t && t.url, seen: inbox.chatSeen || 0 }); })(); return true; }
@@ -1078,16 +1079,33 @@ async function chatObserve(withUser, messages) {
     const last = t.messages[t.messages.length - 1];
     t.needsReply = !!(last && !last.mine && !t.handled);
     t.lastAt = Date.now();
-    await inboxSet({ threads: st.threads, lastPoll: Date.now(), lastError: "", chatSeen: Date.now() });
   }
-  return { ok: true, added };
+  await inboxSet({ threads: st.threads, lastPoll: Date.now(), lastError: "", chatSeen: Date.now() });
+  return { ok: true, added, id, needsReply: !!t.needsReply, draft: t.draft || null };
+}
+
+// A draft for a chat thread, made the same way the Inbox makes them.
+async function chatDraft(id, force) {
+  const st = await inboxGet();
+  const t = st.threads[id];
+  if (!t) return { ok: false, error: "no such conversation" };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  let draft = t.draft && !force ? t.draft : null;
+  if (!draft && profile.aiEngine !== "templates" && profile.apiKey) {
+    const r = await inboxAiWrite(id, true);
+    if (r.ok) draft = r.draft;
+  }
+  if (!draft) { draft = inboxTemplateReply(t, profile, st.plan || INBOX_PLAN_DEFAULT); draft.engine = "template"; t.draft = draft; await inboxSet({ threads: st.threads }); }
+  draft.stageLabel = (INBOX_STAGES.find((s) => s.key === draft.stage) || {}).label || draft.stage;
+  return { ok: true, draft, needsReply: !!t.needsReply };
 }
 
 async function chatTab(create) {
-  const tabs = await chrome.tabs.query({ url: "https://chat.reddit.com/*" });
+  const tabs = [...await chrome.tabs.query({ url: "https://www.reddit.com/chat/*" }), ...await chrome.tabs.query({ url: "https://chat.reddit.com/*" })];
   if (tabs.length) return tabs[0];
   if (!create) return null;
-  const tab = await chrome.tabs.create({ url: "https://chat.reddit.com/", active: true, pinned: true });
+  const tab = await chrome.tabs.create({ url: "https://www.reddit.com/chat/", active: true, pinned: true });
   await new Promise((done) => { const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } }; chrome.tabs.onUpdated.addListener(on); setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000); });
   return tab;
 }
@@ -1095,7 +1113,7 @@ async function chatTab(create) {
 // Put the drafted reply into Chat's box for this person, and show that tab.
 async function chatFill(withUser, textToFill) {
   const tab = await chatTab(true);
-  const want = "https://chat.reddit.com/user/" + encodeURIComponent(withUser);
+  const want = "https://www.reddit.com/chat/user/" + encodeURIComponent(withUser);
   if (!(tab.url || "").toLowerCase().includes("/user/" + withUser.toLowerCase())) {
     await chrome.tabs.update(tab.id, { url: want, active: true });
     await new Promise((done) => { const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } }; chrome.tabs.onUpdated.addListener(on); setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000); });
