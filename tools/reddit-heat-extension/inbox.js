@@ -128,8 +128,8 @@ $("goReply").onclick = async () => {
   await copyText(text);
   if (t.chat) {
     const r = await send({ type: "chat-fill", with: t.with, text });
-    $("draftState").textContent = r && r.ok ? "filled in Chat — read it there and press send" : "could not fill: " + ((r && r.error) || "no answer") + " (it is on your clipboard)";
-    $("draftState").style.color = r && r.ok ? "#7ee29a" : "#ff8a65";
+    $("draftState").textContent = r && r.ok ? "filled in Chat — read it there and press send" : r && r.pending ? r.error : "could not fill: " + ((r && r.error) || "no answer") + " (it is on your clipboard)";
+    $("draftState").style.color = r && r.ok ? "#7ee29a" : r && r.pending ? "#e6c76b" : "#ff8a65";
     if (r && r.ok && $("assumeSent").checked) { await send({ type: "inbox-mine", id: t.id, body: text }); curThread = null; inboxRefresh(); renderThread(); }
     return;
   }

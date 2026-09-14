@@ -200,80 +200,32 @@
   }
 
   // ---- a DM waiting to be placed (from the hunt card or the Inbox) --------
-  // Reddit blocks the old /message/compose and direct /chat/user/ links, so the
-  // DM goes through Reddit's own "new chat" page: type the name in its search
-  // box, open the chat that comes up, put the text in the box. Send stays yours.
-  let pendingBusy = false, pendingTyped = "", pendingClicked = 0, pendingSince = 0;
+  // When that person's chat is on screen, put the text in the box. Nothing
+  // else: no typing into Reddit's search, no clicking, no sending.
+  let pendingBusy = false, pendingSince = 0, pendingNote = "", pendingNoteAt = 0;
   const same = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
-  function findSearchBox() {
-    const inputs = deepAll('input[type="text"], input[type="search"], input:not([type]), [role="combobox"], [contenteditable="true"]').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
-    const named = inputs.filter((e) => /search|user|name|who|people|recipient/i.test((e.getAttribute("placeholder") || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("name") || "")));
-    return named[0] || inputs[0] || null;
-  }
-  function setValue(el, v) {
-    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
-      const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
-      el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: v.slice(-1) }));
-    } else { el.focus(); try { document.execCommand("selectAll"); document.execCommand("insertText", false, v); } catch (_) { /* below */ } }
-  }
-  function findResult(name) {
-    const els = deepAll('li, a, button, [role="option"], [role="button"], [role="listitem"], div, span').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark") && !e.closest("header, nav, aside"));
-    const hits = els.filter((e) => { const t = text(e); return t && t.length < 80 && (same(t, name) || same(t.replace(/^u\//i, ""), name) || new RegExp("(^|\\s)u?\\/?" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\s|$)", "i").test(t)); });
-    hits.sort((a, b) => text(a).length - text(b).length);   // the tightest element that says the name
-    const h = hits[0]; if (!h) return null;
-    // click the real control: a button/link inside the row, else the row's own clickable ancestor
-    const inner = h.querySelector ? h.querySelector('button, a, [role="button"], [role="option"]') : null;
-    return inner || h.closest('button, a, [role="option"], [role="button"], li, [role="listitem"]') || h;
-  }
-  let pendingNote = "", pendingNoteAt = 0;
   const say = (t, color) => { pendingNote = t; pendingNoteAt = Date.now(); mark.textContent = t; mark.style.color = color || "#e6c76b"; };
-  function findGoButton() {
-    const bs = deepAll("button, [role='button'], a").filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
-    return bs.find((b) => /^(start( a)? chat|next|create( chat)?|chat|continue|done)$/i.test(text(b))) || null;
-  }
   async function placePending() {
     if (pendingBusy) return;
     const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
-    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) return;
+    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) { pendingSince = 0; return; }
     if (Date.now() - (pendingDm.at || 0) > 15 * 60000) { await chrome.storage.local.remove("pendingDm"); return; }
     pendingBusy = true;
     try {
       const name = pendingDm.author;
       if (!pendingSince) pendingSince = Date.now();
-      const onCreate = /\/chat\/room\/create/i.test(location.pathname) || !!findSearchBox() && !findComposer();
-      const inRoom = !onCreate && (same(roomWith(readMessages()), name) || new RegExp("/user/" + name + "(/|$)", "i").test(location.pathname) || same(headerUser(), name));
+      const inRoom = same(roomWith(readMessages()), name) || new RegExp("/user/" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(/|$)", "i").test(location.pathname) || same(headerUser(), name);
       if (inRoom && findComposer()) {
         const r = await fill(pendingDm.text);
         ensurePanel(); whoEl.textContent = "to " + name; ta.value = pendingDm.text; stageEl.textContent = "· first DM"; noteEl.textContent = "";
         state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; panel.style.display = "";
         say(r.ok ? `hunt bridge · DM for ${name} is in the box — press send` : `hunt bridge · ${r.error}`, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
-        if (pendingDm.kind === "hunt") setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
-        pendingTyped = ""; pendingClicked = 0; pendingSince = 0;
+        setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
+        pendingSince = 0;
         return;
       }
-      if (onCreate) {
-        const box = findSearchBox();
-        if (box && pendingTyped !== name) { box.scrollIntoView({ block: "center" }); box.focus(); setValue(box, name); pendingTyped = name; say(`hunt bridge · new chat: typed ${name}, waiting for Reddit's result…`); return; }
-        if (pendingTyped === name) {
-          const hit = findResult(name);
-          if (hit && Date.now() - pendingClicked > 2500) {
-            pendingClicked = Date.now(); say(`hunt bridge · opening the chat with ${name}…`);
-            hit.click();
-            await sleep(600);
-            const go = findGoButton(); if (go) go.click();
-            return;
-          }
-          // clicked once and still here: Enter in the search box opens the first result on most search UIs
-          if (pendingClicked && Date.now() - pendingClicked > 2000 && box) { for (const type of ["keydown", "keypress", "keyup"]) box.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true })); }
-        }
-        if (Date.now() - pendingSince > 20000) say(`hunt bridge · could not open ${name}'s chat by itself — type the name in Reddit's search box and open the chat; the DM fills itself`, "#ff8a65");
-        return;
-      }
-      // somewhere else in Chat with a DM waiting: say so
-      if (Date.now() - pendingSince > 8000) say(`hunt bridge · DM for ${name} waiting — open the chat with them and it fills itself`);
+      if (Date.now() - pendingSince > 1200) say(`hunt bridge · DM for ${name} waiting — open the chat with them and it fills itself (or ⌘V, it is on your clipboard)`);
     } catch (e) { say(`hunt bridge · error placing the DM: ${e && e.message || e}`, "#ff8a65"); }
     finally { pendingBusy = false; }
   }
