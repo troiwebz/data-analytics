@@ -79,6 +79,9 @@ Click the toolbar icon for a full tab: one table of every lead.
 - **Click a column header to sort** by it; click the same header again to
   reverse. The active column and direction are marked. Unknown reply counts
   sort last rather than pretending to be zero.
+- A **posted** lead is struck through with a green line and ticked, so one
+  glance down the table shows what is handled. Skipped and expired rows are
+  dimmed but not struck; failed rows stay normal because they still need you.
 - **Click a row** to open the post snippet, the public reply, the PM and the
   buttons for that lead — 🚀 posts from here without touching Telegram.
 - On the reply side: **📝 Open filled** opens the thread with your reply typed

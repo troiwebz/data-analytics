@@ -45,7 +45,7 @@ const COLS = [
   { key: 'score',   label: 'Score',    sortable: true,  dir: -1, num: true, get: (l) => l.score ?? 0,
     cell: (l) => `<b>${l.score ?? 0}</b>` },
   { key: 'title',   label: 'Thread',   sortable: false,
-    cell: (l) => `<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || '(no title)')}</a>` +
+    cell: (l) => `${l.status === 'POSTED' ? '✅ ' : ''}<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || '(no title)')}</a>` +
       `<div class="sub">${esc(l.author || '')}${l.categoryLabel ? ' · ' + esc(l.categoryLabel) : ''}` +
       `${tags(l.matched).length ? ' · ' + esc(tags(l.matched).slice(0, 4).join(', ')) : ''}</div>` },
   { key: 'budget',  label: 'Budget',   sortable: true,  dir: -1, num: true, get: (l) => l.budgetAmount ?? 0,
@@ -125,12 +125,14 @@ async function renderInner() {
 function row(l, staged, cfg) {
   const id = esc(String(l.threadId));
   const tier = (l.score ?? 0) >= 15 ? 'hot' : (l.score ?? 0) >= 10 ? 'warm' : '';
+  const state = l.status === 'POSTED' ? 'posted'
+              : ['SKIPPED', 'EXPIRED'].includes(l.status) ? 'dim' : '';
   const cells = COLS.map((c) => {
     let html;
     try { html = c.cell(l); } catch { html = '<span class="sub">—</span>'; }
     return `<td class="${c.num ? 'num' : ''}">${html}</td>`;
   }).join('');
-  return `<tr class="r ${tier}" data-row="${id}">${cells}</tr>` +
+  return `<tr class="r ${tier} ${state}" data-row="${id}">${cells}</tr>` +
          (openRow === String(l.threadId) ? detail(l, staged, cfg) : '');
 }
 
