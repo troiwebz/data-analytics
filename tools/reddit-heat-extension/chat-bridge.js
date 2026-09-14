@@ -16,7 +16,7 @@
   function text(el) {
     if (!el) return "";
     let s = "";
-    const walk = (root) => { for (const n of root.childNodes) { if (n.nodeType === 3) s += n.nodeValue + " "; else if (n.nodeType === 1 && !/^(script|style)$/i.test(n.tagName) && !n.closest?.("#rlt-chat")) { if (n.shadowRoot) walk(n.shadowRoot); walk(n); } } };
+    const walk = (root) => { for (const n of root.childNodes) { if (n.nodeType === 3) s += n.nodeValue + " "; else if (n.nodeType === 1 && !/^(script|style)$/i.test(n.tagName) && !n.closest?.("#rlt-chat, #rlt-mark")) { if (n.shadowRoot) walk(n.shadowRoot); walk(n); } } };
     if (el.shadowRoot) walk(el.shadowRoot);
     walk(el);
     return s.replace(/\s+/g, " ").trim();
@@ -25,7 +25,7 @@
 
   // Chat's message box: the editable thing lowest on the page ("Message").
   function findComposer() {
-    const cands = deepAll('textarea, [contenteditable="true"], [role="textbox"]').filter(visible).filter((e) => !e.closest("#rlt-chat"));
+    const cands = deepAll('textarea, [contenteditable="true"], [role="textbox"]').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
     cands.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
     return cands[0] || null;
   }
@@ -35,7 +35,7 @@
   const HEAD = /^([A-Za-z0-9_-]{3,20})\s+(\d{1,2}:\d{2}\s?(?:AM|PM)|Yesterday|Today|\d{1,2}\/\d{1,2}\/\d{2,4})\b\s*/i;
   function readMessages() {
     // candidates: elements whose text starts with an author line; keep the smallest such (the message itself, not the list)
-    const all = deepAll("div, li, article, section, rs-message, rs-timeline-message").filter(visible).filter((e) => !e.closest("#rlt-chat"));
+    const all = deepAll("div, li, article, section, rs-message, rs-timeline-message").filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
     const found = [];
     for (const el of all) {
       const t = text(el);
@@ -155,6 +155,28 @@
     if (msg.type === "chat-dump") { reply(dump()); return; }
     if (msg.type === "chat-read") { observe().then(() => reply({ with: roomWith(readMessages()), messages: readMessages() })); return true; }
   });
+
+  // Always-visible marker: proves the bridge is running in THIS frame and says
+  // what it can read. Click it to copy the dump for tuning.
+  const mark = document.createElement("div");
+  mark.id = "rlt-mark";
+  mark.style.cssText = "position:fixed;right:16px;bottom:64px;z-index:2147483646;background:#12141a;color:#98a0b3;border:1px solid #262b36;border-radius:999px;padding:4px 10px;font:11px/1.4 -apple-system,Segoe UI,sans-serif;cursor:pointer;opacity:.92";
+  mark.textContent = "hunt bridge · starting…";
+  mark.title = "click to copy what the bridge sees (for tuning)";
+  mark.onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(dump(), null, 1)); mark.textContent = "copied what I see — paste it to Claude"; } catch (_) { mark.textContent = "could not copy"; } };
+  const attach = () => { if (document.body && !mark.isConnected) document.body.appendChild(mark); };
+  attach(); setInterval(attach, 2000);
+  function markStatus() {
+    const msgs = readMessages();
+    const c = findComposer();
+    const inFrame = window !== window.top;
+    mark.textContent = msgs.length
+      ? `hunt bridge · read ${msgs.length} messages · with ${roomWith(msgs) || "?"}${c ? "" : " · no box"}${inFrame ? "" : ""}`
+      : `hunt bridge · no messages read yet${c ? "" : " · no box"} · click to copy what I see`;
+    mark.style.color = msgs.length ? "#7ee29a" : "#e6c76b";
+  }
+  setInterval(markStatus, 3000);
+  setTimeout(markStatus, 1500);
 
   setInterval(observe, 3000);
   setTimeout(observe, 1200);
