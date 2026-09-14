@@ -102,17 +102,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
  * The `to` parameter is form-encoded, so spaces are '+', not %20:
  *   https://www.blackhatworld.com/direct-messages/add?to=digital+value
  */
-export function dmUrl(author) {
-  return 'https://www.blackhatworld.com/direct-messages/add?to=' +
-         encodeURIComponent(author || '').replace(/%20/g, '+');
+export function dmUrl(author, title) {
+  const form = (v) => encodeURIComponent(v || '').replace(/%20/g, '+');
+  return 'https://www.blackhatworld.com/direct-messages/add?to=' + form(author) +
+         (title ? '&title=' + form(title) : '');
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
 export function enrich(m, cfg, status) {
   const draft = renderReply(m, cfg);
   const dm = renderDm(m, cfg);
+  const dmTitle = renderDmTitle(m, cfg);
   const lead = {
-    ...m, draft, dm, dmUrl: dmUrl(m.author),
+    ...m, draft, dm, dmTitle, dmUrl: dmUrl(m.author, dmTitle),
     lint: lintDraft(draft, cfg.compliance),
     dmLint: lintDraft(dm, cfg.compliance),
     status, foundAt: new Date().toISOString()
@@ -320,10 +322,10 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
  */
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
   const body = lead.dm || renderDm(lead, cfg);
-  const title = renderDmTitle(lead, cfg);
+  const title = lead.dmTitle || renderDmTitle(lead, cfg);
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: dmUrl(lead.author), active: mode !== 'send' });
+    tab = await chrome.tabs.create({ url: dmUrl(lead.author, title), active: mode !== 'send' });
     await waitForTabLoad(tab.id);
     await new Promise((r) => setTimeout(r, 1200 + Math.random() * 2000));
 
@@ -464,7 +466,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         for (const l of leads) {
           const dm = renderDm(l, cfg);
           if (dm === l.dm) continue;
-          const patch = { dm, dmUrl: dmUrl(l.author), dmLint: lintDraft(dm, cfg.compliance) };
+          const dmTitle = renderDmTitle(l, cfg);
+          const patch = { dm, dmTitle, dmUrl: dmUrl(l.author, dmTitle), dmLint: lintDraft(dm, cfg.compliance) };
           patch.card = buildCard({ ...l, ...patch });
           await updateLead(l.threadId, patch);
           n++;
