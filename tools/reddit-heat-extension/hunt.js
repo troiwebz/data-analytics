@@ -44,18 +44,57 @@ function render() {
   ].filter(([, v]) => v);
   $("syn").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
-  options = huntShortOptions(p, profile, 5);
+  const tpl = huntShortOptions(p, profile, 5);
+  options = p.ai ? [p.ai.public_reply, ...tpl] : tpl;
   if (variant >= options.length) variant = 0;
-  $("opts").innerHTML = options.map((o, i) => `<button class="opt ${i === variant ? "on" : ""}" data-i="${i}"><b>OPTION ${i + 1}</b>${esc(o).replace(/\n/g, "<br>")}</button>`).join("");
+  $("opts").innerHTML = options.map((o, i) => {
+    const isAi = p.ai && i === 0;
+    const label = isAi ? "WRITTEN FOR THIS POST" : `TEMPLATE ${p.ai ? i : i + 1}`;
+    return `<button class="opt ${i === variant ? "on" : ""} ${isAi ? "ai" : ""}" data-i="${i}"><b>${label}</b>${esc(o).replace(/\n/g, "<br>")}</button>`;
+  }).join("");
+  aiStatus(p);
   for (const b of $("opts").querySelectorAll(".opt")) {
     b.onclick = () => { variant = Number(b.dataset.i); $("short").value = options[variant]; for (const x of $("opts").querySelectorAll(".opt")) x.classList.toggle("on", x === b); };
   }
   $("short").value = options[variant] || "";
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
-  $("dm").value = huntDM(p, profile, dmSize);
+  $("dm").value = p.ai ? p.ai["dm_" + dmSize] : huntDM(p, profile, dmSize);
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
+  aiWrite(false);
 }
+
+// ---- AI: written for this exact post, once, then cached on the post ------
+let aiBusy = "";
+let aiErr = {};
+function aiStatus(p) {
+  const el = $("aiState");
+  $("aiRedo").hidden = !(profile.apiKey && p.ai);
+  if (!profile.apiKey) { el.textContent = "templates — add a Claude API key in Your details for replies written to the post"; el.style.color = "#98a0b3"; return; }
+  if (p.ai) { el.textContent = `written for this post${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
+  if (aiBusy === p.id) { el.textContent = "writing for this post…"; el.style.color = "#e6c76b"; return; }
+  if (aiErr[p.id]) { el.textContent = "AI failed: " + aiErr[p.id] + " — showing templates"; el.style.color = "#ff8a65"; return; }
+  el.textContent = ""; 
+}
+async function aiWrite(force) {
+  if (!cur || !profile.apiKey) return;
+  if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id])) return;
+  const id = cur.id;
+  aiBusy = id; aiStatus(cur);
+  const r = await send({ type: "hunt-ai", id, force: !!force });
+  aiBusy = "";
+  if (r && r.ok) {
+    delete aiErr[id];
+    for (const q of queue) if (q.id === id) q.ai = r.ai;
+    if (cur && cur.id === id) { cur.ai = r.ai; variant = 0; render(); }
+  } else {
+    const err = (r && r.error) || "no answer";
+    if (cur && cur.id === id && cur.ai) { $("aiState").textContent = "rewrite failed: " + err + " — keeping the earlier one"; $("aiState").style.color = "#ff8a65"; return; }
+    aiErr[id] = err;
+    if (cur && cur.id === id) aiStatus(cur);
+  }
+}
+$("aiRedo").onclick = () => aiWrite(true);
 
 function next() {
   queue.shift();
@@ -143,14 +182,20 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; };
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim() };
+  profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), apiKey: $("cKey").value.trim() };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
   if (!quiet) { $("setupMsg").textContent = "Saved ✓"; setTimeout(() => { $("setupMsg").textContent = "Saves itself as you type."; }, 1400); }
   render();
 }
-for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cSrv", "cSrvTok"]) {
+$("testKey").onclick = async () => {
+  await saveSetup(true);
+  $("keyMsg").textContent = "checking…";
+  const r = await send({ type: "hunt-ai-test" });
+  $("keyMsg").textContent = r && r.ok ? "key works ✓ — replies will now be written per post" : "key failed: " + ((r && r.error) || "no answer");
+};
+for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cKey", "cSrv", "cSrvTok"]) {
   $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
   $(id).addEventListener("blur", () => saveSetup(true));
 }
@@ -261,6 +306,7 @@ document.addEventListener("keydown", (e) => {
   profile = config.profile || {};
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
+  $("cKey").value = profile.apiKey || "";
   const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
   $("cSrv").value = (hunt.server || {}).url || ""; $("cSrvTok").value = (hunt.server || {}).token || "";
   if (!profile.name || !profile.reddit) $("setup").hidden = false;   // first run: ask once

@@ -20,6 +20,8 @@ Then it is the same three moves, one post at a time:
 
 **Your details live on the hunt page.** The header's **Your details** panel holds your name, what you do, your Reddit username, WhatsApp and Telegram, and opens by itself the first time. No hunting through Options.
 
+**Written for the post, not filled in.** Paste a Claude API key (console.anthropic.com) into *Your details* and every post gets a public reply and three DMs written to that exact post by Claude — quoting their own words, diagnosing their real next step, keeping the free offer and your WhatsApp/Telegram line. A few cents per post, cached so it is never paid twice; **rewrite** asks again. The five templates stay underneath as the fallback, and are what you get with no key.
+
 **Five options, not one line repeated.** The public reply is built per post from what that person actually wrote, so an equity-only idea-stage post opens on equity, a funded one opens on being able to pay, a crowded thread opens short. Click any option to load it, edit it, copy it. No two options open the same way and nothing is reused post to post.
 
 **Last 24 or 48 hours.** The window chips in the header are 24h / 48h / 7d, default 48h. Anything older never enters the queue, so you are always early rather than the fortieth comment.

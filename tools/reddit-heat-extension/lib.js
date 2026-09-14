@@ -1510,3 +1510,72 @@ HEAT.huntDmSubject = function (p) {
 HEAT.huntComposeUrl = function (p, body) {
   return `https://www.reddit.com/message/compose/?to=${encodeURIComponent(p.author)}&subject=${encodeURIComponent(HEAT.huntDmSubject(p))}&message=${encodeURIComponent(body)}`;
 };
+
+// ===========================================================================
+// AI-WRITTEN REPLIES
+// A language model reads the actual post and writes to it. The prompt is
+// built here (pure, testable); the request is made in background.js.
+// ===========================================================================
+HEAT.AI_SCHEMA = {
+  type: "object",
+  properties: {
+    public_reply: { type: "string", description: "Exactly two lines separated by one newline. No links, no prices, no pitch, no mention of being available for hire." },
+    dm_short: { type: "string", description: "80 to 130 words." },
+    dm_medium: { type: "string", description: "200 to 300 words, with three numbered steps." },
+    dm_long: { type: "string", description: "400 to 560 words, with five numbered steps." },
+    why: { type: "string", description: "One sentence: the single most specific thing in the post that the replies are built around." },
+  },
+  required: ["public_reply", "dm_short", "dm_medium", "dm_long", "why"],
+  additionalProperties: false,
+};
+
+HEAT.huntAiPrompt = function (p, profile = {}) {
+  const m = HEAT.huntVars(p, profile);
+  const s = HEAT.huntSynopsis(p);
+  const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing });
+  const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", a " + profile.role : ""}, who builds first versions of products for founders. The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder. The goal is Laurel Portié's "value bomb": give them the most useful, specific, complete help you can for free, in their exact situation, then make one free concrete offer and point them to a private channel. Never pitch, never sell, never mention rates, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
+
+Rules that make the reply feel written for THIS post and nobody else:
+- Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
+- Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
+- Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
+- The public reply is exactly two lines: line one is a specific, useful observation about their situation; line two gives them one concrete free thing tied to it and says the detail is in their DM. No link, no price, no "I'm a developer".
+- Every DM: open "Hi ${m.name}," then their situation, then the real advice, then the offer (below), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". Short and medium use the short offer; long uses the full offer.
+- The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
+  const user = `THE POST
+Subreddit: r/${p.sub || "?"}
+Author: ${p.author || "?"}
+Title: ${p.title || ""}
+Body:
+${(p.body || "(no body)").slice(0, 6000)}
+
+WHAT WE READ FROM IT (may be wrong; trust the post over this)
+Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
+
+SHORT OFFER (for dm_short and dm_medium; adapt the product name to theirs)
+${offerShort}
+
+FULL OFFER (for dm_long; adapt the product name to theirs)
+${m.offer}
+
+CONTACT LINE (use verbatim at the end of every DM, before the sign-off)
+${m.contact}
+
+SIGN-OFF
+${m.sign || profile.name || ""}
+
+Write public_reply, dm_short, dm_medium, dm_long and why.`;
+  return { system, user, schema: HEAT.AI_SCHEMA };
+};
+
+// Make sure what came back is usable before it reaches the screen.
+HEAT.huntAiClean = function (out) {
+  if (!out || typeof out !== "object") return null;
+  const str = (v) => String(v || "").replace(/\r/g, "").trim();
+  let pub = str(out.public_reply).split("\n").map((l) => l.trim()).filter(Boolean);
+  if (pub.length > 2) pub = [pub[0], pub.slice(1).join(" ")];
+  if (pub.length < 2 || /https?:\/\/|\$\s?\d|€\s?\d|£\s?\d/.test(pub.join(" "))) return null;
+  const dm_short = str(out.dm_short), dm_medium = str(out.dm_medium), dm_long = str(out.dm_long);
+  if (dm_short.length < 200 || dm_medium.length < 500 || dm_long.length < 1000) return null;
+  return { public_reply: pub.join("\n"), dm_short, dm_medium, dm_long, why: str(out.why).slice(0, 300) };
+};

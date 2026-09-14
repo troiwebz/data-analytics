@@ -281,3 +281,23 @@ assert.strictEqual(H.huntWho({ title: "x", body: "I freelance as a designer" }),
 assert.strictEqual(H.huntCountry({ title: "cofounder wanted", body: "we are based in Austin, Texas" }), "United States");
 assert.strictEqual(H.huntCountry({ title: "cofounder wanted", body: "no location given" }), "");
 console.log("synopsis, names, dm sizes: ok");
+
+// AI prompt: built from the post, offer and contact line passed through
+const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
+const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
+assert.ok(pr.system.includes("Noah") && pr.system.includes("value bomb") && pr.system.includes("exactly two lines"));
+assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane") === false);
+assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the instructions");
+assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
+assert.ok(pr.user.includes("48 hours"), "the offer is passed through");
+assert.strictEqual(pr.schema.required.length, 5);
+// cleaner: rejects links, prices, one-liners, stubs
+const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_medium: "y".repeat(600), dm_long: "z".repeat(1200), why: "the waitlist" };
+assert.ok(H.huntAiClean(good));
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "only one line" }), null);
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "see https://x.com\nline two" }), null);
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "costs $500\nline two" }), null);
+assert.strictEqual(H.huntAiClean({ ...good, dm_long: "short" }), null);
+assert.strictEqual(H.huntAiClean(good).public_reply.split("\n").length, 2);
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "a\nb\nc" }).public_reply, "a\nb c", "three lines fold into two");
+console.log("ai prompt + cleaner: ok");

@@ -117,6 +117,17 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "version-state") { versionState().then(reply); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
+  if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "hunt-ai-test") { (async () => {
+      const key = await huntAiKey();
+      if (!key) return reply({ ok: false, error: "no key saved yet" });
+      try {
+        const r = await fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: AI_MODEL, max_tokens: 16, messages: [{ role: "user", content: "Say OK." }] }) });
+        const j = await r.json().catch(() => ({}));
+        reply(r.ok ? { ok: true } : { ok: false, error: (j.error && j.error.message) || ("HTTP " + r.status) });
+      } catch (e) { reply({ ok: false, error: String(e.message || e) }); }
+    })(); return true; }
   if (msg.type === "hunt-whoami") { huntMe().then((me) => reply({ me })).catch(() => reply({ me: "" })); return true; }
   if (msg.type === "hunt-server-test") { (async () => {
       try {
@@ -784,4 +795,76 @@ async function huntAct(id, action, variant) {
   p.actAt = now;
   await huntSet({ posts: st.posts, contacted: st.contacted });
   return { ok: true };
+}
+
+// ===========================================================================
+// AI-WRITTEN REPLIES (Claude API, the user's own key)
+// One request per post, cached on the post. Raw HTTP: an unpacked extension
+// has no bundler for the SDK. The browser-access header is required because
+// the request carries a chrome-extension:// origin.
+// ===========================================================================
+const AI_URL = "https://api.anthropic.com/v1/messages";
+const AI_MODEL = "claude-opus-5";
+
+async function huntAiKey() {
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  return ((config.profile || {}).apiKey || "").trim();
+}
+
+async function huntAiWrite(id, force) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false, error: "post not found" };
+  if (p.ai && !force) return { ok: true, ai: p.ai, cached: true };
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no api key", noKey: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const { system, user, schema } = huntAiPrompt(p, config.profile || {});
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 90000);
+  let r, j;
+  try {
+    r = await fetch(AI_URL, {
+      method: "POST",
+      signal: ctl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "server-side-fallback-2026-07-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: 6000,
+        fallbacks: "default",
+        system,
+        messages: [{ role: "user", content: user }],
+        output_config: { format: { type: "json_schema", schema } },
+      }),
+    });
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than 90s" : "could not reach api.anthropic.com: " + String(e.message || e) };
+  } finally { clearTimeout(timer); }
+
+  if (!r.ok) {
+    const msg = (j.error && j.error.message) || ("HTTP " + r.status);
+    return { ok: false, error: r.status === 401 ? "the API key was rejected — check it in Your details" : r.status === 429 ? "rate limited by the API, try again in a minute" : msg };
+  }
+  if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this post" + (j.stop_details && j.stop_details.category ? " (" + j.stop_details.category + ")" : "") };
+  const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
+  const ai = huntAiClean(parsed);
+  if (!ai) return { ok: false, error: "the model's reply failed the checks (two lines, no links, no prices, lengths)" };
+  const u = j.usage || {};
+  ai.at = Date.now();
+  ai.model = j.model || AI_MODEL;
+  // Opus 5 list price: $5 in, $25 out per million tokens
+  ai.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 100 * 10) / 10;
+  p.ai = ai;
+  await huntSet({ posts: st.posts });
+  return { ok: true, ai };
 }

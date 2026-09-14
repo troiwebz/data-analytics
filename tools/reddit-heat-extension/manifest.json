@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Scrapes the Reddit pages you browse (listings, searches, threads), walks next pages and threads for you, matches hundreds of keywords, scores every thread on lead evidence, and saves a CSV. Optional background crawler.",
   "permissions": [
     "storage",
@@ -13,7 +13,8 @@
   "host_permissions": [
     "https://old.reddit.com/*",
     "https://www.reddit.com/*",
-    "https://oauth.reddit.com/*"
+    "https://oauth.reddit.com/*",
+    "https://api.anthropic.com/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -48,6 +48,8 @@
   .opt { text-align:left; border:1px solid var(--line); background:#12151c; border-radius:8px; padding:8px 10px; color:#c8cede; font-size:12.5px; line-height:1.45; cursor:pointer; }
   .opt:hover { border-color:#3b4252; }
   .opt.on { border-color:var(--or); background:#1d1712; color:var(--fg); }
+  .opt.ai b { color:#7ee29a; }
+  .opt.ai { border-color:#1f4d2e; }
   .opt b { color:var(--or); font-size:11px; display:block; margin-bottom:2px; letter-spacing:.05em; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   td { padding:8px 12px; border-top:1px solid var(--line); vertical-align:top; }
@@ -84,7 +86,9 @@
       <div><label>Your Reddit username</label><input type="text" id="cReddit" placeholder="reading it from your Reddit tab…"></div>
       <div><label>WhatsApp (with country code)</label><input type="text" id="cWa" placeholder="+91 98765 43210"></div>
       <div><label>Telegram</label><input type="text" id="cTg" placeholder="@noahbasera"></div>
+      <div><label>Claude API key — replies written for each post</label><input type="password" id="cKey" placeholder="sk-ant-… (console.anthropic.com)"></div>
     </div>
+    <div class="row"><button id="testKey" class="ghost">Test key</button><span id="keyMsg" class="foot" style="margin:0">With a key, every post gets a public reply and three DMs written to that exact post (a few cents each). Without one, the templates below are used.</span></div>
     <div class="row"><button id="showAdv" class="ghost" style="padding:2px 0;border:0;color:var(--dim);font-size:12px">Advanced: collector server ▾</button></div>
     <div id="adv" hidden>
       <p class="foot" style="margin:0 0 8px">Only if you run <code>server/hunt-server.js</code> on a machine that stays on. Leave both blank otherwise — the hunt reads Reddit through your own pinned tab.</p>
@@ -136,7 +140,7 @@
       </section>
 
       <section class="card">
-        <p class="step"><b>Step 1</b> · public reply — pick one, two lines</p>
+        <p class="step"><b>Step 1</b> · public reply — pick one, two lines <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
         <div id="opts"></div>
         <textarea id="short"></textarea>
         <div class="row">
