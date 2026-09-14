@@ -438,7 +438,8 @@ async function inboxRefresh() {
   inboxThreads = r.threads; inboxPlan = r.plan;
   $("sInbox").textContent = r.needs;
   $("openInbox").classList.toggle("hot", r.needs > 0);
-  $("inboxStatus").textContent = r.lastError ? "last check failed: " + r.lastError : r.lastPoll ? `checked ${ago(r.lastPoll)} · ${r.needs} waiting for a reply` : "not checked yet";
+  $("inboxStatus").textContent = r.lastError ? "last check failed: " + r.lastError
+    : r.lastPoll ? `checked ${ago(r.lastPoll)} · Reddit returned ${r.rawCount} message${r.rawCount === 1 ? "" : "s"} · ${r.needs} waiting for a reply${r.rawCount === 0 ? " · if the answer came in Chat, use Paste a reply I got" : ""}` : "not checked yet";
   $("threadList").innerHTML = inboxThreads.length ? inboxThreads.map((t) => `<div class="thr ${t.needsReply ? "needs" : ""} ${curThread && curThread.id === t.id ? "on" : ""}" data-id="${t.id}"><b>${esc(t.with)}</b><span>${esc((t.post && t.post.title) || t.subject || "").slice(0, 70)}</span><br><span>${t.messages.length} messages · ${ago(t.lastAt)}${t.needsReply ? " · needs a reply" : t.handled ? " · handled" : ""}</span></div>`).join("")
     : `<div class="empty" style="padding:30px 12px">No conversations yet. They appear here once someone answers a DM.</div>`;
   for (const el of $("threadList").querySelectorAll(".thr")) el.onclick = () => openThread(el.dataset.id);
@@ -467,6 +468,8 @@ function renderThread() {
   $("draftNote").textContent = d && d.note ? d.note : "";
   $("draft").value = d ? d.reply : "";
   $("draftRedo").hidden = !d || engine() === "templates";
+  $("sentByHand").hidden = !t.manual;
+  $("goReply").textContent = t.manual ? "Copy + open their chat ↗" : "Open the reply, filled in ↗";
   $("draftState").textContent = d ? (d.engine === "claude" ? `written by Claude${d.cents ? " · " + d.cents + "¢" : ""}` : d.engine === "chrome" ? "written by Chrome, on-device" : "template") : (draftBusy === t.id ? "writing…" : "");
   $("draftState").style.color = d ? "#7ee29a" : "#e6c76b";
 }
@@ -497,17 +500,26 @@ $("goReply").onclick = async () => {
   const t = curThread; if (!t) return;
   const text = $("draft").value;
   await copyText(text);
+  if (t.manual) { window.open("https://chat.reddit.com/user/" + encodeURIComponent(t.with), "_blank"); return; }   // chat: paste with ⌘V
   const last = [...t.messages].reverse().find((m) => !m.mine) || t.messages[t.messages.length - 1];
   await chrome.storage.local.set({ pendingMessage: { threadId: t.id, replyTo: last && last.id, text, at: Date.now() } });
   window.open("https://old.reddit.com/message/messages/" + t.id.replace(/^t4_/, ""), "_blank");
 };
 $("copyReply").onclick = () => copyText($("draft").value, $("copyReply"));
+$("sentByHand").onclick = async () => { if (!curThread) return; await send({ type: "inbox-mine", id: curThread.id, body: $("draft").value }); curThread = null; inboxRefresh(); renderThread(); };
+$("openAdd").onclick = () => { $("addBox").hidden = !$("addBox").hidden; $("planBox").hidden = true; };
+$("addGo").onclick = async () => {
+  const r = await send({ type: "inbox-add", with: $("addUser").value, body: $("addBody").value });
+  if (!r || !r.ok) { $("addMsg").textContent = (r && r.error) || "could not add"; return; }
+  $("addMsg").textContent = "added"; $("addBody").value = ""; $("addBox").hidden = true;
+  await inboxRefresh(); openThread(r.id);
+};
 $("threadHandled").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "handled" }); curThread = null; inboxRefresh(); renderThread(); };
 $("threadSkip").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "skip" }); curThread = null; inboxRefresh(); renderThread(); };
 $("inboxCheck").onclick = async () => { $("inboxStatus").textContent = "checking…"; await send({ type: "inbox-poll" }); inboxRefresh(); };
 $("openInbox").onclick = () => { $("inbox").hidden = false; $("main").hidden = true; $("table").hidden = true; $("setup").hidden = true; $("aiPanel").hidden = true; inboxRefresh(); };
 $("closeInbox").onclick = () => { $("inbox").hidden = true; $("main").hidden = false; refresh(); };
-$("openPlan").onclick = () => { $("planBox").hidden = !$("planBox").hidden; $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT; };
+$("openPlan").onclick = () => { $("planBox").hidden = !$("planBox").hidden; $("addBox").hidden = true; $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT; };
 $("planSave").onclick = async () => { inboxPlan = $("planText").value.trim(); await send({ type: "inbox-plan", plan: inboxPlan }); $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400); };
 $("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; };
 
@@ -589,7 +601,8 @@ document.addEventListener("keydown", (e) => {
   showVersion();
   updBackground();
   inboxRefresh();
-  setInterval(inboxRefresh, 30000);
+  send({ type: "inbox-poll" }).then(inboxRefresh);
+  setInterval(() => send({ type: "inbox-poll" }).then(inboxRefresh), 60000);
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

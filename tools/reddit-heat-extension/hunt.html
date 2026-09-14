@@ -153,8 +153,15 @@
       <b>Inbox</b>
       <span class="stat" id="inboxStatus">not checked yet</span>
       <button id="inboxCheck" class="ghost">Check now</button>
+      <button id="openAdd" class="ghost">Paste a reply I got</button>
       <button id="openPlan" class="ghost">The plan</button>
       <button id="closeInbox" class="ghost" style="margin-left:auto">Back to the queue</button>
+    </div>
+    <div id="addBox" class="card" hidden style="margin-bottom:12px">
+      <p class="step"><b>Paste a reply I got</b> · for answers that arrived in Reddit Chat (the speech bubble), which cannot be read automatically</p>
+      <div class="row" style="margin:0 0 8px"><input type="text" id="addUser" placeholder="their username" style="width:260px"></div>
+      <textarea id="addBody" style="height:120px" placeholder="paste their message here"></textarea>
+      <div class="row"><button id="addGo" class="primary">Add and draft a reply</button><span id="addMsg" class="foot" style="margin:0"></span></div>
     </div>
     <div id="planBox" class="card" hidden style="margin-bottom:12px">
       <p class="step"><b>The plan</b> · what every inbox reply steers toward, one step at a time</p>
@@ -175,6 +182,7 @@
           <textarea id="draft" style="height:220px"></textarea>
           <div class="row">
             <button id="goReply" class="good">Open the reply, filled in ↗</button>
+            <button id="sentByHand" hidden>I sent it in Chat</button>
             <button id="copyReply" class="ghost">Copy only</button>
             <button id="threadHandled">Mark handled</button>
             <button id="threadSkip" class="ghost">No reply needed</button>

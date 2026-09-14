@@ -121,6 +121,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "inbox-add") { inboxAdd(msg.with, msg.body).then(reply); return true; }
+  if (msg.type === "inbox-mine") { inboxNoteMine(msg.id, msg.body).then(reply); return true; }
   if (msg.type === "inbox-act") { inboxAct(msg.id, msg.action, msg.patch).then(reply); return true; }
   if (msg.type === "inbox-ai") { inboxAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-plan") { inboxSet({ plan: msg.plan || "" }).then(() => reply({ ok: true })); return true; }
@@ -958,8 +960,8 @@ async function inboxPoll() {
     t.subject = t.subject || (flat.find((m) => m.root === t.id && m.body) || {}).body || "";
   }
   // only conversations with people we contacted from the hunt, or who wrote to us about a post we hold
-  await inboxSet({ threads, lastPoll: Date.now(), lastError: "", me });
-  return { ok: true, fresh };
+  await inboxSet({ threads, lastPoll: Date.now(), lastError: "", me, rawCount: flat.length });
+  return { ok: true, fresh, raw: flat.length };
 }
 
 async function inboxList() {
@@ -967,7 +969,33 @@ async function inboxList() {
   const hunt = await huntGet();
   const list = Object.values(st.threads).filter((t) => t.with).map((t) => ({ ...t, post: t.postId && hunt.posts[t.postId] ? { title: hunt.posts[t.postId].title, sub: hunt.posts[t.postId].sub, body: (hunt.posts[t.postId].body || "").slice(0, 2500) } : null }));
   list.sort((a, b) => (b.needsReply ? 1 : 0) - (a.needsReply ? 1 : 0) || b.lastAt - a.lastAt);
-  return { threads: list, needs: list.filter((t) => t.needsReply).length, lastPoll: st.lastPoll, lastError: st.lastError, plan: st.plan || INBOX_PLAN_DEFAULT };
+  const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
+  return { threads: list, needs: list.filter((t) => t.needsReply).length, lastPoll: st.lastPoll, lastError: st.lastError, rawCount: inbox.rawCount || 0, plan: st.plan || INBOX_PLAN_DEFAULT };
+}
+
+// A reply that came through Reddit Chat (which cannot be read): pasted by hand.
+async function inboxAdd(withUser, body) {
+  const st = await inboxGet();
+  const user = String(withUser || "").replace(/^\/?u\//, "").trim();
+  if (!user || !body) return { ok: false, error: "need a username and their message" };
+  const hunt = await huntGet();
+  const post = Object.values(hunt.posts).find((p) => (p.author || "").toLowerCase() === user.toLowerCase());
+  const existing = Object.values(st.threads).find((t) => t.manual && (t.with || "").toLowerCase() === user.toLowerCase());
+  const t = existing || (st.threads["manual_" + user.toLowerCase()] = { id: "manual_" + user.toLowerCase(), with: user, subject: "", messages: [], lastAt: 0, handled: false, postId: post ? post.id : "", unread: 0, manual: true });
+  t.messages.push({ id: "m_" + Date.now(), author: user, mine: false, body: String(body).trim(), at: Date.now() });
+  t.lastAt = Date.now(); t.handled = false; t.needsReply = true; t.draft = null;
+  await inboxSet({ threads: st.threads });
+  return { ok: true, id: t.id };
+}
+// What you sent back by hand (chat), so the next draft knows the history.
+async function inboxNoteMine(id, body) {
+  const st = await inboxGet();
+  const t = st.threads[id];
+  if (!t) return { ok: false };
+  t.messages.push({ id: "m_" + Date.now(), author: st.me || "me", mine: true, body: String(body).trim(), at: Date.now() });
+  t.lastAt = Date.now(); t.handled = true; t.needsReply = false; t.repliedAt = Date.now();
+  await inboxSet({ threads: st.threads });
+  return { ok: true };
 }
 
 async function inboxAct(id, action, patch) {
