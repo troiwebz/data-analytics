@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0 14px 0 0}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;background:#64748b}
+  .dot.on{background:#22c55e}
+  header .sp{flex:1}
+  header button{background:#1e293b;color:#fff;border:1px solid #334155}
+  header button.pri{background:var(--blue);border-color:var(--blue)}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)}
+  button.go{background:var(--green);color:#fff;border-color:var(--green)}
+  button.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+  .stats{display:flex;gap:10px;padding:14px 20px;flex-wrap:wrap}
+  .k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 16px;min-width:110px}
+  .k b{display:block;font-size:22px}.k span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+  .bar{display:flex;gap:10px;padding:0 20px 10px;align-items:center;flex-wrap:wrap}
+  .bar input,.bar select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui}
+  .bar input{min-width:260px}
+  main{padding:0 20px 40px;display:grid;gap:12px}
+  .lead{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;grid-template-columns:1fr 380px;gap:16px}
+  @media(max-width:900px){.lead{grid-template-columns:1fr}}
+  .lead.hot{border-left:4px solid #f97316}.lead.warm{border-left:4px solid #eab308}
+  .t{font-size:15px;font-weight:700;text-decoration:none;color:var(--ink)}.t:hover{color:var(--blue)}
+  .meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--mute);font-size:12.5px;margin:6px 0}
+  .meta b{color:var(--ink)}
+  .score{display:inline-block;background:#0f172a;color:#fff;border-radius:6px;padding:1px 8px;font-weight:700;margin-right:8px}
+  .st{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700;letter-spacing:.04em}
+  .POSTED{background:#dcfce7;color:#15803d}.FAILED{background:#fee2e2;color:#b91c1c}.SKIPPED{background:#f1f5f9;color:#64748b}
+  .BACKFILL{background:#e0e7ff;color:#3730a3}.APPROVED{background:#fef3c7;color:#b45309}.EXPIRED{background:#f3f4f6;color:#6b7280}
+  .snip{color:#334155;font-size:13px;margin:6px 0;white-space:pre-wrap;max-height:4.5em;overflow:hidden;position:relative}
+  .snip.open{max-height:none}
+  .more{color:var(--blue);font-size:12px;cursor:pointer;background:none;border:0;padding:0}
+  .tags{font-size:12px;color:var(--mute)}
+  .side textarea{width:100%;min-height:170px;border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.45 ui-monospace,Menlo,monospace;resize:vertical}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .msg{font-size:12px;margin-top:6px;min-height:16px}
+  .msg.ok{color:var(--green)}.msg.err{color:var(--red)}
+  .empty{padding:60px;text-align:center;color:var(--mute)}
+  #log{padding:0 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
+  #log div.error{color:var(--red)}
+  .stale{color:var(--red);font-weight:600}
+</style>
+<header>
+  <h1>HAF Watcher</h1>
+  <span><span class="dot" id="dot"></span><span id="state">…</span></span>
+  <span id="rate" style="opacity:.8;font-size:12.5px"></span>
+  <span class="sp"></span>
+  <button id="poll" class="pri">Poll now</button>
+  <button id="approvals">Check approvals</button>
+  <button id="sync">Sync from Sheet</button>
+  <button id="backfill">Backfill 48h</button>
+  <button id="opts">Settings</button>
+</header>
+<div class="stats" id="stats"></div>
+<div class="bar">
+  <input id="q" placeholder="Search title, author, keyword…">
+  <select id="fstatus">
+    <option value="">All statuses</option>
+    <option>SENT</option><option>APPROVED</option><option>POSTED</option>
+    <option>SKIPPED</option><option>FAILED</option><option>BACKFILL</option><option>EXPIRED</option>
+  </select>
+  <select id="fsort">
+    <option value="found">Newest found</option>
+    <option value="posted">Newest posted</option>
+    <option value="score">Highest score</option>
+    <option value="replies">Fewest replies</option>
+  </select>
+  <label style="font-size:13px"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
+</div>
+<main id="leads"></main>
+<div id="log"></div>
+<script type="module" src="dashboard.js"></script>

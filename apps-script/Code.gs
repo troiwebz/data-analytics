@@ -32,6 +32,7 @@ function doPost(e) {
       case 'ingest':  return json_(body.backfill ? handleBackfill_(body.leads || []) : handleIngest_(body.leads || []));
       case 'pending': return json_({ ok: true, leads: handlePending_() });
       case 'result':  return json_(handleResult_(body));
+      case 'recent':  return json_({ ok: true, leads: handleRecent_(body.limit || 300) });
       default:        return json_({ ok: false, error: 'unknown action' });
     }
   } catch (err) {
@@ -103,6 +104,21 @@ function handlePending_() {
     });
 }
 
+/** Newest rows for the dashboard's "Sync from Sheet". */
+function handleRecent_(limit) {
+  const sh = sheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const n = Math.min(Number(limit) || 300, last - 1);
+  const values = sh.getRange(last - n + 1, 1, n, HEADERS.length).getValues();
+  return values.map(function (row) {
+    const o = {};
+    HEADERS.forEach(function (h, i) { o[h] = row[i] instanceof Date ? row[i].toISOString() : row[i]; });
+    o.categoryLabel = o.category;
+    return o;
+  }).reverse();
+}
+
 function handleResult_(p) {
   const sh = sheet_();
   const row = findRow_(sh, p.threadId);
@@ -112,7 +128,9 @@ function handleResult_(p) {
   setCell_(sh, row, 'result', p.status === 'POSTED' ? (p.detail || 'posted') : '');
   setCell_(sh, row, 'error', p.status === 'FAILED' ? (p.detail || 'unknown') : '');
   const lead = getLead_(p.threadId);
-  if (lead) {
+  // Only 🚀 outcomes are worth a Telegram message; a manual ✅/⏭ from the
+  // dashboard just updates the row.
+  if (lead && (p.status === 'POSTED' || p.status === 'FAILED') && !/manually/.test(String(p.detail || ''))) {
     try {
       tgSay_(p.status === 'POSTED'
         ? '✅ Posted: <b>' + tgEsc_(lead.title) + '</b>\n' + tgEsc_(p.detail || lead.url)

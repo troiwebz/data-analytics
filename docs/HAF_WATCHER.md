@@ -56,6 +56,10 @@ paste into BHW. That's the copy-paste path; BHW sees a human typing.
 - **🚀 Post now** — the extension posts it. If the lead was staged, that's a
   single click on an already-loaded page: under a second.
 - **✅ I posted it** — you pasted it yourself; log it so it's never suggested again.
+
+On desktop, click the toolbar icon: a full **dashboard tab** shows every lead
+with exact local posted time, live reply count, the editable draft, and the
+same buttons — 🚀 posts directly from there without touching Telegram.
 - **⏭ Skip** — log it as skipped.
 
 Score decides only whether your phone **buzzes**: 🔥 and ⭐ buzz, • arrives

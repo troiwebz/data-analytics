@@ -14,9 +14,9 @@ import { fetchFeed } from './feed.js';
 import { fetchReplyCounts, forumUrlFromFeed } from './listing.js';
 import { matchLead } from './matcher.js';
 import { renderReply } from './templates.js';
-import { pushLeads, fetchApproved, reportResult } from './sync.js';
+import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import {
-  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, updateLead,
+  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, log,
   getStaged, setStaged, removeStagedByTab
 } from './store.js';
@@ -34,6 +34,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
 });
 chrome.runtime.onStartup.addListener(async () => scheduleAlarms(await getConfig()));
+
+// Toolbar icon opens the dashboard as a full tab (focused if already open).
+chrome.action.onClicked.addListener(async () => {
+  const url = chrome.runtime.getURL('src/dashboard/dashboard.html');
+  const [tab] = await chrome.tabs.query({ url });
+  if (tab) { chrome.tabs.update(tab.id, { active: true }); chrome.windows.update(tab.windowId, { focused: true }); }
+  else chrome.tabs.create({ url });
+});
 
 // A staged tab the user closes by hand is simply forgotten.
 chrome.tabs.onRemoved.addListener((tabId) => removeStagedByTab(tabId));
@@ -90,9 +98,12 @@ export async function pollFeed() {
     await log(`first run: ${items.length} threads seen, ${backfill.length} from the last ${cfg.backfillHours}h recorded`);
     return { seeded: items.length, backfilled: backfill.length };
   }
-  if (!fresh.length) return { new: 0, matched: 0 };
-
+  // Reply counts move fast on a job board — refresh them for everything we
+  // already know about on every poll, not just for new threads.
   const replyCounts = await fetchReplyCounts(forumUrlFromFeed(cfg.feedUrl));
+  await updateReplyCounts(replyCounts);
+
+  if (!fresh.length) return { new: 0, matched: 0 };
 
   const leads = [];
   for (const item of fresh) {
@@ -167,10 +178,18 @@ export async function pollApprovals() {
   const lead = approved[0];                          // one per tick; spacing is enforced anyway
   const gate = await checkRateLimit(cfg);
   if (!gate.ok) { await log(`holding "${lead.title}" — ${gate.reason}`); return; }
+  await postLead(lead, cfg);
+}
 
+/**
+ * Post one lead: fire the staged tab if there is one (and the text wasn't
+ * edited since), otherwise open + type + post. Then record the outcome
+ * locally, in the Sheet, and on Telegram.
+ */
+export async function postLead(lead, cfg, { edited = false } = {}) {
   const staged = (await getStaged())[lead.threadId];
   let result;
-  if (staged) {
+  if (staged && !edited) {
     await log(`firing staged reply → "${lead.title}"`);
     result = await runInThread(lead, 'submit', { tabId: staged.tabId });
     await setStaged(lead.threadId, null);
@@ -179,20 +198,22 @@ export async function pollApprovals() {
       result = await runInThread(lead, 'full');
     }
   } else {
+    if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(lead.threadId, null); }
     await log(`posting → "${lead.title}"`);
     result = await runInThread(lead, 'full');
   }
 
   if (result.ok) {
     await recordPost();
-    await updateLead(lead.threadId, { status: 'POSTED', postUrl: result.postUrl, staged: false });
-    await reportResult(cfg, lead.threadId, 'POSTED', result.postUrl || '');
+    await updateLead(lead.threadId, { status: 'POSTED', postUrl: result.postUrl, draft: lead.draft, staged: false, error: '' });
+    await reportResult(cfg, lead.threadId, 'POSTED', result.postUrl || '').catch(() => {});
   } else {
     await updateLead(lead.threadId, { status: 'FAILED', error: result.error, staged: false });
-    await reportResult(cfg, lead.threadId, 'FAILED', result.error || 'unknown');
+    await reportResult(cfg, lead.threadId, 'FAILED', result.error || 'unknown').catch(() => {});
     await log(`post failed: ${result.error}`, 'error');
     notify('HAF post FAILED', result.error || lead.title);
   }
+  return result;
 }
 
 // --------------------------------------------------------------- posting
@@ -271,6 +292,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'reschedule':    await scheduleAlarms(await getConfig()); sendResponse({ ok: true }); break;
       case 'staged':        sendResponse(await getStaged()); break;
       case 'backfill':      await clearSeen(); sendResponse(await pollFeed().catch((e) => ({ error: e.message }))); break;
+      case 'post-direct': {                          // 🚀 from the dashboard, no Telegram needed
+        const cfg = await getConfig();
+        const gate = await checkRateLimit(cfg);
+        if (!gate.ok) { sendResponse({ ok: false, error: gate.reason }); break; }
+        sendResponse(await postLead(msg.lead, cfg, { edited: !!msg.edited }));
+        break;
+      }
+      case 'mark': {                                 // ✅ posted by hand / ⏭ skip, from the dashboard
+        const cfg = await getConfig();
+        const staged = (await getStaged())[msg.threadId];
+        if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.threadId, null); }
+        await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
+        if (cfg.webhookUrl) await reportResult(cfg, msg.threadId, msg.status, msg.detail || '').catch((e) => log(`sheet update failed: ${e.message}`, 'error'));
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'sync': {                                 // pull the Sheet into the local database
+        const cfg = await getConfig();
+        sendResponse(await fetchRecent(cfg).then(async (rows) => ({ ok: true, merged: await mergeLeads(rows) }))
+          .catch((e) => ({ error: /unknown action/.test(e.message) ? 'Update the Apps Script code to enable Sync (needs the "recent" action).' : e.message })));
+        break;
+      }
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
       default:              sendResponse({ error: 'unknown command' });
     }

@@ -29,4 +29,7 @@ export const fetchApproved = (cfg) => call(cfg, 'pending').then((d) => d.leads |
 export const reportResult = (cfg, threadId, status, detail) =>
   call(cfg, 'result', { threadId, status, detail });
 
+/** Last N rows of the Sheet (needs the Apps Script 'recent' action). */
+export const fetchRecent = (cfg, limit = 300) => call(cfg, 'recent', { limit }).then((d) => d.leads || []);
+
 export const ping = (cfg) => call(cfg, 'ping');

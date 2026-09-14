@@ -1,7 +1,7 @@
 // Thin persistence layer over chrome.storage.local.
 
 const SEEN_KEY = 'seenThreads';   // { [threadId]: epochMs }
-const LEADS_KEY = 'recentLeads';  // last 50 leads, newest first (popup UI)
+const LEADS_KEY = 'recentLeads';  // last 500 leads, newest first (dashboard)
 const RATE_KEY = 'rateState';     // { day: 'YYYY-MM-DD', count: n, lastPostAt: epochMs }
 const LOG_KEY = 'log';            // last 100 log lines
 const SEEN_TTL_MS = 21 * 24 * 60 * 60 * 1000;
@@ -32,13 +32,39 @@ export async function isFirstRun() {
 
 export async function recordLeads(leads) {
   const { [LEADS_KEY]: prev } = await chrome.storage.local.get(LEADS_KEY);
-  const next = [...leads, ...(prev || [])].slice(0, 50);
+  const next = [...leads, ...(prev || [])].slice(0, 500);
   await chrome.storage.local.set({ [LEADS_KEY]: next });
 }
 
 export async function getLeads() {
   const { [LEADS_KEY]: leads } = await chrome.storage.local.get(LEADS_KEY);
   return leads || [];
+}
+
+/** Merge rows from the Sheet: Sheet status wins, local extras (staged, error) are kept. */
+export async function mergeLeads(rows) {
+  const leads = await getLeads();
+  const byId = new Map(leads.map((l) => [String(l.threadId), l]));
+  for (const r of rows) {
+    const id = String(r.threadId);
+    const local = byId.get(id) || {};
+    byId.set(id, { ...local, ...r, matched: Array.isArray(r.matched) ? r.matched : String(r.matched || '').split(',').map((s) => s.trim()).filter(Boolean) });
+  }
+  const next = [...byId.values()].sort((a, b) => new Date(b.foundAt) - new Date(a.foundAt)).slice(0, 500);
+  await chrome.storage.local.set({ [LEADS_KEY]: next });
+  return next.length;
+}
+
+/** Patch replyCount on any local lead present in the map. */
+export async function updateReplyCounts(counts) {
+  const leads = await getLeads();
+  let changed = false;
+  const next = leads.map((l) => {
+    const c = counts[l.threadId];
+    if (c != null && c !== l.replyCount) { changed = true; return { ...l, replyCount: c }; }
+    return l;
+  });
+  if (changed) await chrome.storage.local.set({ [LEADS_KEY]: next });
 }
 
 export async function updateLead(threadId, patch) {
