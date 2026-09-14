@@ -121,7 +121,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
-  if (msg.type === "chat-observe") { chatObserve(msg.with, msg.messages).then(reply); return true; }
+  if (msg.type === "chat-observe") { chatObserve(msg.with, msg.messages, msg.v).then(reply); return true; }
   if (msg.type === "chat-draft") { chatDraft(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "chat-fill") { chatFill(msg.with, msg.text).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "chat-open") { chatTab(true).then((t) => { chrome.tabs.update(t.id, { active: true }); reply({ ok: true }); }); return true; }
@@ -1057,7 +1057,7 @@ async function inboxAiWrite(id, force) {
 // ===========================================================================
 // REDDIT CHAT: what the bridge in the chat.reddit.com tab sees
 // ===========================================================================
-async function chatObserve(withUser, messages) {
+async function chatObserve(withUser, messages, readerV) {
   const user = String(withUser || "").replace(/^\/?u\//, "").trim();
   if (!user || !messages || !messages.length) return { ok: false };
   const st = await inboxGet();
@@ -1066,12 +1066,14 @@ async function chatObserve(withUser, messages) {
   const post = Object.values(hunt.posts).find((p) => (p.author || "").toLowerCase() === user.toLowerCase());
   const t = st.threads[id] || (st.threads[id] = { id, with: user, subject: "", messages: [], lastAt: 0, handled: false, postId: post ? post.id : "", unread: 0, chat: true });
   if (!t.postId && post) t.postId = post.id;
+  // an older reader mixed the room list into conversations: throw that away once
+  if ((readerV || 0) >= 2 && (t.readerV || 0) < 2) { t.messages = t.messages.filter((m) => m.v >= 2); t.draft = null; t.readerV = 2; }
   let added = 0;
   for (const m of messages) {
     const body = String(m.body || "").trim();
     if (!body) continue;
     if (t.messages.some((x) => x.mine === !!m.mine && x.body === body)) continue;
-    t.messages.push({ id: "c_" + Date.now() + "_" + added, author: m.mine ? (st.me || "me") : (m.author || user), mine: !!m.mine, body, at: Date.now() - (messages.length - messages.indexOf(m)) * 1000 });
+    t.messages.push({ id: "c_" + Date.now() + "_" + added, author: m.mine ? (st.me || "me") : (m.author || user), mine: !!m.mine, body, at: Date.now() - (messages.length - messages.indexOf(m)) * 1000, v: readerV || 1 });
     added += 1;
     if (!m.mine) { t.handled = false; t.draft = null; }
   }

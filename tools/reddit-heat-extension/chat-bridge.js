@@ -33,9 +33,22 @@
   // Messages: on Reddit's chat every message starts with "Author h:mm AM" on
   // its own line, then the body. Mine = author is me.
   const HEAD = /^([A-Za-z0-9_-]{3,20})\s+(\d{1,2}:\d{2}\s?(?:AM|PM)|Yesterday|Today|\d{1,2}\/\d{1,2}\/\d{2,4})\b\s*/i;
+  // The room list on the left is full of "Name 1:22 PM Name: snippet…" rows
+  // that look exactly like messages. Find it (it holds the /chat/room/ links)
+  // and read only to the right of it.
+  function roomListRight() {
+    const links = deepAll('a[href*="/chat/room/"], a[href*="/chat/user/"]').filter(visible);
+    if (links.length < 2) return 0;
+    let right = 0;
+    for (const a of links) right = Math.max(right, a.getBoundingClientRect().right);
+    return Math.min(right, window.innerWidth * 0.6);
+  }
+  const inRoomList = (el) => !!el.closest('a[href*="/chat/room/"], a[href*="/chat/user/"], nav, aside, [role="navigation"]');
+  const READER_VERSION = 2;
   function readMessages() {
+    const leftEdge = roomListRight();
     // candidates: elements whose text starts with an author line; keep the smallest such (the message itself, not the list)
-    const all = deepAll("div, li, article, section, rs-message, rs-timeline-message").filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
+    const all = deepAll("div, li, article, section, rs-message, rs-timeline-message").filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark") && !inRoomList(e) && e.getBoundingClientRect().left >= leftEdge);
     const found = [];
     for (const el of all) {
       const t = text(el);
@@ -45,6 +58,7 @@
       // the body must not itself contain another author line (that would be a container)
       const rest = t.slice(m[0].length);
       if (HEAD.test(rest) || /\s[A-Za-z0-9_-]{3,20}\s+\d{1,2}:\d{2}\s?(AM|PM)\s/i.test(rest)) continue;
+      if (/^(You|[A-Za-z0-9_-]{3,20}):\s/.test(rest) && /…$/.test(rest)) continue;   // a list-row snippet, not a message
       const r = el.getBoundingClientRect();
       if (!r.height) continue;
       found.push({ author: m[1], body: rest.trim(), top: r.top, size: t.length });
@@ -113,7 +127,7 @@
     const sig = roomKey() + "|" + w + "|" + msgs.map((m) => (m.mine ? 1 : 0) + m.body.slice(0, 40)).join("|");
     if (sig === lastSig) return;
     lastSig = sig;
-    const r = await chrome.runtime.sendMessage({ type: "chat-observe", with: w, messages: msgs, url: location.href });
+    const r = await chrome.runtime.sendMessage({ type: "chat-observe", with: w, messages: msgs, url: location.href, v: READER_VERSION });
     if (r && r.id) {
       const changed = !current || current.id !== r.id || r.added;
       current = { id: r.id, with: w };

@@ -1291,6 +1291,8 @@ ${m.sign}`,
 HEAT.huntName = function (author) {
   const raw = String(author || "").replace(/^\/?u\//, "").trim();
   if (!raw) return "there";
+  // Reddit's auto-generated handles: Acceptable_Win_1921, Fragrant_Audience215 — not a name
+  if (/^[A-Z][a-z]+[_-][A-Z][a-z]+[_-]?\d{2,4}$/.test(raw)) return "there";
   const first = raw.split(/[_\-.\d]+/).filter(Boolean)[0] || "";
   if (!/^[A-Za-z]{2,14}$/.test(first)) return "there";
   const junk = /^(the|real|its|it'?s|mr|mrs|ms|dr|sir|lord|king|queen|big|lil|little|dev|founder|startup|user|reddit|anon|anonymous|deleted|random|just|some|my|new|old|xx|hi|hey|no|not|why|what|who|how)$/i;
@@ -1598,6 +1600,8 @@ HOW TO GET THERE:
 5. Close: move to WhatsApp/Telegram, agree the scope in three lines, say how to pay (I will confirm the payment method), and what they will receive first.
 
 COMMON ASKS:
+- "Where are you based / what time zone": answer plainly — {{LOCATION}} — then carry on with the step you are at. Never dodge it.
+- "How are you / hello": one warm line back, then straight to the step you are at; do not pad.
 - "Share your LinkedIn / portfolio": give it — {{LINKEDIN}}. If none is set, say a quick call shows more than a profile and offer one.
 - "Can we have a call / short meet": yes, always. Offer {{CALL}} and two concrete time windows today or tomorrow; ask which suits. Keep the free offer on the table in the same message.
 - "Send me examples of your work": give {{PORTFOLIO}} if set; otherwise the free 48-hour prototype IS the example — say so.
@@ -1611,7 +1615,8 @@ HEAT.inboxPlanFor = function (plan, profile = {}) {
   return String(plan || HEAT.INBOX_PLAN_DEFAULT)
     .replace(/\{\{LINKEDIN\}\}/g, profile.linkedin || "(no LinkedIn set)")
     .replace(/\{\{CALL\}\}/g, call)
-    .replace(/\{\{PORTFOLIO\}\}/g, profile.portfolio || "(no portfolio set)");
+    .replace(/\{\{PORTFOLIO\}\}/g, profile.portfolio || "(no portfolio set)")
+    .replace(/\{\{LOCATION\}\}/g, profile.location || "(location not set — say you work remotely and ask where they are)");
 };
 
 HEAT.INBOX_STAGES = [
@@ -1670,6 +1675,10 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan) {
   const contact = HEAT.huntContactLine(profile, true);
   const sign = profile.name ? `\n\n— ${profile.name}` : "";
   const price = ((plan || HEAT.INBOX_PLAN_DEFAULT).match(/\$\s?(\d[\d,]*)/) || [, "350"])[1];
+  if (/where are you (based|from|located)|which (country|city|time ?zone)|your (location|timezone)/.test(t)) {
+    const where = profile.location ? `I'm based in ${profile.location}` : "I work remotely with founders in a few time zones";
+    return { stage: "answer", note: "they asked where you are — answer, then back to the free offer", reply: `Hi ${name},\n\nDoing well, thanks. ${where}, and I work with founders wherever they are — time zones haven't been a problem so far.\n\nSo we don't lose the thread: send me one paragraph on what you're building and who the first user is, and within 48 hours you get the 3-screen prototype and the build list, free, yours to keep.\n\nFaster here: ${contact}${sign}` };
+  }
   if (/linkedin|portfolio|your work|examples?/.test(t) || /meet|call|zoom|google meet|hop on|chat (today|tomorrow)/.test(t)) {
     const li = profile.linkedin ? `LinkedIn: ${profile.linkedin}\n` : "";
     const call = profile.booking ? `pick a slot here: ${profile.booking}` : `${contact} — say a time today or tomorrow and I'll be there`;

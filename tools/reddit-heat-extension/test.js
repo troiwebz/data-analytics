@@ -261,6 +261,10 @@ assert.strictEqual(H.huntName("jane_builds92"), "Jane");
 assert.strictEqual(H.huntName("Noah_Basera"), "Noah");
 assert.strictEqual(H.huntName("throwaway_8812"), "there", "junk handles get no fake first name");
 assert.strictEqual(H.huntName("xX_99_Xx"), "there");
+assert.strictEqual(H.huntName("Acceptable_Win_1921"), "there", "Reddit's generated handles are not names");
+assert.strictEqual(H.huntName("Fragrant_Audience215"), "there");
+assert.strictEqual(H.huntName("Fantastic_Feeling123"), "there");
+assert.strictEqual(H.huntName("jane_builds92"), "Jane", "a real first name still works");
 assert.strictEqual(H.huntName(""), "there");
 
 // three lengths of the same letter, same offer and close in each
@@ -336,3 +340,7 @@ const askLi = H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...th
 assert.strictEqual(askLi.stage, "answer");
 assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && askLi.reply.includes("48 hours"), askLi.reply);
 console.log("plan links: ok");
+
+assert.ok(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Hello, how are you? Where are you based?" }] }, { name: "Noah", location: "Bangkok, Thailand" }).reply.includes("based in Bangkok, Thailand"));
+assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { location: "Bangkok" }).includes("Bangkok"));
+console.log("location: ok");
