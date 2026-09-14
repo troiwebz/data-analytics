@@ -195,3 +195,16 @@
     }
   }
 })();
+
+
+// The co-founder hunt reads Reddit's JSON through this tab: a same-origin fetch
+// carrying your own logged-in session, which the extension worker cannot do on
+// its own (Reddit answers those with 403). Reading only; nothing is submitted.
+chrome.runtime.onMessage.addListener((msg, _s, reply) => {
+  if (!msg || msg.type !== "hunt-fetch") return;
+  fetch(msg.url, { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+    .then((json) => reply({ ok: true, json }))
+    .catch((e) => reply({ ok: false, error: String(e.message || e) }));
+  return true;
+});

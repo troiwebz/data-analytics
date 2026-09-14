@@ -493,10 +493,51 @@ function huntArm(on) {
   else chrome.alarms.clear(HUNT_ALARM);
 }
 
+// Reddit answers 403 to JSON asked for by an extension worker: no cookies, no
+// referrer, not a browsing session. So we read through a pinned old.reddit.com
+// tab instead — the content script's fetch is same-origin and carries your
+// normal logged-in session, exactly like scrolling the page yourself.
+async function huntTabId() {
+  const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
+  if (hunt.tabId) {
+    try {
+      const t = await chrome.tabs.get(hunt.tabId);
+      if (t && /^https:\/\/old\.reddit\.com/.test(t.url || "")) return t.id;
+    } catch (_) { /* it was closed */ }
+  }
+  const tab = await chrome.tabs.create({ url: "https://old.reddit.com/r/cofounder/new/", active: false, pinned: true });
+  await new Promise((done) => {
+    const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } };
+    chrome.tabs.onUpdated.addListener(on);
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000);
+  });
+  await huntSet({ tabId: tab.id });
+  return tab.id;
+}
+
+function withTimeout(p, ms, what) {
+  return Promise.race([p, new Promise((_, bad) => setTimeout(() => bad(new Error(what + " timed out")), ms))]);
+}
+
+async function huntFetchViaTab(url) {
+  const tabId = await huntTabId();
+  const r = await withTimeout(chrome.tabs.sendMessage(tabId, { type: "hunt-fetch", url }), 20000, "the Reddit tab");
+  if (!r) throw new Error("the Reddit tab did not answer — reload it");
+  if (!r.ok) throw new Error(r.error);
+  return r.json;
+}
+
 async function huntFetch(url) {
-  const r = await fetch(url, { credentials: "omit", cache: "no-store", headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error(url.replace(/\?.*/, "") + " -> HTTP " + r.status);
-  return r.json();
+  // 1. straight from the worker, with your cookies. Cheapest when it works.
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 12000);
+    const r = await fetch(url, { credentials: "include", cache: "no-store", signal: ctl.signal, headers: { Accept: "application/json" } });
+    clearTimeout(t);
+    if (r.ok) return await r.json();
+  } catch (_) { /* blocked, offline or aborted: fall through to the tab */ }
+  // 2. through the pinned Reddit tab, as you.
+  return huntFetchViaTab(url);
 }
 
 // Turn a Reddit JSON child into a hunt candidate, or null if it isn't one.
@@ -532,14 +573,15 @@ async function huntPoll(force) {
   const picks = [];
   for (let i = 0; i < n; i += 1) picks.push(subs[(st.cursor + i) % subs.length]);
   const query = HUNT_QUERIES[st.cursor % HUNT_QUERIES.length];
-  const urls = picks.map((s) => `https://www.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=25&raw_json=1`);
-  urls.push(`https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`);
+  const urls = picks.map((s) => `https://old.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=25&raw_json=1`);
+  urls.push(`https://old.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`);
 
   const posts = st.posts;
-  let added = 0, seen = 0, error = "";
+  let added = 0, seen = 0, error = "", ok = 0;
   for (const url of urls) {
     try {
       const j = await huntFetch(url);
+      ok += 1;
       for (const child of (j.data && j.data.children) || []) {
         seen += 1;
         const cand = huntCandidate(child);
@@ -557,8 +599,8 @@ async function huntPoll(force) {
   for (const [id, p] of Object.entries(posts)) {
     if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
   }
-  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: error, found: st.found + added });
-  return { ok: true, added, seen, error };
+  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added });
+  return { ok: true, added, seen, checked: ok, error: ok ? "" : error };
 }
 
 // The queue: fit-ranked, never anyone already contacted, never anything you

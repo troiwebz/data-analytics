@@ -16,7 +16,9 @@ Then it is the same three moves, one post at a time:
 
 **Nobody twice.** The moment you mark a reply or a DM, that username goes on a contacted list. Every future post by that person — a repost, a different idea, six months later — is hidden and counted under "Already contacted, hidden". **Undo last** puts the most recent one back if you misclicked.
 
-Nothing is ever posted or sent for you. The extension reads public JSON, fills in the text, and you click send on Reddit's own page. Set your sign-off name in Options → it appears at the bottom of every DM.
+**How it reads Reddit.** Reddit answers 403 to JSON requested by an extension on its own — no cookies, no referrer, not a browsing session. So the hunt keeps one **pinned old.reddit.com tab** and reads through it: a same-origin request carrying your normal logged-in session, the same thing as scrolling the page yourself, a few pages a minute. It opens that tab by itself the first time. If it ever gets nothing back, the page tells you what to check (tab closed, logged out, or Reddit rate-limiting you).
+
+Nothing is ever posted or sent for you. The extension reads, fills in the text, and you click send on Reddit's own page. Set your sign-off name in Options → it appears at the bottom of every DM.
 
 ## Everything below is the older lead scraper (popup → Advanced tools)
 

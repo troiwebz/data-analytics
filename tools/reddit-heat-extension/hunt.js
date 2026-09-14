@@ -54,6 +54,8 @@ async function refresh(keepCurrent = true) {
   $("sBlocked").textContent = r.blocked;
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? "checked " + ago(r.lastPoll) + " · " + r.found + " found so far" : "never checked";
+  $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
+  $("hint").hidden = !(r.lastError || (!r.total && r.lastPoll));
   $("toggle").textContent = r.on ? "Watching · stop" : "Start watching";
   $("toggle").className = r.on ? "" : "primary";
 
@@ -97,7 +99,14 @@ $("didDm").onclick = () => act("dm");
 $("skip").onclick = () => act("skip");
 $("bad").onclick = () => act("not_relevant");
 $("undo").onclick = async () => { if (lastActed) { await send({ type: "hunt-act", id: lastActed, action: "undo" }); lastActed = null; await refresh(false); } };
-$("now").onclick = async () => { $("now").textContent = "Checking…"; await send({ type: "hunt-poll" }); $("now").textContent = "Check now"; refresh(); };
+$("now").onclick = async () => {
+  $("now").textContent = "Checking…"; $("now").disabled = true;
+  try {
+    // the first check opens a pinned Reddit tab, so give it room, but never hang
+    const r = await Promise.race([send({ type: "hunt-poll" }), new Promise((ok) => setTimeout(() => ok({ ok: false, error: "no answer in 45s — reload the pinned old.reddit.com tab" }), 45000))]);
+    if (r && r.error) $("sPoll").textContent = "last check failed: " + r.error;
+  } finally { $("now").textContent = "Check now"; $("now").disabled = false; refresh(); }
+};
 $("toggle").onclick = async () => {
   const on = $("toggle").textContent.startsWith("Start");
   await send({ type: "hunt-on", on });
