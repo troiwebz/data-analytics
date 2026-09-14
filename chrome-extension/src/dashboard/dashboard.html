@@ -81,6 +81,9 @@
     <option>SKIPPED</option><option>FAILED</option><option>BACKFILL</option><option>EXPIRED</option>
   </select>
   <select id="fcat"><option value="">All categories</option></select>
+  <label class="f"><input type="checkbox" id="hidedone"> hide done</label>
+  <button id="more">More filters</button>
+  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
   <select id="fsort">
     <option value="posted_desc">Posted — newest first</option>
     <option value="posted_asc">Posted — oldest first</option>
@@ -94,15 +97,13 @@
     <option value="activity_desc">Last reply — newest first</option>
   </select>
 </div>
-<div class="bar" style="padding-top:0">
-  <label class="f">score <input type="number" id="fminscore" min="0" placeholder="min" style="width:62px"></label>
-  <label class="f">replies <input type="number" id="fminrep" min="0" placeholder="min" style="width:62px">
-    – <input type="number" id="fmaxrep" min="0" placeholder="max" style="width:62px"></label>
-  <label class="f">posted <input type="date" id="ffrom"> – <input type="date" id="fto"></label>
+<div class="bar" id="adv" style="padding-top:0" hidden>
+  <label class="f">score ≥ <input type="number" id="fminscore" min="0" placeholder="any" style="width:70px"></label>
+  <label class="f">replies <input type="number" id="fminrep" min="0" placeholder="min" style="width:70px">
+    to <input type="number" id="fmaxrep" min="0" placeholder="max" style="width:70px"></label>
+  <label class="f">posted <input type="date" id="ffrom"> to <input type="date" id="fto"></label>
   <label class="f"><input type="checkbox" id="fbudget"> has budget</label>
-  <label class="f"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
-  <button id="fclear">Clear</button>
-  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
+  <button id="fclear">Clear all</button>
 </div>
 <main id="leads"></main>
 <div id="log"></div>

@@ -4,6 +4,10 @@
 // one tap copies them. Buttons stay the relay's defaults.
 import { lintSummary } from './compliance.js';
 
+/** `matched` is an array locally, comma-joined when it comes from the Sheet. */
+const tagsOf = (v) => Array.isArray(v) ? v.map(String)
+  : typeof v === 'string' ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function ago(iso) {
@@ -44,7 +48,7 @@ export function buildCard(lead) {
     (lead.replyCount != null ? `📊 You'd be reply #${Number(lead.replyCount) + 1}\n` : '') +
     `💰 Suggested: ${esc(suggestedOffer(lead))}\n` +
     (lead.priorContact ? `🔁 You pitched this author on ${esc(lead.priorContact)}\n` : '') +
-    (lead.matched?.length ? `🔎 ${esc(lead.matched.slice(0, 6).join(', '))}\n` : '') +
+    (tagsOf(lead.matched).length ? `🔎 ${esc(tagsOf(lead.matched).slice(0, 6).join(', '))}\n` : '') +
     (lintLines ? `\n${esc(lintLines)}\n` : '') +
     `\n<a href="${esc(lead.url)}">Open thread</a>` +
     (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">Open PM to ${esc(lead.author)}</a>` : '');

@@ -41,6 +41,13 @@ export async function getLeads() {
   return leads || [];
 }
 
+/** The Sheet stores `matched` comma-joined; locally it is an array. */
+function toTags(v) {
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === 'string') return v.split(',').map((t) => t.trim()).filter(Boolean);
+  return [];
+}
+
 /** Merge rows from the Sheet: Sheet status wins, local extras (staged, error) are kept. */
 export async function mergeLeads(rows) {
   const leads = await getLeads();
@@ -48,7 +55,7 @@ export async function mergeLeads(rows) {
   for (const r of rows) {
     const id = String(r.threadId);
     const local = byId.get(id) || {};
-    byId.set(id, { ...local, ...r, matched: Array.isArray(r.matched) ? r.matched : String(r.matched || '').split(',').map((s) => s.trim()).filter(Boolean) });
+    byId.set(id, { ...local, ...r, matched: toTags(r.matched) });
   }
   const next = [...byId.values()].sort((a, b) => new Date(b.foundAt) - new Date(a.foundAt)).slice(0, 500);
   await chrome.storage.local.set({ [LEADS_KEY]: next });

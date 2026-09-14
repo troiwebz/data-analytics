@@ -22,6 +22,20 @@ let edited = {};    // threadId -> public reply edited in the box
 let editedDm = {};  // threadId -> PM edited in the box
 
 async function render() {
+  try {
+    await renderInner();
+  } catch (e) {
+    // A blank page with no explanation is worse than the error itself.
+    $('leads').innerHTML =
+      `<div class="empty" style="color:var(--red)"><b>The list failed to render.</b><br>` +
+      `${escapeHtml(e && e.message ? e.message : String(e))}<br><br>` +
+      `<span style="color:var(--mute)">Press <b>Update now</b> — this usually means the extension is still running older code. ` +
+      `If it persists, open DevTools (⌥⌘I) → Console and send me the red line.</span></div>`;
+    console.error('[HAF dashboard]', e);
+  }
+}
+
+async function renderInner() {
   const [cfg, leads, log, rate, staged] = await Promise.all([getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
 
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
@@ -69,7 +83,7 @@ async function render() {
     if (budgetOnly && !l.budget) return false;
     const t = new Date(l.postedAt).getTime();
     if (isFinite(t) && (t < from || t > to)) return false;
-    if (q && !`${l.title} ${l.author} ${(l.matched || []).join(' ')} ${l.category}`.toLowerCase().includes(q)) return false;
+    if (q && !`${l.title} ${l.author} ${tags(l.matched).join(' ')} ${l.category}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -90,7 +104,10 @@ async function render() {
   list.sort(SORTS[$('fsort').value] || SORTS.found_desc);
   $('count').textContent = `${list.length} of ${leads.length}`;
 
-  $('leads').innerHTML = list.length ? list.map((l) => card(l, staged, cfg)).join('')
+  $('leads').innerHTML = list.length ? list.map((l) => {
+      try { return card(l, staged, cfg); }
+      catch (e) { return `<div class="lead"><div>Could not render “${escapeHtml(l.title || l.threadId)}” — ${escapeHtml(e.message)}</div></div>`; }
+    }).join('')
     : `<div class="empty">Nothing here yet.<br>New HAF threads appear within ${cfg.pollMinutes} minutes of being posted. Click <b>Backfill 48h</b> to load recent history.</div>`;
 
   $('log').innerHTML = log.slice(0, 15)
@@ -123,7 +140,7 @@ function card(l, staged, cfg) {
       </div>
       <div class="snip" id="snip-${esc(l.threadId)}">${esc(l.snippet)}</div>
       <button class="more" data-more="${esc(l.threadId)}">show more</button>
-      <div class="tags">${(l.matched || []).map(esc).join(' · ')}</div>
+      <div class="tags">${tags(l.matched).map(esc).join(' · ')}</div>
       ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
       ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank">view your reply</a></div>` : ''}
     </div>
@@ -265,6 +282,14 @@ $('cmd').addEventListener('click', async () => {
 });
 
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
+$('more').addEventListener('click', () => {
+  const open = $('adv').hidden;
+  $('adv').hidden = !open;
+  $('more').textContent = open ? 'Fewer filters' : 'More filters';
+  try { localStorage.setItem('haf.adv', open ? '1' : '0'); } catch { /* private window */ }
+});
+try { if (localStorage.getItem('haf.adv') === '1') $('more').click(); } catch { /* ignore */ }
+
 const FILTERS = ['q', 'fstatus', 'fcat', 'fsort', 'fminscore', 'fminrep', 'fmaxrep', 'ffrom', 'fto', 'fbudget', 'hidedone'];
 FILTERS.forEach((id) => $(id).addEventListener('input', render));
 $('fclear').addEventListener('click', () => {
