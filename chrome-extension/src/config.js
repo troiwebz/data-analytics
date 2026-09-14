@@ -172,60 +172,69 @@ export const DEFAULT_CONFIG = {
 {Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
   },
 
+  // ---- Private message ---------------------------------------------------
+  // The offer that closes every PM. Edit this one line and every PM changes.
+  dmOffer: `{To make it easy|To make this a no-brainer|So there's no risk to you}: {I'll do the first batch at 20% off|first month is 20% off|I'll knock 20% off the first order} so you can judge the work before committing to anything bigger. {Payment only after you approve the first delivery|You pay once you're happy with the first delivery}.
+
+{Reply here or on the thread and I'll get started today|Say the word and I'll start today}.`,
+
   // ---- Private message templates ---------------------------------------
   // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
   dmTemplates: {
-    generic: `{Hi|Hey} {{author}},
+    // Structure for all of them:
+    //   Hi <author>  →  "I just saw your HAF thread: <url>"  →  the public
+    //   reply verbatim  →  {{offer}}. Keep {{reply}} and {{offer}} in place.
+    generic: `Hi {{author}},
 
-{Saw your thread|Just read your post} "{{threadTitle}}" — {we can take care of this|this is right in our lane}.
+I just saw your HAF thread: {{url}}
 
-Quick version: we're a full-service agency (SEO, paid ads, design, web, content), everything in-house, one point of contact.
-{{budgetLine}}
-If you share the scope and deadline I'll come back with a fixed quote today. {Happy to hop on a call too|Or a quick call if easier}.`,
+{{reply}}
 
-    seo: `{Hi|Hey} {{author}},
+{{offer}}`,
 
-{Saw your thread|Just read your post} "{{threadTitle}}".
+    seo: `Hi {{author}},
 
-We run SEO for agencies and direct clients — audit, on-page, and a white-hat link plan with monthly reporting.
-{{budgetLine}}
-Send me the site and target keywords and I'll send a fixed quote + timeline today. {Case studies on request|Happy to share results from similar sites}.`,
+I just saw your HAF thread: {{url}}
 
-    ads: `{Hi|Hey} {{author}},
+{{reply}}
 
-{Saw your thread|Just read your post} "{{threadTitle}}".
+{{offer}}`,
 
-We manage paid campaigns end to end — Google, Meta, TikTok — setup, creative, tracking, weekly optimisation.
-{{budgetLine}}
-Share the offer, geo and monthly spend and I'll come back with a plan and price today.`,
+    ads: `Hi {{author}},
 
-    design: `{Hi|Hey} {{author}},
+I just saw your HAF thread: {{url}}
 
-{Saw your thread|Just read your post} "{{threadTitle}}".
+{{reply}}
 
-We're a design team — logos, banners, ad creatives, social, print. Source files included, 2 concepts first, unlimited tweaks on the chosen one.
-{{budgetLine}}
-Tell me sizes, style references and deadline and I'll quote today. {Portfolio on request|Can send the portfolio over}.`,
+{{offer}}`,
 
-    web: `{Hi|Hey} {{author}},
+    design: `Hi {{author}},
 
-{Saw your thread|Just read your post} "{{threadTitle}}".
+I just saw your HAF thread: {{url}}
 
-We build sites and landing pages in-house — clean, fast, mobile-first, on-page SEO done from the start.
-{{budgetLine}}
-Send the page count / reference sites and I'll scope and price it today.`,
+{{reply}}
 
-    content: `{Hi|Hey} {{author}},
+{{offer}}`,
 
-{Saw your thread|Just read your post} "{{threadTitle}}".
+    web: `Hi {{author}},
 
-Human-written, SEO-aware content briefed against real search intent — no AI filler. Sample piece before you commit.
-{{budgetLine}}
-Share topics, word count and volume and I'll quote per batch today.`
+I just saw your HAF thread: {{url}}
+
+{{reply}}
+
+{{offer}}`,
+
+    content: `Hi {{author}},
+
+I just saw your HAF thread: {{url}}
+
+{{reply}}
+
+{{offer}}`
   }
 };
 
-export const CONFIG_VERSION = 4;
+export const CONFIG_VERSION = 5;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -255,6 +264,12 @@ export async function migrateConfig() {
     for (const [k, t] of Object.entries(next.templates || {})) {   // retire the old opener
       if (typeof t === 'string') next.templates[k] = t.replace(/\{I can take this on\|/, '{').replace(/\|Happy to take this on\}/, '|Happy to handle this}');
     }
+  }
+  if (v < 5) {
+    // v4's PMs were standalone paragraphs; v5 mirrors the public reply and
+    // closes with the shared offer. Replace them unless they were customised.
+    next.dmOffer = next.dmOffer ?? DEFAULT_CONFIG.dmOffer;
+    next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });

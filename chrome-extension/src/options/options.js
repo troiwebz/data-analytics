@@ -1,7 +1,7 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 
-const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl'];
+const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
 const BOOL = ['enabled', 'autoPost'];

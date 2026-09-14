@@ -16,10 +16,29 @@ export function renderReply(lead, cfg) {
   return render(lead, cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0]);
 }
 
-/** The private message to the thread author. */
+/**
+ * The private message to the thread author:
+ *   Hi <author> → "I just saw your HAF thread: <url>" → the public reply
+ *   verbatim → the shared offer.
+ * Reuses lead.draft when present so the PM quotes exactly what was posted.
+ */
 export function renderDm(lead, cfg) {
   const t = cfg.dmTemplates || {};
-  return render(lead, t[lead.category] || t.generic || Object.values(t)[0]);
+  const reply = forPm(lead.draft || renderReply(lead, cfg));
+  const offer = spin(cfg.dmOffer || '');
+  return render({ ...lead, reply, offer }, t[lead.category] || t.generic || Object.values(t)[0]);
+}
+
+/**
+ * The public reply, trimmed for quoting inside a PM: its greeting is a
+ * duplicate of the PM's own, and "PMing you now" makes no sense in the PM.
+ */
+function forPm(reply) {
+  return String(reply)
+    .replace(/^\s*(hi|hey|hello)\b[^\n]*\n+/i, '')
+    .replace(/\s*\b(dropping you a pm|sending (?:you )?a pm|pming you(?: the details| now)?)\b[^.\n]*\.?/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function render(lead, tpl) {
@@ -36,7 +55,10 @@ function render(lead, tpl) {
     budgetLine,
     category: (lead.categoryLabel || lead.category || 'this').toLowerCase(),
     threadTitle: lead.title || '',
-    link: lead.url || ''
+    url: lead.url || '',
+    link: lead.url || '',
+    reply: lead.reply || '',
+    offer: lead.offer || ''
   };
 
   let out = spin(tpl);

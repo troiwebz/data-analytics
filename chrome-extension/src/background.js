@@ -18,7 +18,7 @@ import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import {
-  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, updateLead, mergeLeads, updateReplyCounts,
+  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, log,
   getStaged, setStaged, removeStagedByTab
 } from './store.js';
@@ -347,6 +347,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
         if (cfg.webhookUrl) await reportResult(cfg, msg.threadId, msg.status, msg.detail || '').catch((e) => log(`sheet update failed: ${e.message}`, 'error'));
         sendResponse({ ok: true });
+        break;
+      }
+      case 'regen': {                                // rebuild PM + card for leads saved before the PM existed
+        const cfg = await getConfig();
+        const leads = await getLeads();
+        let n = 0;
+        for (const l of leads) {
+          const dm = renderDm(l, cfg);
+          if (dm === l.dm) continue;
+          const patch = { dm, dmUrl: dmUrl(l.author), dmLint: lintDraft(dm, cfg.compliance) };
+          patch.card = buildCard({ ...l, ...patch });
+          await updateLead(l.threadId, patch);
+          n++;
+        }
+        await log(`rebuilt PM drafts for ${n} lead(s)`);
+        sendResponse({ ok: true, updated: n });
         break;
       }
       case 'mark-pm': {                              // ✅ "I sent the PM" from the dashboard

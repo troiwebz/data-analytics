@@ -53,6 +53,11 @@ Open thread
 Then the reply on its own, in a code block — **tap once to copy the whole thing**,
 paste into BHW. That's the copy-paste path; BHW sees a human typing.
 
+Every PM follows one shape: `Hi <author>` → *"I just saw your HAF thread: <url>"*
+→ the public reply (its own greeting and "PMing you now" trimmed) → one shared
+closing offer, edited in Options as **PM offer** so changing that single field
+changes every PM.
+
 The card also carries a **private-message draft** for the thread author and an
 **Open PM** link that loads BHW's new-conversation page with the recipient
 already filled in. On the dashboard the PM has its own editable box with

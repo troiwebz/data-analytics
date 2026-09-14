@@ -1,4 +1,5 @@
 import { getConfig } from '../config.js';
+import { renderDm } from '../templates.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -53,14 +54,16 @@ async function render() {
     sort === 'posted' ? new Date(b.postedAt) - new Date(a.postedAt) :
     new Date(b.foundAt) - new Date(a.foundAt));
 
-  $('leads').innerHTML = list.length ? list.map((l) => card(l, staged)).join('')
+  $('leads').innerHTML = list.length ? list.map((l) => card(l, staged, cfg)).join('')
     : `<div class="empty">Nothing here yet.<br>New HAF threads appear within ${cfg.pollMinutes} minutes of being posted. Click <b>Backfill 48h</b> to load recent history.</div>`;
 
   $('log').innerHTML = log.slice(0, 15)
     .map((e) => `<div class="${e.level}">${fmtTime(e.t)} ${esc(e.msg)}</div>`).join('');
 }
 
-function card(l, staged) {
+function card(l, staged, cfg) {
+  // Leads saved before PMs existed have no dm — render one now.
+  const dmText = editedDm[l.threadId] ?? l.dm ?? renderDm(l, cfg);
   const tier = l.score >= 15 ? 'hot' : l.score >= 10 ? 'warm' : '';
   const isStaged = !!staged[l.threadId];
   const done = ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status);
@@ -99,7 +102,7 @@ function card(l, staged) {
         <button class="warn" data-act="skip" data-id="${esc(l.threadId)}">⏭ Skip</button>`}
       </div>
       <div class="lbl">✉️ Private message to ${esc(l.author)}${l.pmSent ? ' <span class="st POSTED">PM sent</span>' : ''}</div>
-      <textarea class="dm" data-dm="${esc(l.threadId)}">${esc(editedDm[l.threadId] ?? l.dm ?? '')}</textarea>
+      <textarea class="dm" data-dm="${esc(l.threadId)}">${esc(dmText)}</textarea>
       <div class="acts">
         <button data-act="copydm" data-id="${esc(l.threadId)}">📋 Copy PM</button>
         <button data-act="opendm" data-id="${esc(l.threadId)}">✉️ Open PM page</button>
@@ -141,7 +144,8 @@ document.addEventListener('click', async (e) => {
   }
   if (act === 'open') { chrome.tabs.create({ url: lead.url }); return; }
 
-  const dm = editedDm[id] ?? lead.dm ?? '';
+  const cfgNow = await getConfig();
+  const dm = editedDm[id] ?? lead.dm ?? renderDm(lead, cfgNow);
   if (act === 'copydm') {
     await navigator.clipboard.writeText(dm);
     say(id, 'PM copied — open the PM page and paste.', true);
@@ -198,6 +202,13 @@ $('backfill').addEventListener('click', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'backfill' });
   $('backfill').textContent = 'Backfill 48h';
   if (r?.error) alert(r.error); else alert(`Recorded ${r?.backfilled ?? 0} threads from the last 48h.`);
+  render();
+});
+$('regen').addEventListener('click', async () => {
+  $('regen').textContent = '…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
+  $('regen').textContent = 'Rebuild PMs';
+  alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
   render();
 });
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
