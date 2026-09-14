@@ -1352,10 +1352,21 @@ async function chatFill(withUser, textToFill) {
     try { return await chrome.tabs.sendMessage(tab.id, { type: "chat-fill", text: textToFill }); }
     catch (e) { return { ok: false, error: "the Chat tab did not answer — reload it and try again" }; }
   }
-  // Otherwise: show the Chat tab, leave the text waiting, and say so. The
-  // bridge fills the box the moment that person's chat is opened. No
-  // navigation, no typing into Reddit's search — that was removed on request.
+  // Otherwise hand it to the bridge. With "do this for me" on (the default) it
+  // opens the new-chat page, types the name, picks the person and fills the
+  // box; with it off it waits until you open that chat yourself.
+  const { autoDm = true } = await chrome.storage.local.get(["autoDm"]);
   await chrome.storage.local.set({ pendingDm: { kind: "inbox", author: withUser, text: textToFill, at: Date.now() } });
+  if (autoDm) {
+    await chrome.tabs.update(tab.id, { url: "https://www.reddit.com/chat/room/create", active: true });
+    for (let i = 0; i < 40; i += 1) {
+      await sleep(750);
+      const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
+      if (!pendingDm) return { ok: true };
+      if (pendingDm.done) { await chrome.storage.local.remove("pendingDm"); return { ok: !!pendingDm.filled, error: pendingDm.filled ? "" : "the box would not take the text — it is on your clipboard" }; }
+    }
+    return { ok: false, pending: true, error: `still opening ${withUser}'s chat — the panel on that tab shows where it got to` };
+  }
   await chrome.tabs.update(tab.id, { active: true });
   return { ok: false, pending: true, error: `open the chat with ${withUser} in the Chat tab — the reply fills itself when it opens (it is also on your clipboard)` };
 }

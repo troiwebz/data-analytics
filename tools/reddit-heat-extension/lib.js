@@ -1938,7 +1938,8 @@ const STYLES = [
     `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer} ${pick(S_PROOF)()}`,
   ] },
 ];
-function lower(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
+// never turn the pronoun "I" into "i"
+function lower(s) { return /^I\b|^I'/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
 HEAT.SLOT_STYLES = STYLES.map((s) => s.key);
 
 // A small deterministic hash, so the same post always gets the same style

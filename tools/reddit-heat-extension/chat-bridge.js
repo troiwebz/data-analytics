@@ -227,7 +227,7 @@
   async function placePending() {
     if (pendingBusy) return;
     const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
-    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) { pendingSince = 0; newChatHide(); return; }
+    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) { pendingSince = 0; newChatHide(); AUTO.name = ""; AUTO.stopped = false; return; }
     if (Date.now() - (pendingDm.at || 0) > 15 * 60000) { await chrome.storage.local.remove("pendingDm"); return; }
     pendingBusy = true;
     try {
@@ -245,8 +245,12 @@
         pendingSince = 0; pendingToldFor = ""; newChatHide();
         return;
       }
+      if (onCreatePage()) {
+        newChatCard(name, pendingDm.text);
+        const { autoDm = true } = await chrome.storage.local.get(["autoDm"]);
+        if (autoDm) { await autoOpen(name); return; }
+      }
       // say it once, then stay quiet: this line was blinking back every second
-      if (onCreatePage()) newChatCard(name, pendingDm.text);
       if (pendingToldFor !== name && Date.now() - pendingSince > 1200) {
         pendingToldFor = name;
         say(`DM for ${name} is on your clipboard — open that chat and it fills itself`);
@@ -254,8 +258,75 @@
     } catch (e) { say(`error placing the DM: ${e && e.message || e}`, "#ff8a65"); }
     finally { pendingBusy = false; }
   }
-  // On the new-chat page nothing is typed for you. This little card puts the
-  // name in Reddit's box when YOU press the button, and can be dismissed.
+  // ---- doing it for you on the new-chat page ------------------------------
+  // Type the name, wait for Reddit's list, click the person, press Create.
+  // One step per tick, each tried a few times, then it stops and hands over.
+  // Sending is never automatic: the message only lands in the box.
+  const AUTO = { step: "", name: "", tries: 0, at: 0, stopped: false, picked: false };
+  const autoSay = (t, color) => { if (newChat) { const m = newChat.querySelector("#rlt-new-msg"); m.textContent = t; m.style.color = color || "#98a0b3"; } };
+  function autoReset(name) { AUTO.step = "type"; AUTO.name = name; AUTO.tries = 0; AUTO.at = 0; AUTO.picked = false; }
+  // Reddit's own result row for this person, in the middle of the page (never
+  // the conversation list on the left, and never our own panels).
+  function resultFor(name) {
+    const rows = deepAll('li, [role="option"], [role="listitem"], button, a').filter(visible)
+      .filter((e) => !e.closest("#rlt-chat, #rlt-mark, #rlt-new, aside, nav, [role='navigation']"))
+      .filter((e) => e.getBoundingClientRect().left > Math.min(300, window.innerWidth * 0.2));
+    const hit = rows.filter((e) => { const t = text(e); return t && t.length < 80 && same(t.replace(/^u\//i, "").split(" ")[0], name); });
+    hit.sort((a, b) => text(a).length - text(b).length);
+    if (!hit[0]) return null;
+    return (hit[0].querySelector && hit[0].querySelector('button, [role="button"], a')) || hit[0];
+  }
+  function createButton() {
+    return deepAll('button, [role="button"]').filter(visible)
+      .filter((e) => !e.closest("#rlt-chat, #rlt-mark, #rlt-new"))
+      .filter((e) => /^(create|start chat|start|next|done|chat)$/i.test(text(e)))
+      .find((e) => !e.disabled && e.getAttribute("aria-disabled") !== "true") || null;
+  }
+  async function autoOpen(name) {
+    if (AUTO.stopped) return;
+    if (AUTO.name !== name) autoReset(name);
+    if (Date.now() - AUTO.at < 550) return;          // one step per beat
+    AUTO.at = Date.now();
+    const box = findSearchBox();
+    if (!box) { autoSay("waiting for Reddit's username box…"); return; }
+
+    if (AUTO.step === "type") {
+      const typed = (box.value || text(box) || "").trim();
+      if (!same(typed, name) && !createButton()) {
+        if (AUTO.tries > 3) { AUTO.step = "give-up"; return autoOpen(name); }
+        AUTO.tries += 1;
+        box.scrollIntoView({ block: "center" }); box.focus(); setValue(box, name);
+        autoSay(`typing ${name}…`, "#e6c76b");
+        return;
+      }
+      AUTO.step = "pick"; AUTO.tries = 0; return;
+    }
+    if (AUTO.step === "pick") {
+      // the person counts as picked once Reddit's Create button comes alive
+      if (AUTO.picked && createButton()) { AUTO.step = "create"; AUTO.tries = 0; autoSay("picked — opening the chat…", "#e6c76b"); return; }
+      const hit = resultFor(name);
+      if (hit) { AUTO.picked = true; hit.click(); AUTO.tries = 0; autoSay("picking them from the list…", "#e6c76b"); return; }
+      AUTO.tries += 1;
+      if (AUTO.tries > 8) { AUTO.step = "give-up"; return autoOpen(name); }
+      autoSay(`waiting for Reddit to find ${name}…`, "#e6c76b");
+      return;
+    }
+    if (AUTO.step === "create") {
+      const go = createButton();
+      if (go) { go.click(); AUTO.tries = 0; autoSay("opening the chat…", "#e6c76b"); return; }
+      AUTO.tries += 1;
+      if (AUTO.tries > 8) { AUTO.step = "give-up"; return autoOpen(name); }
+      return;
+    }
+    if (AUTO.step === "give-up") {
+      AUTO.stopped = true;
+      autoSay(`couldn't open ${name}'s chat by itself — press the button below, or pick them from the list`, "#ff8a65");
+      say(`could not open ${name}'s chat by itself — the DM is on your clipboard`, "#ff8a65");
+    }
+  }
+
+  // On the new-chat page this card shows what is happening and lets you take
+  // over: put the name in yourself, copy it, stop the automatic run, or drop it.
   let newChat = null, newChatFor = "", newChatOff = false;
   function newChatCard(name, text) {
     if (newChatOff) return;
@@ -265,16 +336,21 @@
       newChat.style.cssText = "position:fixed;right:16px;bottom:16px;width:340px;z-index:2147483647;background:#171a21;color:#e8eaf0;border:1px solid #262b36;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:13px/1.5 -apple-system,Segoe UI,sans-serif;padding:12px;display:flex;flex-direction:column;gap:8px";
       newChat.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">DM ready</b><span id="rlt-new-who" style="font-weight:600"></span><button id="rlt-new-x" style="margin-left:auto;background:none;border:0;color:#98a0b3;cursor:pointer;font-size:15px">✕</button></div>
         <div id="rlt-new-msg" style="color:#98a0b3;font-size:12px">Press the button, then pick them from Reddit's list. The message fills itself when the chat opens.</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button id="rlt-new-go" style="background:#ff5722;border:0;color:#fff;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Put the name in the box</button>
           <button id="rlt-new-copy" style="background:#1e222b;border:1px solid #262b36;color:#e8eaf0;padding:7px 10px;border-radius:7px;cursor:pointer">Copy the name</button>
           <button id="rlt-new-drop" style="background:#1e222b;border:1px solid #262b36;color:#98a0b3;padding:7px 10px;border-radius:7px;cursor:pointer">Not now</button>
-        </div>`;
+        </div>
+        <label style="font-size:12px;color:#98a0b3;display:flex;gap:6px;align-items:center"><input type="checkbox" id="rlt-new-auto"> do this for me (type the name, open the chat, fill the box — never send)</label>`;
       document.body.appendChild(newChat);
       newChat.querySelector("#rlt-new-x").onclick = () => { newChatOff = true; newChat.remove(); newChat = null; };
+      const autoCb2 = newChat.querySelector("#rlt-new-auto");
+      chrome.storage.local.get(["autoDm"]).then((x) => { autoCb2.checked = x.autoDm !== false; });
+      autoCb2.onchange = () => { chrome.storage.local.set({ autoDm: autoCb2.checked }); AUTO.stopped = false; autoReset(newChatFor); };
       newChat.querySelector("#rlt-new-drop").onclick = async () => { await chrome.storage.local.remove("pendingDm"); pendingToldFor = ""; if (newChat) { newChat.remove(); newChat = null; } };
       newChat.querySelector("#rlt-new-copy").onclick = async () => { try { await navigator.clipboard.writeText(newChatFor); newChat.querySelector("#rlt-new-msg").textContent = `"${newChatFor}" copied — paste it into the box above`; } catch (_) { /* focus rules */ } };
       newChat.querySelector("#rlt-new-go").onclick = () => {
+        AUTO.stopped = true;                       // you took over
         const box = findSearchBox();
         const msg = newChat.querySelector("#rlt-new-msg");
         if (!box) { msg.textContent = "could not find Reddit's username box — use Copy the name and paste it"; msg.style.color = "#ff8a65"; return; }
@@ -288,7 +364,7 @@
     newChat.style.display = "";
   }
   function newChatHide() { if (newChat) newChat.style.display = "none"; }
-  // Reddit's people-search box on the new-chat page (only used when you press the button).
+  // Reddit's people-search box on the new-chat page.
   function findSearchBox() {
     const inputs = deepAll('input[type="text"], input[type="search"], input:not([type]), [role="combobox"], [contenteditable="true"]').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark, #rlt-new"));
     const named = inputs.filter((e) => /user|search|name|who|people|recipient/i.test((e.getAttribute("placeholder") || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("name") || "")));
@@ -303,7 +379,7 @@
     } else { el.focus(); try { document.execCommand("selectAll"); document.execCommand("insertText", false, v); } catch (_) { /* nothing else to try */ } }
   }
 
-  setInterval(placePending, 1500);
+  setInterval(placePending, 900);
   setTimeout(placePending, 800);
 
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
