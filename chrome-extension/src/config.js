@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG = {
   pollMinutes: 3,              // how often to check the forum
   jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
+  backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
 
   webhookUrl: '',              // Apps Script /exec URL
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script

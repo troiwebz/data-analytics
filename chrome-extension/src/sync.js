@@ -17,8 +17,10 @@ async function call(cfg, action, payload = {}) {
   return data;
 }
 
-/** Send new leads. Apps Script dedupes and emails you. */
-export const pushLeads = (cfg, leads) => call(cfg, 'ingest', { leads });
+/** Send new leads. Apps Script dedupes and sends them to Telegram.
+ *  backfill=true records them in the Sheet only — no Telegram. */
+export const pushLeads = (cfg, leads, { backfill = false } = {}) =>
+  call(cfg, 'ingest', { leads, backfill });
 
 /** Leads you approved from your phone, ready to post. */
 export const fetchApproved = (cfg) => call(cfg, 'pending').then((d) => d.leads || []);

@@ -69,10 +69,25 @@ export async function pollFeed() {
   const seen = await getSeen();
   const fresh = items.filter((i) => !seen[i.threadId]);
 
-  if (await isFirstRun()) {                       // don't flood on first run
+  // First run: nothing goes to Telegram, but the last backfillHours of threads
+  // are recorded in the Sheet so the database starts with history, not empty.
+  if (await isFirstRun()) {
+    const cutoff = Date.now() - (cfg.backfillHours || 0) * 3600000;
+    const recent = items.filter((i) => new Date(i.postedAt).getTime() >= cutoff);
+    const replyCounts = recent.length ? await fetchReplyCounts(forumUrlFromFeed(cfg.feedUrl)) : {};
+    const backfill = recent.map((item) => {
+      const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
+      return { ...m, replyCount: replyCounts[item.threadId] ?? null, draft: renderReply(m, cfg),
+               status: 'BACKFILL', foundAt: new Date().toISOString() };
+    });
     await markSeen(items.map((i) => i.threadId));
-    await log(`seeded ${items.length} existing threads (nothing sent)`);
-    return { seeded: items.length };
+    if (backfill.length) {
+      await recordLeads(backfill);
+      try { await pushLeads(cfg, backfill, { backfill: true }); }
+      catch (e) { await log(`backfill push failed: ${e.message}`, 'error'); }
+    }
+    await log(`first run: ${items.length} threads seen, ${backfill.length} from the last ${cfg.backfillHours}h recorded`);
+    return { seeded: items.length, backfilled: backfill.length };
   }
   if (!fresh.length) return { new: 0, matched: 0 };
 

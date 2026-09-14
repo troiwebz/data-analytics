@@ -29,7 +29,7 @@ function doPost(e) {
     checkSecret_(body);
     switch (body.action) {
       case 'ping':    return json_({ ok: true, sheet: sheet_().getParent().getUrl(), paused: isPaused_(), buzz: buzzScore_() });
-      case 'ingest':  return json_(handleIngest_(body.leads || []));
+      case 'ingest':  return json_(body.backfill ? handleBackfill_(body.leads || []) : handleIngest_(body.leads || []));
       case 'pending': return json_({ ok: true, leads: handlePending_() });
       case 'result':  return json_(handleResult_(body));
       default:        return json_({ ok: false, error: 'unknown action' });
@@ -81,6 +81,16 @@ function handleIngest_(leads) {
     }
   }
   return out;
+}
+
+/** First-run history: recorded in the Sheet, never sent to Telegram. */
+function handleBackfill_(leads) {
+  let added = 0, duplicates = 0;
+  for (const lead of leads) {
+    if (!lead || !lead.threadId) continue;
+    if (insertLead_(lead, 'BACKFILL', null)) added++; else duplicates++;
+  }
+  return { ok: true, added: added, duplicates: duplicates, backfill: true };
 }
 
 /** Leads you tapped 🚀 on, for the extension to post. */

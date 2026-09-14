@@ -2,7 +2,7 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl'];
-const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'notifyScore', 'maxPostsPerDay',
+const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
 const BOOL = ['enabled', 'autoPost'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates'];
@@ -58,8 +58,9 @@ $('poll').addEventListener('click', async () => {
   status('polling…');
   const r = await chrome.runtime.sendMessage({ cmd: 'poll-now' });
   if (r?.error) status(r.error, true);
-  else if (r?.seeded) status(`Seeded ${r.seeded} existing threads — real watching starts now.`);
-  else status(`${r?.new ?? 0} new thread(s), ${r?.matched ?? 0} matched.`);
+  else if (r?.skipped) status('Watcher is disabled — tick "Watcher enabled" at the top and Save first.', true);
+  else if (r?.seeded != null) status(`First run: ${r.seeded} threads seen, ${r.backfilled} from the last 48h recorded in the Sheet. Watching starts now.`);
+  else status(`${r?.new ?? 0} new thread(s), ${r?.matched ?? 0} sent.`);
 });
 
 $('reset').addEventListener('click', async () => {
