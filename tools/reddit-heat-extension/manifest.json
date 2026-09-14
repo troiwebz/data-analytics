@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "Scrapes the Reddit pages you browse (listings, searches, threads), walks next pages and threads for you, matches hundreds of keywords, scores every thread on lead evidence, and saves a CSV. Optional background crawler.",
   "permissions": [
     "storage",

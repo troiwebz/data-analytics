@@ -76,6 +76,7 @@
   .thr.needs b::before { content:"● "; color:var(--or); }
   .msg { padding:8px 10px; margin:6px 0; border-radius:8px; background:#12151c; font-size:13px; white-space:pre-wrap; }
   .msg.mine { background:#1a2230; margin-left:40px; } .msg small { display:block; color:var(--dim); margin-bottom:3px; font-size:11px; }
+  tr.done td { text-decoration: line-through; opacity:.6; } tr.done td.when { text-decoration:none; opacity:1; }
   .thr.filled b { text-decoration: line-through; opacity:.55; } .thr.filled span { opacity:.6; }
   body.light { --bg:#f4f5f7; --card:#ffffff; --line:#dfe3ea; --fg:#17191c; --dim:#5b6472; }
   body.light header { background:#ffffff; }
@@ -102,6 +103,8 @@
   <button class="stat" id="sQueueBtn">In queue <b id="sQueue">0</b></button>
   <button class="stat" id="sTodayBtn">Contacted today <b id="sToday">0</b></button>
   <button class="stat" id="sEverBtn">Contacted ever <b id="sEver">0</b></button>
+  <button class="stat" id="sDoneBtn" title="replied or DM'd — struck through, never shown again">Done today <b id="sDoneToday">0</b></button>
+  <span class="stat" id="sSince" hidden></span>
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
   <span class="stat" id="sPoll">never checked</span>
@@ -231,11 +234,12 @@
         <div class="row">
           <button id="didReply">Posted the reply <kbd>1</kbd> <span class="foot" style="margin:0">(auto when you click save)</span></button>
           <button id="didDm" class="good">Sent the DM → next <kbd>2</kbd></button>
+          <button id="later" class="ghost" title="hide until tomorrow 7am">Later <kbd>l</kbd></button>
           <button id="skip" class="ghost">Skip <kbd>s</kbd></button>
           <button id="bad" class="ghost">Not relevant <kbd>x</kbd></button>
           <button id="undo" class="ghost">Undo last</button>
         </div>
-        <p class="foot">Marking <b>Posted the reply</b> or <b>Sent the DM</b> puts this person on the contacted list. They never show up here again, on this post or any future one.</p>
+        <p class="foot"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="assumeDm" checked> opening the DM counts as sent and moves on</label> · Marking <b>Posted the reply</b> or <b>Sent the DM</b> puts this person on the contacted list. They never show up here again, on this post or any future one.</p>
       </section>
     </div>
   </div>

@@ -113,6 +113,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
   if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
+  if (msg.type === "hunt-done") { huntGet().then((st) => { const rows = Object.values(st.posts).filter((p) => p.repliedAt || p.dmAt).map((p) => ({ id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink, repliedAt: p.repliedAt || 0, dmAt: p.dmAt || 0, at: Math.max(p.repliedAt || 0, p.dmAt || 0) })).sort((a, b) => b.at - a.at); reply({ rows }); }); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "version-state") { versionState().then(reply); return true; }
@@ -769,9 +770,10 @@ async function huntQueue(limit = 40) {
   const list = [];
   let blocked = 0;
   const maxAge = st.maxAgeH * 3600000;
-  let stale = 0;
+  let stale = 0, later = 0;
   for (const p of Object.values(st.posts)) {
     if (p.act === "skip" || p.act === "not_relevant" || p.dmAt) continue;
+    if (p.laterUntil && p.laterUntil > now) { later += 1; continue; }   // snoozed till tomorrow
     if (p.mine) { blocked += 1; continue; }              // you already commented there
     if (now - (p.created || p.firstSeen || 0) > maxAge) { stale += 1; continue; }
     const prior = st.contacted[(p.author || "").toLowerCase()];
@@ -780,11 +782,18 @@ async function huntQueue(limit = 40) {
   }
   list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || b.score - a.score);
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yday = today.getTime() - 86400000;
   const contacted = Object.values(st.contacted);
+  const doneAt = (p) => Math.max(p.repliedAt || 0, p.dmAt || 0);
+  const all = Object.values(st.posts);
+  const doneToday = all.filter((p) => doneAt(p) >= today.getTime()).length;
+  const doneYesterday = all.filter((p) => doneAt(p) >= yday && doneAt(p) < today.getTime()).length;
+  const lastDone = Math.max(0, ...all.map(doneAt));
+  const newSince = all.filter((p) => (p.firstSeen || 0) > lastDone && !p.act && !p.dmAt && !p.mine).length;
   return {
     queue: list.slice(0, limit),
     total: list.length,
-    blocked,
+    blocked, later, doneToday, doneYesterday, newSince, lastDone,
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -819,6 +828,7 @@ async function huntAct(id, action, variant) {
   if (!p) return { ok: false };
   const now = Date.now();
   if (action === "skip" || action === "not_relevant") p.act = action;
+  if (action === "later") { const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(7, 0, 0, 0); p.laterUntil = t.getTime(); }
   if (action === "replied") { p.repliedAt = now; p.usedVariant = variant; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
   if (action === "dm") {
     p.dmAt = now;

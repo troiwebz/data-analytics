@@ -194,7 +194,10 @@ async function refresh(keepCurrent = true) {
   $("sQueue").textContent = r.total;
   $("sToday").textContent = r.contactedToday;
   $("sEver").textContent = r.contactedTotal;
-  $("sBlocked").textContent = r.blocked;
+  $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "");
+  $("sDoneToday").textContent = r.doneToday;
+  const since = r.lastDone && r.doneYesterday ? `Yesterday you did ${r.doneYesterday} · ${r.newSince} new since` : r.lastDone ? `${r.newSince} new since your last one` : "";
+  $("sSince").textContent = since; $("sSince").hidden = !since;
   $("sBlockedWrap").title = "posts hidden because you already contacted that person or already replied in the thread";
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
@@ -243,7 +246,14 @@ $("goPost").onclick = async () => {
   const path = cur.permalink.replace(/^https?:\/\/[^/]+/, "");
   window.open("https://www.reddit.com" + path, "_blank");   // new Reddit; prefill-new.js fills the composer there
 };
-$("goDm").onclick = async () => { if (!cur) return; await copyText($("dm").value); window.open(huntComposeUrl(cur, $("dm").value), "_blank"); };
+$("goDm").onclick = async () => {
+  if (!cur) return;
+  await copyText($("dm").value);
+  window.open(huntComposeUrl(cur, $("dm").value), "_blank");
+  if ($("assumeDm").checked) setTimeout(() => act("dm"), 800);   // counts as sent; the post is struck through in Done and never returns
+};
+$("assumeDm").onchange = () => chrome.storage.local.set({ assumeDm: $("assumeDm").checked });
+$("later").onclick = () => act("later");
 $("copyShort").onclick = () => copyText($("short").value, $("copyShort"));
 $("copyDm").onclick = () => copyText($("dm").value, $("copyDm"));
 for (const b of document.querySelectorAll("#sizes button")) b.onclick = () => { dmSize = b.dataset.s; render(); };
@@ -319,6 +329,25 @@ function showTable(kind) {
     }
     return;
   }
+  if (kind === "done") {
+    send({ type: "hunt-done" }).then((r) => {
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const all = (r && r.rows) || [];
+      let showToday = true;
+      const draw = () => {
+        const rows = showToday ? all.filter((d) => d.at >= midnight.getTime()) : all;
+        $("tableTitle").textContent = `Done ${showToday ? "today" : "ever"} (${rows.length})`;
+        $("tableNote").innerHTML = `Replied or DM'd. Struck through, on the contacted list, never shown again. <a href="#" id="doneToggle" style="color:#8ab4ff">${showToday ? "show all days" : "show today only"}</a>`;
+        $("doneToggle").onclick = (e) => { e.preventDefault(); showToday = !showToday; draw(); };
+        $("tableHead").innerHTML = "<tr><th>Post</th><th>Person</th><th>Reply</th><th>DM</th><th class='when'>When</th></tr>";
+        tableText = () => rows.map((d) => `${d.title}  [${d.author} · ${d.repliedAt ? "replied" : ""}${d.dmAt ? " dm" : ""} · ${new Date(d.at).toLocaleString()}]`).join("\n");
+        $("tableRows").innerHTML = rows.length ? rows.map((d) => `<tr class="done"><td><a href="${esc(d.permalink)}" target="_blank" style="color:inherit">${esc(d.title)}</a><br><span style="color:#98a0b3">r/${esc(d.sub)}</span></td><td>${esc(d.author)}</td><td>${d.repliedAt ? "✓" : "—"}</td><td>${d.dmAt ? "✓" : "—"}</td><td class="when">${new Date(d.at).toLocaleTimeString()}${showToday ? "" : " · " + new Date(d.at).toLocaleDateString()}</td></tr>`).join("")
+          : `<tr><td colspan="5" style="color:#98a0b3">${showToday ? "Nothing yet today." : "Nothing yet."}</td></tr>`;
+      };
+      draw();
+    });
+    return;
+  }
   send({ type: "hunt-contacted" }).then((r) => {
     const all = (r && r.rows) || [];
     const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
@@ -335,6 +364,7 @@ function showTable(kind) {
 $("sQueueBtn").onclick = () => showTable("queue");
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
+$("sDoneBtn").onclick = () => showTable("done");
 // Everything in the table as plain text on the clipboard: the fastest way to
 // show someone what the hunt is finding, without a file.
 let tableText = () => "";
@@ -473,6 +503,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "2") $("didDm").click();
   if (e.key === "s") $("skip").click();
   if (e.key === "x") $("bad").click();
+  if (e.key === "l") $("later").click();
 });
 
 (async () => {
@@ -489,6 +520,8 @@ document.addEventListener("keydown", (e) => {
   const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
   $("cSrv").value = (hunt.server || {}).url || ""; $("cSrvTok").value = (hunt.server || {}).token || "";
   if (!profile.name || !profile.reddit) $("setup").hidden = false;   // first run: ask once
+  const { assumeDm = true } = await chrome.storage.local.get(["assumeDm"]);
+  $("assumeDm").checked = assumeDm !== false;
   // fill in what we can work out ourselves, so there is less to type
   if (!profile.reddit) {
     const who = await send({ type: "hunt-whoami" });
