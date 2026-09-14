@@ -174,9 +174,9 @@ export const DEFAULT_CONFIG = {
 
   // ---- Private message ---------------------------------------------------
   // The offer that closes every PM. Edit this one line and every PM changes.
-  dmOffer: `{To make it easy|To make this a no-brainer|So there's no risk to you}: {I'll do the first batch at 20% off|first month is 20% off|I'll knock 20% off the first order} so you can judge the work before committing to anything bigger. {Payment only after you approve the first delivery|You pay once you're happy with the first delivery}.
+  dmOffer: `{We can get started immediately|We can start on this right away|Ready to start today} — {I'll send over a sample first so you can see the quality before you commit to anything|happy to do a quick sample first so you can judge the work yourself|I can put a sample together first so you know exactly what you're getting}.
 
-{Reply here or on the thread and I'll get started today|Say the word and I'll start today}.`,
+{Reply here or on the thread and I'll get moving|Just say the word and I'll get started|Send over the details and I'll get going today}.`,
 
   // ---- Private message templates ---------------------------------------
   // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
@@ -234,7 +234,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 5;
+export const CONFIG_VERSION = 6;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -270,6 +270,9 @@ export async function migrateConfig() {
     // closes with the shared offer. Replace them unless they were customised.
     next.dmOffer = next.dmOffer ?? DEFAULT_CONFIG.dmOffer;
     next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
+  }
+  if (v < 6 && /20% off/.test(next.dmOffer || '')) {
+    next.dmOffer = DEFAULT_CONFIG.dmOffer;   // the discount/payment-terms offer is retired
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
