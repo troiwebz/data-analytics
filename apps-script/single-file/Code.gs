@@ -353,7 +353,9 @@ function suggestedOffer_(lead) {
 function sendLeadTelegram_(lead, lint, priorContact) {
   const score = Number(lead.score) || 0;
   const silent = score < buzzScore_();
-  const card =
+  // The extension may send a fully rendered card (HTML) so the layout can
+  // evolve without touching this script. Otherwise build the default one.
+  const card = lead.card ? String(lead.card) :
     tier_(score) + ' <b>' + score + ' pts</b> · ' + tgEsc_(lead.categoryLabel || lead.category || '—') +
       (lead.budget ? ' · ' + tgEsc_(lead.budget) : '') + '\n' +
     '<b>' + tgEsc_(lead.title) + '</b>\n\n' +
@@ -631,7 +633,7 @@ function handleIngest_(leads) {
       continue;
     }
 
-    const lint = lintDraft_(lead.draft);
+    const lint = (lead.lint && Array.isArray(lead.lint.errors)) ? lead.lint : lintDraft_(lead.draft);
     if (!insertLead_(lead, 'SENT', lint)) { out.duplicates++; continue; }
     out.added++;
     try {

@@ -23,6 +23,7 @@ import {
 
 const FEED_ALARM = 'poll-feed';
 const APPROVAL_ALARM = 'poll-approvals';
+const UPDATE_ALARM = 'check-update';
 
 // ---------------------------------------------------------------- lifecycle
 
@@ -52,6 +53,25 @@ export async function scheduleAlarms(cfg) {
   if (!cfg.enabled) return;
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: Math.max(1, cfg.pollMinutes), delayInMinutes: 0.1 });
   chrome.alarms.create(APPROVAL_ALARM, { periodInMinutes: Math.max(1, cfg.approvalPollMinutes) });
+  chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 2 });
+}
+
+/**
+ * Unpacked extensions are served straight from the folder on disk, so after a
+ * `git pull` the files are new but the running code is old. Compare the
+ * manifest on disk with the one we started with and reload ourselves.
+ * Settings and the local database live in chrome.storage and survive it.
+ */
+async function checkForUpdate() {
+  try {
+    const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+    const onDisk = (await res.json()).version;
+    const running = chrome.runtime.getManifest().version;
+    if (onDisk && onDisk !== running) {
+      await log(`new version on disk (${running} → ${onDisk}) — reloading`);
+      chrome.runtime.reload();
+    }
+  } catch { /* file unreadable mid-pull — try again next tick */ }
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -63,6 +83,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       await pollFeed();
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
+    if (alarm.name === UPDATE_ALARM) await checkForUpdate();
   } catch (e) {
     await log(`${alarm.name}: ${e.message}`, 'error');
   }
@@ -315,6 +336,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
+      case 'check-update':  await checkForUpdate(); sendResponse({ version: chrome.runtime.getManifest().version }); break;
       default:              sendResponse({ error: 'unknown command' });
     }
   })();

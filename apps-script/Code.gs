@@ -70,7 +70,7 @@ function handleIngest_(leads) {
       continue;
     }
 
-    const lint = lintDraft_(lead.draft);
+    const lint = (lead.lint && Array.isArray(lead.lint.errors)) ? lead.lint : lintDraft_(lead.draft);
     if (!insertLead_(lead, 'SENT', lint)) { out.duplicates++; continue; }
     out.added++;
     try {
