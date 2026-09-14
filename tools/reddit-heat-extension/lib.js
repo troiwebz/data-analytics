@@ -1092,30 +1092,31 @@ HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
 // The DM closes on two things: a free deliverable worth saying yes to, and a
 // private channel where the conversation actually continues. Reddit DMs get
 // buried; WhatsApp and Telegram do not.
-// How we work, in their terms. No free builds: we are a paid partner team.
+// How we work, in their terms. No price in the first message: the shape is
+// the pitch — we come in as their team and share income and expenses.
 HEAT.HUNT_OFFER = {
-  technical: (m) => `How we work, so you can decide fast: we don't join as an equity co-founder, and we don't build for free. We come in as your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront to start, then ${m.deal.share}% of income from what we build and run. You keep the company and the IP.
+  technical: (m) => `How we work, so you can decide fast: we don't join as an equity co-founder and we don't work for free. We come in as your team — ${m.deal.teamDoes} — and we share the income and the expenses with you, agreed in writing before anything is spent. You keep the company and the IP; we're the team that builds and runs it, not the boss.
 
-Two questions so neither of us wastes time: is there a budget to start, yes or no? And is a partner team on a share of income, instead of a co-founder on equity, a shape you're open to?`,
-  marketing: (m) => `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income from what we bring in. You keep the company.
+One question so neither of us wastes time: is a partner team on a share of income and expenses, rather than a co-founder on equity, a shape you're open to?`,
+  marketing: (m) => `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — and share the income and the expenses with you, agreed in writing first. You keep the company.
 
-Two questions: is there a budget to start, yes or no? And is a partner team on a share of income, rather than a co-founder on equity, open for you?`,
-  design: (m) => `How we work: not as an equity co-founder, and not for free. As your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income. You keep the company and the IP.
+One question: is a partner team on a share of income and expenses, rather than a co-founder on equity, open for you?`,
+  design: (m) => `How we work: not as an equity co-founder, not for free. As your team — ${m.deal.teamDoes} — sharing income and expenses with you, agreed in writing first. You keep the company and the IP.
 
-Two questions: is there a budget to start? And is a partner team on a share of income something you're open to?`,
-  business: (m) => `How we work: we come in as your operating team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income, expenses split and agreed in writing first. Not equity, not free. You keep the company.
+One question: is that shape — a partner team on a share of income and expenses — open for you?`,
+  business: (m) => `How we work: we come in as your operating team — ${m.deal.teamDoes} — and share income and expenses with you, agreed in writing before anything is spent. Not equity, not free. You keep the company.
 
-Two questions: is there a budget to start? And is that shape open for you?`,
-  unclear: (m) => `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income from what we build and run. You keep the company and the IP.
+One question: is that shape open for you?`,
+  unclear: (m) => `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — and share the income and the expenses with you, agreed in writing first. You keep the company and the IP.
 
-Two questions: is there a budget to start, yes or no? And is a partner team on a share of income, instead of a co-founder on equity, open for you?`,
+One question: is a partner team on a share of income and expenses, rather than a co-founder on equity, open for you?`,
 };
 HEAT.HUNT_OFFER_SHORT = {
-  technical: (m) => `We don't join for equity and don't build free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget to start, and is that shape open for you?`,
-  marketing: (m) => `We don't take equity and don't work free — we act as your growth team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Budget to start, and is that shape open for you?`,
-  design: (m) => `Not equity, not free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget, and is that shape open for you?`,
-  business: (m) => `We come in as your operating team for $${m.deal.upfront} to start, then ${m.deal.share}% of income — not equity, not free. Budget to start, and is that open for you?`,
-  unclear: (m) => `We don't join for equity and don't work free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget, and is that shape open for you?`,
+  technical: (m) => `We don't join for equity and don't work free — we come in as your team and share the income and expenses with you; you keep the company. Is that shape open for you?`,
+  marketing: (m) => `We don't take equity and don't work free — we act as your growth team on a share of income and expenses; you keep the company. Is that open for you?`,
+  design: (m) => `Not equity, not free — we come in as your team on a share of income and expenses; you keep the company. Is that shape open for you?`,
+  business: (m) => `We come in as your operating team on a share of income and expenses — not equity, not free; you keep the company. Is that open for you?`,
+  unclear: (m) => `We don't join for equity and don't work free — we come in as your team and share income and expenses with you; you keep the company. Is that shape open for you?`,
 };
 
 // WhatsApp and Telegram links, from whatever the user typed in Options.
@@ -1137,7 +1138,7 @@ HEAT.huntContactLine = function (profile = {}, short = false) {
   const both = [wa ? "WhatsApp: " + wa : "", tg ? "Telegram: " + tg : ""].filter(Boolean);
   if (!both.length) return "Reply here and I'll get started on it today.";
   if (short) return `Faster here than Reddit DMs — ${both.join("  ·  ")}`;
-  return `Reddit DMs get buried, so it's faster to send it here — ${both.join("  ·  ")}\nOne message with that paragraph and I'll start on it today. Reply here if you'd rather stay on Reddit.`;
+  return `Reddit DMs get buried, so it's faster to send it here — ${both.join("  ·  ")}\nOne message with a yes or a no is enough and I'll send the next step. Reply here if you'd rather stay on Reddit.`;
 };
 
 // PRIVATE: the long Laurel-style value bomb. Full diagnosis and steps.
@@ -1363,7 +1364,7 @@ HEAT.huntThing = function (p) {
   t = t.replace(/^.*\b(?:co[- ]?founders?|cofounders?|cto|cmo|coo|technical partner|business partner|developer|engineer|designer|partner)\b/i, " ").trim();
   const junk = /^(?:co[- ]?founder|cofounder|partner|someone|somebody|anyone|help|equity|my (?:startup|idea|project)|our (?:startup|idea|project)|the (?:project|idea)|this|it)\b/i;
   // "more product ideas", "advice", "feedback": not a venture, so never "your more product ideas"
-  const filler = /\b(?:ideas?|advice|feedback|thoughts|tips|suggestions|opinions?|input|recommendations?|guidance|mentor|mentorship|networking|connections?|people|folks|anyone|everyone|founders?|partners?|team ?mates?|members?|investors?|funding|money|equity|job|work|role|position|opportunit)\b|^(?:more|some|any|new|good|great|the best|a few|few|other|fellow)\b/i;
+  const filler = /\b(?:ideas?|advice|feedback|thoughts|tips|suggestions|opinions?|input|recommendations?|guidance|mentor|mentorship|networking|connections?|people|folks|anyone|everyone|founders?|partners?|team ?mates?|members?|investors?|funding|money|equity|job|work|role|position|opportunit|company|business|startup|venture|project)\b|^(?:more|some|any|new|good|great|the best|a few|few|other|fellow)\b/i;
   const clean = (x) => x.replace(/\s*[-–—|(,.:;!?]+\s*$/, "").replace(/\s+/g, " ").trim();
   const tries = [
     /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing|to build)\s+(?:my|our|a|an|the)\s+([A-Za-z0-9][\w' -]{2,40})/,
@@ -1379,21 +1380,24 @@ HEAT.huntThing = function (p) {
   const b = (p.body || "").replace(/\s+/g, " ");
   const built = b.match(/\b(?:building|built|launching|launched|working on|creating|developing|making)\s+(?:a|an|the|my|our)\s+([a-z0-9][\w' -]{2,40}?)(?=[.,;:!?)]|\s(?:that|which|for|to|and|but|so|where)\b)/i);
   if (built) { const phrase = clean(built[1]); if (phrase.length > 2 && !filler.test(phrase)) return "your " + phrase; }
-  const app = b.match(/\b(?:app|platform|marketplace|saas|tool|product|startup)\b/i);
+  const app = b.match(/\b(?:app|platform|marketplace|saas|tool|ats|extension|bot|api)\b/i);
   return app ? "your " + app[0].toLowerCase() : "what you're building";
 };
 
 HEAT.huntVars = function (p, profile = {}) {
+  const stage = p.stage;
   const stageLine = p.stage === "revenue" ? "Since you already have revenue, you're in a much stronger position than most people posting this, and you can almost certainly pay for execution instead of trading equity for it."
     : p.stage === "building" ? "Since you've already built something, you're further along than most, and the next step is usually users rather than a partner."
     : p.equityOnly ? "I know budget is the constraint, so everything above is meant to be doable by you for close to nothing."
     : "";
   const thing = HEAT.huntThing(p);
   const deal = { ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) };
+  // Someone with a working product isn't told we "build the first version".
+  if ((stage === "building" || stage === "revenue") && deal.teamDoes === HEAT.DEAL_DEFAULT.teamDoes) deal.teamDoes = HEAT.DEAL_DEFAULT.teamDoesLater;
   const offerFn = HEAT.HUNT_OFFER[p.role] || HEAT.HUNT_OFFER.unclear;
   return {
     name: HEAT.huntName(p.author),
-    thing, stageLine, deal,
+    thing, stageLine, deal, stage,
     offer: offerFn({ thing, deal }),
     contact: HEAT.huntContactLine(profile),
     shortContact: HEAT.huntContactLine(profile, true),
@@ -1405,18 +1409,27 @@ HEAT.huntVars = function (p, profile = {}) {
 // Three lengths of the same letter. Short for someone who wrote two lines,
 // long for someone who wrote an essay. Same offer and same close in all three.
 const DM_ONELINE = {
-  technical: (m) => `the first version of ${m.thing} is usually 2 to 4 weeks of work, which is a much smaller commitment than a third of your company`,
-  marketing: (m) => `the first 100 users for ${m.thing} almost never come from marketing, they come from one channel worked by hand`,
-  design: (m) => `what's usually blocking a product at this stage is the flow, not the visuals`,
-  business: (m) => `trying to sell it once, manually, tells you more than ten partner conversations`,
-  unclear: (m) => `"I need a co-founder" and "I need this to exist" look identical from the inside and cost wildly different things`,
+  technical: (m) => m.stage === "building" || m.stage === "revenue"
+    ? `you already have a working product, so what usually helps now is a team that runs and grows it, not months spent finding a co-founder`
+    : `what you need first is a first version in front of users, and that is a team for weeks, not a co-founder for years`,
+  marketing: (m) => `the first customers almost never come from a marketing co-founder, they come from one channel worked by hand by a team`,
+  design: (m) => `what's usually blocking a product at this stage is the flow, not the visuals, and that's a team problem more than a partner problem`,
+  business: (m) => `the fastest way to find out what you actually need is to sell it once, with a team behind you, before you split the company`,
+  unclear: (m) => `"I need a co-founder" and "I need this built and run" look identical from the inside and cost wildly different things`,
 };
+const LATER = (m) => m.stage === "building" || m.stage === "revenue";
 const DM_WHY = {
-  technical: (m) => `A technical co-founder costs 30 to 50 percent of the company and three to six months of searching, and most of those partnerships break because neither side could judge the other's work yet. The first version of ${m.thing} is usually 2 to 4 weeks. Build that first, put it in front of ten people, then decide what you actually need — with evidence instead of hope.`,
+  technical: (m) => LATER(m)
+    ? `You already have something working${m.stage === "revenue" ? " and paying" : " and people using it"}, which changes the question. What most founders at this point need isn't three to six months finding a co-founder and giving up a third of the company for it; it's a team that runs and grows what's already there, and one that shares the upside so it cares about the numbers the way you do.`
+    : `A technical co-founder costs 30 to 50 percent of the company and three to six months of searching, and most of those partnerships break because neither side could judge the other's work yet. The first version of ${m.thing} is usually 2 to 4 weeks. Build that first, put it in front of ten people, then decide what you actually need — with evidence instead of hope.`,
   marketing: (m) => `Bringing in a growth person before the offer is repeatable usually ends the same way: five channels tried, none stick, both sides blame the other. Prove one channel by hand yourself, then bring someone in to scale that one thing.`,
   design: (m) => `Early products rarely fail for looking bad. They fail because the flow asks too much before it gives anything back, and a designer joining now would be guessing at the same unknowns you are.`,
-  business: (m) => `Before splitting equity, the highest-value thing you can do is try to sell it once, manually, to one real buyer. Everything gets clearer after that: whether it's a real problem, what they'd pay, and whether the gap is a partner or just a first build.`,
-  unclear: (m) => `There are two situations that both look like "I need a co-founder". One is genuinely needing someone to own a function for years. The other, far more common, is needing the thing to exist so you can find out if any of this is real.`,
+  business: (m) => LATER(m)
+    ? `You're past the "is this real" stage, so the question isn't whether it works, it's who does the operating and selling work every day and how they're paid. Splitting the company for that is the expensive way; sharing the income from it is the cheap way.`
+    : `Before splitting equity, the highest-value thing you can do is try to sell it once, manually, to one real buyer. Everything gets clearer after that: whether it's a real problem, what they'd pay, and whether the gap is a partner or just a first build.`,
+  unclear: (m) => LATER(m)
+    ? `You're already past the point where "I need a co-founder" usually means "I need this to exist". What's left is running and growing it, and that's a team job you can share income on, not a person you have to split the company with.`
+    : `There are two situations that both look like "I need a co-founder". One is genuinely needing someone to own a function for years. The other, far more common, is needing the thing to exist so you can find out if any of this is real.`,
 };
 const DM_STEPS = {
   technical: [
@@ -1553,6 +1566,8 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
 - The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
 - Both DMs: open "Hi ${m.name}," then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
+- NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: we come in as their team and share income and expenses; they keep the company. Numbers come later, in the conversation, when they ask.
+- READ THE STAGE. If they already have a working product, users or revenue, never tell them to build a first version or that "v1 is 2 to 4 weeks" — talk about running and growing what exists. Only idea-stage posts get first-version advice.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
   const user = `THE POST
 Subreddit: r/${p.sub || "?"}
@@ -1599,7 +1614,7 @@ HEAT.huntAiClean = function (out) {
 // INBOX: replies to your DMs, answered according to a plan
 // ===========================================================================
 // Editable terms. The instructions below reference them as {{UPFRONT}} etc.
-HEAT.DEAL_DEFAULT = { upfront: 350, share: 20, expenseShare: 50, teamDoes: "builds and runs the first version: development, design, launch, the day-to-day operating work — a dedicated team, not a freelancer", disqualify: "equity-only; wants free work; no budget at all; refuses any income share; wants an employee, not a partner; can't say who the customer is" };
+HEAT.DEAL_DEFAULT = { upfront: 350, share: 20, expenseShare: 50, teamDoes: "builds and runs the first version: development, design, launch, the day-to-day operating work — a dedicated team, not a freelancer", teamDoesLater: "runs and grows what you've already built: development, growth, support, the day-to-day operating work — a dedicated team, not a freelancer", disqualify: "equity-only; wants free work; no budget at all; refuses any income share; wants an employee, not a partner; can't say who the customer is" };
 
 HEAT.INBOX_PLAN_DEFAULT = `WHAT WE ARE DOING: we are not applying to be anyone's co-founder, and we do not work for free. We are qualifying founders for a partnership where they HIRE OUR TEAM (paid), we work as one team with them, and we SHARE EXPENSES AND INCOME. Most people posting for a co-founder want free labour under a nicer name. Our job is to find the few who don't, quickly, and cut the rest politely.
 
