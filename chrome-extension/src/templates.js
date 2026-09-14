@@ -55,7 +55,7 @@ function render(lead, tpl) {
   if (!tpl) return '';
 
   const budgetLine = lead.budget
-    ? `• Your stated budget of ${lead.budget} works for this scope\n`
+    ? `- Your stated budget of ${lead.budget} works for this scope\n`
     : '';
 
   const vars = {

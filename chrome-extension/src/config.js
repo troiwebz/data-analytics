@@ -135,7 +135,12 @@ export const DEFAULT_CONFIG = {
     mustInclude: [],                                   // e.g. { pattern: 'your-sales-thread', label: 'BST link' }
     mustAppearEarly: [],                               // e.g. { pattern: 'Telegram', within: 120, label: 'contact at top' }
     banned: ['free trial'],
-    warn: ['guaranteed', 'guarantee', '100%', 'cheapest']
+    warn: [
+      'guaranteed', 'guarantee', '100%', 'cheapest',
+      // Reads as AI-written on a forum. Keep replies in plain punctuation.
+      '\\u2014', '\\u2013', '\\u2022', 'delve', 'leverage our', 'tailored solution',
+      'in today\'s', 'game[- ]?changer', 'seamless'
+    ]
   },
 
   // ---- Reply templates -------------------------------------------------
@@ -145,71 +150,71 @@ export const DEFAULT_CONFIG = {
   templates: {
     seo: `{Hi|Hey} @{{author}},
 
-{This is squarely what we do|Happy to handle this|We do this daily} — we run SEO for agencies and direct clients, so {{category}} work is our day job.
+{We can handle this|Happy to help with this|We do this every week}. We run SEO for agencies and direct clients.
 
-• What you get: full audit, on-page fixes, and a white-hat link plan
-• Turnaround: first deliverables in 5-7 days
-• Reporting: monthly rank + traffic sheet, no fluff
+- Full audit, on-page fixes, and a white hat link plan
+- First deliverables in 5-7 days
+- Monthly rank and traffic report
 {{budgetLine}}
 {Samples and past results on request|Happy to share live case studies|Can send anonymised client results}. {Dropping you a PM with details|PMing you now}.`,
 
     ads: `{Hi|Hey} @{{author}},
 
-{We handle exactly this|This is in our wheelhouse|Can definitely help} — we manage paid campaigns end to end (Google, Meta, TikTok).
+{We handle exactly this|Can definitely help|This is what we do daily}. We manage paid campaigns end to end on Google, Meta and TikTok.
 
-• Setup: account structure, tracking, conversion events
-• Creative: we produce the ad assets in-house
-• Optimisation: weekly, with a clear spend-to-result report
+- Account structure, tracking and conversion events set up properly
+- Ad creative produced in house
+- Weekly optimisation with a clear spend to result report
 {{budgetLine}}
 {Happy to walk through past accounts|Can share anonymised campaign data}. {Sending a PM|PMing you the details}.`,
 
     design: `{Hi|Hey} @{{author}},
 
-{We can do this|Right up our street|Happy to handle this} — we're a design team, so {{category}} is what we produce daily.
+{We can do this|Happy to handle this|This is what our team does daily}. We are a design team and {{category}} is what we produce.
 
-• Source files included (PSD / AI / Figma)
-• 2 concepts first, then unlimited tweaks on the chosen one
-• Turnaround: 2-4 days depending on scope
+- Source files included (PSD, AI, Figma)
+- 2 concepts first, then unlimited tweaks on the one you pick
+- 2-4 days depending on scope
 {{budgetLine}}
 {Portfolio available on request|Can send the portfolio over}. {PMing you now|Sending you a PM}.`,
 
     social: `{Hi|Hey} @{{author}},
 
-{We can cover this|Happy to handle this|This is exactly what our team does} — we run and post on social accounts day to day.
+{We can cover this|Happy to handle this|This is exactly what our team does}. We run and post on social accounts every day.
 
-• Real devices and residential connections, matched to the geo you need
-• Consistent daily posting to your schedule, not bursts
-• Warmed accounts, sensible limits, no burning the profile
+- Real devices and residential connections, matched to the geo you need
+- Steady daily posting on your schedule, not bursts
+- Warmed accounts and sensible limits so the profile stays healthy
 {{budgetLine}}
 {Tell us the platform, geo and volume and we'll scope it today|Send the platform, geo and daily volume and we'll come back with a price}. {Happy to show accounts we already run|Can show current accounts on request}.`,
 
     web: `{Hi|Hey} @{{author}},
 
-{We can build this|Happy to handle this|This is straightforward for us} — we do site builds and landing pages in-house.
+{We can build this|Happy to handle this|This is straightforward for us}. We do site builds and landing pages in house.
 
-• Clean, fast, mobile-first build
-• On-page SEO done properly from the start
-• Turnaround depends on page count — can scope it today
+- Clean, fast, mobile first build
+- On-page SEO done properly from the start
+- Timeline depends on page count, happy to scope it today
 {{budgetLine}}
 {Live examples on request|Can send live examples}. {Sending a PM|PMing you}.`,
 
     // Used when no category matched. Kept deliberately open-ended.
     generic: `{Hi|Hey} @{{author}},
 
-{Interested in this|We can help with this|Happy to handle this} — we're a full-service agency (SEO, paid ads, design, web, content), so whatever the scope, it's in-house.
+{Interested in this|We can help with this|Happy to handle this}. We are a full service agency covering SEO, paid ads, design, web and content, all in house.
 
-• Tell us the details and we'll scope it same day
-• Clear price before any work starts
+- Tell us the details and we will scope it same day
+- Clear price before any work starts
 {{budgetLine}}
 {Happy to share relevant past work|Examples on request}. {PMing you now|Sending a PM}.`,
 
     content: `{Hi|Hey} @{{author}},
 
-{We can cover this|Happy to handle this|This is something we do a lot of} — written by humans, briefed against real search intent.
+{We can cover this|Happy to handle this|This is something we do a lot of}. Written by people, briefed against real search intent.
 
-• SEO-aware, no AI filler
-• Sample piece before you commit
-• Turnaround: 2-3 days per batch
+- SEO aware, no AI filler
+- Sample piece before you commit
+- 2-3 days per batch
 {{budgetLine}}
 {Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
   },
@@ -221,7 +226,7 @@ export const DEFAULT_CONFIG = {
   // The offer that closes every PM. Edit this one line and every PM changes.
   dmOffer: `{Happy to share our portfolio and live samples|I can send over our portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
 
-{We can get started immediately|We can start on this right away|Ready to start today} — {just reply here or on the thread|say the word and I'll get moving|send over the details and I'll get going}.`,
+{We can get started immediately|We can start on this right away|Ready to start today}. {Just reply here or on the thread|Say the word and I'll get moving|Send over the details and I'll get going}.`,
 
   // ---- Private message templates ---------------------------------------
   // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
@@ -287,7 +292,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 10;
+export const CONFIG_VERSION = 11;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -333,6 +338,11 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 11) {
+    // Em dashes and "•" read as AI-written; templates rewritten without them.
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmOffer = DEFAULT_CONFIG.dmOffer;
   }
   if (v < 10 && Array.isArray(next.excludes) && !next.excludes.some((e) => /for sale/.test(e))) {
     next.excludes = DEFAULT_CONFIG.excludes;   // seller-thread guards added
