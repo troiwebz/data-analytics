@@ -1581,3 +1581,87 @@ HEAT.huntAiClean = function (out) {
   if (dm_short.length < 180 || dm_long.length < 700) return null;
   return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300) };
 };
+
+// ===========================================================================
+// INBOX: replies to your DMs, answered according to a plan
+// ===========================================================================
+HEAT.INBOX_PLAN_DEFAULT = `GOAL: turn this conversation into a $350 engagement.
+
+WHAT THEY GET FOR $350: a dedicated VA from my team completes the task end to end — the thing we promised (the first version, the plan, the outreach), done for them, not explained to them. All the benefits: daily progress updates, unlimited revisions within the agreed scope, delivered within an agreed number of days, they keep everything, and I stay on as the technical partner they can call afterwards.
+
+HOW TO GET THERE:
+1. Answer what they actually asked, completely and specifically. Never dodge a question to pitch.
+2. Deliver, or schedule, the free thing we promised in the DM (the prototype / the plan / the twenty places). Ask for the one paragraph if we still need it.
+3. Once they show interest or ask "what next" or "how much": present the $350 offer plainly, in one paragraph — what they get, how long, what happens on day one. No pressure, no fake urgency.
+4. Objections ("too expensive", "can you do it for equity", "I'll think about it"): answer honestly. Equity: no, but the $350 covers the VA's time and I take no cut. Price: compare with what a freelancer charges for the same. Thinking: fine, say what would change their mind and leave the door open.
+5. Close: move to WhatsApp/Telegram, agree the scope in three lines, say how to pay (I will confirm the payment method), and what they will receive first.
+
+VOICE: same as before — one founder to another, direct, warm, specific, no marketing words, never a compliment opener.`;
+
+HEAT.INBOX_STAGES = [
+  { key: "answer", label: "Answering" },
+  { key: "deliver", label: "Delivering the free thing" },
+  { key: "offer", label: "Presenting $350" },
+  { key: "objection", label: "Handling an objection" },
+  { key: "close", label: "Closing" },
+  { key: "done", label: "Done / no reply needed" },
+];
+
+HEAT.INBOX_SCHEMA = {
+  type: "object",
+  properties: {
+    reply: { type: "string", description: "The reply to send, ready to paste. 60 to 220 words. Plain text, no markdown headings." },
+    stage: { type: "string", enum: ["answer", "deliver", "offer", "objection", "close", "done"], description: "Which step of the plan this reply performs." },
+    note: { type: "string", description: "One line for the operator: what they asked, what this reply does, and what to watch for." },
+  },
+  required: ["reply", "stage", "note"],
+  additionalProperties: false,
+};
+
+// Build the drafting prompt from the whole conversation, their original post
+// (when we have it), your profile, and the plan.
+HEAT.inboxAiPrompt = function (thread, post, profile = {}, plan) {
+  const contact = HEAT.huntContactLine(profile, true);
+  const name = HEAT.huntName(thread.with);
+  const history = (thread.messages || []).map((m) => `${m.mine ? "ME" : "THEM"} (${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}):\n${(m.body || "").trim()}`).join("\n\n---\n\n");
+  const system = `You draft private replies on Reddit for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}. You are continuing a conversation that started when they replied to a public post asking for a co-founder, then a DM. The person's first name is ${name}. Follow THE PLAN below exactly, one step at a time — do not skip to the offer before the person has shown interest, and do not repeat an offer already made. Reply to what the latest message actually says. Never invent facts about the user's team, pricing or timelines beyond what the plan states; if something is unknown, say it will be confirmed. Never mention Reddit's rules, never say you are an AI. Plain text only. Sign off as "${profile.name || ""}".
+
+THE PLAN
+${plan || HEAT.INBOX_PLAN_DEFAULT}
+
+CONTACT LINE (use verbatim when moving to a private channel)
+${contact}`;
+  const user = `${post ? `THEIR ORIGINAL POST (r/${post.sub})\nTitle: ${post.title}\n${(post.body || "").slice(0, 2500)}\n\n` : ""}THE CONVERSATION SO FAR, oldest first
+${history}
+
+Write the next reply from ME, the stage it performs, and a one-line note.`;
+  return { system, user, schema: HEAT.INBOX_SCHEMA };
+};
+
+HEAT.inboxAiClean = function (out) {
+  if (!out || typeof out !== "object") return null;
+  const reply = String(out.reply || "").replace(/\r/g, "").trim();
+  if (reply.length < 60) return null;
+  const stage = HEAT.INBOX_STAGES.some((s) => s.key === out.stage) ? out.stage : "answer";
+  return { reply, stage, note: String(out.note || "").slice(0, 300) };
+};
+
+// Fallback when no engine is available: a stage-guessed template.
+HEAT.inboxTemplateReply = function (thread, profile = {}, plan) {
+  const name = HEAT.huntName(thread.with);
+  const last = [...(thread.messages || [])].reverse().find((m) => !m.mine) || {};
+  const t = (last.body || "").toLowerCase();
+  const contact = HEAT.huntContactLine(profile, true);
+  const sign = profile.name ? `\n\n— ${profile.name}` : "";
+  const price = ((plan || HEAT.INBOX_PLAN_DEFAULT).match(/\$\s?(\d[\d,]*)/) || [, "350"])[1];
+  if (/how much|price|cost|charge|rate|\$/.test(t)) {
+    return { stage: "offer", note: "they asked about price", reply: `Hi ${name},\n\nStraight answer: $${price}. For that a dedicated person from my team takes the task end to end — you get daily updates, unlimited revisions inside the scope we agree, and you keep everything. I stay on as the technical partner you can call afterwards; the $${price} covers their time, I take no cut.\n\nIf that works, easiest is to agree the scope in three lines here: ${contact}${sign}` };
+  }
+  if (/equity|no money|can'?t pay|free/.test(t)) {
+    return { stage: "objection", note: "equity / no budget objection", reply: `Hi ${name},\n\nI get it, and I'd rather be straight than string you along: equity doesn't work for this, because the person doing the work needs to be paid this month, not in three years. $${price} is what covers their time — that is roughly a day and a half of a freelancer's rate for a job that takes us a week — and I take nothing from it.\n\nIf that's genuinely out of reach right now, tell me what would change in the next month and I'll keep the free piece I promised on the table either way.${sign}` };
+  }
+  if (/ok|sounds good|let'?s do|yes|interested|how do we start|next step/.test(t)) {
+    return { stage: "close", note: "they said yes — close", reply: `Hi ${name},\n\nGood. Three things and we start:\n1. The scope, in three lines, so we both know what "done" means.\n2. How you'd like to pay the $${price} — I'll confirm the method.\n3. Your WhatsApp or Telegram so the updates come to you daily, not to a Reddit inbox.\n\n${contact}${sign}` };
+  }
+  return { stage: "answer", note: "answer their message, then invite the paragraph", reply: `Hi ${name},\n\nThanks for coming back. ${last.body ? "On what you asked — " : ""}happy to go through it properly, and I'd still like to do the free piece I mentioned: send me one paragraph on what it does today and who the first user is, and I'll turn that around within 48 hours.\n\nFaster to do it here: ${contact}${sign}` };
+};

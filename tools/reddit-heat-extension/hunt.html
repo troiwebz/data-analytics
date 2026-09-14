@@ -70,6 +70,12 @@
   .bar > div { height:100%; width:0; background:var(--or); transition:width .4s; }
   .bar.ok > div { background:var(--ok); }
   .bar.bad > div { background:#c62828; }
+  .thr { padding:10px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .thr:hover { background:#1d2129; } .thr.on { background:#1d1712; border-left:3px solid var(--or); }
+  .thr b { display:block; font-size:13.5px; } .thr span { color:var(--dim); font-size:12px; }
+  .thr.needs b::before { content:"● "; color:var(--or); }
+  .msg { padding:8px 10px; margin:6px 0; border-radius:8px; background:#12151c; font-size:13px; white-space:pre-wrap; }
+  .msg.mine { background:#1a2230; margin-left:40px; } .msg small { display:block; color:var(--dim); margin-bottom:3px; font-size:11px; }
   [hidden] { display:none !important; }
   @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
 </style>
@@ -86,6 +92,7 @@
   <span class="stat" id="sPoll">never checked</span>
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
   <button id="updNow" class="ghost">Update now</button>
+  <button class="stat" id="openInbox">Inbox <b id="sInbox">0</b></button>
   <button id="openAi" class="ghost">AI writing</button>
   <button id="openSetup" class="ghost">Your details</button>
 </header>
@@ -138,6 +145,43 @@
       <label class="engine"><input type="radio" name="engine" value="templates"><div><b>Templates only</b><span>No AI. The five pre-written options, with the noun swapped in. Instant, free, generic.</span></div></label>
     </div>
     <p class="foot" style="margin:10px 0 0">If the chosen engine fails on a post, the templates are shown for that post and the reason is written above the options. Written replies are kept on the post, so nothing is paid or computed twice; <b>rewrite</b> asks again.</p>
+  </div>
+
+  <!-- INBOX: replies to your DMs, answered by the plan -->
+  <div id="inbox" hidden>
+    <div class="row" style="margin-bottom:10px">
+      <b>Inbox</b>
+      <span class="stat" id="inboxStatus">not checked yet</span>
+      <button id="inboxCheck" class="ghost">Check now</button>
+      <button id="openPlan" class="ghost">The plan</button>
+      <button id="closeInbox" class="ghost" style="margin-left:auto">Back to the queue</button>
+    </div>
+    <div id="planBox" class="card" hidden style="margin-bottom:12px">
+      <p class="step"><b>The plan</b> · what every inbox reply steers toward, one step at a time</p>
+      <textarea id="planText" style="height:260px"></textarea>
+      <div class="row"><button id="planSave" class="primary">Save plan</button><button id="planReset" class="ghost">Reset to default</button><span id="planMsg" class="done" hidden>Saved ✓</span></div>
+    </div>
+    <div class="wrap">
+      <section class="card" style="padding:0;overflow:hidden">
+        <div id="threadList"></div>
+      </section>
+      <section class="card" id="threadPane">
+        <div id="threadEmpty" class="empty" style="padding:30px 10px">Pick a conversation on the left. New replies from people you DM'd land here by themselves, every minute.</div>
+        <div id="threadView" hidden>
+          <div class="meta" id="threadMeta"></div>
+          <div id="threadMsgs" style="max-height:300px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 0"></div>
+          <p class="step" style="margin-top:12px"><b>Reply</b> · <span id="draftStage"></span> <span id="draftState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="draftRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
+          <p class="foot" id="draftNote" style="margin:0 0 6px"></p>
+          <textarea id="draft" style="height:220px"></textarea>
+          <div class="row">
+            <button id="goReply" class="good">Open the reply, filled in ↗</button>
+            <button id="copyReply" class="ghost">Copy only</button>
+            <button id="threadHandled">Mark handled</button>
+            <button id="threadSkip" class="ghost">No reply needed</button>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <!-- any table view: queue, contacted -->

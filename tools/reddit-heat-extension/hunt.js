@@ -423,6 +423,92 @@ async function updBackground() {
   $("updBg").textContent = `Background updater: ${s.scheduler === "off" ? "OFF — run the command above once and it turns on" : s.scheduler + ", every 2 min"} · folder has v${s.onDisk}${s.lastLog ? " · last log: " + s.lastLog : ""}`;
 }
 
+// ===========================================================================
+// INBOX
+// ===========================================================================
+let inboxThreads = [];
+let curThread = null;
+let inboxPlan = "";
+let draftBusy = "";
+async function inboxRefresh() {
+  const r = await send({ type: "inbox-list" });
+  if (!r) return;
+  inboxThreads = r.threads; inboxPlan = r.plan;
+  $("sInbox").textContent = r.needs;
+  $("openInbox").classList.toggle("hot", r.needs > 0);
+  $("inboxStatus").textContent = r.lastError ? "last check failed: " + r.lastError : r.lastPoll ? `checked ${ago(r.lastPoll)} · ${r.needs} waiting for a reply` : "not checked yet";
+  $("threadList").innerHTML = inboxThreads.length ? inboxThreads.map((t) => `<div class="thr ${t.needsReply ? "needs" : ""} ${curThread && curThread.id === t.id ? "on" : ""}" data-id="${t.id}"><b>${esc(t.with)}</b><span>${esc((t.post && t.post.title) || t.subject || "").slice(0, 70)}</span><br><span>${t.messages.length} messages · ${ago(t.lastAt)}${t.needsReply ? " · needs a reply" : t.handled ? " · handled" : ""}</span></div>`).join("")
+    : `<div class="empty" style="padding:30px 12px">No conversations yet. They appear here once someone answers a DM.</div>`;
+  for (const el of $("threadList").querySelectorAll(".thr")) el.onclick = () => openThread(el.dataset.id);
+  if (curThread) {
+    const fresh = inboxThreads.find((t) => t.id === curThread.id);
+    // never let a refresh wipe a draft that is on screen or being written
+    if (fresh) { curThread = { ...fresh, draft: fresh.draft || curThread.draft }; renderThread(); }
+  }
+}
+async function openThread(id) {
+  curThread = inboxThreads.find((t) => t.id === id) || null;
+  for (const el of $("threadList").querySelectorAll(".thr")) el.classList.toggle("on", el.dataset.id === id);
+  renderThread();
+  await draftWrite(false);
+}
+function renderThread() {
+  const t = curThread;
+  $("threadEmpty").hidden = !!t; $("threadView").hidden = !t;
+  if (!t) return;
+  $("threadMeta").innerHTML = `<b>${esc(t.with)}</b> · ${t.messages.length} messages${t.post ? ` · from <a href="#" style="color:#8ab4ff">r/${esc(t.post.sub)}: ${esc(t.post.title).slice(0, 60)}</a>` : ""}`;
+  $("threadMsgs").innerHTML = t.messages.map((m) => `<div class="msg ${m.mine ? "mine" : ""}"><small>${m.mine ? "me" : esc(m.author)} · ${ago(m.at)}</small>${esc(m.body)}</div>`).join("");
+  $("threadMsgs").scrollTop = 1e6;
+  const d = t.draft;
+  const stage = d ? (INBOX_STAGES.find((s) => s.key === d.stage) || {}).label : "";
+  $("draftStage").textContent = stage || "";
+  $("draftNote").textContent = d && d.note ? d.note : "";
+  $("draft").value = d ? d.reply : "";
+  $("draftRedo").hidden = !d || engine() === "templates";
+  $("draftState").textContent = d ? (d.engine === "claude" ? `written by Claude${d.cents ? " · " + d.cents + "¢" : ""}` : d.engine === "chrome" ? "written by Chrome, on-device" : "template") : (draftBusy === t.id ? "writing…" : "");
+  $("draftState").style.color = d ? "#7ee29a" : "#e6c76b";
+}
+async function draftWrite(force) {
+  const t = curThread;
+  if (!t || (t.draft && !force) || draftBusy === t.id) return;
+  const eng = engine();
+  draftBusy = t.id; renderThread();
+  let draft = null, err = "";
+  try {
+    if (eng === "claude" && profile.apiKey) {
+      const r = await send({ type: "inbox-ai", id: t.id, force: !!force });
+      if (r && r.ok) draft = r.draft; else err = (r && r.error) || "no answer";
+    } else if (eng === "chrome") {
+      const pr = await send({ type: "inbox-prompt", id: t.id });
+      const session = await LanguageModel.create({ initialPrompts: [{ role: "system", content: pr.system }] });
+      try { const out = JSON.parse(await session.prompt(pr.user, { responseConstraint: pr.schema })); draft = inboxAiClean(out); if (draft) draft.engine = "chrome"; else err = "failed the checks"; }
+      finally { if (session.destroy) session.destroy(); }
+    }
+  } catch (e) { err = String(e && e.message || e); }
+  if (!draft) { draft = inboxTemplateReply(t, profile, inboxPlan); draft.engine = "template"; if (err) draft.note = "AI failed (" + err + "), template used. " + draft.note; }
+  await send({ type: "inbox-act", id: t.id, action: "draft", patch: draft });
+  t.draft = draft; draftBusy = "";
+  renderThread();
+}
+$("draftRedo").onclick = () => draftWrite(true);
+$("goReply").onclick = async () => {
+  const t = curThread; if (!t) return;
+  const text = $("draft").value;
+  await copyText(text);
+  const last = [...t.messages].reverse().find((m) => !m.mine) || t.messages[t.messages.length - 1];
+  await chrome.storage.local.set({ pendingMessage: { threadId: t.id, replyTo: last && last.id, text, at: Date.now() } });
+  window.open("https://old.reddit.com/message/messages/" + t.id.replace(/^t4_/, ""), "_blank");
+};
+$("copyReply").onclick = () => copyText($("draft").value, $("copyReply"));
+$("threadHandled").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "handled" }); curThread = null; inboxRefresh(); renderThread(); };
+$("threadSkip").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "skip" }); curThread = null; inboxRefresh(); renderThread(); };
+$("inboxCheck").onclick = async () => { $("inboxStatus").textContent = "checking…"; await send({ type: "inbox-poll" }); inboxRefresh(); };
+$("openInbox").onclick = () => { $("inbox").hidden = false; $("main").hidden = true; $("table").hidden = true; $("setup").hidden = true; $("aiPanel").hidden = true; inboxRefresh(); };
+$("closeInbox").onclick = () => { $("inbox").hidden = true; $("main").hidden = false; refresh(); };
+$("openPlan").onclick = () => { $("planBox").hidden = !$("planBox").hidden; $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT; };
+$("planSave").onclick = async () => { inboxPlan = $("planText").value.trim(); await send({ type: "inbox-plan", plan: inboxPlan }); $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400); };
+$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; };
+
 // ---- version: running, on disk, on GitHub -------------------------------
 // Nothing to click. The 2-minute updater puts new files in the folder, the
 // worker reloads the extension within a minute of that, and this pill just
@@ -500,6 +586,8 @@ document.addEventListener("keydown", (e) => {
   checkAhead();
   showVersion();
   updBackground();
+  inboxRefresh();
+  setInterval(inboxRefresh, 30000);
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

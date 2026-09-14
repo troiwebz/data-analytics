@@ -251,3 +251,44 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (btn) btn.addEventListener("click", marked, { once: true });
   chrome.storage.local.remove("pendingReply");
 })();
+
+
+// ---------------------------------------------------------------------------
+// Pre-filled reply inside a private-message thread (old.reddit.com/message/…).
+// The hunt's Inbox stores the drafted reply; here we open the reply box under
+// the last message from them, fill it, and mark the thread handled on save.
+// ---------------------------------------------------------------------------
+(async function prefillMessageReply() {
+  if (!/^\/message\//.test(location.pathname)) return;
+  const { pendingMessage } = await chrome.storage.local.get(["pendingMessage"]);
+  if (!pendingMessage || !pendingMessage.text) return;
+  if (Date.now() - (pendingMessage.at || 0) > 20 * 60000) { chrome.storage.local.remove("pendingMessage"); return; }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const note = document.createElement("div");
+  note.style.cssText = "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;max-width:720px;padding:10px 16px;border-radius:10px;background:#ff5722;color:#fff;font:14px/1.4 -apple-system,Segoe UI,sans-serif;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.35)";
+  document.body.appendChild(note);
+  const say = (t, bg) => { note.textContent = t; if (bg) note.style.background = bg; };
+  // the message we are answering, else the last one on the page
+  let msg = pendingMessage.replyTo ? document.querySelector(`.message[data-fullname="${pendingMessage.replyTo}"], .thing[data-fullname="${pendingMessage.replyTo}"]`) : null;
+  const all = Array.from(document.querySelectorAll(".message, .thing.message"));
+  if (!msg) msg = all[all.length - 1];
+  if (!msg) { say("Could not find the message on this page. The reply is on your clipboard — press ⌘V in the reply box.", "#c62828"); return; }
+  // old.reddit keeps the reply form hidden until its "reply" link is clicked
+  const visible = (el) => !!(el && el.offsetParent);
+  let ta = msg.querySelector(".usertext-edit textarea");
+  if (!visible(ta)) {
+    const link = Array.from(msg.querySelectorAll("a")).find((a) => /^reply$/i.test((a.textContent || "").trim()));
+    if (link) { link.click(); await sleep(300); }
+    ta = msg.querySelector(".usertext-edit textarea") || document.querySelector(".usertext-edit textarea");
+  }
+  if (!ta) { say("No reply box here (locked or logged out). The reply is on your clipboard.", "#c62828"); return; }
+  ta.value = pendingMessage.text;
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+  ta.style.outline = "3px solid #ff5722"; ta.style.minHeight = "140px";
+  ta.scrollIntoView({ block: "center" }); ta.focus();
+  say("Reply filled in from the Inbox. Read it, edit if you like, then click save. The thread is marked handled the moment you do.");
+  chrome.storage.local.remove("pendingMessage");
+  const form = ta.closest("form");
+  const done = () => { chrome.runtime.sendMessage({ type: "inbox-act", id: pendingMessage.threadId, action: "handled" }); say("Sent. Marked handled — back to the Inbox for the next one.", "#2ea043"); setTimeout(() => note.remove(), 6000); };
+  if (form) { form.addEventListener("submit", done, { once: true }); const btn = form.querySelector("button[type=submit], .usertext-buttons button"); if (btn) btn.addEventListener("click", done, { once: true }); }
+})();

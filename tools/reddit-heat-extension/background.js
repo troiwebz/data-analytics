@@ -119,6 +119,12 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "version-check-now") { Promise.all([checkRemoteVersion(), checkVersion()]).then(() => reply({ ok: true })); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
+  if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "inbox-act") { inboxAct(msg.id, msg.action, msg.patch).then(reply); return true; }
+  if (msg.type === "inbox-ai") { inboxAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "inbox-plan") { inboxSet({ plan: msg.plan || "" }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "inbox-prompt") { (async () => { const st = await inboxGet(); const t = st.threads[msg.id]; if (!t) return reply(null); const hunt = await huntGet(); const { config = {} } = await chrome.storage.local.get(["config"]); reply(inboxAiPrompt(t, t.postId ? hunt.posts[t.postId] : null, config.profile || {}, st.plan || INBOX_PLAN_DEFAULT)); })(); return true; }
   if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); p.ai = { ...huntAiClean(msg.ai), at: Date.now(), model: msg.model || "on-device", cents: 0 }; if (!p.ai.public_reply) { delete p.ai; return reply({ ok: false, error: "failed the checks" }); } await huntSet({ posts: st.posts }); reply({ ok: true, ai: p.ai }); })(); return true; }
   if (msg.type === "hunt-ai-test") { (async () => {
       const key = await huntAiKey();
@@ -650,6 +656,7 @@ async function huntPoll(force) {
   const st = await huntGet();
   if (!st.on && !force) return { ok: false, error: "hunt is off" };
 
+  inboxPoll().catch(() => {});      // in parallel; one request through the tab
   const fromServer = await huntPullServer(st);
   if (fromServer && !fromServer.failed) {
     const cutoff = Date.now() - HUNT_KEEP_DAYS * 86400000;
@@ -884,4 +891,125 @@ async function huntAiWrite(id, force) {
   p.ai = ai;
   await huntSet({ posts: st.posts });
   return { ok: true, ai };
+}
+
+// ===========================================================================
+// INBOX: private replies to your DMs, read through the logged-in tab
+// ===========================================================================
+async function inboxGet() {
+  const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
+  return { threads: inbox.threads || {}, lastPoll: inbox.lastPoll || 0, lastError: inbox.lastError || "", plan: inbox.plan || "", me: inbox.me || "" };
+}
+async function inboxSet(patch) {
+  const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
+  await chrome.storage.local.set({ inbox: { ...inbox, ...patch } });
+}
+
+// Reddit's message listing: t4 threads, replies nested under `replies`.
+function flattenMessages(child, me, out) {
+  const d = child && child.data;
+  if (!d) return;
+  const author = d.author || "";
+  out.push({ id: d.name || ("t4_" + d.id), author, mine: author.toLowerCase() === (me || "").toLowerCase(), body: d.body || "", at: (d.created_utc || 0) * 1000, unread: !!d.new, parent: d.parent_id || "", root: d.first_message_name || d.name });
+  const rep = d.replies && d.replies.data && d.replies.data.children;
+  if (rep) for (const c of rep) flattenMessages(c, me, out);
+}
+
+async function inboxPoll() {
+  const st = await inboxGet();
+  const me = await huntMe();
+  if (!me) { await inboxSet({ lastError: "your Reddit username is unknown — set it in Your details" }); return { ok: false }; }
+  let j;
+  try { j = await huntFetch("https://old.reddit.com/message/messages.json?limit=50&raw_json=1"); }
+  catch (e) { await inboxSet({ lastError: String(e.message || e), lastPoll: Date.now() }); return { ok: false, error: String(e.message || e) }; }
+  const flat = [];
+  for (const c of (j.data && j.data.children) || []) flattenMessages(c, me, flat);
+  const hunt = await huntGet();
+  const byAuthor = {};
+  for (const p of Object.values(hunt.posts)) if (p.author) byAuthor[p.author.toLowerCase()] = p.id;
+  const threads = st.threads;
+  let fresh = 0;
+  for (const m of flat) {
+    if (!m.author || /^automoderator$|^reddit$/i.test(m.author)) continue;
+    const root = m.root;
+    let t = threads[root];
+    if (!t) {
+      const other = m.mine ? "" : m.author;
+      t = threads[root] = { id: root, with: other, subject: "", messages: [], lastAt: 0, handled: false, postId: "", unread: 0 };
+    }
+    if (!t.with && !m.mine) t.with = m.author;
+    if (!t.messages.some((x) => x.id === m.id)) {
+      t.messages.push({ id: m.id, author: m.author, mine: m.mine, body: m.body, at: m.at });
+      t.messages.sort((a, b) => a.at - b.at);
+      if (!m.mine) { fresh += 1; t.handled = false; t.draft = null; }  // a new message from them reopens the thread
+    }
+    t.lastAt = Math.max(t.lastAt, m.at);
+  }
+  for (const t of Object.values(threads)) {
+    if (!t.with) continue;
+    if (!t.postId) t.postId = byAuthor[t.with.toLowerCase()] || "";
+    const last = t.messages[t.messages.length - 1];
+    t.needsReply = !!(last && !last.mine && !t.handled);
+    t.subject = t.subject || (flat.find((m) => m.root === t.id && m.body) || {}).body || "";
+  }
+  // only conversations with people we contacted from the hunt, or who wrote to us about a post we hold
+  await inboxSet({ threads, lastPoll: Date.now(), lastError: "", me });
+  return { ok: true, fresh };
+}
+
+async function inboxList() {
+  const st = await inboxGet();
+  const hunt = await huntGet();
+  const list = Object.values(st.threads).filter((t) => t.with).map((t) => ({ ...t, post: t.postId && hunt.posts[t.postId] ? { title: hunt.posts[t.postId].title, sub: hunt.posts[t.postId].sub, body: (hunt.posts[t.postId].body || "").slice(0, 2500) } : null }));
+  list.sort((a, b) => (b.needsReply ? 1 : 0) - (a.needsReply ? 1 : 0) || b.lastAt - a.lastAt);
+  return { threads: list, needs: list.filter((t) => t.needsReply).length, lastPoll: st.lastPoll, lastError: st.lastError, plan: st.plan || INBOX_PLAN_DEFAULT };
+}
+
+async function inboxAct(id, action, patch) {
+  const st = await inboxGet();
+  const t = st.threads[id];
+  if (!t) return { ok: false };
+  if (action === "handled") { t.handled = true; t.needsReply = false; t.repliedAt = Date.now(); }
+  if (action === "skip") { t.handled = true; t.needsReply = false; }
+  if (action === "reopen") { t.handled = false; t.needsReply = true; }
+  if (action === "draft" && patch) t.draft = patch;
+  await inboxSet({ threads: st.threads });
+  return { ok: true };
+}
+
+async function inboxAiWrite(id, force) {
+  const st = await inboxGet();
+  const t = st.threads[id];
+  if (!t) return { ok: false, error: "thread not found" };
+  if (t.draft && t.draft.engine === "claude" && !force) return { ok: true, draft: t.draft, cached: true };
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no api key", noKey: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const hunt = await huntGet();
+  const post = t.postId ? hunt.posts[t.postId] : null;
+  const { system, user, schema } = inboxAiPrompt(t, post, config.profile || {}, st.plan || INBOX_PLAN_DEFAULT);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 90000);
+  let r, j;
+  try {
+    r = await fetch(AI_URL, {
+      method: "POST", signal: ctl.signal,
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 2000, fallbacks: "default", output_config: { effort: "low", format: { type: "json_schema", schema } }, system, messages: [{ role: "user", content: user }] }),
+    });
+    j = await r.json().catch(() => ({}));
+  } catch (e) { return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than 90s" : "could not reach api.anthropic.com" }; }
+  finally { clearTimeout(timer); }
+  if (!r.ok) return { ok: false, error: r.status === 401 ? "the API key was rejected" : r.status === 429 ? "rate limited, try again in a minute" : ((j.error && j.error.message) || "HTTP " + r.status) };
+  if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this conversation" };
+  let parsed = null;
+  try { parsed = JSON.parse((j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("")); } catch (_) { return { ok: false, error: "not JSON" }; }
+  const draft = inboxAiClean(parsed);
+  if (!draft) return { ok: false, error: "the reply failed the checks" };
+  const u = j.usage || {};
+  draft.engine = "claude"; draft.at = Date.now();
+  draft.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 1000) / 10;
+  t.draft = draft;
+  await inboxSet({ threads: st.threads });
+  return { ok: true, draft };
 }
