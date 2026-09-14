@@ -60,5 +60,12 @@ $('approvals').addEventListener('click', async () => {
   render();
 });
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
+$('backfill').addEventListener('click', async () => {
+  if (!confirm('Record the last 48 hours of HAF threads in your Sheet? Nothing is sent to Telegram.')) return;
+  $('backfill').textContent = '…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'backfill' });
+  $('backfill').textContent = r?.error ? 'Failed' : `Recorded ${r?.backfilled ?? 0}`;
+  render();
+});
 
 render();

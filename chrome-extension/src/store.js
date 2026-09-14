@@ -21,6 +21,11 @@ export async function markSeen(threadIds) {
   await chrome.storage.local.set({ [SEEN_KEY]: seen });
 }
 
+/** Forget every seen thread so the next poll runs the first-run backfill again. */
+export async function clearSeen() {
+  await chrome.storage.local.set({ [SEEN_KEY]: {} });
+}
+
 export async function isFirstRun() {
   return Object.keys(await getSeen()).length === 0;
 }

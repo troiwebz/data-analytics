@@ -9,14 +9,14 @@
 //
 // Nothing is ever posted without a 🚀 tap from Telegram.
 
-import { getConfig, setConfig, DEFAULT_CONFIG } from './config.js';
+import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js';
 import { fetchFeed } from './feed.js';
 import { fetchReplyCounts, forumUrlFromFeed } from './listing.js';
 import { matchLead } from './matcher.js';
 import { renderReply } from './templates.js';
 import { pushLeads, fetchApproved, reportResult } from './sync.js';
 import {
-  getSeen, markSeen, isFirstRun, recordLeads, updateLead,
+  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, updateLead,
   checkRateLimit, recordPost, log,
   getStaged, setStaged, removeStagedByTab
 } from './store.js';
@@ -26,11 +26,12 @@ const APPROVAL_ALARM = 'poll-approvals';
 
 // ---------------------------------------------------------------- lifecycle
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
+  const migrated = await migrateConfig();
   const cfg = await getConfig();
   await setConfig(cfg);
   await scheduleAlarms(cfg);
-  await log('installed');
+  await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
 });
 chrome.runtime.onStartup.addListener(async () => scheduleAlarms(await getConfig()));
 
@@ -269,6 +270,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'approvals-now': sendResponse(await pollApprovals().then(() => ({ ok: true })).catch((e) => ({ error: e.message }))); break;
       case 'reschedule':    await scheduleAlarms(await getConfig()); sendResponse({ ok: true }); break;
       case 'staged':        sendResponse(await getStaged()); break;
+      case 'backfill':      await clearSeen(); sendResponse(await pollFeed().catch((e) => ({ error: e.message }))); break;
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
       default:              sendResponse({ error: 'unknown command' });
     }

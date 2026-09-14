@@ -163,6 +163,33 @@ export const DEFAULT_CONFIG = {
   }
 };
 
+export const CONFIG_VERSION = 3;
+
+/**
+ * Upgrade settings saved by an older version of the extension without
+ * touching what the user typed (URL, secret, keyword edits). Runs on every
+ * install/reload; a no-op once configVersion is current.
+ */
+export async function migrateConfig() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config) return;
+  const v = config.configVersion || 1;
+  if (v >= CONFIG_VERSION) return;
+  const next = { ...config };
+  if (v < 3) {
+    // v1/v2 shipped 10-minute polling, a score filter, no staging, no backfill.
+    if (next.pollMinutes === 10) next.pollMinutes = DEFAULT_CONFIG.pollMinutes;
+    if (next.notifyScore === 4) next.notifyScore = DEFAULT_CONFIG.notifyScore;
+    for (const k of ['jitterSeconds', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'backfillHours']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+    next.templates = { ...DEFAULT_CONFIG.templates, ...(next.templates || {}) };  // adds 'generic'
+  }
+  next.configVersion = CONFIG_VERSION;
+  await chrome.storage.local.set({ config: next });
+  return next;
+}
+
 export async function getConfig() {
   const { config } = await chrome.storage.local.get('config');
   return { ...DEFAULT_CONFIG, ...(config || {}) };
@@ -170,7 +197,7 @@ export async function getConfig() {
 
 export async function setConfig(patch) {
   const current = await getConfig();
-  const next = { ...current, ...patch };
+  const next = { ...current, ...patch, configVersion: CONFIG_VERSION };
   await chrome.storage.local.set({ config: next });
   return next;
 }
