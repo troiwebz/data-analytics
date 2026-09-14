@@ -67,11 +67,26 @@ already filled in. On the dashboard the PM has its own editable box with
 - **🚀 Post now** — the extension posts it. If the lead was staged, that's a
   single click on an already-loaded page: under a second.
 - **✅ I posted it** — you pasted it yourself; log it so it's never suggested again.
-
-On desktop, click the toolbar icon: a full **dashboard tab** shows every lead
-with exact local posted time, live reply count, the editable draft, and the
-same buttons — 🚀 posts directly from there without touching Telegram.
 - **⏭ Skip** — log it as skipped.
+
+## The dashboard
+
+Click the toolbar icon for a full tab: one table of every lead.
+
+| Posted | Replies | Score | Thread | Budget | Status |
+|---|---|---|---|---|---|
+
+- **Click a column header to sort** by it; click the same header again to
+  reverse. The active column and direction are marked. Unknown reply counts
+  sort last rather than pretending to be zero.
+- **Click a row** to open the post snippet, the public reply, the PM and the
+  buttons for that lead — 🚀 posts from here without touching Telegram.
+- A search box and a "hide posted / skipped" toggle are the only filters.
+- **Backfill 48h** loads the last two days; **Scrape all…** walks the forum
+  listing pages (20 threads each, ~1.2 s apart) and records everything started
+  inside a date window, reaching threads the RSS feed has already dropped.
+  Those rows carry no post body, so they are scored on the title alone —
+  treat that score as a floor.
 
 Score decides only whether your phone **buzzes**: 🔥 and ⭐ buzz, • arrives
 silently. Nothing is dropped. Change the threshold any time with `/buzz 12`.

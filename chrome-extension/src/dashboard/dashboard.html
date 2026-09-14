@@ -5,106 +5,88 @@
   :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  header h1{font-size:16px;margin:0 14px 0 0}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0 10px 0 0}
+  header h1 small{font-weight:400;opacity:.6;font-size:12px}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;background:#64748b}
   .dot.on{background:#22c55e}
   header .sp{flex:1}
-  header button{background:#1e293b;color:#fff;border:1px solid #334155}
-  header button.pri{background:var(--blue);border-color:var(--blue)}
   button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
   button:hover{filter:brightness(.96)}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  header button.pri{background:var(--blue);border-color:var(--blue)}
   button.go{background:var(--green);color:#fff;border-color:var(--green)}
   button.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
-  .stats{display:flex;gap:10px;padding:14px 20px;flex-wrap:wrap}
-  .k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 16px;min-width:110px}
-  .k b{display:block;font-size:22px}.k span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
-  .bar{display:flex;gap:10px;padding:0 20px 10px;align-items:center;flex-wrap:wrap}
-  .bar input,.bar select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui}
-  .bar input{min-width:260px}
-  main{padding:0 20px 40px;display:grid;gap:12px}
-  .lead{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;grid-template-columns:1fr 380px;gap:16px}
-  @media(max-width:900px){.lead{grid-template-columns:1fr}}
-  .lead.hot{border-left:4px solid #f97316}.lead.warm{border-left:4px solid #eab308}
-  .t{font-size:15px;font-weight:700;text-decoration:none;color:var(--ink)}.t:hover{color:var(--blue)}
-  .meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--mute);font-size:12.5px;margin:6px 0}
-  .meta b{color:var(--ink)}
-  .score{display:inline-block;background:#0f172a;color:#fff;border-radius:6px;padding:1px 8px;font-weight:700;margin-right:8px}
-  .st{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700;letter-spacing:.04em}
+  .stats{display:flex;gap:10px;padding:14px 20px 10px;flex-wrap:wrap}
+  .k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 16px;min-width:104px}
+  .k b{display:block;font-size:20px}.k span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+  .tools{display:flex;gap:10px;align-items:center;padding:0 20px 12px;flex-wrap:wrap}
+  .tools input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;min-width:260px}
+  #cmd{font:11px ui-monospace,Menlo,monospace;background:#1e293b;color:#cbd5e1;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #334155}
+  .wrap{padding:0 20px 40px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th{background:#f8fafc;border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;font-size:12px;
+     text-transform:uppercase;letter-spacing:.04em;color:var(--mute);white-space:nowrap}
+  th.s{cursor:pointer;user-select:none}
+  th.s:hover{color:var(--ink);background:#f1f5f9}
+  th .ar{opacity:.35;font-size:10px}
+  th.on{color:var(--blue)} th.on .ar{opacity:1}
+  td{border-bottom:1px solid #f1f5f9;padding:9px 10px;vertical-align:top}
+  tr.r{cursor:pointer} tr.r:hover td{background:#f8fafc}
+  tr.hot td:first-child{box-shadow:inset 3px 0 0 #f97316}
+  tr.warm td:first-child{box-shadow:inset 3px 0 0 #eab308}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .t{font-weight:600;color:var(--ink);text-decoration:none}
+  .t:hover{color:var(--blue)}
+  .sub{color:var(--mute);font-size:12px}
+  .st{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700}
   .POSTED{background:#dcfce7;color:#15803d}.FAILED{background:#fee2e2;color:#b91c1c}.SKIPPED{background:#f1f5f9;color:#64748b}
   .BACKFILL{background:#e0e7ff;color:#3730a3}.APPROVED{background:#fef3c7;color:#b45309}.EXPIRED{background:#f3f4f6;color:#6b7280}
-  .snip{color:#334155;font-size:13px;margin:6px 0;white-space:pre-wrap;max-height:4.5em;overflow:hidden;position:relative}
-  .snip.open{max-height:none}
-  .more{color:var(--blue);font-size:12px;cursor:pointer;background:none;border:0;padding:0}
-  .tags{font-size:12px;color:var(--mute)}
-  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:8px 0 4px}
-  .side textarea.dm{min-height:120px;background:#fffbeb}
-  .side textarea{width:100%;min-height:170px;border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.45 ui-monospace,Menlo,monospace;resize:vertical}
+  .stale{color:var(--red);font-weight:600}
+  .approx{font-size:10px;color:var(--amber)}
+  .detail td{background:#f8fafc;padding:14px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:0 0 4px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:10px;
+           font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical;background:#fff}
+  textarea.dm{background:#fffbeb}
   .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .snip{background:#fff;border-left:3px solid var(--line);padding:10px;white-space:pre-wrap;font-size:13px;margin-bottom:12px}
   .msg{font-size:12px;margin-top:6px;min-height:16px}
   .msg.ok{color:var(--green)}.msg.err{color:var(--red)}
-  .empty{padding:60px;text-align:center;color:var(--mute)}
-  #log{padding:0 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
+  .empty{padding:50px;text-align:center;color:var(--mute)}
+  #log{padding:16px 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
   #log div.error{color:var(--red)}
-  .stale{color:var(--red);font-weight:600}
-  label.f{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:var(--mute)}
-  label.f input[type=date]{font-size:12px}
-  .approx{font-size:10px;color:var(--amber);border:1px solid #fde68a;border-radius:4px;padding:0 4px}
-  #cmd{font:11px ui-monospace,Menlo,monospace;background:#1e293b;color:#cbd5e1;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #334155}
-  #cmd:hover{background:#334155}
 </style>
 <header>
-  <h1>HAF Watcher <small id="ver" style="font-weight:400;opacity:.6;font-size:12px"></small></h1>
+  <h1>HAF Watcher <small id="ver"></small></h1>
   <span><span class="dot" id="dot"></span><span id="state">…</span></span>
   <span id="rate" style="opacity:.8;font-size:12.5px"></span>
   <span class="sp"></span>
   <button id="poll" class="pri">Poll now</button>
-  <button id="approvals">Check approvals</button>
-  <button id="sync">Sync from Sheet</button>
+  <button id="update" class="pri">Update now</button>
+  <button id="approvals">Approvals</button>
+  <button id="sync">Sync sheet</button>
   <button id="backfill">Backfill 48h</button>
-  <button id="deep" title="Walk the forum listing pages and record everything in a date window">Scrape all…</button>
-  <button id="regen" title="Regenerate the PM draft for every lead from the current templates">Rebuild PMs</button>
+  <button id="deep">Scrape all…</button>
+  <button id="regen">Rebuild PMs</button>
   <button id="opts">Settings</button>
-  <button id="update" class="pri" title="Reload the extension from the folder on disk">Update now</button>
 </header>
 <div class="stats" id="stats"></div>
-<div class="bar" style="padding-top:0">
-  <span style="font-size:12.5px;color:var(--mute)">Pull the newest code first:</span>
-  <button id="cmd" title="Copy — paste in Terminal to pull immediately">bash ~/haf-watcher/tools/update.sh</button>
+<div class="tools">
+  <input id="q" placeholder="Search title, author, keyword…">
+  <label style="font-size:13px;color:var(--mute)"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
+  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
+  <span class="sp" style="flex:1"></span>
+  <button id="cmd" title="Copy — paste in Terminal to pull the newest code">bash ~/haf-watcher/tools/update.sh</button>
   <span id="cmdmsg" style="font-size:12px;color:var(--green)"></span>
 </div>
-<div class="bar">
-  <input id="q" placeholder="Search title, author, keyword…">
-  <select id="fstatus">
-    <option value="">All statuses</option>
-    <option>SENT</option><option>APPROVED</option><option>POSTED</option>
-    <option>SKIPPED</option><option>FAILED</option><option>BACKFILL</option><option>EXPIRED</option>
-  </select>
-  <select id="fcat"><option value="">All categories</option></select>
-  <label class="f"><input type="checkbox" id="hidedone"> hide done</label>
-  <button id="more">More filters</button>
-  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
-  <select id="fsort">
-    <option value="posted_desc">Posted — newest first</option>
-    <option value="posted_asc">Posted — oldest first</option>
-    <option value="found_desc">Found — newest first</option>
-    <option value="found_asc">Found — oldest first</option>
-    <option value="score_desc">Potential — high to low</option>
-    <option value="score_asc">Potential — low to high</option>
-    <option value="replies_asc">Replies — fewest first</option>
-    <option value="replies_desc">Replies — most first</option>
-    <option value="budget_desc">Budget — high to low</option>
-    <option value="activity_desc">Last reply — newest first</option>
-  </select>
+<div class="wrap">
+  <table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
 </div>
-<div class="bar" id="adv" style="padding-top:0" hidden>
-  <label class="f">score ≥ <input type="number" id="fminscore" min="0" placeholder="any" style="width:70px"></label>
-  <label class="f">replies <input type="number" id="fminrep" min="0" placeholder="min" style="width:70px">
-    to <input type="number" id="fmaxrep" min="0" placeholder="max" style="width:70px"></label>
-  <label class="f">posted <input type="date" id="ffrom"> to <input type="date" id="fto"></label>
-  <label class="f"><input type="checkbox" id="fbudget"> has budget</label>
-  <button id="fclear">Clear all</button>
-</div>
-<main id="leads"></main>
 <div id="log"></div>
 <script type="module" src="dashboard.js"></script>

@@ -1,3 +1,6 @@
+// The dashboard: one sortable table. Click a column header to sort by it,
+// click again to reverse. Click a row to open the reply, the PM and the
+// actions for that lead.
 import { getConfig } from '../config.js';
 import { renderDm } from '../templates.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
@@ -5,172 +8,168 @@ import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// All times in the viewer's local zone — never UTC.
-const fmtAbs = (iso) => iso ? new Date(iso).toLocaleString(undefined, {
-  day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-function ago(iso) {
-  if (!iso) return '';
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+// Times are always shown in the viewer's own zone.
+const when = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? '—' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+};
+const ago = (iso) => {
+  const t = new Date(iso).getTime();
+  if (!isFinite(t)) return '';
+  const m = Math.round((Date.now() - t) / 60000);
   if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
-  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
-}
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+};
+const time = (v) => { const t = new Date(v).getTime(); return isFinite(t) ? t : 0; };
 
-let edited = {};    // threadId -> public reply edited in the box
-let editedDm = {};  // threadId -> PM edited in the box
+/** `matched` is an array locally but comma-joined when it comes from the Sheet. */
+const tags = (v) => Array.isArray(v) ? v.map(String)
+  : typeof v === 'string' ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
+// ---- the columns. `get` feeds the sort; `cell` renders. -------------------
+const COLS = [
+  { key: 'posted',  label: 'Posted',   sortable: true,  dir: -1, get: (l) => time(l.postedAt),
+    cell: (l) => `<div>${when(l.postedAt)}${l.postedAtSource && l.postedAtSource !== 'listing' ? ' <span class="approx">~</span>' : ''}</div><div class="sub">${ago(l.postedAt)}</div>` },
+  { key: 'replies', label: 'Replies',  sortable: true,  dir: 1,  num: true,
+    get: (l) => l.replyCount == null ? Number.MAX_SAFE_INTEGER : l.replyCount,
+    cell: (l) => l.replyCount == null ? '<span class="sub">?</span>'
+      : `<span class="${l.replyCount >= 8 ? 'stale' : ''}">${l.replyCount}</span><div class="sub">#${l.replyCount + 1}</div>` },
+  { key: 'score',   label: 'Score',    sortable: true,  dir: -1, num: true, get: (l) => l.score ?? 0,
+    cell: (l) => `<b>${l.score ?? 0}</b>` },
+  { key: 'title',   label: 'Thread',   sortable: false,
+    cell: (l) => `<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || '(no title)')}</a>` +
+      `<div class="sub">${esc(l.author || '')}${l.categoryLabel ? ' · ' + esc(l.categoryLabel) : ''}` +
+      `${tags(l.matched).length ? ' · ' + esc(tags(l.matched).slice(0, 4).join(', ')) : ''}</div>` },
+  { key: 'budget',  label: 'Budget',   sortable: true,  dir: -1, num: true, get: (l) => l.budgetAmount ?? 0,
+    cell: (l) => l.budget ? esc(l.budget) : '<span class="sub">—</span>' },
+  { key: 'status',  label: 'Status',   sortable: true,  dir: 1,  get: (l) => l.status || '',
+    cell: (l) => `<span class="st ${esc(l.status || '')}">${esc(l.status || 'sent')}</span>` +
+      (l.pmSent ? ' <span class="st POSTED">PM</span>' : '') },
+];
+
+let sortKey = 'posted', sortDir = -1;     // newest first
+let openRow = null;
+let edited = {}, editedDm = {};
+
+// ---------------------------------------------------------------- rendering
 
 async function render() {
-  try {
-    await renderInner();
-  } catch (e) {
-    // A blank page with no explanation is worse than the error itself.
-    $('leads').innerHTML =
-      `<div class="empty" style="color:var(--red)"><b>The list failed to render.</b><br>` +
-      `${escapeHtml(e && e.message ? e.message : String(e))}<br><br>` +
-      `<span style="color:var(--mute)">Press <b>Update now</b> — this usually means the extension is still running older code. ` +
-      `If it persists, open DevTools (⌥⌘I) → Console and send me the red line.</span></div>`;
+  try { await renderInner(); }
+  catch (e) {
+    $('rows').innerHTML = `<tr><td colspan="${COLS.length}"><div class="empty" style="color:var(--red)">` +
+      `<b>The table failed to render.</b><br>${esc(e && e.message ? e.message : e)}<br><br>` +
+      `<span class="sub">Press <b>Update now</b>; if it persists open DevTools (⌥⌘I) → Console and send me the red line.</span>` +
+      `</div></td></tr>`;
     console.error('[HAF dashboard]', e);
   }
 }
 
 async function renderInner() {
-  const [cfg, leads, log, rate, staged] = await Promise.all([getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
+  const [cfg, leads, log, rate, staged] = await Promise.all(
+    [getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
 
+  $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
   $('state').textContent = cfg.enabled ? `Watching · every ${cfg.pollMinutes} min` : 'Paused — enable in Settings';
-  $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} 🚀 posts today`;
+  $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} posts today`;
 
-  const day = Date.now() - 86400000;
-  const today = leads.filter((l) => new Date(l.foundAt).getTime() > day);
+  const today = leads.filter((l) => time(l.foundAt) > Date.now() - 86400000);
   const n = (s) => leads.filter((l) => l.status === s).length;
   $('stats').innerHTML = [
     [leads.length, 'in database'], [today.length, 'found today'],
-    [n('POSTED'), 'posted'], [n('SKIPPED'), 'skipped'],
-    [Object.keys(staged).length, 'staged tabs']
+    [n('POSTED'), 'posted'], [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
   ].map(([v, k]) => `<div class="k"><b>${v}</b><span>${k}</span></div>`).join('');
 
-  // ---- filter / sort
-  const cats = [...new Set(leads.map((l) => l.categoryLabel || l.category).filter(Boolean))].sort();
-  const catSel = $('fcat');
-  if (catSel.options.length !== cats.length + 1) {
-    const keep = catSel.value;
-    catSel.innerHTML = '<option value="">All categories</option>' +
-      cats.map((c) => `<option>${esc(c)}</option>`).join('');
-    catSel.value = keep;
-  }
+  // header
+  $('head').innerHTML = COLS.map((c) => {
+    if (!c.sortable) return `<th>${c.label}</th>`;
+    const on = sortKey === c.key;
+    return `<th class="s${on ? ' on' : ''}${c.num ? ' num' : ''}" data-sort="${c.key}">` +
+           `${c.label} <span class="ar">${on ? (sortDir < 0 ? '▼' : '▲') : '⇅'}</span></th>`;
+  }).join('');
 
+  // rows
   const q = $('q').value.trim().toLowerCase();
-  const fs = $('fstatus').value;
-  const fc = $('fcat').value;
-  const minScore = numOr($('fminscore').value, -Infinity);
-  const minRep = numOr($('fminrep').value, -Infinity);
-  const maxRep = numOr($('fmaxrep').value, Infinity);
-  const from = $('ffrom').value ? new Date($('ffrom').value).getTime() : -Infinity;
-  const to = $('fto').value ? new Date($('fto').value).getTime() + 86400000 : Infinity;
-  const budgetOnly = $('fbudget').checked;
   const hide = $('hidedone').checked;
-
   let list = leads.filter((l) => {
-    if (fs && l.status !== fs) return false;
-    if (fc && (l.categoryLabel || l.category) !== fc) return false;
     if (hide && ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status)) return false;
-    if ((l.score ?? 0) < minScore) return false;
-    const rep = l.replyCount ?? null;
-    if (minRep > -Infinity && (rep == null || rep < minRep)) return false;
-    if (maxRep < Infinity && (rep == null || rep > maxRep)) return false;
-    if (budgetOnly && !l.budget) return false;
-    const t = new Date(l.postedAt).getTime();
-    if (isFinite(t) && (t < from || t > to)) return false;
-    if (q && !`${l.title} ${l.author} ${tags(l.matched).join(' ')} ${l.category}`.toLowerCase().includes(q)) return false;
-    return true;
+    if (!q) return true;
+    return `${l.title} ${l.author} ${tags(l.matched).join(' ')} ${l.category}`.toLowerCase().includes(q);
   });
 
-  const time = (v) => { const t = new Date(v).getTime(); return isFinite(t) ? t : 0; };
-  const rep = (l) => l.replyCount ?? 9999;
-  const SORTS = {
-    posted_desc:   (a, b) => time(b.postedAt) - time(a.postedAt),
-    posted_asc:    (a, b) => time(a.postedAt) - time(b.postedAt),
-    found_desc:    (a, b) => time(b.foundAt) - time(a.foundAt),
-    found_asc:     (a, b) => time(a.foundAt) - time(b.foundAt),
-    score_desc:    (a, b) => (b.score ?? 0) - (a.score ?? 0) || time(b.postedAt) - time(a.postedAt),
-    score_asc:     (a, b) => (a.score ?? 0) - (b.score ?? 0),
-    replies_asc:   (a, b) => rep(a) - rep(b) || time(b.postedAt) - time(a.postedAt),
-    replies_desc:  (a, b) => rep(b) - rep(a),
-    budget_desc:   (a, b) => (b.budgetAmount ?? 0) - (a.budgetAmount ?? 0) || (b.score ?? 0) - (a.score ?? 0),
-    activity_desc: (a, b) => time(b.lastActivityAt || b.postedAt) - time(a.lastActivityAt || a.postedAt),
-  };
-  list.sort(SORTS[$('fsort').value] || SORTS.found_desc);
-  $('count').textContent = `${list.length} of ${leads.length}`;
+  const col = COLS.find((c) => c.key === sortKey) || COLS[0];
+  list.sort((a, b) => {
+    const x = col.get(a), y = col.get(b);
+    const r = x < y ? -1 : x > y ? 1 : 0;
+    return (sortDir < 0 ? -r : r) || time(b.postedAt) - time(a.postedAt);
+  });
+  $('count').textContent = list.length === leads.length ? `${leads.length} leads` : `${list.length} of ${leads.length}`;
 
-  $('leads').innerHTML = list.length ? list.map((l) => {
-      try { return card(l, staged, cfg); }
-      catch (e) { return `<div class="lead"><div>Could not render “${escapeHtml(l.title || l.threadId)}” — ${escapeHtml(e.message)}</div></div>`; }
-    }).join('')
-    : `<div class="empty">Nothing here yet.<br>New HAF threads appear within ${cfg.pollMinutes} minutes of being posted. Click <b>Backfill 48h</b> to load recent history.</div>`;
+  $('rows').innerHTML = list.length
+    ? list.map((l) => row(l, staged, cfg)).join('')
+    : `<tr><td colspan="${COLS.length}"><div class="empty">Nothing yet.<br>` +
+      `New threads appear within ${cfg.pollMinutes} minutes. Use <b>Backfill 48h</b> or <b>Scrape all…</b> to load history.</div></td></tr>`;
 
-  $('log').innerHTML = log.slice(0, 15)
-    .map((e) => `<div class="${e.level}">${fmtTime(e.t)} ${esc(e.msg)}</div>`).join('');
+  $('log').innerHTML = log.slice(0, 12)
+    .map((e) => `<div class="${e.level}">${when(e.t).split(', ')[1] || ''} ${esc(e.msg)}</div>`).join('');
 }
 
-function card(l, staged, cfg) {
-  // Leads saved before PMs existed have no dm — render one now.
-  const dmText = editedDm[l.threadId] ?? l.dm ?? renderDm(l, cfg);
-  const tier = l.score >= 15 ? 'hot' : l.score >= 10 ? 'warm' : '';
-  const isStaged = !!staged[l.threadId];
+function row(l, staged, cfg) {
+  const id = esc(String(l.threadId));
+  const tier = (l.score ?? 0) >= 15 ? 'hot' : (l.score ?? 0) >= 10 ? 'warm' : '';
+  const cells = COLS.map((c) => {
+    let html;
+    try { html = c.cell(l); } catch { html = '<span class="sub">—</span>'; }
+    return `<td class="${c.num ? 'num' : ''}">${html}</td>`;
+  }).join('');
+  return `<tr class="r ${tier}" data-row="${id}">${cells}</tr>` +
+         (openRow === String(l.threadId) ? detail(l, staged, cfg) : '');
+}
+
+function detail(l, staged, cfg) {
+  const id = esc(String(l.threadId));
   const done = ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status);
-  const replies = l.replyCount == null ? '?' : l.replyCount;
-  const stale = l.replyCount != null && l.replyCount >= 8;
-  return `
-  <div class="lead ${tier}" data-id="${esc(l.threadId)}">
-    <div>
-      <span class="score">${l.score}</span>
-      <a class="t" href="${esc(l.url)}" target="_blank">${esc(l.title)}</a>
-      <div class="meta">
-        <span class="st ${esc(l.status || '')}">${esc(l.status || 'sent')}</span>
-        ${isStaged ? '<span class="st APPROVED">armed in tab</span>' : ''}
-        <span>👤 <b>${esc(l.author)}</b></span>
-        <span class="${stale ? 'stale' : ''}">💬 <b>${replies}</b> replies${l.replyCount != null ? ` · you'd be #${l.replyCount + 1}` : ''}</span>
-        <span title="${l.postedAtSource === 'listing' ? 'thread start time, read from the forum listing' : 'from the RSS feed — may be the last reply, not the thread start'}">🕒 posted <b>${fmtAbs(l.postedAt)}</b> (${ago(l.postedAt)})${l.postedAtSource !== 'listing' ? ' <span class="approx">approx</span>' : ''}</span>
-        ${l.lastActivityAt && l.lastActivityAt !== l.postedAt ? `<span>💬 last reply ${fmtAbs(l.lastActivityAt)}</span>` : ''}
-        <span>🔎 found ${fmtAbs(l.foundAt)}</span>
-        ${l.budget ? `<span>💰 <b>${esc(l.budget)}</b></span>` : ''}
-        ${l.categoryLabel ? `<span>${esc(l.categoryLabel)}</span>` : ''}
+  let dm = editedDm[l.threadId] ?? l.dm;
+  if (dm == null) { try { dm = renderDm(l, cfg); } catch { dm = ''; } }
+  return `<tr class="detail"><td colspan="${COLS.length}">
+    ${l.snippet ? `<div class="snip">${esc(l.snippet)}</div>` : ''}
+    ${staged[l.threadId] ? '<div class="sub" style="margin-bottom:8px">⚡ armed in a background tab — Post now fires instantly</div>' : ''}
+    <div class="cols">
+      <div>
+        <div class="lbl">Public reply</div>
+        <textarea data-draft="${id}" ${done ? 'readonly' : ''}>${esc(edited[l.threadId] ?? l.draft ?? '')}</textarea>
+        <div class="acts">
+          <button data-act="copy" data-id="${id}">📋 Copy</button>
+          <button data-act="open" data-id="${id}">🔗 Thread</button>
+          ${done ? '' : `<button class="go" data-act="post" data-id="${id}">🚀 Post now</button>
+          <button data-act="done" data-id="${id}">✅ I posted it</button>
+          <button class="warn" data-act="skip" data-id="${id}">⏭ Skip</button>`}
+        </div>
       </div>
-      <div class="snip" id="snip-${esc(l.threadId)}">${esc(l.snippet)}</div>
-      <button class="more" data-more="${esc(l.threadId)}">show more</button>
-      <div class="tags">${tags(l.matched).map(esc).join(' · ')}</div>
-      ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
-      ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank">view your reply</a></div>` : ''}
+      <div>
+        <div class="lbl">✉️ Private message to ${esc(l.author || '')}</div>
+        <textarea class="dm" data-dm="${id}">${esc(dm)}</textarea>
+        <div class="acts">
+          <button data-act="copydm" data-id="${id}">📋 Copy PM</button>
+          <button data-act="opendm" data-id="${id}">✉️ Open PM page</button>
+          <button data-act="pmsent" data-id="${id}">✅ PM sent</button>
+        </div>
+      </div>
     </div>
-    <div class="side">
-      <div class="lbl">Public reply</div>
-      <textarea data-draft="${esc(l.threadId)}" ${done ? 'readonly' : ''}>${esc(edited[l.threadId] ?? l.draft)}</textarea>
-      <div class="acts">
-        <button data-act="copy" data-id="${esc(l.threadId)}">📋 Copy reply</button>
-        <button data-act="open" data-id="${esc(l.threadId)}">🔗 Open thread</button>
-        ${done ? '' : `
-        <button class="go" data-act="post" data-id="${esc(l.threadId)}">🚀 Post now</button>
-        <button data-act="done" data-id="${esc(l.threadId)}">✅ I posted it</button>
-        <button class="warn" data-act="skip" data-id="${esc(l.threadId)}">⏭ Skip</button>`}
-      </div>
-      <div class="lbl">✉️ Private message to ${esc(l.author)}${l.pmSent ? ' <span class="st POSTED">PM sent</span>' : ''}</div>
-      <textarea class="dm" data-dm="${esc(l.threadId)}">${esc(dmText)}</textarea>
-      <div class="acts">
-        <button data-act="copydm" data-id="${esc(l.threadId)}">📋 Copy PM</button>
-        <button data-act="opendm" data-id="${esc(l.threadId)}">✉️ Open PM page</button>
-        <button data-act="pmsent" data-id="${esc(l.threadId)}">✅ I sent the PM</button>
-      </div>
-      <div class="msg" id="msg-${esc(l.threadId)}"></div>
-    </div>
-  </div>`;
+    ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
+    ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank" rel="noopener">view your reply</a></div>` : ''}
+    <div class="msg" id="msg-${id}"></div>
+  </td></tr>`;
 }
 
 function say(id, text, ok) {
   const el = $(`msg-${id}`);
   if (el) { el.textContent = text; el.className = `msg ${ok ? 'ok' : 'err'}`; }
 }
+
+// ------------------------------------------------------------------ events
 
 document.addEventListener('input', (e) => {
   const id = e.target.dataset?.draft;
@@ -179,141 +178,112 @@ document.addEventListener('input', (e) => {
   if (dmId) editedDm[dmId] = e.target.value;
 });
 
-document.addEventListener('click', async (e) => {
-  const more = e.target.dataset?.more;
-  if (more) { $(`snip-${more}`).classList.toggle('open'); e.target.textContent = $(`snip-${more}`).classList.contains('open') ? 'show less' : 'show more'; return; }
+// Sort by clicking a column header; clicking the active one reverses it.
+$('head').addEventListener('click', (e) => {
+  const key = e.target.closest('th[data-sort]')?.dataset.sort;
+  if (!key) return;
+  if (sortKey === key) sortDir = -sortDir;
+  else { sortKey = key; sortDir = (COLS.find((c) => c.key === key) || {}).dir ?? -1; }
+  render();
+});
 
+// Click a row to open it; click again to close.
+$('rows').addEventListener('click', (e) => {
+  if (e.target.closest('a, button, textarea')) return;
+  const id = e.target.closest('tr[data-row]')?.dataset.row;
+  if (!id) return;
+  openRow = openRow === id ? null : id;
+  render();
+});
+
+document.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const id = btn.dataset.id, act = btn.dataset.act;
-  const leads = await getLeads();
-  const lead = leads.find((l) => String(l.threadId) === String(id));
+  const cfg = await getConfig();
+  const lead = (await getLeads()).find((l) => String(l.threadId) === String(id));
   if (!lead) return;
-  const draft = edited[id] ?? lead.draft;
+  const draft = edited[id] ?? lead.draft ?? '';
+  let dm = editedDm[id] ?? lead.dm;
+  if (dm == null) { try { dm = renderDm(lead, cfg); } catch { dm = ''; } }
 
-  if (act === 'copy') {
-    await navigator.clipboard.writeText(draft);
-    say(id, 'Copied — paste it into the thread.', true);
-    return;
-  }
-  if (act === 'open') { chrome.tabs.create({ url: lead.url }); return; }
-
-  const cfgNow = await getConfig();
-  const dm = editedDm[id] ?? lead.dm ?? renderDm(lead, cfgNow);
-  if (act === 'copydm') {
-    await navigator.clipboard.writeText(dm);
-    say(id, 'PM copied — open the PM page and paste.', true);
-    return;
-  }
+  if (act === 'copy')  { await navigator.clipboard.writeText(draft); return say(id, 'Copied — paste into the thread.', true); }
+  if (act === 'open')  { chrome.tabs.create({ url: lead.url }); return; }
+  if (act === 'copydm') { await navigator.clipboard.writeText(dm); return say(id, 'PM copied.', true); }
   if (act === 'opendm') {
     await navigator.clipboard.writeText(dm).catch(() => {});
-    chrome.tabs.create({ url: lead.dmUrl || `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(lead.author)}` });
-    say(id, 'PM page opened with the recipient filled in; the PM text is on your clipboard — paste and send.', true);
-    return;
+    chrome.tabs.create({ url: lead.dmUrl || `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(lead.author || '')}` });
+    return say(id, 'PM page opened, text copied — paste and send.', true);
   }
-  if (act === 'pmsent') {
-    await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id });
-    delete editedDm[id];
-    return render();
-  }
-
+  if (act === 'pmsent') { await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id }); delete editedDm[id]; return render(); }
   if (act === 'post') {
     if (!confirm(`Post this reply to "${lead.title}" now?`)) return;
-    btn.disabled = true; say(id, 'Posting… (opens the thread in a background tab)', true);
+    btn.disabled = true; say(id, 'Posting…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'post-direct', lead: { ...lead, draft }, edited: draft !== lead.draft });
-    say(id, r?.ok ? 'Posted ✅' : `Failed: ${r?.error || 'unknown'}`, !!r?.ok);
     btn.disabled = false;
+    say(id, r?.ok ? 'Posted ✅' : `Failed: ${r?.error || 'unknown'}`, !!r?.ok);
     delete edited[id];
     return render();
   }
   if (act === 'done' || act === 'skip') {
-    const status = act === 'done' ? 'POSTED' : 'SKIPPED';
-    await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id, status, detail: act === 'done' ? 'posted manually (dashboard)' : '' });
+    await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id,
+      status: act === 'done' ? 'POSTED' : 'SKIPPED',
+      detail: act === 'done' ? 'posted manually (dashboard)' : '' });
     delete edited[id];
     return render();
   }
 });
 
-$('poll').addEventListener('click', async () => {
-  $('poll').textContent = 'Polling…';
+const busy = async (id, label, fn) => {
+  const b = $(id), old = b.textContent;
+  b.textContent = label; b.disabled = true;
+  try { return await fn(); } finally { b.textContent = old; b.disabled = false; render(); }
+};
+
+$('poll').addEventListener('click', () => busy('poll', 'Polling…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'poll-now' });
-  $('poll').textContent = 'Poll now';
   if (r?.error) alert(r.error);
   else if (r?.skipped) alert('Watcher is disabled — enable it in Settings.');
-  render();
-});
-$('approvals').addEventListener('click', async () => { await chrome.runtime.sendMessage({ cmd: 'approvals-now' }); render(); });
-$('sync').addEventListener('click', async () => {
-  $('sync').textContent = 'Syncing…';
-  const r = await chrome.runtime.sendMessage({ cmd: 'sync' });
-  $('sync').textContent = 'Sync from Sheet';
-  if (r?.error) alert(r.error);
-  render();
-});
-$('backfill').addEventListener('click', async () => {
-  if (!confirm('Record the last 48 hours of HAF threads in your Sheet? Nothing is sent to Telegram.')) return;
-  $('backfill').textContent = '…';
-  const r = await chrome.runtime.sendMessage({ cmd: 'backfill' });
-  $('backfill').textContent = 'Backfill 48h';
-  if (r?.error) alert(r.error); else alert(`Recorded ${r?.backfilled ?? 0} threads from the last 48h.`);
-  render();
-});
-$('regen').addEventListener('click', async () => {
-  $('regen').textContent = '…';
-  const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
-  $('regen').textContent = 'Rebuild PMs';
-  alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
-  render();
-});
-$('update').addEventListener('click', async () => {
-  $('update').textContent = 'Checking…';
+}));
+$('update').addEventListener('click', () => busy('update', 'Checking…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'check-update' });
-  if (r?.reloading) return;                      // the page dies with the reload; nothing to show
-  $('update').textContent = 'Update now';
-  alert(r?.error
-    ? r.error
-    : `Already on v${r?.version}. Nothing new in the folder — run the pull command above first, then press Update now again.`);
+  if (r?.reloading) return;
+  alert(r?.error || `Already on v${r?.version}. Run the pull command first, then press Update now again.`);
+}));
+$('approvals').addEventListener('click', () => busy('approvals', '…', () => chrome.runtime.sendMessage({ cmd: 'approvals-now' })));
+$('sync').addEventListener('click', () => busy('sync', 'Syncing…', async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'sync' });
+  if (r?.error) alert(r.error);
+}));
+$('regen').addEventListener('click', () => busy('regen', '…', async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
+  alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
+}));
+$('backfill').addEventListener('click', async () => {
+  if (!confirm('Record the last 48 hours of HAF threads? Nothing is sent to Telegram.')) return;
+  await busy('backfill', '…', async () => {
+    const r = await chrome.runtime.sendMessage({ cmd: 'backfill' });
+    alert(r?.error ? r.error : `Recorded ${r?.backfilled ?? 0} thread(s).`);
+  });
 });
-
-$('cmd').addEventListener('click', async () => {
-  await navigator.clipboard.writeText($('cmd').textContent.trim());
-  $('cmdmsg').textContent = 'copied — paste in Terminal';
-  setTimeout(() => ($('cmdmsg').textContent = ''), 4000);
-});
-
-$('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
-$('more').addEventListener('click', () => {
-  const open = $('adv').hidden;
-  $('adv').hidden = !open;
-  $('more').textContent = open ? 'Fewer filters' : 'More filters';
-  try { localStorage.setItem('haf.adv', open ? '1' : '0'); } catch { /* private window */ }
-});
-try { if (localStorage.getItem('haf.adv') === '1') $('more').click(); } catch { /* ignore */ }
-
-const FILTERS = ['q', 'fstatus', 'fcat', 'fsort', 'fminscore', 'fminrep', 'fmaxrep', 'ffrom', 'fto', 'fbudget', 'hidedone'];
-FILTERS.forEach((id) => $(id).addEventListener('input', render));
-$('fclear').addEventListener('click', () => {
-  for (const id of FILTERS) {
-    const el = $(id);
-    if (el.type === 'checkbox') el.checked = false;
-    else el.value = id === 'fsort' ? 'posted_desc' : '';
-  }
-  render();
-});
-
 $('deep').addEventListener('click', async () => {
-  const pages = parseInt(prompt('How many listing pages to walk? (20 threads per page, ~1.2s each)', '5'), 10);
+  const pages = parseInt(prompt('How many listing pages to walk? (20 threads each)', '5'), 10);
   if (!isFinite(pages) || pages < 1) return;
   const days = parseInt(prompt('Only threads started in the last N days? (0 = no limit)', '30'), 10);
-  $('deep').textContent = 'Scraping…';
-  const r = await chrome.runtime.sendMessage({ cmd: 'deep-backfill', opts: { pages, sinceDays: isFinite(days) ? days : 0 } });
-  $('deep').textContent = 'Scrape all…';
-  alert(r?.error ? r.error : `Scanned ${r.scanned} thread(s), recorded ${r.backfilled} new one(s).\n\nListing rows carry no post body, so these are scored on the title alone.`);
-  render();
+  await busy('deep', 'Scraping…', async () => {
+    const r = await chrome.runtime.sendMessage({ cmd: 'deep-backfill', opts: { pages, sinceDays: isFinite(days) ? days : 0 } });
+    alert(r?.error ? r.error
+      : `Scanned ${r.scanned}, recorded ${r.backfilled} new.\n\nListing rows carry no post body, so these are scored on the title alone.`);
+  });
 });
+$('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
+$('cmd').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('cmd').textContent.trim());
+  $('cmdmsg').textContent = 'copied';
+  setTimeout(() => ($('cmdmsg').textContent = ''), 3000);
+});
+$('q').addEventListener('input', render);
+$('hidedone').addEventListener('input', render);
 
-$('ver').textContent = 'v' + chrome.runtime.getManifest().version;
-
-// Refresh when the service worker changes anything.
 chrome.storage.onChanged.addListener(() => render());
 render();
