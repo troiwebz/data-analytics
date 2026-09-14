@@ -196,6 +196,8 @@ assert.strictEqual(cf("Non-technical founder looking for a developer to build my
 assert.strictEqual(cf("[FOR HIRE] Senior full-stack dev available for co-founder roles", "portfolio: x.com").keep, false);
 assert.strictEqual(cf("Looking for a marketing job - immediate joiner", "notice period 15 days").keep, false);
 assert.strictEqual(cf("What is your favourite CRM?", "Just curious.").keep, false);
+assert.strictEqual(cf("[opportunity] FoodSignals - web app for glp-1 users, looking for beta testers", "Specific questions I need answered: is the onboarding clear? Would love a technical co-founder eventually.").why, "wants testers, not a partner");
+assert.strictEqual(cf("Beta testers wanted for my fitness app", "free lifetime access for feedback").keep, false);
 
 // the venture, not the ask, and never doubled
 assert.strictEqual(H.huntThing({ title: "Looking for a technical co-founder for my fitness app" }), "your fitness app");

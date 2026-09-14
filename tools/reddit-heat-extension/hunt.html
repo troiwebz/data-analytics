@@ -33,7 +33,8 @@
   .step { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 6px; }
   .step b { color:var(--or); }
   textarea { width:100%; background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:inherit; font-size:13.5px; line-height:1.55; resize:vertical; }
-  input[type=text] { background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 10px; font:inherit; }
+  input[type=text], input[type=password] { background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 10px; font:inherit; }
+  input:focus { outline:none; border-color:var(--or); }
   #short { height:84px; } #dm { height:300px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
   .sep { height:1px; background:var(--line); margin:16px 0; }

@@ -944,6 +944,8 @@ HEAT.classifyCofounder = function (title, body) {
   const t = (title || "").toLowerCase();
   const all = (t + "\n" + (body || "").slice(0, 1500)).toLowerCase();
   if (HUNT_SELLER.test(t) || HUNT_SELLER.test(all.slice(0, 400))) return { keep: false, why: "seller/agency" };
+  // Beta-tester and feedback requests read like "help me" but want users, not a partner.
+  if (/\b(?:beta ?test(?:ers?|ing)?|alpha test|test my (?:app|site|product)|looking for testers|need testers|feedback on my (?:app|site|mvp|product|landing page)|try my (?:app|tool)|roast my)\b/i.test(t) && !/co[- ]?founder|cofounder|\bcto\b|partner/i.test(t)) return { keep: false, why: "wants testers, not a partner" };
   if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "job seeker" };
   if (!COFOUNDER_ASK.test(all)) return { keep: false, why: "not a co-founder ask" };
   // Someone OFFERING to be a co-founder is not a prospect either.

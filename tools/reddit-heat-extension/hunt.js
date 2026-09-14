@@ -69,7 +69,9 @@ function render() {
 // Two engines: the Anthropic API (from the worker, with the user's key) or
 // Chrome's built-in Gemini Nano (right here in the page, free, on-device).
 let aiBusy = "";
+let aiStart = 0;
 let aiErr = {};
+setInterval(() => { if (cur && aiBusy === cur.id) aiStatus(cur); }, 1000);
 function engine() {
   const e = profile.aiEngine;
   if (e === "claude" || e === "chrome" || e === "templates") return e;
@@ -86,8 +88,16 @@ async function chromeWrite(p, onProgress) {
     monitor(m) { m.addEventListener("downloadprogress", (e) => onProgress && onProgress(e.loaded)); },
   });
   try {
-    const text = await session.prompt(user, { responseConstraint: schema });
+    // on-device generation is slow (a minute or two on a laptop); never wait forever
+    const text = await Promise.race([
+      session.prompt(user, { responseConstraint: schema }),
+      new Promise((_, bad) => setTimeout(() => bad(new Error("Chrome's model took more than 3 minutes — try rewrite, or switch to the Anthropic API for this one")), 180000)),
+    ]);
     return JSON.parse(text);
+  } catch (e) {
+    if (e && (e.name === "QuotaExceededError" || /quota|too (?:long|large)|context/i.test(String(e.message)))) throw new Error("this post is too long for Chrome's small model — use the Anthropic API for it");
+    if (e instanceof SyntaxError) throw new Error("Chrome's model did not return valid JSON — press rewrite");
+    throw e;
   } finally { if (session.destroy) session.destroy(); }
 }
 function aiStatus(p) {
@@ -96,7 +106,7 @@ function aiStatus(p) {
   $("aiRedo").hidden = !(eng !== "templates" && p.ai);
   if (eng === "templates") { el.textContent = profile.aiEngine === "templates" ? "templates" : "templates — pick an engine under AI writing to have replies written to the post"; el.style.color = "#98a0b3"; return; }
   if (p.ai) { el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : "Claude"}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
-  if (aiBusy === p.id) { el.textContent = (eng === "chrome" ? "Chrome is writing for this post…" : "Claude is writing for this post…"); el.style.color = "#e6c76b"; return; }
+  if (aiBusy === p.id) { const s = Math.round((Date.now() - aiStart) / 1000); el.textContent = (eng === "chrome" ? `Chrome is writing for this post… ${s}s (on-device is slow, usually 1–2 min)` : `Claude is writing for this post… ${s}s`); el.style.color = "#e6c76b"; return; }
   if (aiErr[p.id]) { el.textContent = "AI failed: " + aiErr[p.id] + " — showing templates"; el.style.color = "#ff8a65"; return; }
   el.textContent = "";
 }
@@ -106,7 +116,7 @@ async function aiWrite(force) {
   if (eng === "templates") return;
   if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id])) return;
   const id = cur.id, post = cur;
-  aiBusy = id; aiStatus(cur);
+  aiBusy = id; aiStart = Date.now(); aiStatus(cur);
   let r;
   if (eng === "chrome") {
     try {
