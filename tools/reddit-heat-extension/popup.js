@@ -20,6 +20,7 @@ async function load() {
   $("last").textContent = (last ? "Last collected " + new Date(last).toLocaleString() : "Nothing collected yet. Use the orange panel on any old.reddit.com page.") + upd;
 }
 $("hunt").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("hunt.html") }));
+$("inboxBtn").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("inbox.html") }));
 $("advBtn").addEventListener("click", () => { const a = $("adv"); a.hidden = !a.hidden; });
 $("dash").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }));
 $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());

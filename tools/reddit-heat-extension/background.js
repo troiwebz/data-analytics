@@ -852,8 +852,8 @@ async function huntAiWrite(id, force) {
   if (p.ai && !force) return { ok: true, ai: p.ai, cached: true };
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no api key", noKey: true };
-  const { config = {} } = await chrome.storage.local.get(["config"]);
-  const { system, user: user0, schema } = huntAiPrompt(p, config.profile || {});
+  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
+  const { system, user: user0, schema } = huntAiPrompt(p, { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } });
   const user = user0 + (force === "shorter" ? "\n\nYour previous public_reply was too long. This time keep it under 35 words in total, two short lines." : "");
 
   const ctl = new AbortController();
@@ -972,7 +972,40 @@ async function inboxPoll() {
   return { ok: true, fresh, raw: flat.length };
 }
 
+// One conversation per person. A legacy message thread, a chat room and a
+// pasted reply for the same username become one thread; chat wins the id.
+async function inboxDedupe() {
+  const st = await inboxGet();
+  const byUser = {};
+  let merged = 0;
+  for (const t of Object.values(st.threads)) {
+    const k = (t.with || "").toLowerCase();
+    if (!k) continue;
+    (byUser[k] = byUser[k] || []).push(t);
+  }
+  for (const group of Object.values(byUser)) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => (b.chat ? 2 : b.manual ? 0 : 1) - (a.chat ? 2 : a.manual ? 0 : 1) || (b.messages || []).length - (a.messages || []).length);
+    const keep = group[0];
+    for (const t of group.slice(1)) {
+      for (const m of t.messages || []) if (!keep.messages.some((x) => x.mine === m.mine && x.body === m.body)) keep.messages.push(m);
+      keep.messages.sort((a, b) => a.at - b.at);
+      keep.postId = keep.postId || t.postId;
+      keep.deal = keep.deal || t.deal;
+      keep.repliedAt = Math.max(keep.repliedAt || 0, t.repliedAt || 0) || keep.repliedAt;
+      keep.lastAt = Math.max(keep.lastAt || 0, t.lastAt || 0);
+      delete st.threads[t.id];
+      merged += 1;
+    }
+    const last = keep.messages[keep.messages.length - 1];
+    keep.needsReply = !!(last && !last.mine && !keep.handled);
+  }
+  if (merged) await inboxSet({ threads: st.threads });
+  return merged;
+}
+
 async function inboxList() {
+  await inboxDedupe();
   const st = await inboxGet();
   const hunt = await huntGet();
   const list = Object.values(st.threads).filter((t) => t.with).map((t) => ({ ...t, post: t.postId && hunt.posts[t.postId] ? { title: hunt.posts[t.postId].title, sub: hunt.posts[t.postId].sub, body: (hunt.posts[t.postId].body || "").slice(0, 2500) } : null }));

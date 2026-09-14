@@ -44,20 +44,12 @@ function render() {
   ].filter(([, v]) => v);
   $("syn").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
-  const tpl = huntShortOptions(p, profile, 5);
   const useAi = !!p.ai && engine() !== "templates";
-  options = useAi ? [p.ai.public_reply, ...tpl] : tpl;
-  if (variant >= options.length) variant = 0;
-  $("opts").innerHTML = options.map((o, i) => {
-    const isAi = useAi && i === 0;
-    const label = isAi ? "WRITTEN FOR THIS POST" : `TEMPLATE ${useAi ? i : i + 1}`;
-    return `<button class="opt ${i === variant ? "on" : ""} ${isAi ? "ai" : ""}" data-i="${i}"><b>${label}</b>${esc(o).replace(/\n/g, "<br>")}</button>`;
-  }).join("");
+  options = useAi ? [p.ai.public_reply] : huntShortOptions(p, profile, 1);
+  variant = 0;
+  $("opts").hidden = true;                       // one reply, no menu
   aiStatus(p);
-  for (const b of $("opts").querySelectorAll(".opt")) {
-    b.onclick = () => { variant = Number(b.dataset.i); $("short").value = options[variant]; for (const x of $("opts").querySelectorAll(".opt")) x.classList.toggle("on", x === b); };
-  }
-  $("short").value = options[variant] || "";
+  $("short").value = options[0] || "";
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
   $("dm").value = useAi ? (p.ai["dm_" + dmSize] || p.ai.dm_long || p.ai.dm_short) : huntDM(p, profile, dmSize);
   $("dmState").textContent = useAi ? `written for this post by ${p.ai.model === "on-device" ? "Chrome" : "Claude"}` : "template";
@@ -425,159 +417,6 @@ async function updBackground() {
   $("updBg").textContent = `Background updater: ${s.scheduler === "off" ? "OFF — run the command above once and it turns on" : s.scheduler + ", every 2 min"} · folder has v${s.onDisk}${s.lastLog ? " · last log: " + s.lastLog : ""}`;
 }
 
-// ===========================================================================
-// INBOX
-// ===========================================================================
-let inboxThreads = [];
-let curThread = null;
-let inboxPlan = "";
-let inboxDeal = null;
-let inboxDeals = [];
-let inboxSummary = null;
-let draftBusy = "";
-async function inboxRefresh() {
-  const r = await send({ type: "inbox-list" });
-  if (!r) return;
-  inboxThreads = r.threads; inboxPlan = r.plan; inboxDeal = r.deal; inboxDeals = r.deals || []; inboxSummary = r.summary;
-  $("sDeals").textContent = inboxSummary ? `${inboxSummary.interested + inboxSummary.agreed} in · ${inboxSummary.cut} cut` : "";
-  if (!$("dealsBox").hidden) renderDeals();
-  $("sInbox").textContent = r.needs;
-  $("openInbox").classList.toggle("hot", r.needs > 0);
-  $("inboxStatus").textContent = r.lastError ? "last check failed: " + r.lastError
-    : r.lastPoll ? `checked ${ago(r.lastPoll)} · Reddit returned ${r.rawCount} message${r.rawCount === 1 ? "" : "s"} · ${r.needs} waiting for a reply${r.rawCount === 0 ? " · if the answer came in Chat, use Paste a reply I got" : ""}` : "not checked yet";
-  $("threadList").innerHTML = inboxThreads.length ? inboxThreads.map((t) => `<div class="thr ${t.needsReply ? "needs" : ""} ${curThread && curThread.id === t.id ? "on" : ""}" data-id="${t.id}"><b>${esc(t.with)}</b><span>${esc((t.post && t.post.title) || t.subject || "").slice(0, 70)}</span><br><span>${t.messages.length} messages · ${ago(t.lastAt)}${t.needsReply ? " · needs a reply" : t.handled ? " · handled" : ""}${t.deal && t.deal.status ? " · " + t.deal.status.toUpperCase() : ""}</span></div>`).join("")
-    : `<div class="empty" style="padding:30px 12px">No conversations yet. They appear here once someone answers a DM.</div>`;
-  for (const el of $("threadList").querySelectorAll(".thr")) el.onclick = () => openThread(el.dataset.id);
-  if (curThread) {
-    const fresh = inboxThreads.find((t) => t.id === curThread.id);
-    // never let a refresh wipe a draft that is on screen or being written
-    if (fresh) { curThread = { ...fresh, draft: fresh.draft || curThread.draft }; renderThread(); }
-  }
-}
-async function openThread(id) {
-  curThread = inboxThreads.find((t) => t.id === id) || null;
-  for (const el of $("threadList").querySelectorAll(".thr")) el.classList.toggle("on", el.dataset.id === id);
-  renderThread();
-  await draftWrite(false);
-}
-function renderThread() {
-  const t = curThread;
-  $("threadEmpty").hidden = !!t; $("threadView").hidden = !t;
-  if (!t) return;
-  $("threadMeta").innerHTML = `<b>${esc(t.with)}</b> · ${t.messages.length} messages${t.post ? ` · from <a href="#" style="color:#8ab4ff">r/${esc(t.post.sub)}: ${esc(t.post.title).slice(0, 60)}</a>` : ""}`;
-  $("threadMsgs").innerHTML = t.messages.map((m) => `<div class="msg ${m.mine ? "mine" : ""}"><small>${m.mine ? "me" : esc(m.author)} · ${ago(m.at)}</small>${esc(m.body)}</div>`).join("");
-  $("threadMsgs").scrollTop = 1e6;
-  const d = t.draft;
-  const stage = d ? (INBOX_STAGES.find((s) => s.key === d.stage) || {}).label : "";
-  $("draftStage").textContent = (stage || "") + (d && d.verdict === "not_interested" ? " · CUT" : d && d.verdict === "interested" ? " · INTERESTED" : "");
-  $("draftNote").textContent = d && d.note ? d.note : "";
-  $("draft").value = d ? d.reply : "";
-  $("draftRedo").hidden = !d || engine() === "templates";
-  $("sentByHand").hidden = !(t.manual || t.chat);
-  $("goReply").textContent = t.chat ? "Fill the reply in Chat ↗" : t.manual ? "Copy + open their chat ↗" : "Open the reply, filled in ↗";
-  $("draftState").textContent = d ? (d.engine === "claude" ? `written by Claude${d.cents ? " · " + d.cents + "¢" : ""}` : d.engine === "chrome" ? "written by Chrome, on-device" : "template") : (draftBusy === t.id ? "writing…" : "");
-  $("draftState").style.color = d ? "#7ee29a" : "#e6c76b";
-}
-async function draftWrite(force) {
-  const t = curThread;
-  if (!t || (t.draft && !force) || draftBusy === t.id) return;
-  const eng = engine();
-  draftBusy = t.id; renderThread();
-  let draft = null, err = "";
-  try {
-    if (eng === "claude" && profile.apiKey) {
-      const r = await send({ type: "inbox-ai", id: t.id, force: !!force });
-      if (r && r.ok) draft = r.draft; else err = (r && r.error) || "no answer";
-    } else if (eng === "chrome") {
-      const pr = await send({ type: "inbox-prompt", id: t.id });
-      const session = await LanguageModel.create({ initialPrompts: [{ role: "system", content: pr.system }] });
-      try { const out = JSON.parse(await session.prompt(pr.user, { responseConstraint: pr.schema })); draft = inboxAiClean(out); if (draft) draft.engine = "chrome"; else err = "failed the checks"; }
-      finally { if (session.destroy) session.destroy(); }
-    }
-  } catch (e) { err = String(e && e.message || e); }
-  if (!draft) { draft = inboxTemplateReply(t, profile, inboxPlan, inboxDeal); draft.engine = "template"; if (err) draft.note = "AI failed (" + err + "), template used. " + draft.note; }
-  await send({ type: "inbox-act", id: t.id, action: "draft", patch: draft });
-  t.draft = draft; draftBusy = "";
-  renderThread();
-}
-$("draftRedo").onclick = () => draftWrite(true);
-$("goReply").onclick = async () => {
-  const t = curThread; if (!t) return;
-  const text = $("draft").value;
-  await copyText(text);
-  if (t.chat) {
-    const r = await send({ type: "chat-fill", with: t.with, text });
-    $("draftState").textContent = r && r.ok ? "filled in Chat — read it there and press send" : "could not fill: " + ((r && r.error) || "no answer") + " (it is on your clipboard)";
-    $("draftState").style.color = r && r.ok ? "#7ee29a" : "#ff8a65";
-    return;
-  }
-  if (t.manual) { window.open("https://chat.reddit.com/user/" + encodeURIComponent(t.with), "_blank"); return; }   // chat: paste with ⌘V
-  const last = [...t.messages].reverse().find((m) => !m.mine) || t.messages[t.messages.length - 1];
-  await chrome.storage.local.set({ pendingMessage: { threadId: t.id, replyTo: last && last.id, text, at: Date.now() } });
-  window.open("https://old.reddit.com/message/messages/" + t.id.replace(/^t4_/, ""), "_blank");
-};
-$("copyReply").onclick = () => copyText($("draft").value, $("copyReply"));
-$("sentByHand").onclick = async () => { if (!curThread) return; await send({ type: "inbox-mine", id: curThread.id, body: $("draft").value }); curThread = null; inboxRefresh(); renderThread(); };
-$("openChat").onclick = () => send({ type: "chat-open" });
-$("chatDump").onclick = async () => {
-  const d = await send({ type: "chat-dump" });
-  const s = JSON.stringify(d, null, 1);
-  await copyText(s, $("chatDump"));
-  $("chatStatus").textContent = d && d.error ? d.error : `copied · composer: ${d.composer} · with: ${d.with || "?"} · ${d.messages.length} messages seen`;
-};
-async function chatStatus() {
-  const s = await send({ type: "chat-status" });
-  if (!s) return;
-  $("chatStatus").textContent = s.open ? `Chat tab open${s.seen ? " · last read " + ago(s.seen) : " · nothing read yet — open a conversation in it"}` : "no Chat tab — click Open Reddit Chat and keep it open";
-  $("chatStatus").style.color = s.open ? "" : "#ff8a65";
-}
-$("openAdd").onclick = () => { $("addBox").hidden = !$("addBox").hidden; $("planBox").hidden = true; };
-$("addGo").onclick = async () => {
-  const r = await send({ type: "inbox-add", with: $("addUser").value, body: $("addBody").value });
-  if (!r || !r.ok) { $("addMsg").textContent = (r && r.error) || "could not add"; return; }
-  $("addMsg").textContent = "added"; $("addBody").value = ""; $("addBox").hidden = true;
-  await inboxRefresh(); openThread(r.id);
-};
-$("threadHandled").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "handled" }); curThread = null; inboxRefresh(); renderThread(); };
-$("threadSkip").onclick = async () => { if (!curThread) return; await send({ type: "inbox-act", id: curThread.id, action: "skip" }); curThread = null; inboxRefresh(); renderThread(); };
-$("inboxCheck").onclick = async () => { $("inboxStatus").textContent = "checking…"; await send({ type: "inbox-poll" }); inboxRefresh(); };
-$("openInbox").onclick = () => { $("inbox").hidden = false; $("main").hidden = true; $("table").hidden = true; $("setup").hidden = true; $("aiPanel").hidden = true; inboxRefresh(); };
-$("closeInbox").onclick = () => { $("inbox").hidden = true; $("main").hidden = false; refresh(); };
-$("openPlan").onclick = () => {
-  $("planBox").hidden = !$("planBox").hidden; $("addBox").hidden = true; $("dealsBox").hidden = true;
-  $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT;
-  const d = inboxDeal || DEAL_DEFAULT;
-  $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes || ""; $("dDisq").value = d.disqualify || "";
-};
-$("planSave").onclick = async () => {
-  inboxPlan = $("planText").value.trim();
-  const deal = { upfront: Number($("dUp").value) || DEAL_DEFAULT.upfront, share: Number($("dShare").value) || DEAL_DEFAULT.share, expenseShare: Number($("dExp").value) || DEAL_DEFAULT.expenseShare, teamDoes: $("dTeam").value.trim() || DEAL_DEFAULT.teamDoes, disqualify: $("dDisq").value.trim() || DEAL_DEFAULT.disqualify };
-  await send({ type: "inbox-plan", plan: inboxPlan });
-  await send({ type: "inbox-terms", deal });
-  inboxDeal = deal;
-  $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400);
-};
-$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; const d = DEAL_DEFAULT; $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes; $("dDisq").value = d.disqualify; };
-
-// ---- the deals database ---------------------------------------------------
-const DEAL_STATUSES = ["qualifying", "offered", "interested", "agreed", "cut", "lost"];
-function renderDeals() {
-  const s = inboxSummary || {};
-  $("dealsSummary").textContent = `${s.interested || 0} interested · ${s.agreed || 0} agreed · ${s.cut || 0} cut · avg share ${s.avgShare || 0}% · upfront agreed $${s.upfrontTotal || 0}`;
-  $("dealsRows").innerHTML = inboxDeals.length ? inboxDeals.map((d) => `<tr data-id="${d.id}"><td><b>${esc(d.with)}</b><br><span style="color:#98a0b3">${d.messages} msgs · ${ago(d.lastAt)}</span></td><td>${esc(d.post || "—").slice(0, 50)}</td>
-    <td><select data-f="status" style="background:#0d0f14;color:#e8eaf0;border:1px solid #262b36;border-radius:6px;padding:3px">${DEAL_STATUSES.map((x) => `<option value="${x}" ${x === d.status ? "selected" : ""}>${x}</option>`).join("")}</select></td>
-    <td><input data-f="share" type="text" value="${esc(d.share)}" style="width:52px"></td><td><input data-f="upfront" type="text" value="${esc(d.upfront)}" style="width:70px"></td>
-    <td>${esc(d.budget || "?")}</td><td>${esc(d.shareOk || "?")}</td><td><input data-f="note" type="text" value="${esc(d.note)}" style="width:160px" placeholder="note"></td></tr>`).join("")
-    : `<tr><td colspan="8" style="color:#98a0b3">No conversations yet.</td></tr>`;
-  for (const el of $("dealsRows").querySelectorAll("[data-f]")) el.onchange = async () => {
-    const id = el.closest("tr").dataset.id; const f = el.dataset.f;
-    const patch = {}; patch[f] = f === "share" || f === "upfront" ? Number(el.value) || 0 : el.value;
-    await send({ type: "inbox-deal", id, patch }); inboxRefresh();
-  };
-}
-$("openDeals").onclick = async () => { $("dealsBox").hidden = !$("dealsBox").hidden; $("planBox").hidden = true; $("addBox").hidden = true; await inboxRefresh(); renderDeals(); };
-$("dealsCopy").onclick = () => copyText(inboxDeals.map((d) => `${d.with}\t${d.status}\t${d.share}%\t$${d.upfront}\tbudget ${d.budget || "?"}\tshare ${d.shareOk || "?"}\t${d.post}\t${d.note}`).join("\n"), $("dealsCopy"));
-
 // ---- version: running, on disk, on GitHub -------------------------------
 // Nothing to click. The 2-minute updater puts new files in the folder, the
 // worker reloads the extension within a minute of that, and this pill just
@@ -620,6 +459,14 @@ $("ver").onclick = async () => {
   else { await send({ type: "version-check-now" }); showVersion(); }
 };
 
+function applyTheme(t) { document.body.classList.toggle("light", t === "light"); $("theme").textContent = t === "light" ? "☾ dark" : "☀ light"; }
+$("theme").onclick = async () => { const t = document.body.classList.contains("light") ? "dark" : "light"; await chrome.storage.local.set({ theme: t }); applyTheme(t); };
+chrome.storage.local.get(["theme"]).then(({ theme = "dark" }) => applyTheme(theme));
+
+// the Inbox lives in its own tab; here only the count
+async function inboxBadge() { const r = await send({ type: "inbox-list" }); if (r) { $("sInbox").textContent = r.needs; $("openInbox").classList.toggle("hot", r.needs > 0); } }
+$("openInbox").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("inbox.html") });
+
 document.addEventListener("keydown", (e) => {
   if (/input|textarea/i.test(e.target.tagName || "")) return;
   if (e.key === "1") $("didReply").click();
@@ -629,8 +476,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 (async () => {
-  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
   profile = config.profile || {};
+  profile.deal = { ...DEAL_DEFAULT, ...(inbox.deal || {}) };
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";
@@ -656,10 +504,8 @@ document.addEventListener("keydown", (e) => {
   checkAhead();
   showVersion();
   updBackground();
-  inboxRefresh(); chatStatus();
-  send({ type: "inbox-poll" }).then(inboxRefresh);
-  setInterval(() => { send({ type: "inbox-poll" }).then(inboxRefresh); chatStatus(); }, 60000);
-  setInterval(inboxRefresh, 10000);
+  inboxBadge();
+  setInterval(inboxBadge, 20000);
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

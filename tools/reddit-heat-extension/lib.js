@@ -1033,26 +1033,25 @@ const SHORT_CTX = {
 };
 const SHORT_GIVE = {
   technical: [
-    `Happy to map the smallest version that still proves it, free, takes me 20 minutes.`,
-    `I'll sketch the 3 screens you could test in two weeks and what I'd cut, no charge.`,
-    `I wrote out what I'd build first and what I'd leave out, free either way.`,
+    `I wrote down how I'd sequence the first version and what I'd cut.`,
+    `Put my read on what to build first, and what not to, in a short note.`,
+    `I've a short take on the fastest route to a first version for you.`,
   ],
   marketing: [
-    `I'll name the one channel I'd start with and why, free.`,
-    `Happy to pressure-test the offer and pick the first twenty places to go, no charge.`,
-    `I'll rewrite the offer in one sentence and pick the channel, free either way.`,
+    `I wrote down the one channel I'd start with for this and why.`,
+    `Put a short take on where your first hundred users are in a note.`,
   ],
   design: [
-    `I'll map the 3 screens that actually matter and what to cut, free.`,
-    `Happy to sketch the flow properly, no charge.`,
+    `I wrote down the three screens that actually matter here.`,
+    `Put a short take on the flow that would unblock this in a note.`,
   ],
   business: [
-    `Happy to write the one-page version you could put in front of a buyer this week, free.`,
-    `I'll draft the page and list ten places those buyers already are, no charge.`,
+    `I wrote down how I'd get one paying customer before anything else.`,
+    `Put a short take on the first sale, not the first hire, in a note.`,
   ],
   unclear: [
-    `I'll map the smallest v1 and what it would take, free.`,
-    `Happy to write out the build order and what to cut, no charge.`,
+    `I wrote down whether this needs a partner or a first version, and why.`,
+    `Put a short take on the smallest next step in a note.`,
   ],
 };
 // The second line carries the give and the DM pointer together: two lines total.
@@ -1066,23 +1065,19 @@ const SHORT_CLOSE = [
 
 // n distinct 3-line replies for THIS post. Line 1 speaks to their situation,
 // line 2 gives something away, line 3 points at the DM. No link, no price.
-HEAT.huntShortOptions = function (p, profile = {}, n = 5) {
+HEAT.PUBLIC_CLOSE = "Check your DM.";
+// One public reply, not a menu: the single most specific useful line for
+// THIS post, then "Check your DM." The context lines win over the role pool.
+HEAT.huntShortOptions = function (p, profile = {}, n = 1) {
   const m = HEAT.huntVars(p, profile);
   const role = HEAT.SHORT_ROLE(p);
-  const obs = [];
-  if (p.equityOnly) obs.push(SHORT_CTX.equityOnly);
-  if (p.hasBudget) obs.push(SHORT_CTX.hasBudget);
-  if (p.stage && SHORT_CTX[p.stage]) obs.push(SHORT_CTX[p.stage]);
-  if ((p.comments || 0) > 15) obs.push(SHORT_CTX.crowded);
-  const pool = (SHORT_OBS[role] || SHORT_OBS.unclear);
-  // context lines first (most specific), then the role pool, interleaved so
-  // consecutive options never open the same way
-  const openers = obs.concat(pool);
-  const gives = SHORT_GIVE[role] || SHORT_GIVE.unclear;
+  const openers = [];
+  if (p.equityOnly) openers.push(SHORT_CTX.equityOnly);
+  if (p.hasBudget) openers.push(SHORT_CTX.hasBudget);
+  if (p.stage && SHORT_CTX[p.stage]) openers.push(SHORT_CTX[p.stage]);
+  for (const o of (SHORT_OBS[role] || SHORT_OBS.unclear)) openers.push(o);
   const out = [];
-  for (let i = 0; i < Math.min(n, openers.length); i += 1) {
-    out.push(`${openers[i](m)}\n${gives[i % gives.length]} ${SHORT_CLOSE[i % SHORT_CLOSE.length]}`);
-  }
+  for (let i = 0; i < Math.min(Math.max(1, n), openers.length); i += 1) out.push(`${openers[i](m)}\n${HEAT.PUBLIC_CLOSE}`);
   return out;
 };
 HEAT.SHORT_ROLE = function (p) { return SHORT_OBS[p.role] ? p.role : "unclear"; };
@@ -1094,41 +1089,30 @@ HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
 // The DM closes on two things: a free deliverable worth saying yes to, and a
 // private channel where the conversation actually continues. Reddit DMs get
 // buried; WhatsApp and Telegram do not.
+// How we work, in their terms. No free builds: we are a paid partner team.
 HEAT.HUNT_OFFER = {
-  technical: (m) => `So here is the offer, and it costs you nothing.
+  technical: (m) => `How we work, so you can decide fast: we don't join as an equity co-founder, and we don't build for free. We come in as your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront to start, then ${m.deal.share}% of income from what we build and run. You keep the company and the IP.
 
-Send me one paragraph: what ${m.thing} does and who the first user is. Within 48 hours I'll send back a clickable 3-screen prototype of v1 you can put in front of real people, the build list in order, and what I'd cut. Yours to keep either way — show it to a co-founder candidate, an investor, or a user, with my name nowhere on it if you prefer.
+Two questions so neither of us wastes time: is there a budget to start, yes or no? And is a partner team on a share of income, instead of a co-founder on equity, a shape you're open to?`,
+  marketing: (m) => `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income from what we bring in. You keep the company.
 
-If you like how I work we can talk about me building the rest. If not, you've lost nothing and you have a prototype and a plan.`,
-  marketing: (m) => `So here is the offer, and it costs you nothing.
+Two questions: is there a budget to start, yes or no? And is a partner team on a share of income, rather than a co-founder on equity, open for you?`,
+  design: (m) => `How we work: not as an equity co-founder, and not for free. As your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income. You keep the company and the IP.
 
-Send me one paragraph: who buys ${m.thing} and what they pay today. Within 48 hours I'll send back your offer rewritten in one sentence, the single channel I'd start with and why, and twenty named places or people to go to this week. Yours to keep either way.
+Two questions: is there a budget to start? And is a partner team on a share of income something you're open to?`,
+  business: (m) => `How we work: we come in as your operating team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income, expenses split and agreed in writing first. Not equity, not free. You keep the company.
 
-If it works and you want help running it, we can talk. If not, you still have the plan.`,
-  design: (m) => `So here is the offer, and it costs you nothing.
+Two questions: is there a budget to start? And is that shape open for you?`,
+  unclear: (m) => `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — for $${m.deal.upfront} upfront, then ${m.deal.share}% of income from what we build and run. You keep the company and the IP.
 
-Tell me what ${m.thing} does and who it's for. Within 48 hours I'll send back the three screens designed properly — what the user gives, what happens, what they get — as something you can click through. Yours to keep either way.
-
-If you want them built after that, we can talk. If not, you have the screens.`,
-  business: (m) => `So here is the offer, and it costs you nothing.
-
-Tell me who the buyer for ${m.thing} is. Within 48 hours I'll send back the one-page version you can put in front of them and a list of ten places those buyers already are. Yours to keep either way.
-
-If someone says yes and you need it built, we can talk. If not, you've lost nothing.`,
-  unclear: (m) => `So here is the offer, and it costs you nothing.
-
-Send me one paragraph on what ${m.thing} does and who it's for. Within 48 hours I'll send back the smallest v1 mapped out — the three screens, the build order, what to cut — plus a clickable prototype of it. Yours to keep either way.
-
-If you want it built, we can talk. If not, you have the map.`,
+Two questions: is there a budget to start, yes or no? And is a partner team on a share of income, instead of a co-founder on equity, open for you?`,
 };
-
-// One-line version of the same offer, for the short letter.
 HEAT.HUNT_OFFER_SHORT = {
-  technical: (m) => `Free offer, no catch: send me a paragraph on what ${m.thing} does and who the first user is, and within 48 hours you get back a clickable 3-screen prototype and the build list. Yours to keep whatever happens next.`,
-  marketing: (m) => `Free offer, no catch: tell me who buys ${m.thing} and what they pay, and within 48 hours you get the offer rewritten in one line, the channel I'd start with, and twenty places to go. Yours to keep.`,
-  design: (m) => `Free offer, no catch: tell me what ${m.thing} does and who it's for, and within 48 hours you get the three screens designed and clickable. Yours to keep.`,
-  business: (m) => `Free offer, no catch: tell me who the buyer is, and within 48 hours you get the one-page version to put in front of them plus ten places those buyers already are. Yours to keep.`,
-  unclear: (m) => `Free offer, no catch: send me a paragraph on what ${m.thing} does, and within 48 hours you get the smallest v1 mapped out and a clickable prototype of it. Yours to keep.`,
+  technical: (m) => `We don't join for equity and don't build free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget to start, and is that shape open for you?`,
+  marketing: (m) => `We don't take equity and don't work free — we act as your growth team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Budget to start, and is that shape open for you?`,
+  design: (m) => `Not equity, not free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget, and is that shape open for you?`,
+  business: (m) => `We come in as your operating team for $${m.deal.upfront} to start, then ${m.deal.share}% of income — not equity, not free. Budget to start, and is that open for you?`,
+  unclear: (m) => `We don't join for equity and don't work free — we come in as your team for $${m.deal.upfront} to start, then ${m.deal.share}% of income. Is there a budget, and is that shape open for you?`,
 };
 
 // WhatsApp and Telegram links, from whatever the user typed in Options.
@@ -1401,11 +1385,12 @@ HEAT.huntVars = function (p, profile = {}) {
     : p.equityOnly ? "I know budget is the constraint, so everything above is meant to be doable by you for close to nothing."
     : "";
   const thing = HEAT.huntThing(p);
+  const deal = { ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) };
   const offerFn = HEAT.HUNT_OFFER[p.role] || HEAT.HUNT_OFFER.unclear;
   return {
     name: HEAT.huntName(p.author),
-    thing, stageLine,
-    offer: offerFn({ thing }),
+    thing, stageLine, deal,
+    offer: offerFn({ thing, deal }),
     contact: HEAT.huntContactLine(profile),
     shortContact: HEAT.huntContactLine(profile, true),
     sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "",
@@ -1460,7 +1445,7 @@ const DM_STEPS = {
 HEAT.huntDmShort = function (p, profile = {}) {
   const m = HEAT.huntVars(p, profile);
   const role = HEAT.SHORT_ROLE(p);
-  const offerShort = (HEAT.HUNT_OFFER_SHORT[role] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing });
+  const offerShort = (HEAT.HUNT_OFFER_SHORT[role] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
   return `Hi ${m.name},
 
 Saw your post about ${m.thing}. I'm not applying for the co-founder seat — but ${DM_ONELINE[role](m)}.
@@ -1504,6 +1489,21 @@ HEAT.huntDM = function (p, profile = {}, size = "long") {
   return HEAT.huntDmLong(p, profile);
 };
 HEAT.huntDmLong = function (p, profile = {}) {
+  const m = HEAT.huntVars(p, profile);
+  const role = HEAT.SHORT_ROLE(p);
+  return `Hi ${m.name},
+
+Saw your post about ${m.thing}. I'm not applying for the co-founder seat — one thought, and then how we work, so you can decide quickly.
+
+${DM_WHY[role](m)}
+
+${m.offer}
+
+${m.contact}
+
+${m.sign}`;
+};
+HEAT.huntDmLetter = function (p, profile = {}) {
   const fn = HEAT.HUNT_DM[p.role] || HEAT.HUNT_DM.unclear;
   return fn(p, HEAT.huntVars(p, profile));
 };
@@ -1523,9 +1523,9 @@ HEAT.huntComposeUrl = function (p, body) {
 HEAT.AI_SCHEMA = {
   type: "object",
   properties: {
-    public_reply: { type: "string", description: "Exactly two short lines separated by one newline, at most 35 words in total. Line one: one specific detail from their post, under 18 words. Line two: the free thing waiting in their DM, under 17 words. No links, no prices, no pitch." },
-    dm_short: { type: "string", description: "70 to 110 words." },
-    dm_long: { type: "string", description: "260 to 380 words, with four numbered steps." },
+    public_reply: { type: "string", description: "Exactly two lines separated by one newline. Line one: ONE specific, useful solution or observation for their exact situation, under 25 words, in their own terms. Line two: exactly the text \"Check your DM.\" No links, no prices, no pitch, no greeting." },
+    dm_short: { type: "string", description: "70 to 110 words. An introduction, not a letter." },
+    dm_long: { type: "string", description: "130 to 190 words. An introduction with one useful thought and how we work; no numbered plan." },
     why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
   },
   required: ["public_reply", "dm_short", "dm_long", "why"],
@@ -1536,15 +1536,15 @@ HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
   const compact = !!opts.compact;   // on-device model: small context, shorter targets
   const m = HEAT.huntVars(p, profile);
   const s = HEAT.huntSynopsis(p);
-  const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing });
-  const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", a " + profile.role : ""}, who builds first versions of products for founders. The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder. The goal is Laurel Portié's "value bomb": give them the most useful, specific, complete help you can for free, in their exact situation, then make one free concrete offer and point them to a private channel. Never pitch, never sell, never mention rates, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
+  const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
+  const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}, who runs a team that founders hire as their partner team: paid upfront, then a share of income. The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder, and you never offer free work of any kind. The public reply gives ONE genuinely useful, specific line for their situation. The DM is an INTRODUCTION, not a letter: what you noticed in their post, one specific useful thought, how we work (the HOW WE WORK text below, adapted), the two questions — then stop. Never pitch, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
 
 Rules that make the reply feel written for THIS post and nobody else:
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
-- The public reply is exactly two SHORT lines, at most 35 words in total — it sits under a Reddit post, so brevity is the whole point. Line one (under 18 words): one specific observation that proves you read their post, in their own words. Line two (under 17 words): the one free thing tied to it, and that the detail is in their DM. No link, no price, no "I'm a developer", no greeting.
-- Both DMs: open "Hi ${m.name}," then their situation, then the real advice, then the offer (below), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". The short DM uses the short offer; the long one uses the full offer.
+- The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
+- Both DMs: open "Hi ${m.name}," then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
   const user = `THE POST
 Subreddit: r/${p.sub || "?"}
@@ -1556,10 +1556,10 @@ ${(p.body || "(no body)").slice(0, compact ? 2500 : 6000)}
 WHAT WE READ FROM IT (may be wrong; trust the post over this)
 Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
 
-SHORT OFFER (for dm_short; adapt the product name to theirs)
+HOW WE WORK, short (for dm_short)
 ${offerShort}
 
-FULL OFFER (for dm_long; adapt the product name to theirs)
+HOW WE WORK, full (for dm_long)
 ${m.offer}
 
 CONTACT LINE (use verbatim at the end of every DM, before the sign-off)
@@ -1576,12 +1576,14 @@ Write public_reply, dm_short, dm_long and why. Be quick and concrete; no preambl
 HEAT.huntAiClean = function (out) {
   if (!out || typeof out !== "object") return null;
   const str = (v) => String(v || "").replace(/\r/g, "").trim();
-  let pub = str(out.public_reply).split("\n").map((l) => l.trim()).filter(Boolean);
-  if (pub.length > 2) pub = [pub[0], pub.slice(1).join(" ")];
-  if (pub.length < 2 || /https?:\/\/|\$\s?\d|€\s?\d|£\s?\d/.test(pub.join(" "))) return null;
-  if (pub.join(" ").split(/\s+/).length > 55) return { tooLong: true };   // caller asks again, shorter
+  let pub = str(out.public_reply).split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !/^check your dm\.?$/i.test(l));
+  if (!pub.length) return null;
+  const first = pub[0];                 // one solution line; anything extra is dropped
+  if (/https?:\/\/|\$\s?\d|€\s?\d|£\s?\d/.test(first)) return null;
+  if (first.split(/\s+/).length > 40) return { tooLong: true };   // caller asks again, shorter
+  pub = [first, HEAT.PUBLIC_CLOSE];
   const dm_short = str(out.dm_short), dm_long = str(out.dm_long);
-  if (dm_short.length < 180 || dm_long.length < 700) return null;
+  if (dm_short.length < 180 || dm_long.length < 450) return null;
   return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300) };
 };
 

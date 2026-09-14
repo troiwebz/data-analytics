@@ -76,6 +76,21 @@
   .thr.needs b::before { content:"● "; color:var(--or); }
   .msg { padding:8px 10px; margin:6px 0; border-radius:8px; background:#12151c; font-size:13px; white-space:pre-wrap; }
   .msg.mine { background:#1a2230; margin-left:40px; } .msg small { display:block; color:var(--dim); margin-bottom:3px; font-size:11px; }
+  .thr.filled b { text-decoration: line-through; opacity:.55; } .thr.filled span { opacity:.6; }
+  body.light { --bg:#f4f5f7; --card:#ffffff; --line:#dfe3ea; --fg:#17191c; --dim:#5b6472; }
+  body.light header { background:#ffffff; }
+  body.light textarea, body.light input[type=text], body.light input[type=password], body.light select { background:#ffffff; color:#17191c; border-color:#cfd5de; }
+  body.light button { background:#f1f3f6; color:#17191c; border-color:#cfd5de; } body.light button:hover { background:#e6e9ee; }
+  body.light button.primary { background:var(--or); color:#fff; border-color:var(--or); } body.light button.good { background:var(--ok); color:#fff; border-color:var(--ok); }
+  body.light .stat { background:#f1f3f6; } body.light .stat b { color:#17191c; }
+  body.light .tag { background:#f1f3f6; color:#17191c; }
+  body.light .opt { background:#fafbfc; color:#2a2f3a; } body.light .opt.on { background:#fff3ee; color:#17191c; }
+  body.light .msg { background:#f1f3f6; } body.light .msg.mine { background:#e8f0fb; }
+  body.light .thr:hover { background:#f1f3f6; } body.light .thr.on { background:#fff3ee; }
+  body.light .winbar button, body.light .sizes button { background:#f1f3f6; color:#5b6472; } body.light .winbar button.on, body.light .sizes button.on { background:var(--or); color:#fff; }
+  body.light .engine:has(input:checked) { background:#fff3ee; }
+  body.light .bar { background:#e6e9ee; } body.light kbd { background:#f1f3f6; }
+  body.light .body { color:#2a2f3a; } body.light .syn dt { color:#5b6472; }
   [hidden] { display:none !important; }
   @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
 </style>
@@ -92,9 +107,10 @@
   <span class="stat" id="sPoll">never checked</span>
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
   <button id="updNow" class="ghost">Update now</button>
-  <button class="stat" id="openInbox">Inbox <b id="sInbox">0</b></button>
+  <button class="stat" id="openInbox" title="opens in its own tab">Inbox ↗ <b id="sInbox">0</b></button>
   <button id="openAi" class="ghost">AI writing</button>
   <button id="openSetup" class="ghost">Your details</button>
+  <button id="theme" class="ghost">☀ light</button>
 </header>
 
 <main>
@@ -151,67 +167,6 @@
     <p class="foot" style="margin:10px 0 0">If the chosen engine fails on a post, the templates are shown for that post and the reason is written above the options. Written replies are kept on the post, so nothing is paid or computed twice; <b>rewrite</b> asks again.</p>
   </div>
 
-  <!-- INBOX: replies to your DMs, answered by the plan -->
-  <div id="inbox" hidden>
-    <div class="row" style="margin-bottom:10px">
-      <b>Inbox</b>
-      <span class="stat" id="inboxStatus">not checked yet</span>
-      <button id="inboxCheck" class="ghost">Check now</button>
-      <button id="openChat" class="primary">Open Reddit Chat</button>
-      <span class="stat" id="chatStatus"></span>
-      <button id="chatDump" class="ghost" title="copies what the bridge sees in the Chat tab, for tuning">What does Chat look like?</button>
-      <button id="openAdd" class="ghost">Paste a reply I got</button>
-      <button id="openPlan" class="ghost">Instructions</button>
-      <button id="openDeals" class="ghost">Deals <b id="sDeals"></b></button>
-      <button id="closeInbox" class="ghost" style="margin-left:auto">Back to the queue</button>
-    </div>
-    <div id="addBox" class="card" hidden style="margin-bottom:12px">
-      <p class="step"><b>Paste a reply I got</b> · for answers that arrived in Reddit Chat (the speech bubble), which cannot be read automatically</p>
-      <div class="row" style="margin:0 0 8px"><input type="text" id="addUser" placeholder="their username" style="width:260px"></div>
-      <textarea id="addBody" style="height:120px" placeholder="paste their message here"></textarea>
-      <div class="row"><button id="addGo" class="primary">Add and draft a reply</button><span id="addMsg" class="foot" style="margin:0"></span></div>
-    </div>
-    <div id="planBox" class="card" hidden style="margin-bottom:12px">
-      <p class="step"><b>Instructions</b> · how every reply moves, changeable any time — the next draft follows the new version</p>
-      <div class="setup" style="margin-bottom:10px">
-        <div><label>Upfront to start ($)</label><input type="text" id="dUp" placeholder="350"></div>
-        <div><label>Our share of income (%)</label><input type="text" id="dShare" placeholder="20"></div>
-        <div><label>Our share of expenses (%)</label><input type="text" id="dExp" placeholder="50"></div>
-        <div style="grid-column:1/-1"><label>What our team does</label><input type="text" id="dTeam"></div>
-        <div style="grid-column:1/-1"><label>Cut anyone who…</label><input type="text" id="dDisq"></div>
-      </div>
-      <label class="foot">The steps, in your words. {{UPFRONT}}, {{SHARE}}, {{EXPENSE_SHARE}}, {{TEAM_DOES}}, {{DISQUALIFY}}, {{LOCATION}}, {{LINKEDIN}}, {{CALL}} are filled from the fields above and Your details.</label>
-      <textarea id="planText" style="height:300px"></textarea>
-      <div class="row"><button id="planSave" class="primary">Save instructions</button><button id="planReset" class="ghost">Reset to default</button><span id="planMsg" class="done" hidden>Saved ✓</span></div>
-    </div>
-    <div id="dealsBox" class="card" hidden style="margin-bottom:12px;padding:0;overflow:auto">
-      <div class="row" style="padding:10px 14px;margin:0"><b>Deals</b><span class="stat" id="dealsSummary"></span><button id="dealsCopy" class="ghost">Copy list</button></div>
-      <table><thead><tr><th>Person</th><th>Post</th><th>Status</th><th>Our %</th><th>Upfront $</th><th>Budget?</th><th>Share ok?</th><th>Note</th></tr></thead><tbody id="dealsRows"></tbody></table>
-    </div>
-    <div class="wrap">
-      <section class="card" style="padding:0;overflow:hidden">
-        <div id="threadList"></div>
-      </section>
-      <section class="card" id="threadPane">
-        <div id="threadEmpty" class="empty" style="padding:30px 10px">Pick a conversation on the left. New replies from people you DM'd land here by themselves, every minute.</div>
-        <div id="threadView" hidden>
-          <div class="meta" id="threadMeta"></div>
-          <div id="threadMsgs" style="max-height:300px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 0"></div>
-          <p class="step" style="margin-top:12px"><b>Reply</b> · <span id="draftStage"></span> <span id="draftState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="draftRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
-          <p class="foot" id="draftNote" style="margin:0 0 6px"></p>
-          <textarea id="draft" style="height:220px"></textarea>
-          <div class="row">
-            <button id="goReply" class="good">Open the reply, filled in ↗</button>
-            <button id="sentByHand" hidden>I sent it in Chat</button>
-            <button id="copyReply" class="ghost">Copy only</button>
-            <button id="threadHandled">Mark handled</button>
-            <button id="threadSkip" class="ghost">No reply needed</button>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
   <!-- any table view: queue, contacted -->
   <div id="table" hidden>
     <div class="row" style="margin-bottom:10px">
@@ -249,7 +204,7 @@
       </section>
 
       <section class="card">
-        <p class="step"><b>Step 1</b> · public reply — pick one, two lines <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
+        <p class="step"><b>Step 1</b> · public reply — one line, then "Check your DM." <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
         <div id="opts"></div>
         <textarea id="short"></textarea>
         <div class="row">

@@ -215,23 +215,22 @@ assert.strictEqual(cf("Need a developer co-founder", "I have 10 years in sales. 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
 const short = H.huntShortReply(hp, { name: "Troi" });
 assert.strictEqual(short.split("\n").length, 2, "the public reply is exactly two lines:\n" + short);
+assert.strictEqual(short.split("\n")[1], "Check your DM.");
 assert.ok(short.length < 420, "the public reply stays short: " + short.length);
 assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
-const opts = H.huntShortOptions(hp, { name: "Troi" }, 5);
-assert.strictEqual(opts.length, 5, "five options to choose from");
-assert.strictEqual(new Set(opts).size, 5, "and no two are the same");
-assert.strictEqual(new Set(opts.map((o) => o.split("\n")[0])).size, 5, "each opens differently");
-opts.forEach((o) => { assert.strictEqual(o.split("\n").length, 2, o); assert.ok(!/https?:\/\/|\$\d/.test(o)); });
-assert.ok(opts.some((o) => o.includes("your fitness app")), "at least one names their thing");
-assert.ok(!opts.some((o) => o.includes("co-founder for your fitness app")), "and none doubles the phrase");
+const opts = H.huntShortOptions(hp, { name: "Troi" });
+assert.strictEqual(opts.length, 1, "one public reply, not a menu");
+assert.strictEqual(opts[0].split("\n").length, 2);
+assert.strictEqual(opts[0].split("\n")[1], "Check your DM.");
+assert.ok(!/https?:\/\/|\$\d/.test(opts[0]));
 assert.ok(opts[0].includes("Equity-only"), "equity-only posts lead with the equity line");
 assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage: "revenue" }, {})[0].includes("pay for execution"), "funded posts lead with money");
-assert.ok(H.huntShortOptions({ ...hp, comments: 40 }, {}).some((o) => o.startsWith("Plenty of replies")), "a crowded thread gets the short opener");
 for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
-assert.ok(dm.length > 900, "the DM is the long one: " + dm.length);
+assert.ok(dm.length > 500 && dm.length < 1600, "the long DM is an introduction, not a letter: " + dm.length);
 assert.ok(dm.startsWith("Hi Jane,") && dm.includes("— Troi, web developer"));
-assert.ok(dm.includes("budget is the constraint"), "equity-only posts get the budget line");
+assert.ok(dm.includes("$350 upfront") && dm.includes("20% of income") && /budget to start/.test(dm), "how we work + the two questions");
+assert.ok(!/48 hours|prototype|no charge|costs you nothing|free build/i.test(dm), "no free work promised: " + dm);
 assert.ok(H.huntComposeUrl(hp, dm).startsWith("https://www.reddit.com/message/compose/?to=jane&subject="));
 assert.ok(H.huntScore({ ...hp, created: Date.now() }) > H.huntScore({ ...hp, created: Date.now() - 5 * 86400000 }), "fresher posts rank higher");
 assert.ok(H.huntScore({ ...hp, hasBudget: true, equityOnly: false }) > H.huntScore(hp), "money ranks higher than equity-only");
@@ -239,13 +238,12 @@ console.log("co-founder hunt: ok");
 
 // DM close: the free offer, then the private channel
 const dm2 = H.huntDM(hp, { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210", telegram: "@troibuilds" });
-assert.ok(dm2.includes("here is the offer, and it costs you nothing"), "every DM makes the free offer");
-assert.ok(dm2.includes("clickable 3-screen prototype") && dm2.includes("48 hours"));
+assert.ok(dm2.includes("How we work") && dm2.includes("$350 upfront"), "every DM says how we work");
 assert.ok(dm2.includes("https://wa.me/919876543210") && dm2.includes("https://t.me/troibuilds"), "both private channels appear");
-assert.ok(dm2.indexOf("wa.me") > dm2.indexOf("costs you nothing"), "the channel comes after the offer");
+assert.ok(dm2.indexOf("wa.me") > dm2.indexOf("How we work"), "the channel comes after how we work");
 assert.ok(dm2.trim().endsWith("— Troi, web developer"));
 const dm3 = H.huntDM({ ...hp, role: "marketing" }, { name: "Troi", whatsapp: "https://wa.me/1555" });
-assert.ok(dm3.includes("twenty named places") && dm3.includes("https://wa.me/1555") && !dm3.includes("t.me"));
+assert.ok(dm3.includes("growth team") && dm3.includes("https://wa.me/1555") && !dm3.includes("t.me"));
 assert.ok(H.huntDM(hp, {}).includes("Reply here and I'll get started"), "no channels set: falls back to replying on Reddit");
 assert.strictEqual(H.waLink("98765 43210"), "https://wa.me/9876543210");
 assert.strictEqual(H.waLink("123"), "");
@@ -253,7 +251,7 @@ assert.strictEqual(H.tgLink("troi"), "https://t.me/troi");
 assert.strictEqual(H.waLink(""), "");
 // the 3-line public reply stays clean: no offer, no links
 const short2 = H.huntShortReply(hp, { name: "Troi", whatsapp: "+919876543210" });
-assert.ok(!/wa\.me|t\.me|48 hours/.test(short2) && short2.split("\n").length === 2);
+assert.ok(!/wa\.me|t\.me|48 hours|free/.test(short2) && short2.split("\n").length === 2);
 console.log("dm offer + private channel: ok");
 
 // names read like a person wrote them
@@ -268,11 +266,11 @@ assert.strictEqual(H.huntName("jane_builds92"), "Jane", "a real first name still
 assert.strictEqual(H.huntName(""), "there");
 
 // three lengths of the same letter, same offer and close in each
-const sizes = ["short", "medium", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
-assert.ok(sizes[0].length < sizes[1].length && sizes[1].length < sizes[2].length, "short < medium < long: " + sizes.map((x) => x.length));
+const sizes = ["short", "long", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
+assert.ok(sizes[0].length < sizes[2].length, "short < long: " + sizes.map((x) => x.length));
 assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
-sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(/wa\.me\/919000000000/.test(d)); assert.ok(/48 hours/.test(d)); });
-assert.ok(/1\. /.test(sizes[1]) && /1\. /.test(sizes[2]) && !/1\. /.test(sizes[0]), "only the longer letters carry steps");
+sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(/wa\.me\/919000000000/.test(d)); assert.ok(/\$350/.test(d)); });
+assert.ok(!/\n1\. /.test(sizes[0]) && !/\n1\. /.test(sizes[2]), "short and long are introductions, no numbered plan");
 
 // the reading of a post
 const syn = H.huntSynopsis({ title: "Looking for a technical co-founder for my fitness app", body: "I run a gym business in Bangalore. 400 users on the waitlist. Equity only (10%), nights and weekends.", role: "technical", stage: "idea", equityOnly: true, sub: "startups" });
@@ -291,23 +289,24 @@ console.log("synopsis, names, dm sizes: ok");
 // AI prompt: built from the post, offer and contact line passed through
 const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
 const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
-assert.ok(pr.system.includes("Noah") && pr.system.includes("value bomb") && pr.system.includes("exactly two SHORT lines"));
+assert.ok(pr.system.includes("Noah") && pr.system.includes("partner team") && pr.system.includes("exactly two lines"));
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane") === false);
 assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the instructions");
 assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
-assert.ok(pr.user.includes("48 hours"), "the offer is passed through");
+assert.ok(pr.user.includes("HOW WE WORK") && pr.user.includes("$350"), "how we work is passed through");
+assert.ok(pr.system.includes("never offer free work"), "no free work in the instructions");
 assert.strictEqual(pr.schema.required.length, 4, "three answers plus why");
 // cleaner: rejects links, prices, one-liners, stubs
 const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
 assert.ok(H.huntAiClean(good));
-assert.strictEqual(H.huntAiClean({ ...good, public_reply: "only one line" }), null);
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "only one line" }).public_reply, "only one line\nCheck your DM.", "one line is fine: the close is added");
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "see https://x.com\nline two" }), null);
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "costs $500\nline two" }), null);
 assert.strictEqual(H.huntAiClean({ ...good, dm_long: "short" }), null);
 assert.strictEqual(H.huntAiClean(good).public_reply.split("\n").length, 2);
-assert.strictEqual(H.huntAiClean({ ...good, public_reply: "a\nb\nc" }).public_reply, "a\nb c", "three lines fold into two");
-assert.ok(pr.system.includes("at most 35 words") && pr.schema.properties.public_reply.description.includes("35 words"), "the public reply is told to be short");
-assert.deepStrictEqual(H.huntAiClean({ ...good, public_reply: ("word ".repeat(40)).trim() + "\n" + ("word ".repeat(30)).trim() }), { tooLong: true }, "a long public reply is sent back for a shorter one");
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "a\nb\nc" }).public_reply, "a\nCheck your DM.", "extra lines are dropped");
+assert.ok(pr.system.includes('exactly "Check your DM."') && pr.schema.properties.public_reply.description.includes("Check your DM."), "the public reply ends with Check your DM.");
+assert.deepStrictEqual(H.huntAiClean({ ...good, public_reply: ("word ".repeat(45)).trim() + "\nCheck your DM." }), { tooLong: true }, "a long public reply is sent back for a shorter one");
 console.log("ai prompt + cleaner: ok");
 
 // inbox: prompt, cleaner, template fallback
@@ -365,3 +364,6 @@ assert.ok(H.INBOX_STAGES.some((s) => s.key === "cut") && H.INBOX_STAGES.some((s)
 assert.deepStrictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "cut", verdict: "not_interested", budget: "no", share_ok: "no", note: "n" }).verdict, "not_interested");
 assert.strictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "offer", verdict: "bogus", note: "n" }).verdict, "unclear");
 console.log("partner instructions: ok");
+
+assert.strictEqual(H.huntAiClean({ ...good, public_reply: "One specific line about the gym.\nSomething else entirely" }).public_reply, "One specific line about the gym.\nCheck your DM.", "line two is always Check your DM.");
+console.log("single public reply: ok");

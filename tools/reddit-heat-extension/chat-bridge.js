@@ -109,7 +109,10 @@
     fillBtn.onclick = () => {
       const onScreen = roomWith(readMessages());
       if (current && onScreen && onScreen.toLowerCase() !== current.with.toLowerCase()) { state.textContent = `this reply is for ${current.with}, but the open chat is with ${onScreen} — not filling`; state.style.color = "#ff8a65"; return; }
-      fill(ta.value).then((r) => { state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; });
+      fill(ta.value).then(async (r) => {
+        state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65";
+        if (r.ok) await assumeSent();
+      });
     };
     sentBtn.onclick = async () => { if (!current) return; await chrome.runtime.sendMessage({ type: "inbox-mine", id: current.id, body: ta.value }); state.textContent = "marked sent"; state.style.color = "#7ee29a"; current = null; };
     redoBtn.onclick = () => draft(true);
@@ -118,6 +121,15 @@
   }
 
   let current = null, lastSig = "", drafting = false;
+  // Option (on by default): once the reply is in the box, count it as sent so
+  // the Inbox strikes the card through. Untick "mark as sent when filled" on
+  // the Inbox page to go back to pressing Sent by hand.
+  async function assumeSent() {
+    const { assumeSent: on = true } = await chrome.storage.local.get(["assumeSent"]);
+    if (on === false || !current) return;
+    await chrome.runtime.sendMessage({ type: "inbox-mine", id: current.id, body: ta.value });
+    state.textContent = "in the box — marked sent; press send"; state.style.color = "#7ee29a";
+  }
   async function draft(force) {
     if (!current || drafting) return;
     drafting = true; ensurePanel(); state.textContent = "writing…"; state.style.color = "#e6c76b";
@@ -138,7 +150,7 @@
     const c = findComposer();
     const boxEmpty = c && (c.tagName === "TEXTAREA" ? !c.value.trim() : !text(c).trim());
     if (chatAutoFill && r.needsReply && onScreen && onScreen.toLowerCase() === current.with.toLowerCase() && boxEmpty) {
-      const f = await fill(ta.value); if (f.ok) { state.textContent = "auto-filled — read it, press send"; }
+      const f = await fill(ta.value); if (f.ok) { state.textContent = "auto-filled — read it, press send"; await assumeSent(); }
     } else if (chatAutoFill && !boxEmpty) { state.textContent = "box not empty — not auto-filling"; state.style.color = "#e6c76b"; }
   }
 
