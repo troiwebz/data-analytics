@@ -3,24 +3,24 @@
 # Chrome starts this script and talks to it over stdin/stdout: every message is
 # a 4-byte little-endian length followed by JSON. We accept {"cmd":"update"} or
 # {"cmd":"status"} and stream back {"line":"..."} messages, then {"done":true}.
-# stdout is the protocol channel, so nothing else may print to it.
+# stdout is the protocol channel, so nothing else may print to it. Framing is
+# done with perl (present on every Mac) because macOS ships bash 3.2, which
+# cannot emit NUL bytes from printf.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export LC_ALL=C
+exec 2>>"$HERE/native-host.log"
+echo "--- $(date '+%Y-%m-%d %H:%M:%S') host started (bash $BASH_VERSION)" >&2
 
-esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g' | tr -d '\000-\010\013-\037'; }
-send() {
-  local msg="$1" len
-  len=${#msg}
-  printf "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x' $((len & 255)) $(((len >> 8) & 255)) $(((len >> 16) & 255)) $(((len >> 24) & 255)))"
-  printf '%s' "$msg"
-}
+esc() { printf '%s' "$1" | tr '\t' ' ' | tr -d '\000-\010\013-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+send() { perl -e 'use bytes; binmode STDOUT; my $m = $ARGV[0]; print pack("V", length $m), $m;' -- "$1"; }
 line() { send "{\"line\":\"$(esc "$1")\"}"; }
 
-# read one request
-LEN=$(head -c 4 | od -An -tu4 | tr -d ' ')
-[ -n "$LEN" ] || exit 0
+# read one request: exact 4 bytes (sysread, unbuffered), then that many bytes
+LEN=$(perl -e 'my $b; sysread(STDIN, $b, 4) == 4 or exit 1; print unpack("V", $b);')
+[ -n "$LEN" ] || { echo "no request length" >&2; exit 0; }
 REQ=$(head -c "$LEN")
 CMD=$(printf '%s' "$REQ" | grep -o '"cmd" *: *"[a-z]*"' | grep -o '[a-z]*"$' | tr -d '"')
+echo "cmd=$CMD" >&2
 
 if [ "$CMD" = "status" ]; then
   if launchctl list 2>/dev/null | grep -q "com.reddit-lead-threads.update"; then SCHED="launchd: on"
@@ -41,4 +41,4 @@ if [ "$CMD" = "update" ]; then
   exit 0
 fi
 
-send "{\"error\":\"unknown command\"}"
+send "{\"error\":\"unknown command: $(esc "$CMD")\"}"

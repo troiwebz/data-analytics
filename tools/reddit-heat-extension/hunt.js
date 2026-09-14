@@ -6,7 +6,7 @@ const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
 let queue = [];        // local working copy, so a skip advances instantly
 let cur = null;        // the post on screen
 let variant = 0;       // which of the public options is picked
-let dmSize = "medium";
+let dmSize = "long";
 let options = [];
 let profile = {};
 let lastActed = null;
@@ -59,7 +59,7 @@ function render() {
   }
   $("short").value = options[variant] || "";
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
-  $("dm").value = useAi ? p.ai["dm_" + dmSize] : huntDM(p, profile, dmSize);
+  $("dm").value = useAi ? (p.ai["dm_" + dmSize] || p.ai.dm_long || p.ai.dm_short) : huntDM(p, profile, dmSize);
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
   aiWrite(false);
@@ -114,7 +114,7 @@ async function aiWrite(force) {
   if (!cur) return;
   const eng = engine();
   if (eng === "templates") return;
-  if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id])) return;
+  if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id] || aheadBusy === cur.id)) return;
   if (eng === "claude" && !profile.apiKey) { aiErr[cur.id] = "no API key yet — paste one under AI writing, or pick Chrome built-in"; aiStatus(cur); return; }
   const id = cur.id, post = cur;
   aiBusy = id; aiStart = Date.now(); aiStatus(cur);
@@ -135,12 +135,30 @@ async function aiWrite(force) {
     delete aiErr[id];
     for (const q of queue) if (q.id === id) q.ai = r.ai;
     if (cur && cur.id === id) { cur.ai = r.ai; variant = 0; render(); }
+    aiWriteAhead();
   } else {
     const err = (r && r.error) || "no answer";
     if (cur && cur.id === id && cur.ai) { $("aiState").textContent = "rewrite failed: " + err + " — keeping the earlier one"; $("aiState").style.color = "#ff8a65"; return; }
     aiErr[id] = err;
     if (cur && cur.id === id) aiStatus(cur);
   }
+}
+// The next post gets written while you work on this one, so "next" is instant.
+let aheadBusy = "";
+async function aiWriteAhead() {
+  const eng = engine();
+  if (eng === "templates" || (eng === "claude" && !profile.apiKey)) return;
+  const nxt = queue.find((q) => q !== cur && !q.ai && !aiErr[q.id] && !q.mine);
+  if (!nxt || aheadBusy) return;
+  aheadBusy = nxt.id;
+  try {
+    let r;
+    if (eng === "chrome") { const out = await chromeWrite(nxt); r = await send({ type: "hunt-ai-save", id: nxt.id, ai: out, model: "on-device" }); }
+    else r = await send({ type: "hunt-ai", id: nxt.id });
+    if (r && r.ok) { for (const q of queue) if (q.id === nxt.id) q.ai = r.ai; if (cur && cur.id === nxt.id) { cur.ai = r.ai; variant = 0; render(); } }
+    else aiErr[nxt.id] = (r && r.error) || "no answer";
+  } catch (e) { aiErr[nxt.id] = String(e && e.message || e); }
+  finally { aheadBusy = ""; }
 }
 $("aiRedo").onclick = () => aiWrite(true);
 

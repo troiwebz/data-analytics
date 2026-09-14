@@ -1522,12 +1522,11 @@ HEAT.AI_SCHEMA = {
   type: "object",
   properties: {
     public_reply: { type: "string", description: "Exactly two lines separated by one newline. No links, no prices, no pitch, no mention of being available for hire." },
-    dm_short: { type: "string", description: "80 to 130 words." },
-    dm_medium: { type: "string", description: "200 to 300 words, with three numbered steps." },
-    dm_long: { type: "string", description: "400 to 560 words, with five numbered steps." },
-    why: { type: "string", description: "One sentence: the single most specific thing in the post that the replies are built around." },
+    dm_short: { type: "string", description: "70 to 110 words." },
+    dm_long: { type: "string", description: "260 to 380 words, with four numbered steps." },
+    why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
   },
-  required: ["public_reply", "dm_short", "dm_medium", "dm_long", "why"],
+  required: ["public_reply", "dm_short", "dm_long", "why"],
   additionalProperties: false,
 };
 
@@ -1543,7 +1542,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
 - The public reply is exactly two lines: line one is a specific, useful observation about their situation; line two gives them one concrete free thing tied to it and says the detail is in their DM. No link, no price, no "I'm a developer".
-- Every DM: open "Hi ${m.name}," then their situation, then the real advice, then the offer (below), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". Short and medium use the short offer; long uses the full offer.
+- Both DMs: open "Hi ${m.name}," then their situation, then the real advice, then the offer (below), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". The short DM uses the short offer; the long one uses the full offer.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
   const user = `THE POST
 Subreddit: r/${p.sub || "?"}
@@ -1555,7 +1554,7 @@ ${(p.body || "(no body)").slice(0, compact ? 2500 : 6000)}
 WHAT WE READ FROM IT (may be wrong; trust the post over this)
 Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
 
-SHORT OFFER (for dm_short and dm_medium; adapt the product name to theirs)
+SHORT OFFER (for dm_short; adapt the product name to theirs)
 ${offerShort}
 
 FULL OFFER (for dm_long; adapt the product name to theirs)
@@ -1567,7 +1566,7 @@ ${m.contact}
 SIGN-OFF
 ${m.sign || profile.name || ""}
 
-Write public_reply, dm_short, dm_medium, dm_long and why.${compact ? " Keep dm_short about 90 words, dm_medium about 180 words with three numbered steps, dm_long about 300 words with five numbered steps." : ""}`;
+Write public_reply, dm_short, dm_long and why. Be quick and concrete; no preamble.${compact ? " Keep dm_short about 80 words and dm_long about 220 words with four numbered steps." : ""}`;
   return { system, user, schema: HEAT.AI_SCHEMA };
 };
 
@@ -1578,7 +1577,7 @@ HEAT.huntAiClean = function (out) {
   let pub = str(out.public_reply).split("\n").map((l) => l.trim()).filter(Boolean);
   if (pub.length > 2) pub = [pub[0], pub.slice(1).join(" ")];
   if (pub.length < 2 || /https?:\/\/|\$\s?\d|€\s?\d|£\s?\d/.test(pub.join(" "))) return null;
-  const dm_short = str(out.dm_short), dm_medium = str(out.dm_medium), dm_long = str(out.dm_long);
-  if (dm_short.length < 200 || dm_medium.length < 500 || dm_long.length < 1000) return null;
-  return { public_reply: pub.join("\n"), dm_short, dm_medium, dm_long, why: str(out.why).slice(0, 300) };
+  const dm_short = str(out.dm_short), dm_long = str(out.dm_long);
+  if (dm_short.length < 180 || dm_long.length < 700) return null;
+  return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300) };
 };

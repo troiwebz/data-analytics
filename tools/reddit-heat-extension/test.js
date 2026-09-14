@@ -292,9 +292,9 @@ assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/
 assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the instructions");
 assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
 assert.ok(pr.user.includes("48 hours"), "the offer is passed through");
-assert.strictEqual(pr.schema.required.length, 5);
+assert.strictEqual(pr.schema.required.length, 4, "three answers plus why");
 // cleaner: rejects links, prices, one-liners, stubs
-const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_medium: "y".repeat(600), dm_long: "z".repeat(1200), why: "the waitlist" };
+const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
 assert.ok(H.huntAiClean(good));
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "only one line" }), null);
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "see https://x.com\nline two" }), null);

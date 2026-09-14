@@ -854,11 +854,11 @@ async function huntAiWrite(id, force) {
       },
       body: JSON.stringify({
         model: AI_MODEL,
-        max_tokens: 6000,
+        max_tokens: 3000,
         fallbacks: "default",
+        output_config: { effort: "low", format: { type: "json_schema", schema } },
         system,
         messages: [{ role: "user", content: user }],
-        output_config: { format: { type: "json_schema", schema } },
       }),
     });
     j = await r.json().catch(() => ({}));
