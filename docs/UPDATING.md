@@ -17,6 +17,13 @@ differs from the one running. Settings and the local lead database live in
 4. To update: open GitHub Desktop → **Fetch origin** → **Pull**. Done — the
    extension reloads within 2 minutes.
 
+**Update immediately, any time:**
+```bash
+bash ~/haf-watcher/tools/update.sh
+```
+Then press **Update now** on the dashboard (or wait up to a minute). The
+dashboard also shows that command as a click-to-copy button.
+
 **Zero-click — scheduled pull (terminal, once):**
 ```bash
 git clone https://github.com/troiwebz/data-analytics.git ~/haf-watcher

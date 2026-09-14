@@ -55,7 +55,7 @@ export async function scheduleAlarms(cfg) {
   if (!cfg.enabled) return;
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: Math.max(1, cfg.pollMinutes), delayInMinutes: 0.1 });
   chrome.alarms.create(APPROVAL_ALARM, { periodInMinutes: Math.max(1, cfg.approvalPollMinutes) });
-  chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 2 });
+  chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
 }
 
 /**
@@ -65,15 +65,19 @@ export async function scheduleAlarms(cfg) {
  * Settings and the local database live in chrome.storage and survive it.
  */
 async function checkForUpdate() {
+  const running = chrome.runtime.getManifest().version;
   try {
     const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
     const onDisk = (await res.json()).version;
-    const running = chrome.runtime.getManifest().version;
     if (onDisk && onDisk !== running) {
       await log(`new version on disk (${running} → ${onDisk}) — reloading`);
       chrome.runtime.reload();
+      return { reloading: true, version: onDisk };
     }
-  } catch { /* file unreadable mid-pull — try again next tick */ }
+    return { reloading: false, version: running };
+  } catch (e) {
+    return { reloading: false, version: running, error: `could not read the folder: ${e.message}` };
+  }
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -377,7 +381,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
-      case 'check-update':  await checkForUpdate(); sendResponse({ version: chrome.runtime.getManifest().version }); break;
+      case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }
   })();

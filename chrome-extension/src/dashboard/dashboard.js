@@ -211,6 +211,22 @@ $('regen').addEventListener('click', async () => {
   alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
   render();
 });
+$('update').addEventListener('click', async () => {
+  $('update').textContent = 'Checking…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'check-update' });
+  if (r?.reloading) return;                      // the page dies with the reload; nothing to show
+  $('update').textContent = 'Update now';
+  alert(r?.error
+    ? r.error
+    : `Already on v${r?.version}. Nothing new in the folder — run the pull command above first, then press Update now again.`);
+});
+
+$('cmd').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('cmd').textContent.trim());
+  $('cmdmsg').textContent = 'copied — paste in Terminal';
+  setTimeout(() => ($('cmdmsg').textContent = ''), 4000);
+});
+
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
 ['q', 'fstatus', 'fsort', 'hidedone'].forEach((id) => $(id).addEventListener('input', render));
 

@@ -47,6 +47,8 @@
   #log{padding:0 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
   #log div.error{color:var(--red)}
   .stale{color:var(--red);font-weight:600}
+  #cmd{font:11px ui-monospace,Menlo,monospace;background:#1e293b;color:#cbd5e1;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #334155}
+  #cmd:hover{background:#334155}
 </style>
 <header>
   <h1>HAF Watcher <small id="ver" style="font-weight:400;opacity:.6;font-size:12px"></small></h1>
@@ -59,8 +61,14 @@
   <button id="backfill">Backfill 48h</button>
   <button id="regen" title="Regenerate the PM draft for every lead from the current templates">Rebuild PMs</button>
   <button id="opts">Settings</button>
+  <button id="update" class="pri" title="Reload the extension from the folder on disk">Update now</button>
 </header>
 <div class="stats" id="stats"></div>
+<div class="bar" style="padding-top:0">
+  <span style="font-size:12.5px;color:var(--mute)">Pull the newest code first:</span>
+  <button id="cmd" title="Copy — paste in Terminal to pull immediately">bash ~/haf-watcher/tools/update.sh</button>
+  <span id="cmdmsg" style="font-size:12px;color:var(--green)"></span>
+</div>
 <div class="bar">
   <input id="q" placeholder="Search title, author, keyword…">
   <select id="fstatus">
