@@ -81,6 +81,13 @@ Click the toolbar icon for a full tab: one table of every lead.
   sort last rather than pretending to be zero.
 - **Click a row** to open the post snippet, the public reply, the PM and the
   buttons for that lead — 🚀 posts from here without touching Telegram.
+- On the PM side: **✉️ Send PM now** opens BHW's direct-message page
+  (`/direct-messages/add?to=digital+value` — the `to` value is form-encoded,
+  so spaces are `+`), fills the recipient, subject and body, and sends.
+  **📝 Fill & review** does everything except press Send, leaving the tab
+  open. DMs have their own daily cap and spacing, separate from posts:
+  `maxDmsPerDay` (8) and `minMinutesBetweenDms` (5) in Options. Unsolicited
+  PMs are the thing BHW moderators actually act on — keep these low.
 - A search box and a "hide posted / skipped" toggle are the only filters.
 - **Backfill 48h** loads the last two days; **Scrape all…** walks the forum
   listing pages (20 threads each, ~1.2 s apart) and records everything started

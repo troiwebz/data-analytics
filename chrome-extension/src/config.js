@@ -20,6 +20,9 @@ export const DEFAULT_CONFIG = {
   autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minMinutesBetweenPosts: 3,   // spacing between two 🚀 posts
+  maxDmsPerDay: 8,             // hard cap on sent DMs — unsolicited PMs are what
+                               // BHW moderators act on, so keep this low
+  minMinutesBetweenDms: 5,     // spacing between two DMs
 
   // Staging: for strong leads, open the thread in a background tab and type the
   // reply in WITHOUT submitting. A 🚀 tap then just clicks Submit — sub-second.
@@ -172,6 +175,9 @@ export const DEFAULT_CONFIG = {
 {Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
   },
 
+  // Subject line of the DM. XenForo requires one. Same {{vars}} as the body.
+  dmTitle: `{Re: |}{{threadTitle}}`,
+
   // ---- Private message ---------------------------------------------------
   // The offer that closes every PM. Edit this one line and every PM changes.
   dmOffer: `{Happy to share our portfolio and live samples|I can send over our portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
@@ -234,7 +240,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 7;
+export const CONFIG_VERSION = 8;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -275,6 +281,11 @@ export async function migrateConfig() {
   // one that promised bespoke sample work. Replaced unless they wrote their own.
   if (v < 7 && /20% off|payment only after|sample first so you can judge|sample together first/i.test(next.dmOffer || '')) {
     next.dmOffer = DEFAULT_CONFIG.dmOffer;
+  }
+  if (v < 8) {
+    for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });

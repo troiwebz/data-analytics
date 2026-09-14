@@ -24,6 +24,11 @@ const ago = (iso) => {
 };
 const time = (v) => { const t = new Date(v).getTime(); return isFinite(t) ? t : 0; };
 
+/** BHW direct-message compose page; `to` is form-encoded so spaces are '+'. */
+const dmLink = (l) => l.dmUrl ||
+  'https://www.blackhatworld.com/direct-messages/add?to=' +
+  encodeURIComponent(l.author || '').replace(/%20/g, '+');
+
 /** `matched` is an array locally but comma-joined when it comes from the Sheet. */
 const tags = (v) => Array.isArray(v) ? v.map(String)
   : typeof v === 'string' ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
@@ -152,10 +157,14 @@ function detail(l, staged, cfg) {
         <div class="lbl">✉️ Private message to ${esc(l.author || '')}</div>
         <textarea class="dm" data-dm="${id}">${esc(dm)}</textarea>
         <div class="acts">
-          <button data-act="copydm" data-id="${id}">📋 Copy PM</button>
-          <button data-act="opendm" data-id="${id}">✉️ Open PM page</button>
-          <button data-act="pmsent" data-id="${id}">✅ PM sent</button>
+          ${l.pmSent ? '<span class="st POSTED">PM sent</span>' : `
+          <button class="go" data-act="senddm" data-id="${id}">✉️ Send PM now</button>
+          <button data-act="filldm" data-id="${id}">📝 Fill &amp; review</button>`}
+          <button data-act="copydm" data-id="${id}">📋 Copy</button>
+          <button data-act="opendm" data-id="${id}">🔗 DM page</button>
+          ${l.pmSent ? '' : `<button data-act="pmsent" data-id="${id}">✅ I sent it</button>`}
         </div>
+        ${l.pmError ? `<div class="msg err">${esc(l.pmError)}</div>` : ''}
       </div>
     </div>
     ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
@@ -212,10 +221,22 @@ document.addEventListener('click', async (e) => {
   if (act === 'copydm') { await navigator.clipboard.writeText(dm); return say(id, 'PM copied.', true); }
   if (act === 'opendm') {
     await navigator.clipboard.writeText(dm).catch(() => {});
-    chrome.tabs.create({ url: lead.dmUrl || `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(lead.author || '')}` });
+    chrome.tabs.create({ url: dmLink(lead) });
     return say(id, 'PM page opened, text copied — paste and send.', true);
   }
   if (act === 'pmsent') { await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id }); delete editedDm[id]; return render(); }
+  if (act === 'senddm' || act === 'filldm') {
+    const send = act === 'senddm';
+    if (send && !confirm(`Send this DM to ${lead.author} now?\n\nUnsolicited PMs are what BHW moderators act on — keep the volume low.`)) return;
+    btn.disabled = true;
+    say(id, send ? 'Sending…' : 'Opening the DM page…', true);
+    const r = await chrome.runtime.sendMessage({ cmd: 'send-dm', lead: { ...lead, dm }, mode: send ? 'send' : 'fill' });
+    btn.disabled = false;
+    say(id, r?.ok ? (r.sent ? 'DM sent ✅' : 'Filled in — check the tab and press Send')
+                  : `Failed: ${r?.error || 'unknown'}`, !!r?.ok);
+    if (r?.sent) delete editedDm[id];
+    return render();
+  }
   if (act === 'post') {
     if (!confirm(`Post this reply to "${lead.title}" now?`)) return;
     btn.disabled = true; say(id, 'Posting…', true);

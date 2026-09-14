@@ -40,6 +40,31 @@ globalThis.HAF_SELECTORS = {
     '.js-loginBar',
     '[data-template="login_form"]'
   ],
+  // --- direct message compose page (/direct-messages/add) ---------------
+  dmForm: [
+    'form[action*="/direct-messages/insert"]',
+    'form[action*="/direct-messages/add"]',
+    'form[action*="/conversations/insert"]',
+    '.p-body-main form'
+  ],
+  dmRecipients: [
+    'input[name="recipients"]',
+    '.js-tokenizerInput',
+    'input[name="recipient_ids"]'
+  ],
+  dmTitle: [
+    'input[name="title"]',
+    'input.input--title'
+  ],
+  dmSubmit: [
+    'button.button--icon--add',
+    'button[type="submit"].button--primary',
+    'button[type="submit"]',
+    'input[type="submit"]'
+  ],
+  // Shown once a conversation exists — used to confirm the DM sent.
+  dmSent: ['.p-title-value', '.message--conversation', 'article.message'],
+
   // Posts already on the page, used to confirm the reply landed.
   message: ['article.message', '.message--post']
 };

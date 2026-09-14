@@ -41,6 +41,12 @@ function forPm(reply) {
     .trim();
 }
 
+/** Subject line for the DM. */
+export function renderDmTitle(lead, cfg) {
+  const t = render(lead, cfg.dmTitle || '{{threadTitle}}').trim();
+  return (t || lead.title || 'Your thread').slice(0, 90);
+}
+
 function render(lead, tpl) {
   if (!tpl) return '';
 

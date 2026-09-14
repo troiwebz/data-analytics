@@ -84,7 +84,7 @@ function today() { return new Date().toLocaleDateString('en-CA'); }
 
 export async function getRateState() {
   const { [RATE_KEY]: r } = await chrome.storage.local.get(RATE_KEY);
-  if (!r || r.day !== today()) return { day: today(), count: 0, lastPostAt: 0 };
+  if (!r || r.day !== today()) return { day: today(), count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
   return r;
 }
 
@@ -101,10 +101,30 @@ export async function checkRateLimit(cfg) {
   return { ok: true };
 }
 
+/** Same shape as checkRateLimit, for DMs. */
+export async function checkDmLimit(cfg) {
+  const r = await getRateState();
+  if ((r.dmCount || 0) >= cfg.maxDmsPerDay) {
+    return { ok: false, reason: `daily DM cap reached (${cfg.maxDmsPerDay})` };
+  }
+  const waitMs = cfg.minMinutesBetweenDms * 60000 - (Date.now() - (r.lastDmAt || 0));
+  if (r.lastDmAt && waitMs > 0) {
+    return { ok: false, reason: `DM spacing: ${Math.ceil(waitMs / 60000)} min to go` };
+  }
+  return { ok: true };
+}
+
+export async function recordDm() {
+  const r = await getRateState();
+  await chrome.storage.local.set({
+    [RATE_KEY]: { ...r, day: today(), dmCount: (r.dmCount || 0) + 1, lastDmAt: Date.now() }
+  });
+}
+
 export async function recordPost() {
   const r = await getRateState();
   await chrome.storage.local.set({
-    [RATE_KEY]: { day: today(), count: r.count + 1, lastPostAt: Date.now() }
+    [RATE_KEY]: { ...r, day: today(), count: r.count + 1, lastPostAt: Date.now() }
   });
 }
 

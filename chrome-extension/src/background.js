@@ -13,13 +13,13 @@ import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { matchLead } from './matcher.js';
-import { renderReply, renderDm } from './templates.js';
+import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
-  checkRateLimit, recordPost, log,
+  checkRateLimit, recordPost, checkDmLimit, recordDm, log,
   getStaged, setStaged, removeStagedByTab
 } from './store.js';
 
@@ -97,9 +97,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // ------------------------------------------------------------------- feed
 
-/** BHW's new-conversation page with the recipient filled in. You paste and send. */
+/**
+ * BHW's new direct-message page with the recipient filled in.
+ * The `to` parameter is form-encoded, so spaces are '+', not %20:
+ *   https://www.blackhatworld.com/direct-messages/add?to=digital+value
+ */
 export function dmUrl(author) {
-  return `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(author || '')}`;
+  return 'https://www.blackhatworld.com/direct-messages/add?to=' +
+         encodeURIComponent(author || '').replace(/%20/g, '+');
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
@@ -308,6 +313,54 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
   return result;
 }
 
+/**
+ * Open the DM compose page and fill it in. mode 'send' also submits.
+ * Unsolicited PMs are the thing BHW moderators actually act on, so this is
+ * capped and spaced separately from posting, and never runs unprompted.
+ */
+export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
+  const body = lead.dm || renderDm(lead, cfg);
+  const title = renderDmTitle(lead, cfg);
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: dmUrl(lead.author), active: mode !== 'send' });
+    await waitForTabLoad(tab.id);
+    await new Promise((r) => setTimeout(r, 1200 + Math.random() * 2000));
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (dm, m, id) => { globalThis.__HAF_DM__ = dm; globalThis.__HAF_DM_MODE__ = m; globalThis.__HAF_THREAD_ID__ = id; },
+      args: [{ author: lead.author, title, body }, mode, String(lead.threadId)]
+    });
+
+    const pending = new Promise((resolve) => {
+      const timer = setTimeout(() => { done(); resolve({ ok: false, error: 'DM script timed out' }); }, 45000);
+      const onMsg = (msg) => {
+        if (msg?.type === 'haf-dm-result' && String(msg.threadId) === String(lead.threadId)) { done(); resolve(msg.result); }
+      };
+      const done = () => { clearTimeout(timer); chrome.runtime.onMessage.removeListener(onMsg); };
+      chrome.runtime.onMessage.addListener(onMsg);
+    });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/selectors.js', 'src/content-dm.js'] });
+    const result = await pending;
+
+    if (result.ok && result.sent) {
+      await recordDm();
+      await updateLead(lead.threadId, { pmSent: true, pmSentAt: new Date().toISOString(), dm: body, pmError: '' });
+      await log(`DM sent → ${lead.author}`);
+      setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 3000);
+    } else if (!result.ok) {
+      await updateLead(lead.threadId, { pmError: result.error });
+      await log(`DM failed (${lead.author}): ${result.error}`, 'error');
+      // Leave the tab open on failure so it can be finished by hand.
+      chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+    }
+    return result;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // --------------------------------------------------------------- posting
 
 function waitForTabLoad(tabId, timeoutMs = 30000) {
@@ -418,6 +471,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         await log(`rebuilt PM drafts for ${n} lead(s)`);
         sendResponse({ ok: true, updated: n });
+        break;
+      }
+      case 'send-dm': {                              // ✉️ Send PM now, from the dashboard
+        const cfg = await getConfig();
+        const gate = await checkDmLimit(cfg);
+        if (!gate.ok) { sendResponse({ ok: false, error: gate.reason }); break; }
+        sendResponse(await sendDm(msg.lead, cfg, { mode: msg.mode || 'send' }));
         break;
       }
       case 'mark-pm': {                              // ✅ "I sent the PM" from the dashboard
