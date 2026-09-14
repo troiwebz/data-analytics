@@ -247,7 +247,7 @@ $("goPost").onclick = async () => {
   await copyText(text);                                   // fallback if the box cannot be found
   await chrome.storage.local.set({ pendingReply: { id: cur.id, permalink: cur.permalink, text, variant, at: Date.now() } });
   const path = cur.permalink.replace(/^https?:\/\/[^/]+/, "");
-  window.open("https://old.reddit.com" + path, "_blank");   // old.reddit: the box is a plain textarea we can fill
+  window.open("https://www.reddit.com" + path, "_blank");   // new Reddit; prefill-new.js fills the composer there
 };
 $("goDm").onclick = async () => { if (!cur) return; await copyText($("dm").value); window.open(huntComposeUrl(cur, $("dm").value), "_blank"); };
 $("copyShort").onclick = () => copyText($("short").value, $("copyShort"));
