@@ -325,7 +325,7 @@ const thr = { id: "t4_a", with: "jane_builds92", messages: [
   { id: "t4_b", author: "jane_builds92", mine: false, body: "Thanks! How much would you charge to build the first version?", at: 2000 },
 ] };
 const ip = H.inboxAiPrompt(thr, { sub: "startups", title: "Looking for a technical co-founder for my fitness app", body: "equity only" }, { name: "Noah", whatsapp: "+919000000000" }, H.INBOX_PLAN_DEFAULT);
-assert.ok(ip.system.includes("$350 upfront") && ip.system.includes("HIRE OUR TEAM") && ip.system.includes("one step at a time") && ip.system.includes("THE REPLY MUST FIT THEIR LAST MESSAGE"));
+assert.ok(ip.system.includes("50% of income") && ip.system.includes("No upfront") && ip.system.includes("HIRE OUR TEAM") && ip.system.includes("one step at a time") && ip.system.includes("THE REPLY MUST FIT THEIR LAST MESSAGE"));
 assert.ok(ip.user.includes("THEM (") && ip.user.includes("How much would you charge") && ip.user.includes("THEIR ORIGINAL POST"));
 assert.ok(ip.system.includes("wa.me/919000000000"));
 assert.deepStrictEqual(ip.schema.required, ["reply", "stage", "verdict", "budget", "share_ok", "note"]);
@@ -334,11 +334,12 @@ assert.strictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "bogus", note:
 assert.strictEqual(H.inboxAiClean({ reply: "too short", stage: "offer", note: "n" }), null);
 const tr = H.inboxTemplateReply(thr, { name: "Noah", whatsapp: "+919000000000" }, H.INBOX_PLAN_DEFAULT);
 assert.strictEqual(tr.stage, "offer", "a price question gets the offer");
-assert.ok(tr.reply.startsWith("Hi Jane,") && tr.reply.includes("$350 upfront") && tr.reply.includes("20% of income") && tr.reply.includes("wa.me"));
+assert.ok(tr.reply.startsWith("Hi Jane,") && tr.reply.includes("No upfront") && tr.reply.includes("50% of income") && tr.reply.includes("50/50") && tr.reply.includes("wa.me"), "default deal is a 50/50 income + expense split:\n" + tr.reply);
 assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Can we do this for equity only? I have no money" }] }, {}).stage, "cut");
 assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "ok sounds good, I have a budget, how do we start" }] }, {}).stage, "close");
 assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "It is a gym app, first users are my members" }] }, {}).stage, "qualify");
-assert.ok(H.inboxTemplateReply(thr, { deal: { upfront: 500 } }).reply.includes("$500"), "the upfront comes from the deal terms");
+assert.ok(H.inboxTemplateReply(thr, { deal: { mode: "upfront_share", upfront: 500 } }).reply.includes("$500"), "the upfront comes from the deal terms");
+assert.ok(!H.inboxTemplateReply(thr, { deal: { upfront: 500 } }).reply.includes("$500"), "no upfront is mentioned in split mode");
 console.log("inbox: ok");
 
 // plan links + the LinkedIn / call template
@@ -347,7 +348,7 @@ assert.ok(planned.includes("https://linkedin.com/in/noah") && planned.includes("
 assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { booking: "https://cal.com/noah" }).includes("my booking link https://cal.com/noah"));
 const askLi = H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Would you be open for a short meet today? Also could you share your LinkedIn?" }] }, { name: "Noah", linkedin: "https://linkedin.com/in/noah", whatsapp: "+919000000000" });
 assert.strictEqual(askLi.stage, "answer");
-assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && /budget to start/.test(askLi.reply), askLi.reply);
+assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && /expenses to start, yes or no/.test(askLi.reply), askLi.reply);
 console.log("plan links: ok");
 
 assert.ok(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Hello, how are you? Where are you based?" }] }, { name: "Noah", location: "Bangkok, Thailand" }).reply.includes("based in Bangkok, Thailand"));
@@ -355,9 +356,9 @@ assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { location: "Bangkok" }).includes
 console.log("location: ok");
 
 // partner-team instructions: verdicts, cut, terms
-const dealP = { name: "Noah", whatsapp: "+919000000000", deal: { upfront: 500, share: 25, expenseShare: 40 } };
+const dealP = { name: "Noah", whatsapp: "+919000000000", deal: { mode: "upfront_share", upfront: 500, share: 25, expenseShare: 40 } };
 const planX = H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, dealP);
-assert.ok(planX.includes("$500 upfront") && planX.includes("25% of income") && planX.includes("split 40%") && !planX.includes("{{"), planX.slice(0, 300));
+assert.ok(planX.includes("$500 upfront") && planX.includes("25% of income") && planX.includes("split 40/60") && planX.includes("upfront + income share") && !planX.includes("{{"), planX.slice(0, 300));
 assert.ok(H.INBOX_PLAN_DEFAULT.includes("HIRE OUR TEAM") && H.INBOX_PLAN_DEFAULT.includes("SHARE EXPENSES AND INCOME") && H.INBOX_PLAN_DEFAULT.includes("VERDICT"));
 const two = (body) => ({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body }] });
 const cutR = H.inboxTemplateReply(two("I can't pay anything right now, it would be equity only"), dealP);
@@ -398,3 +399,36 @@ console.log("single public reply: ok");
   assert.ok(own.includes("does the customer support"), "the user's own team wording always wins");
 }
 console.log("stage-aware dm: ok");
+
+// The deal dropdown: one shape drives the DM, the AI prompt, the plan and the inbox replies.
+{
+  const prof = { name: "Noah", whatsapp: "+910000000000" };
+  const raw = { title: "Looking for a technical co-founder for my gym app", body: "Just an idea for now, need someone to build it.", author: "sam_k", subreddit: "cofounder" };
+  const p = { ...raw, ...H.classifyCofounder(raw.title, raw.body) };
+  assert.deepStrictEqual(H.DEAL_MODES.map((m) => m.key), ["split", "upfront_share", "share", "upfront"]);
+  assert.strictEqual(H.DEAL_DEFAULT.mode, "split"); assert.strictEqual(H.DEAL_DEFAULT.share, 50); assert.strictEqual(H.DEAL_DEFAULT.expenseShare, 50);
+  const dflt = H.huntDM(p, prof, "long");
+  assert.ok(/share the income and the expenses with you, equally/.test(dflt), "default DM says the split in words:\n" + dflt);
+  assert.ok(!/[$%]/.test(dflt), "no numbers in the first DM by default");
+  const withNums = H.huntDM(p, { ...prof, deal: { numbersInDm: true } }, "long");
+  assert.ok(withNums.includes("50% of income") && withNums.includes("50/50"), "numbers appear when switched on:\n" + withNums);
+  const up = H.huntDM(p, { ...prof, deal: { mode: "upfront_share" } }, "short");
+  assert.ok(/small upfront to start, then a share of the income/.test(up) && !/\$/.test(up), up);
+  const shareOnly = H.huntDM(p, { ...prof, deal: { mode: "share" } }, "long");
+  assert.ok(/no upfront: we carry our own costs/.test(shareOnly), shareOnly);
+  const paid = H.huntDM(p, { ...prof, deal: { mode: "upfront", numbersInDm: true, upfront: 900 } }, "long");
+  assert.ok(paid.includes("$900 per block") && /no share of your income/.test(paid) && /a paid team, rather than a co-founder/.test(paid), paid);
+  for (const mode of ["split", "upfront_share", "share", "upfront"]) {
+    const pr = H.huntAiPrompt(p, { ...prof, deal: { mode } });
+    assert.ok(pr.user.includes("THE DEAL SHAPE: " + H.dealShape({ mode }).label), mode + " named in the prompt");
+    assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE"), mode + ": numbers off by default");
+    const plan = H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { ...prof, deal: { mode } });
+    assert.ok(!plan.includes("{{") && plan.includes(H.dealShape({ mode, numbersInDm: true }).terms), mode + " plan carries the terms");
+  }
+  assert.ok(H.huntAiPrompt(p, { ...prof, deal: { numbersInDm: true } }).system.includes("exactly as written"), "numbers on: the AI must use them verbatim");
+  const thrX = { with: "jane", messages: [{ mine: true, body: "hi" }, { mine: false, body: "What are your terms?" }] };
+  assert.ok(H.inboxTemplateReply(thrX, { ...prof, deal: { mode: "share", share: 30 } }).reply.includes("30% of income") && !H.inboxTemplateReply(thrX, { ...prof, deal: { mode: "share", share: 30 } }).reply.includes("upfront to start"));
+  const closeX = H.inboxTemplateReply({ ...thrX, messages: [thrX.messages[0], { mine: false, body: "yes, ok with the share, let's start" }] }, prof);
+  assert.ok(closeX.stage === "close" && /then two things/.test(closeX.reply) && closeX.reply.includes("50/50"), closeX.reply);
+}
+console.log("deal shapes: ok");

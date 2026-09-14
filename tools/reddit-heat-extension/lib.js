@@ -1092,31 +1092,86 @@ HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
 // The DM closes on two things: a free deliverable worth saying yes to, and a
 // private channel where the conversation actually continues. Reddit DMs get
 // buried; WhatsApp and Telegram do not.
-// How we work, in their terms. No price in the first message: the shape is
-// the pitch — we come in as their team and share income and expenses.
+// What we ask for. One dropdown; every reply, DM and inbox step reads it.
+HEAT.DEAL_MODES = [
+  { key: "split", label: "Income + expense split (default 50/50)" },
+  { key: "upfront_share", label: "Upfront to start + income share" },
+  { key: "share", label: "Income share only, no upfront" },
+  { key: "upfront", label: "Upfront only — paid work, no share" },
+];
+// The deal in words. `shape`/`shapeShort` go in the first DM (numbers only
+// when numbersInDm is on); `terms` is the full offer with numbers for the
+// inbox; `qualify` is the two questions that fit this shape.
+HEAT.dealShape = function (deal) {
+  const d = { ...HEAT.DEAL_DEFAULT, ...(deal || {}) };
+  const mode = HEAT.DEAL_MODES.some((x) => x.key === d.mode) ? d.mode : "split";
+  const nums = !!d.numbersInDm;
+  const up = "$" + (Number(d.upfront) || HEAT.DEAL_DEFAULT.upfront);
+  const shareN = Number(d.share) || HEAT.DEAL_DEFAULT.share, expN = Number(d.expenseShare) || HEAT.DEAL_DEFAULT.expenseShare;
+  const sh = shareN + "%", ex = `${expN}/${100 - expN}`;
+  const equal = shareN === 50 && expN === 50;
+  const S = {
+    split: {
+      label: "income + expense split",
+      shape: nums ? `we share the income and the expenses with you — ${sh} of income to our team, expenses split ${ex} — agreed in writing before anything is spent` : `we share the income and the expenses with you${equal ? ", equally" : ""}, agreed in writing before anything is spent`,
+      shapeShort: nums ? `share income and expenses with you (${sh} of income, expenses ${ex})` : `share the income and expenses with you${equal ? " equally" : ""}`,
+      question: `is a partner team on a share of income and expenses, rather than a co-founder on equity, a shape you're open to?`,
+      terms: `No upfront. ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing before anything is spent. You keep the company and the IP.`,
+      qualify: `can you carry your side of the expenses to start, yes or no? And are you open to a partner team on a share of income and expenses rather than a co-founder on equity?`,
+    },
+    upfront_share: {
+      label: "upfront + income share",
+      shape: nums ? `${up} upfront to start, then ${sh} of income to our team for as long as we run it, agreed in writing` : `a small amount upfront to start, then a share of the income for as long as we run it, agreed in writing`,
+      shapeShort: nums ? `${up} to start, then ${sh} of income` : `a small upfront to start, then a share of the income`,
+      question: `is a partner team paid to start and then on a share of income, rather than a co-founder on equity, a shape you're open to?`,
+      terms: `${up} upfront to start, which covers our team's first block of work. Then ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing. You keep the company and the IP.`,
+      qualify: `is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?`,
+    },
+    share: {
+      label: "income share only",
+      shape: nums ? `no upfront: we carry our own costs and take ${sh} of income for as long as we run it, agreed in writing` : `no upfront: we carry our own costs and take a share of the income for as long as we run it, agreed in writing`,
+      shapeShort: nums ? `no upfront, ${sh} of income` : `no upfront, a share of the income`,
+      question: `is a partner team on a share of income, rather than a co-founder on equity, a shape you're open to?`,
+      terms: `No upfront. ${sh} of income to our team for as long as we run it, agreed in writing; we carry our own costs. You keep the company and the IP.`,
+      qualify: `is there income today, or a clear path to it? And are you open to a partner team on a share of income rather than a co-founder on equity?`,
+    },
+    upfront: {
+      label: "upfront only, paid work",
+      shape: nums ? `paid work, ${up} per block, no equity and no share of your income` : `paid work in fixed blocks, no equity and no share of your income`,
+      shapeShort: nums ? `paid work, ${up} per block, no equity` : `paid work in blocks, no equity, no share`,
+      question: `is a paid team, rather than a co-founder on equity, a shape you're open to?`,
+      terms: `${up} per block of work, paid before each block starts; no equity and no share of your income. You keep the company and the IP.`,
+      qualify: `is there a budget to start, yes or no? And is a paid team, rather than an equity co-founder, open for you?`,
+    },
+  };
+  return { mode, ...S[mode], numbers: nums, upfront: Number(d.upfront) || 0, share: shareN, expenseShare: expN, hasUpfront: mode === "upfront_share" || mode === "upfront" };
+};
+
+// How we work, in their terms. The shape is the pitch; numbers only if the
+// operator switched them on for the first DM.
 HEAT.HUNT_OFFER = {
-  technical: (m) => `How we work, so you can decide fast: we don't join as an equity co-founder and we don't work for free. We come in as your team — ${m.deal.teamDoes} — and we share the income and the expenses with you, agreed in writing before anything is spent. You keep the company and the IP; we're the team that builds and runs it, not the boss.
+  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work, so you can decide fast: we don't join as an equity co-founder and we don't work for free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP; we're the team that builds and runs it, not the boss.
 
-One question so neither of us wastes time: is a partner team on a share of income and expenses, rather than a co-founder on equity, a shape you're open to?`,
-  marketing: (m) => `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — and share the income and the expenses with you, agreed in writing first. You keep the company.
+One question so neither of us wastes time: ${sh.question}`; },
+  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company.
 
-One question: is a partner team on a share of income and expenses, rather than a co-founder on equity, open for you?`,
-  design: (m) => `How we work: not as an equity co-founder, not for free. As your team — ${m.deal.teamDoes} — sharing income and expenses with you, agreed in writing first. You keep the company and the IP.
+One question: ${sh.question}`; },
+  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: not as an equity co-founder, not for free. As your team — ${m.deal.teamDoes} — ${sh.shape}. You keep the company and the IP.
 
-One question: is that shape — a partner team on a share of income and expenses — open for you?`,
-  business: (m) => `How we work: we come in as your operating team — ${m.deal.teamDoes} — and share income and expenses with you, agreed in writing before anything is spent. Not equity, not free. You keep the company.
+One question: ${sh.question}`; },
+  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we come in as your operating team — ${m.deal.teamDoes} — and ${sh.shape}. Not equity, not free. You keep the company.
 
-One question: is that shape open for you?`,
-  unclear: (m) => `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — and share the income and the expenses with you, agreed in writing first. You keep the company and the IP.
+One question: ${sh.question}`; },
+  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP.
 
-One question: is a partner team on a share of income and expenses, rather than a co-founder on equity, open for you?`,
+One question: ${sh.question}`; },
 };
 HEAT.HUNT_OFFER_SHORT = {
-  technical: (m) => `We don't join for equity and don't work free — we come in as your team and share the income and expenses with you; you keep the company. Is that shape open for you?`,
-  marketing: (m) => `We don't take equity and don't work free — we act as your growth team on a share of income and expenses; you keep the company. Is that open for you?`,
-  design: (m) => `Not equity, not free — we come in as your team on a share of income and expenses; you keep the company. Is that shape open for you?`,
-  business: (m) => `We come in as your operating team on a share of income and expenses — not equity, not free; you keep the company. Is that open for you?`,
-  unclear: (m) => `We don't join for equity and don't work free — we come in as your team and share income and expenses with you; you keep the company. Is that shape open for you?`,
+  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
+  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't take equity and don't work free — we act as your growth team and ${sh.shapeShort}; you keep the company. Is that open for you?`; },
+  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `Not equity, not free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
+  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We come in as your operating team and ${sh.shapeShort} — not equity, not free; you keep the company. Is that open for you?`; },
+  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
 };
 
 // WhatsApp and Telegram links, from whatever the user typed in Options.
@@ -1394,11 +1449,12 @@ HEAT.huntVars = function (p, profile = {}) {
   const deal = { ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) };
   // Someone with a working product isn't told we "build the first version".
   if ((stage === "building" || stage === "revenue") && deal.teamDoes === HEAT.DEAL_DEFAULT.teamDoes) deal.teamDoes = HEAT.DEAL_DEFAULT.teamDoesLater;
+  const shape = HEAT.dealShape(deal);
   const offerFn = HEAT.HUNT_OFFER[p.role] || HEAT.HUNT_OFFER.unclear;
   return {
     name: HEAT.huntName(p.author),
-    thing, stageLine, deal, stage,
-    offer: offerFn({ thing, deal }),
+    thing, stageLine, deal, stage, shape,
+    offer: offerFn({ thing, deal, shape }),
     contact: HEAT.huntContactLine(profile),
     shortContact: HEAT.huntContactLine(profile, true),
     sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "",
@@ -1556,7 +1612,7 @@ HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
   const m = HEAT.huntVars(p, profile);
   const s = HEAT.huntSynopsis(p);
   const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
-  const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}, who runs a team that founders hire as their partner team: paid upfront, then a share of income. The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder, and you never offer free work of any kind. The public reply gives ONE genuinely useful, specific line for their situation. The DM is an INTRODUCTION, not a letter: what you noticed in their post, one specific useful thought, how we work (the HOW WE WORK text below, adapted), the two questions — then stop. Never pitch, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
+  const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}, who runs a team that founders take on as their partner team (the deal shape: ${m.shape.label}). The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder, and you never offer free work of any kind. The public reply gives ONE genuinely useful, specific line for their situation. The DM is an INTRODUCTION, not a letter: what you noticed in their post, one specific useful thought, how we work (the HOW WE WORK text below, adapted), the two questions — then stop. Never pitch, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
 
 FIRST, DECIDE FIT. We only want founders who might HIRE a partner team — they have a product or idea they own and need it built or grown, and could pay to start. Set fit = "no" and explain in fit_reason when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "ideal fit:", "what I bring"), is recruiting for a salaried job, is selling a service, is a student project with no path to paying, or is asking for something we do not do. When fit is "no", still fill the other fields briefly, but nobody will read them.
 
@@ -1566,7 +1622,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
 - The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
 - Both DMs: open "Hi ${m.name}," then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
-- NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: we come in as their team and share income and expenses; they keep the company. Numbers come later, in the conversation, when they ask.
+- ${m.shape.numbers ? "Use the numbers exactly as written in HOW WE WORK; never invent or change a number." : "NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: " + m.shape.shapeShort + "; they keep the company. Numbers come later, in the conversation, when they ask."}
 - READ THE STAGE. If they already have a working product, users or revenue, never tell them to build a first version or that "v1 is 2 to 4 weeks" — talk about running and growing what exists. Only idea-stage posts get first-version advice.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
   const user = `THE POST
@@ -1578,6 +1634,8 @@ ${(p.body || "(no body)").slice(0, compact ? 2500 : 6000)}
 
 WHAT WE READ FROM IT (may be wrong; trust the post over this)
 Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
+
+THE DEAL SHAPE: ${m.shape.label}. Present exactly this shape, no other.
 
 HOW WE WORK, short (for dm_short)
 ${offerShort}
@@ -1614,26 +1672,26 @@ HEAT.huntAiClean = function (out) {
 // INBOX: replies to your DMs, answered according to a plan
 // ===========================================================================
 // Editable terms. The instructions below reference them as {{UPFRONT}} etc.
-HEAT.DEAL_DEFAULT = { upfront: 350, share: 20, expenseShare: 50, teamDoes: "builds and runs the first version: development, design, launch, the day-to-day operating work — a dedicated team, not a freelancer", teamDoesLater: "runs and grows what you've already built: development, growth, support, the day-to-day operating work — a dedicated team, not a freelancer", disqualify: "equity-only; wants free work; no budget at all; refuses any income share; wants an employee, not a partner; can't say who the customer is" };
+HEAT.DEAL_DEFAULT = { mode: "split", numbersInDm: false, upfront: 350, share: 50, expenseShare: 50, teamDoes: "builds and runs the first version: development, design, launch, the day-to-day operating work — a dedicated team, not a freelancer", teamDoesLater: "runs and grows what you've already built: development, growth, support, the day-to-day operating work — a dedicated team, not a freelancer", disqualify: "equity-only; wants free work; no budget at all; refuses any income share; wants an employee, not a partner; can't say who the customer is" };
 
 HEAT.INBOX_PLAN_DEFAULT = `WHAT WE ARE DOING: we are not applying to be anyone's co-founder, and we do not work for free. We are qualifying founders for a partnership where they HIRE OUR TEAM (paid), we work as one team with them, and we SHARE EXPENSES AND INCOME. Most people posting for a co-founder want free labour under a nicer name. Our job is to find the few who don't, quickly, and cut the rest politely.
 
-THE OFFER, when they show interest:
-- They pay {{UPFRONT}} upfront to start. That covers our team's first block of work.
+THE OFFER, when they show interest (the shape is: {{DEAL_MODE}}):
+- {{DEAL}}
 - Our team {{TEAM_DOES}}.
-- Income share: we take {{SHARE}}% of income from what we build and run, for as long as we run it. Expenses are split {{EXPENSE_SHARE}}% us / the rest them, agreed in writing before anything is spent.
 - They keep the company and the IP. We are their team, not their boss.
+- Present exactly this shape. Do not offer any other shape (no upfront where none is asked, no share where none is asked).
 
 HOW TO GET THERE, one step per reply:
 1. Answer what they actually asked, completely. Never dodge a question to pitch.
-2. Qualify early. Ask, plainly and warmly, the two questions that matter: is there any budget to start (yes/no), and are they open to a partner team on a share of income rather than a co-founder on equity. Ask in the second reply at the latest.
+2. Qualify early. Ask, plainly and warmly, the two questions that matter for this shape: {{QUALIFY}} Ask in the second reply at the latest.
 3. If they are open: present the offer above, plainly, in one paragraph. No pressure, no fake urgency.
 4. Objections: "equity instead" → no; equity in a pre-product company pays nobody's rent, income share does. "Too expensive" → it is the cheapest way to get a whole team; compare with one hire. "Let me think" → fine; say what would change their mind and leave the door open.
-5. Close: agree the scope in three lines, the {{UPFRONT}} and how to pay (say the method will be confirmed if not set), the {{SHARE}}% share in writing, and move to WhatsApp/Telegram.
+5. Close: agree the scope in three lines, the terms in writing ({{DEAL}}), how to pay if anything is paid upfront (say the method will be confirmed if not set), and move to WhatsApp/Telegram.
 
 CUT, politely, in one short message, and do not chase: anyone who {{DISQUALIFY}}. Wish them well, leave one line saying if that changes we are here.
 
-VERDICT on every reply: "interested" only when they have said yes to money on the table AND to an income share (or asked how to start); "not_interested" when they hit a disqualifier or say no; otherwise "unclear".
+VERDICT on every reply: "interested" only when they have said yes to the terms above — money where money is asked, the share where a share is asked — or asked how to start; "not_interested" when they hit a disqualifier or say no; otherwise "unclear".
 
 COMMON ASKS:
 - "Where are you based / what time zone": answer plainly — {{LOCATION}} — then carry on with the step you are at. Never dodge it.
@@ -1649,7 +1707,11 @@ HEAT.inboxPlanFor = function (plan, profile = {}, deal) {
   const d = { ...HEAT.DEAL_DEFAULT, ...(deal || profile.deal || {}) };
   const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
   const call = profile.booking ? `my booking link ${profile.booking}` : wa ? `a WhatsApp call on ${wa}` : tg ? `a Telegram call on ${tg}` : "a call (ask which app suits them)";
+  const sh = HEAT.dealShape({ ...d, numbersInDm: true });
   return String(plan || HEAT.INBOX_PLAN_DEFAULT)
+    .replace(/\{\{DEAL_MODE\}\}/g, sh.label)
+    .replace(/\{\{DEAL\}\}/g, sh.terms)
+    .replace(/\{\{QUALIFY\}\}/g, sh.qualify)
     .replace(/\{\{UPFRONT\}\}/g, "$" + d.upfront)
     .replace(/\{\{SHARE\}\}/g, String(d.share))
     .replace(/\{\{EXPENSE_SHARE\}\}/g, String(d.expenseShare))
@@ -1727,6 +1789,7 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
   const contact = HEAT.huntContactLine(profile, true);
   const sign = profile.name ? `\n\n— ${profile.name}` : "";
   const d = { ...HEAT.DEAL_DEFAULT, ...(deal || profile.deal || {}) };
+  const sh = HEAT.dealShape({ ...d, numbersInDm: true });   // the inbox always says the numbers
   const price = String(d.upfront || 350);
   const mineCount = (thread.messages || []).filter((m) => m.mine).length;
   const v = (verdict, budget, share_ok) => ({ verdict, budget, share_ok });
@@ -1735,23 +1798,23 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
     return { stage: "cut", note: "disqualified — free work / equity only. Send and move on, do not chase.", ...v("not_interested", "no", "no"), reply: `Hi ${name},\n\nThanks for being straight about it. Equity-only or unpaid isn't something we do — our team needs to be paid for its time this month, not in three years, so we'd be a bad fit for what you're after.\n\nIf that changes and there's a budget to start plus an income share on the table, we're here. Good luck with it.${sign}` };
   }
   if (/\b(yes|ok(ay)?|sounds good|let'?s do|interested|how do we start|next step|i'?m in|deal)\b/.test(t) && /\b(share|percent|%|budget|pay|upfront|\$)\b/.test(t)) {
-    return { stage: "close", note: "they accepted money + share — close", ...v("interested", "yes", "yes"), reply: `Hi ${name},\n\nGood — then three things and we start:\n1. The scope in three lines, so we both know what "done" looks like for the first block.\n2. The $${price} to start, and how you'd like to pay (I'll confirm the method).\n3. In writing: ${d.share}% of income to our team for as long as we run it, expenses split ${d.expenseShare}/${100 - d.expenseShare}, you keep the company and the IP.\n\nThen WhatsApp or Telegram so updates reach you daily: ${contact}${sign}` };
+    return { stage: "close", note: "they accepted money + share — close", ...v("interested", "yes", "yes"), reply: `Hi ${name},\n\nGood — then ${sh.hasUpfront ? "three" : "two"} things and we start:\n1. The scope in three lines, so we both know what "done" looks like for the first block.\n${sh.hasUpfront ? `2. The $${price} to start, and how you'd like to pay (I'll confirm the method).\n3. ` : "2. "}In writing: ${sh.terms}\n\nThen WhatsApp or Telegram so updates reach you daily: ${contact}${sign}` };
   }
   if (/\b(equity|co-?founder (?:share|stake)|what (?:percent|%) (?:equity|of the company))\b/.test(t)) {
-    return { stage: "objection", note: "equity talk — redirect to income share, ask the two questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nEquity in a pre-product company doesn't pay anyone's rent, so we don't work for it — and I'd rather say that now than waste your time. What we do instead is act as your team: $${price} to start, then ${d.share}% of income from what we build and run. You keep the company.\n\nTwo quick questions so we both know if this is worth continuing: is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?${sign}` };
+    return { stage: "objection", note: "equity talk — redirect to income share, ask the two questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nEquity in a pre-product company doesn't pay anyone's rent, so we don't work for it — and I'd rather say that now than waste your time. What we do instead is act as your team: ${sh.shapeShort}. You keep the company.\n\nTwo quick questions so we both know if this is worth continuing: ${sh.qualify}${sign}` };
   }
   if (/how much|price|cost|charge|rate|\$|what do you (want|expect|charge)|your terms|how does (this|it) work/.test(t)) {
-    return { stage: "offer", note: "they asked for terms — the offer, plainly", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nStraight answer. We don't do co-founder-for-equity; we do partner-team. It works like this: $${price} upfront to start, which covers our team's first block of work. Our team ${d.teamDoes}. Then ${d.share}% of income to us for as long as we run it, expenses split ${d.expenseShare}/${100 - d.expenseShare} and agreed before anything is spent. You keep the company and the IP.\n\nIf that's the kind of partner you want, say so and we'll write the scope in three lines: ${contact}${sign}` };
+    return { stage: "offer", note: "they asked for terms — the offer, plainly", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nStraight answer. We don't do co-founder-for-equity; we do partner-team. It works like this: ${sh.terms} Our team ${d.teamDoes}.\n\nIf that's the kind of partner you want, say so and we'll write the scope in three lines: ${contact}${sign}` };
   }
   if (/linkedin|portfolio|your work|examples?/.test(t) || /meet|call|zoom|google meet|hop on|chat (today|tomorrow)/.test(t)) {
     const li = profile.linkedin ? `LinkedIn: ${profile.linkedin}\n` : "";
     const call = profile.booking ? `pick a slot here: ${profile.booking}` : `${contact} — say a time today or tomorrow and I'll be there`;
-    return { stage: "answer", note: "LinkedIn / call — give both, then qualify on the call", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nHappy to. ${li}And yes to a short call — ${call}. Two windows that work for me: this evening or tomorrow morning, your time; tell me which.\n\nSo the call is useful: we work as a paid partner team on an income share, not as an equity co-founder — is there a budget to start, and is that shape open for you? Either answer is fine, it just tells us what to talk about.${sign}` };
+    return { stage: "answer", note: "LinkedIn / call — give both, then qualify on the call", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nHappy to. ${li}And yes to a short call — ${call}. Two windows that work for me: this evening or tomorrow morning, your time; tell me which.\n\nSo the call is useful: we work as a partner team (${sh.label}), not as an equity co-founder — ${sh.qualify} Either answer is fine, it just tells us what to talk about.${sign}` };
   }
   if (/where are you (based|from|located)|which (country|city|time ?zone)|your (location|timezone)/.test(t)) {
     const where = profile.location ? `I'm based in ${profile.location}` : "I work remotely with founders in a few time zones";
-    return { stage: "answer", note: "they asked where you are — answer, then qualify", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nDoing well, thanks. ${where}, and I work with founders wherever they are — time zones haven't been a problem so far.\n\nSo we don't waste each other's time: we work as a paid partner team on a share of income, not as an equity co-founder. Is there a budget to start, and is that shape open for you? A one-line answer is enough.${sign}` };
+    return { stage: "answer", note: "they asked where you are — answer, then qualify", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nDoing well, thanks. ${where}, and I work with founders wherever they are — time zones haven't been a problem so far.\n\nSo we don't waste each other's time: we work as a partner team (${sh.label}), not as an equity co-founder. ${sh.qualify} A one-line answer is enough.${sign}` };
   }
-  const ask = mineCount >= 1 ? `\n\nTwo quick questions so we both know if this is worth continuing: is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?` : "";
+  const ask = mineCount >= 1 ? `\n\nTwo quick questions so we both know if this is worth continuing: ${sh.qualify}` : "";
   return { stage: mineCount >= 1 ? "qualify" : "answer", note: "answer, then the two qualifying questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nThanks for coming back. Happy to go through what you asked properly.${ask}\n\nFaster here: ${contact}${sign}` };
 };

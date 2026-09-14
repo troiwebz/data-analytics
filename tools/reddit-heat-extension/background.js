@@ -133,10 +133,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "inbox-act") { inboxAct(msg.id, msg.action, msg.patch).then(reply); return true; }
   if (msg.type === "inbox-ai") { inboxAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-deal") { inboxDeal(msg.id, msg.patch || {}).then(reply); return true; }
-  if (msg.type === "inbox-terms") { (async () => { const { inbox = {} } = await chrome.storage.local.get(["inbox"]); await inboxSet({ deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}), ...(msg.deal || {}) } }); reply({ ok: true }); })(); return true; }
+  if (msg.type === "inbox-terms") { (async () => { const { inbox = {} } = await chrome.storage.local.get(["inbox"]); await inboxSet({ deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}), ...(msg.deal || {}) }, dealV: Date.now() }); reply({ ok: true }); })(); return true; }
   if (msg.type === "inbox-plan") { inboxSet({ plan: msg.plan || "" }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "inbox-prompt") { (async () => { const st = await inboxGet(); const t = st.threads[msg.id]; if (!t) return reply(null); const hunt = await huntGet(); const { config = {} } = await chrome.storage.local.get(["config"]); reply(inboxAiPrompt(t, t.postId ? hunt.posts[t.postId] : null, { ...(config.profile || {}), deal: st.deal }, st.plan || INBOX_PLAN_DEFAULT)); })(); return true; }
-  if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); p.ai = { ...huntAiClean(msg.ai), at: Date.now(), model: msg.model || "on-device", cents: 0 }; if (!p.ai.public_reply) { delete p.ai; return reply({ ok: false, error: "failed the checks" }); } await huntSet({ posts: st.posts }); reply({ ok: true, ai: p.ai }); })(); return true; }
+  if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); const { inbox: ib = {} } = await chrome.storage.local.get(["inbox"]); p.ai = { ...huntAiClean(msg.ai), at: Date.now(), model: msg.model || "on-device", cents: 0, dealV: ib.dealV || 0 }; if (!p.ai.public_reply) { delete p.ai; return reply({ ok: false, error: "failed the checks" }); } await huntSet({ posts: st.posts }); reply({ ok: true, ai: p.ai }); })(); return true; }
   if (msg.type === "hunt-ai-test") { (async () => {
       const key = await huntAiKey();
       if (!key) return reply({ ok: false, error: "no key saved yet" });
@@ -766,6 +766,8 @@ async function huntCheckMine(id) {
 // skipped or marked irrelevant.
 async function huntQueue(limit = 40) {
   const st = await huntGet();
+  const { inbox: ibx = {} } = await chrome.storage.local.get(["inbox"]);
+  const dealV = ibx.dealV || 0;
   const now = Date.now();
   const list = [];
   let blocked = 0;
@@ -778,7 +780,8 @@ async function huntQueue(limit = 40) {
     if (now - (p.created || p.firstSeen || 0) > maxAge) { stale += 1; continue; }
     const prior = st.contacted[(p.author || "").toLowerCase()];
     if (prior && prior.id !== p.id) { blocked += 1; continue; }
-    list.push({ ...p, score: huntScore(p, now) });
+    // a reply written under an older deal is not shown; it gets written again
+    list.push({ ...p, ai: p.ai && (p.ai.dealV || 0) === dealV ? p.ai : undefined, score: huntScore(p, now) });
   }
   list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || b.score - a.score);
   // One card per person: the same founder cross-posts to several subreddits.
@@ -874,10 +877,10 @@ async function huntAiWrite(id, force) {
   const st = await huntGet();
   const p = st.posts[id];
   if (!p) return { ok: false, error: "post not found" };
-  if (p.ai && !force) return { ok: true, ai: p.ai, cached: true };
+  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
+  if (p.ai && !force && (p.ai.dealV || 0) === (inbox.dealV || 0)) return { ok: true, ai: p.ai, cached: true };
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no api key", noKey: true };
-  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
   const { system, user: user0, schema } = huntAiPrompt(p, { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } });
   const user = user0 + (force === "shorter" ? "\n\nYour previous public_reply was too long. This time keep it under 35 words in total, two short lines." : "");
 
@@ -931,6 +934,7 @@ async function huntAiWrite(id, force) {
   }
   const u = j.usage || {};
   ai.at = Date.now();
+  ai.dealV = inbox.dealV || 0;
   ai.model = j.model || AI_MODEL;
   // Opus 5 list price: $5 in, $25 out per million tokens
   ai.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 100 * 10) / 10;

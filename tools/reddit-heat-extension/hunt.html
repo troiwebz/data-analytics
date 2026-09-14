@@ -33,7 +33,10 @@
   .step { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 6px; }
   .step b { color:var(--or); }
   textarea { width:100%; background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:inherit; font-size:13.5px; line-height:1.55; resize:vertical; }
-  input[type=text], input[type=password] { background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 10px; font:inherit; }
+  input[type=text], input[type=password], select { background:#0d0f14; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:7px 10px; font:inherit; }
+  .dealRow { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:end; }
+  .dealRow label { margin-bottom:4px; }
+  .dealRow input[type=text] { width:90px; }
   input:focus { outline:none; border-color:var(--or); }
   #short { height:84px; } #dm { height:300px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
@@ -148,6 +151,17 @@
       <div><label>LinkedIn (they will ask)</label><input type="text" id="cLi" placeholder="https://linkedin.com/in/…"></div>
       <div><label>Call / booking link (optional)</label><input type="text" id="cBook" placeholder="https://cal.com/… or leave blank to offer WhatsApp"></div>
       <div><label>Portfolio (optional)</label><input type="text" id="cPort" placeholder="https://…"></div>
+      <div style="grid-column:1/-1">
+        <label>The deal · what we ask for — every reply, DM and inbox step follows it; change it any time</label>
+        <div class="dealRow">
+          <div><select id="cDeal"></select></div>
+          <div id="cUpWrap"><label>Upfront ($)</label><input type="text" id="cUp" placeholder="350"></div>
+          <div id="cShareWrap"><label>Our share of income (%)</label><input type="text" id="cShare" placeholder="50"></div>
+          <div id="cExpWrap"><label>Our share of expenses (%)</label><input type="text" id="cExp" placeholder="50"></div>
+          <div><label class="foot" style="margin:0;display:flex;gap:6px;align-items:center;padding-bottom:7px"><input type="checkbox" id="cNums"> put the numbers in the first DM</label></div>
+        </div>
+        <p class="foot" id="dealPreview" style="margin:6px 0 0"></p>
+      </div>
     </div>
     <div class="row"><button id="showAdv" class="ghost" style="padding:2px 0;border:0;color:var(--dim);font-size:12px">Advanced: collector server ▾</button></div>
     <div id="adv" hidden>

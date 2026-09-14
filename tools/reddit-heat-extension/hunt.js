@@ -319,6 +319,42 @@ for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBo
 }
 $("showAdv").onclick = () => { $("adv").hidden = !$("adv").hidden; };
 
+// ---- the deal: one dropdown, everything downstream follows it -------------
+for (const m of DEAL_MODES) { const o = document.createElement("option"); o.value = m.key; o.textContent = m.label; $("cDeal").appendChild(o); }
+function dealLoad() {
+  const d = profile.deal || DEAL_DEFAULT;
+  $("cDeal").value = DEAL_MODES.some((m) => m.key === d.mode) ? d.mode : "split";
+  $("cUp").value = d.upfront; $("cShare").value = d.share; $("cExp").value = d.expenseShare; $("cNums").checked = !!d.numbersInDm;
+  dealShow();
+}
+function dealRead() {
+  return { ...(profile.deal || DEAL_DEFAULT), mode: $("cDeal").value, numbersInDm: $("cNums").checked, upfront: Number($("cUp").value) || DEAL_DEFAULT.upfront, share: Math.min(100, Number($("cShare").value) || DEAL_DEFAULT.share), expenseShare: Math.min(100, Number($("cExp").value) || DEAL_DEFAULT.expenseShare) };
+}
+function dealShow() {
+  const sh = dealShape(dealRead());
+  $("cUpWrap").hidden = !sh.hasUpfront;
+  $("cShareWrap").hidden = sh.mode === "upfront";
+  $("cExpWrap").hidden = sh.mode !== "split" && sh.mode !== "upfront_share";
+  $("dealPreview").textContent = `In the first DM: "…we come in as your team and ${sh.shape}." Then: "${sh.question}" · In the inbox, when they ask: ${sh.terms}`;
+}
+let dealTimer = 0;
+async function dealSave() {
+  profile.deal = dealRead();
+  dealShow();
+  await send({ type: "inbox-terms", deal: profile.deal });
+  // Everything already written used the old deal: drop it and write again for the card in front of you.
+  for (const q of queue) delete q.ai;
+  aiErr = {};
+  if (cur) { delete cur.ai; variant = 0; render(); }
+  $("setupMsg").textContent = "Deal saved ✓ — rewriting the replies";
+  setTimeout(() => { $("setupMsg").textContent = "Saves itself as you type."; }, 1800);
+}
+$("cDeal").onchange = dealSave;
+$("cNums").onchange = dealSave;
+for (const id of ["cUp", "cShare", "cExp"]) {
+  $(id).addEventListener("input", () => { dealShow(); clearTimeout(dealTimer); dealTimer = setTimeout(dealSave, 900); });
+}
+
 // ---- tables: click any counter to see exactly what is behind it ----------
 function showTable(kind) {
   $("table").hidden = false;
@@ -532,6 +568,7 @@ document.addEventListener("keydown", (e) => {
   const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
   profile = config.profile || {};
   profile.deal = { ...DEAL_DEFAULT, ...(inbox.deal || {}) };
+  dealLoad();
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";

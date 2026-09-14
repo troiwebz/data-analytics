@@ -180,17 +180,19 @@ $("openPlan").onclick = () => {
   $("planBox").hidden = !$("planBox").hidden; $("addBox").hidden = true; $("dealsBox").hidden = true;
   $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT;
   const d = inboxDeal || DEAL_DEFAULT;
+  $("dMode").value = DEAL_MODES.some((m) => m.key === d.mode) ? d.mode : "split"; $("dNums").checked = !!d.numbersInDm;
   $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes || ""; $("dDisq").value = d.disqualify || "";
 };
+for (const m of DEAL_MODES) { const o = document.createElement("option"); o.value = m.key; o.textContent = m.label; $("dMode").appendChild(o); }
 $("planSave").onclick = async () => {
   inboxPlan = $("planText").value.trim();
-  const deal = { upfront: Number($("dUp").value) || DEAL_DEFAULT.upfront, share: Number($("dShare").value) || DEAL_DEFAULT.share, expenseShare: Number($("dExp").value) || DEAL_DEFAULT.expenseShare, teamDoes: $("dTeam").value.trim() || DEAL_DEFAULT.teamDoes, disqualify: $("dDisq").value.trim() || DEAL_DEFAULT.disqualify };
+  const deal = { mode: $("dMode").value, numbersInDm: $("dNums").checked, upfront: Number($("dUp").value) || DEAL_DEFAULT.upfront, share: Number($("dShare").value) || DEAL_DEFAULT.share, expenseShare: Number($("dExp").value) || DEAL_DEFAULT.expenseShare, teamDoes: $("dTeam").value.trim() || DEAL_DEFAULT.teamDoes, disqualify: $("dDisq").value.trim() || DEAL_DEFAULT.disqualify };
   await send({ type: "inbox-plan", plan: inboxPlan });
   await send({ type: "inbox-terms", deal });
   inboxDeal = deal;
   $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400);
 };
-$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; const d = DEAL_DEFAULT; $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes; $("dDisq").value = d.disqualify; };
+$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; const d = DEAL_DEFAULT; $("dMode").value = d.mode; $("dNums").checked = false; $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes; $("dDisq").value = d.disqualify; };
 
 // ---- the deals database ---------------------------------------------------
 const DEAL_STATUSES = ["qualifying", "offered", "interested", "agreed", "cut", "lost"];
