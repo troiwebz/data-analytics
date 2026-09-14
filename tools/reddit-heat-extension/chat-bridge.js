@@ -24,10 +24,22 @@
   const visible = (e) => e && (e.offsetParent !== null || e.getClientRects().length);
 
   // Chat's message box: the editable thing lowest on the page ("Message").
+  // The "new chat" page has a username field and no message box. Filling that
+  // with a DM would be a disaster, so on that page there is no composer at all.
+  const onCreatePage = () => /\/chat\/(?:room\/)?create\b/i.test(location.pathname);
   function findComposer() {
-    const cands = deepAll('textarea, [contenteditable="true"], [role="textbox"]').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark"));
+    if (onCreatePage()) return null;
+    const cands = deepAll('textarea, [contenteditable="true"], [role="textbox"]').filter(visible)
+      .filter((e) => !e.closest("#rlt-chat, #rlt-mark"))
+      .filter((e) => !/user|search|recipient|to:/i.test((e.getAttribute("placeholder") || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("name") || "")));
     cands.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
     return cands[0] || null;
+  }
+  // A conversation is open only when there is a message box AND somebody to answer.
+  function openRoom() {
+    if (onCreatePage()) return "";
+    if (!findComposer()) return "";
+    return roomWith(readMessages()) || "";
   }
 
   // Messages: on Reddit's chat every message starts with "Author h:mm AM" on
@@ -107,8 +119,9 @@
     ta = panel.querySelector("#rlt-ta"); state = panel.querySelector("#rlt-state"); whoEl = panel.querySelector("#rlt-who"); fillBtn = panel.querySelector("#rlt-fill"); sentBtn = panel.querySelector("#rlt-sent"); redoBtn = panel.querySelector("#rlt-redo"); stageEl = panel.querySelector("#rlt-stage"); noteEl = panel.querySelector("#rlt-note"); autoCb = panel.querySelector("#rlt-auto");
     panel.querySelector("#rlt-hide").onclick = () => { panel.style.display = "none"; };
     fillBtn.onclick = () => {
-      const onScreen = roomWith(readMessages());
-      if (current && onScreen && onScreen.toLowerCase() !== current.with.toLowerCase()) { state.textContent = `this reply is for ${current.with}, but the open chat is with ${onScreen} — not filling`; state.style.color = "#ff8a65"; return; }
+      const onScreen = openRoom();
+      if (!onScreen) { state.textContent = "no chat open — open the conversation first, then press Fill"; state.style.color = "#ff8a65"; return; }
+      if (current && onScreen.toLowerCase() !== current.with.toLowerCase()) { state.textContent = `this reply is for ${current.with}, but the open chat is with ${onScreen} — not filling`; state.style.color = "#ff8a65"; return; }
       fill(ta.value).then(async (r) => {
         state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65";
         if (r.ok) await assumeSent();
@@ -146,7 +159,7 @@
     panel.style.display = "";
     const { chatAutoFill } = await chrome.storage.local.get(["chatAutoFill"]);
     // auto-fill only when the room on screen is this person's and the box is empty
-    const onScreen = roomWith(readMessages());
+    const onScreen = openRoom();
     const c = findComposer();
     const boxEmpty = c && (c.tagName === "TEXTAREA" ? !c.value.trim() : !text(c).trim());
     if (chatAutoFill && r.needsReply && onScreen && onScreen.toLowerCase() === current.with.toLowerCase() && boxEmpty) {
@@ -155,10 +168,16 @@
   }
 
   async function observe() {
+    const here = openRoom();
+    if (!here) {                       // room list, the new-chat page, nothing open
+      if (panel) panel.style.display = "none";
+      current = null; lastSig = "";
+      return;
+    }
     const msgs = readMessages();
     if (!msgs.length) return;
     const w = roomWith(msgs);
-    if (!w) return;
+    if (!w || w.toLowerCase() !== here.toLowerCase()) return;
     const sig = roomKey() + "|" + w + "|" + msgs.map((m) => (m.mine ? 1 : 0) + m.body.slice(0, 40)).join("|");
     if (sig === lastSig) return;
     lastSig = sig;
@@ -202,7 +221,7 @@
   // ---- a DM waiting to be placed (from the hunt card or the Inbox) --------
   // When that person's chat is on screen, put the text in the box. Nothing
   // else: no typing into Reddit's search, no clicking, no sending.
-  let pendingBusy = false, pendingSince = 0, pendingNote = "", pendingNoteAt = 0;
+  let pendingBusy = false, pendingSince = 0, pendingNote = "", pendingNoteAt = 0, pendingToldFor = "";
   const same = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
   const say = (t, color) => { pendingNote = t; pendingNoteAt = Date.now(); mark.textContent = t; mark.style.color = color || "#e6c76b"; };
   async function placePending() {
@@ -214,7 +233,8 @@
     try {
       const name = pendingDm.author;
       if (!pendingSince) pendingSince = Date.now();
-      const inRoom = same(roomWith(readMessages()), name) || new RegExp("/user/" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(/|$)", "i").test(location.pathname) || same(headerUser(), name);
+      const here = openRoom();
+      const inRoom = !!here && (same(here, name) || new RegExp("/user/" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(/|$)", "i").test(location.pathname));
       if (inRoom && findComposer()) {
         const r = await fill(pendingDm.text);
         ensurePanel(); whoEl.textContent = "to " + name; ta.value = pendingDm.text; stageEl.textContent = "· first DM"; noteEl.textContent = "";
@@ -222,10 +242,14 @@
         say(r.ok ? `hunt bridge · DM for ${name} is in the box — press send` : `hunt bridge · ${r.error}`, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
-        pendingSince = 0;
+        pendingSince = 0; pendingToldFor = "";
         return;
       }
-      if (Date.now() - pendingSince > 1200) say(`hunt bridge · DM for ${name} waiting — open the chat with them and it fills itself (or ⌘V, it is on your clipboard)`);
+      // say it once, then stay quiet: this line was blinking back every second
+      if (pendingToldFor !== name && Date.now() - pendingSince > 1200) {
+        pendingToldFor = name;
+        say(`hunt bridge · DM for ${name} is on your clipboard — open that chat and it fills itself`);
+      }
     } catch (e) { say(`hunt bridge · error placing the DM: ${e && e.message || e}`, "#ff8a65"); }
     finally { pendingBusy = false; }
   }
@@ -251,13 +275,13 @@
   attach(); setInterval(attach, 2000);
   function markStatus() {
     if (pendingNote && Date.now() - pendingNoteAt < 10000) { mark.textContent = pendingNote; return; }
+    if (onCreatePage()) { mark.textContent = "hunt bridge · new chat page — pick the person, the reply fills itself once the chat opens"; mark.style.color = "#98a0b3"; return; }
+    const here = openRoom();
     const msgs = readMessages();
-    const c = findComposer();
-    const inFrame = window !== window.top;
-    mark.textContent = msgs.length
-      ? `hunt bridge · read ${msgs.length} messages · with ${roomWith(msgs) || "?"}${c ? "" : " · no box"}${inFrame ? "" : ""}`
-      : `hunt bridge · no messages read yet${c ? "" : " · no box"} · click to copy what I see`;
-    mark.style.color = msgs.length ? "#7ee29a" : "#e6c76b";
+    mark.textContent = here
+      ? `hunt bridge · read ${msgs.length} messages · with ${here}`
+      : `hunt bridge · no chat open — click a conversation on the left`;
+    mark.style.color = here ? "#7ee29a" : "#98a0b3";
   }
   setInterval(markStatus, 3000);
   setTimeout(markStatus, 1500);
