@@ -1529,7 +1529,8 @@ HEAT.AI_SCHEMA = {
   additionalProperties: false,
 };
 
-HEAT.huntAiPrompt = function (p, profile = {}) {
+HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
+  const compact = !!opts.compact;   // on-device model: small context, shorter targets
   const m = HEAT.huntVars(p, profile);
   const s = HEAT.huntSynopsis(p);
   const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing });
@@ -1547,7 +1548,7 @@ Subreddit: r/${p.sub || "?"}
 Author: ${p.author || "?"}
 Title: ${p.title || ""}
 Body:
-${(p.body || "(no body)").slice(0, 6000)}
+${(p.body || "(no body)").slice(0, compact ? 2500 : 6000)}
 
 WHAT WE READ FROM IT (may be wrong; trust the post over this)
 Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
@@ -1564,7 +1565,7 @@ ${m.contact}
 SIGN-OFF
 ${m.sign || profile.name || ""}
 
-Write public_reply, dm_short, dm_medium, dm_long and why.`;
+Write public_reply, dm_short, dm_medium, dm_long and why.${compact ? " Keep dm_short about 90 words, dm_medium about 180 words with three numbered steps, dm_long about 300 words with five numbered steps." : ""}`;
   return { system, user, schema: HEAT.AI_SCHEMA };
 };
 

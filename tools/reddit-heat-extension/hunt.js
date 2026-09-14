@@ -45,11 +45,12 @@ function render() {
   $("syn").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
   const tpl = huntShortOptions(p, profile, 5);
-  options = p.ai ? [p.ai.public_reply, ...tpl] : tpl;
+  const useAi = !!p.ai && engine() !== "templates";
+  options = useAi ? [p.ai.public_reply, ...tpl] : tpl;
   if (variant >= options.length) variant = 0;
   $("opts").innerHTML = options.map((o, i) => {
-    const isAi = p.ai && i === 0;
-    const label = isAi ? "WRITTEN FOR THIS POST" : `TEMPLATE ${p.ai ? i : i + 1}`;
+    const isAi = useAi && i === 0;
+    const label = isAi ? "WRITTEN FOR THIS POST" : `TEMPLATE ${useAi ? i : i + 1}`;
     return `<button class="opt ${i === variant ? "on" : ""} ${isAi ? "ai" : ""}" data-i="${i}"><b>${label}</b>${esc(o).replace(/\n/g, "<br>")}</button>`;
   }).join("");
   aiStatus(p);
@@ -58,30 +59,66 @@ function render() {
   }
   $("short").value = options[variant] || "";
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
-  $("dm").value = p.ai ? p.ai["dm_" + dmSize] : huntDM(p, profile, dmSize);
+  $("dm").value = useAi ? p.ai["dm_" + dmSize] : huntDM(p, profile, dmSize);
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
   aiWrite(false);
 }
 
 // ---- AI: written for this exact post, once, then cached on the post ------
+// Two engines: the Anthropic API (from the worker, with the user's key) or
+// Chrome's built-in Gemini Nano (right here in the page, free, on-device).
 let aiBusy = "";
 let aiErr = {};
+function engine() {
+  const e = profile.aiEngine;
+  if (e === "claude" || e === "chrome" || e === "templates") return e;
+  return profile.apiKey ? "claude" : "templates";
+}
+async function chromeAvailability() {
+  if (typeof LanguageModel === "undefined") return "unsupported";
+  try { return await LanguageModel.availability(); } catch (_) { return "unavailable"; }
+}
+async function chromeWrite(p, onProgress) {
+  const { system, user, schema } = huntAiPrompt(p, profile, { compact: true });
+  const session = await LanguageModel.create({
+    initialPrompts: [{ role: "system", content: system }],
+    monitor(m) { m.addEventListener("downloadprogress", (e) => onProgress && onProgress(e.loaded)); },
+  });
+  try {
+    const text = await session.prompt(user, { responseConstraint: schema });
+    return JSON.parse(text);
+  } finally { if (session.destroy) session.destroy(); }
+}
 function aiStatus(p) {
   const el = $("aiState");
-  $("aiRedo").hidden = !(profile.apiKey && p.ai);
-  if (!profile.apiKey) { el.textContent = "templates — add a Claude API key in Your details for replies written to the post"; el.style.color = "#98a0b3"; return; }
-  if (p.ai) { el.textContent = `written for this post${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
-  if (aiBusy === p.id) { el.textContent = "writing for this post…"; el.style.color = "#e6c76b"; return; }
+  const eng = engine();
+  $("aiRedo").hidden = !(eng !== "templates" && p.ai);
+  if (eng === "templates") { el.textContent = profile.aiEngine === "templates" ? "templates" : "templates — pick an engine under AI writing to have replies written to the post"; el.style.color = "#98a0b3"; return; }
+  if (p.ai) { el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : "Claude"}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
+  if (aiBusy === p.id) { el.textContent = (eng === "chrome" ? "Chrome is writing for this post…" : "Claude is writing for this post…"); el.style.color = "#e6c76b"; return; }
   if (aiErr[p.id]) { el.textContent = "AI failed: " + aiErr[p.id] + " — showing templates"; el.style.color = "#ff8a65"; return; }
-  el.textContent = ""; 
+  el.textContent = "";
 }
 async function aiWrite(force) {
-  if (!cur || !profile.apiKey) return;
+  if (!cur) return;
+  const eng = engine();
+  if (eng === "templates") return;
   if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id])) return;
-  const id = cur.id;
+  const id = cur.id, post = cur;
   aiBusy = id; aiStatus(cur);
-  const r = await send({ type: "hunt-ai", id, force: !!force });
+  let r;
+  if (eng === "chrome") {
+    try {
+      const avail = await chromeAvailability();
+      if (avail === "unsupported") throw new Error("this Chrome has no built-in model (need Chrome 138+; see AI writing)");
+      if (avail === "unavailable") throw new Error("Chrome says the built-in model is unavailable on this machine");
+      const out = await chromeWrite(post, (f) => { $("aiState").textContent = `downloading Chrome's model… ${Math.round(f * 100)}%`; });
+      r = await send({ type: "hunt-ai-save", id, ai: out, model: "on-device" });
+    } catch (e) { r = { ok: false, error: String(e && e.message || e) }; }
+  } else {
+    r = await send({ type: "hunt-ai", id, force: !!force });
+  }
   aiBusy = "";
   if (r && r.ok) {
     delete aiErr[id];
@@ -95,6 +132,31 @@ async function aiWrite(force) {
   }
 }
 $("aiRedo").onclick = () => aiWrite(true);
+
+// ---- the AI writing panel ------------------------------------------------
+$("openAi").onclick = () => { $("aiPanel").hidden = !$("aiPanel").hidden; if (!$("aiPanel").hidden) { $("setup").hidden = true; chromeStatus(); } };
+async function chromeStatus() {
+  const a = await chromeAvailability();
+  $("chromeMsg").textContent = a === "available" ? "ready ✓ model is on this machine"
+    : a === "downloadable" ? "not downloaded yet — click Check / download"
+    : a === "downloading" ? "downloading…"
+    : a === "unsupported" ? "not in this Chrome. Needs Chrome 138 or newer; if you have it, enable chrome://flags/#prompt-api-for-gemini-nano and restart"
+    : "unavailable on this machine (needs ~22 GB free disk and a recent Chrome)";
+}
+$("chromeCheck").onclick = async () => {
+  const a = await chromeAvailability();
+  if (a === "downloadable" || a === "downloading") {
+    $("chromeMsg").textContent = "downloading… 0%";
+    try {
+      const s = await LanguageModel.create({ monitor(m) { m.addEventListener("downloadprogress", (e) => { $("chromeMsg").textContent = `downloading… ${Math.round(e.loaded * 100)}%`; }); } });
+      if (s.destroy) s.destroy();
+    } catch (e) { $("chromeMsg").textContent = "download failed: " + String(e.message || e); return; }
+  }
+  chromeStatus();
+};
+for (const rb of document.querySelectorAll('input[name="engine"]')) {
+  rb.onchange = async () => { profile.aiEngine = rb.value; await saveSetup(true); aiErr = {}; render(); };
+}
 
 function next() {
   queue.shift();
@@ -177,12 +239,12 @@ $("testSrv").onclick = async () => {
     ? `server alive · ${r.health.posts} posts held · last poll ${r.health.lastPoll ? new Date(r.health.lastPoll).toLocaleTimeString() : "never"}${r.health.oauth ? "" : " · no reddit api key"}${r.health.lastError ? " · " + r.health.lastError : ""}`
     : "no answer: " + ((r && r.error) || "check the address");
 };
-$("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; };
+$("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$("setup").hidden) $("aiPanel").hidden = true; };
 // Saves itself. No Save button to forget, no half-filled form.
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), apiKey: $("cKey").value.trim() };
+  profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -193,7 +255,8 @@ $("testKey").onclick = async () => {
   await saveSetup(true);
   $("keyMsg").textContent = "checking…";
   const r = await send({ type: "hunt-ai-test" });
-  $("keyMsg").textContent = r && r.ok ? "key works ✓ — replies will now be written per post" : "key failed: " + ((r && r.error) || "no answer");
+  $("keyMsg").textContent = r && r.ok ? "key works ✓" : "key failed: " + ((r && r.error) || "no answer");
+  if (r && r.ok && !profile.aiEngine) { profile.aiEngine = "claude"; await saveSetup(true); for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === "claude"; aiErr = {}; render(); }
 };
 for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cKey", "cSrv", "cSrvTok"]) {
   $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
@@ -307,6 +370,9 @@ document.addEventListener("keydown", (e) => {
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";
+  const eng = engine();
+  for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === eng;
+  chromeStatus();
   const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
   $("cSrv").value = (hunt.server || {}).url || ""; $("cSrvTok").value = (hunt.server || {}).token || "";
   if (!profile.name || !profile.reddit) $("setup").hidden = false;   // first run: ask once
