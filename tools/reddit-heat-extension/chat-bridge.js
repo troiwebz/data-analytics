@@ -227,7 +227,7 @@
   async function placePending() {
     if (pendingBusy) return;
     const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
-    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) { pendingSince = 0; return; }
+    if (!pendingDm || pendingDm.done || !pendingDm.author || !pendingDm.text) { pendingSince = 0; newChatHide(); return; }
     if (Date.now() - (pendingDm.at || 0) > 15 * 60000) { await chrome.storage.local.remove("pendingDm"); return; }
     pendingBusy = true;
     try {
@@ -239,20 +239,70 @@
         const r = await fill(pendingDm.text);
         ensurePanel(); whoEl.textContent = "to " + name; ta.value = pendingDm.text; stageEl.textContent = "· first DM"; noteEl.textContent = "";
         state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; panel.style.display = "";
-        say(r.ok ? `hunt bridge · DM for ${name} is in the box — press send` : `hunt bridge · ${r.error}`, r.ok ? "#7ee29a" : "#ff8a65");
+        say(r.ok ? `DM for ${name} is in the box — press send` : r.error, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
-        pendingSince = 0; pendingToldFor = "";
+        pendingSince = 0; pendingToldFor = ""; newChatHide();
         return;
       }
       // say it once, then stay quiet: this line was blinking back every second
+      if (onCreatePage()) newChatCard(name, pendingDm.text);
       if (pendingToldFor !== name && Date.now() - pendingSince > 1200) {
         pendingToldFor = name;
-        say(`hunt bridge · DM for ${name} is on your clipboard — open that chat and it fills itself`);
+        say(`DM for ${name} is on your clipboard — open that chat and it fills itself`);
       }
-    } catch (e) { say(`hunt bridge · error placing the DM: ${e && e.message || e}`, "#ff8a65"); }
+    } catch (e) { say(`error placing the DM: ${e && e.message || e}`, "#ff8a65"); }
     finally { pendingBusy = false; }
   }
+  // On the new-chat page nothing is typed for you. This little card puts the
+  // name in Reddit's box when YOU press the button, and can be dismissed.
+  let newChat = null, newChatFor = "", newChatOff = false;
+  function newChatCard(name, text) {
+    if (newChatOff) return;
+    if (!newChat) {
+      newChat = document.createElement("div");
+      newChat.id = "rlt-new";
+      newChat.style.cssText = "position:fixed;right:16px;bottom:16px;width:340px;z-index:2147483647;background:#171a21;color:#e8eaf0;border:1px solid #262b36;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:13px/1.5 -apple-system,Segoe UI,sans-serif;padding:12px;display:flex;flex-direction:column;gap:8px";
+      newChat.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">DM ready</b><span id="rlt-new-who" style="font-weight:600"></span><button id="rlt-new-x" style="margin-left:auto;background:none;border:0;color:#98a0b3;cursor:pointer;font-size:15px">✕</button></div>
+        <div id="rlt-new-msg" style="color:#98a0b3;font-size:12px">Press the button, then pick them from Reddit's list. The message fills itself when the chat opens.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="rlt-new-go" style="background:#ff5722;border:0;color:#fff;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Put the name in the box</button>
+          <button id="rlt-new-copy" style="background:#1e222b;border:1px solid #262b36;color:#e8eaf0;padding:7px 10px;border-radius:7px;cursor:pointer">Copy the name</button>
+          <button id="rlt-new-drop" style="background:#1e222b;border:1px solid #262b36;color:#98a0b3;padding:7px 10px;border-radius:7px;cursor:pointer">Not now</button>
+        </div>`;
+      document.body.appendChild(newChat);
+      newChat.querySelector("#rlt-new-x").onclick = () => { newChatOff = true; newChat.remove(); newChat = null; };
+      newChat.querySelector("#rlt-new-drop").onclick = async () => { await chrome.storage.local.remove("pendingDm"); pendingToldFor = ""; if (newChat) { newChat.remove(); newChat = null; } };
+      newChat.querySelector("#rlt-new-copy").onclick = async () => { try { await navigator.clipboard.writeText(newChatFor); newChat.querySelector("#rlt-new-msg").textContent = `"${newChatFor}" copied — paste it into the box above`; } catch (_) { /* focus rules */ } };
+      newChat.querySelector("#rlt-new-go").onclick = () => {
+        const box = findSearchBox();
+        const msg = newChat.querySelector("#rlt-new-msg");
+        if (!box) { msg.textContent = "could not find Reddit's username box — use Copy the name and paste it"; msg.style.color = "#ff8a65"; return; }
+        box.scrollIntoView({ block: "center" }); box.focus(); setValue(box, newChatFor);
+        msg.textContent = "name typed — pick them from Reddit's list, then the message fills itself";
+        msg.style.color = "#7ee29a";
+      };
+    }
+    newChatFor = name;
+    newChat.querySelector("#rlt-new-who").textContent = "for " + name;
+    newChat.style.display = "";
+  }
+  function newChatHide() { if (newChat) newChat.style.display = "none"; }
+  // Reddit's people-search box on the new-chat page (only used when you press the button).
+  function findSearchBox() {
+    const inputs = deepAll('input[type="text"], input[type="search"], input:not([type]), [role="combobox"], [contenteditable="true"]').filter(visible).filter((e) => !e.closest("#rlt-chat, #rlt-mark, #rlt-new"));
+    const named = inputs.filter((e) => /user|search|name|who|people|recipient/i.test((e.getAttribute("placeholder") || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("name") || "")));
+    return named[0] || inputs[0] || null;
+  }
+  function setValue(el, v) {
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+      const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
+      for (const t of ["input", "change"]) el.dispatchEvent(new Event(t, { bubbles: true }));
+      for (const t of ["keydown", "keyup"]) el.dispatchEvent(new KeyboardEvent(t, { bubbles: true, key: v.slice(-1) }));
+    } else { el.focus(); try { document.execCommand("selectAll"); document.execCommand("insertText", false, v); } catch (_) { /* nothing else to try */ } }
+  }
+
   setInterval(placePending, 1500);
   setTimeout(placePending, 800);
 
@@ -267,21 +317,27 @@
   // what it can read. Click it to copy the dump for tuning.
   const mark = document.createElement("div");
   mark.id = "rlt-mark";
-  mark.style.cssText = "position:fixed;right:16px;bottom:64px;z-index:2147483646;background:#12141a;color:#98a0b3;border:1px solid #262b36;border-radius:999px;padding:4px 10px;font:11px/1.4 -apple-system,Segoe UI,sans-serif;cursor:pointer;opacity:.92";
+  mark.style.cssText = "position:fixed;right:16px;bottom:64px;z-index:2147483646;transition:opacity .4s;opacity:0;background:#12141a;color:#98a0b3;border:1px solid #262b36;border-radius:999px;padding:4px 10px;font:11px/1.4 -apple-system,Segoe UI,sans-serif;cursor:pointer;opacity:.92";
   mark.textContent = "hunt bridge · starting…";
-  mark.title = "click to copy what the bridge sees (for tuning)";
-  mark.onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(dump(), null, 1)); mark.textContent = "copied what I see — paste it to Claude"; } catch (_) { mark.textContent = "could not copy"; } };
-  const attach = () => { if (document.body && !mark.isConnected) document.body.appendChild(mark); };
+  mark.title = "click to copy what the bridge sees; shift-click to hide it for good";
+  mark.onclick = async (e) => {
+    if (e.shiftKey) { chrome.storage.local.set({ markOff: true }); markOff = true; mark.remove(); return; }
+    try { await navigator.clipboard.writeText(JSON.stringify(dump(), null, 1)); mark.textContent = "copied what I see — paste it to Claude"; markShownAt = Date.now(); mark.style.opacity = ".92"; } catch (_) { mark.textContent = "could not copy"; }
+  };
+  let markOff = false, markLast = "", markShownAt = 0;
+  chrome.storage.local.get(["markOff"]).then((x) => { markOff = !!x.markOff; if (markOff) mark.remove(); });
+  const attach = () => { if (!markOff && document.body && !mark.isConnected) document.body.appendChild(mark); };
   attach(); setInterval(attach, 2000);
+  // The bar only says something when the state changes, then fades out. It is
+  // a status light, not a banner; shift-click hides it for good.
   function markStatus() {
-    if (pendingNote && Date.now() - pendingNoteAt < 10000) { mark.textContent = pendingNote; return; }
-    if (onCreatePage()) { mark.textContent = "hunt bridge · new chat page — pick the person, the reply fills itself once the chat opens"; mark.style.color = "#98a0b3"; return; }
-    const here = openRoom();
-    const msgs = readMessages();
-    mark.textContent = here
-      ? `hunt bridge · read ${msgs.length} messages · with ${here}`
-      : `hunt bridge · no chat open — click a conversation on the left`;
-    mark.style.color = here ? "#7ee29a" : "#98a0b3";
+    if (markOff) return;
+    const here = onCreatePage() ? "" : openRoom();
+    const note = pendingNote && Date.now() - pendingNoteAt < 8000 ? pendingNote : "";
+    const text = note || (onCreatePage() ? "" : here ? `read ${readMessages().length} messages · with ${here}` : "");
+    if (text && text !== markLast) { markLast = text; markShownAt = Date.now(); mark.textContent = "hunt bridge · " + text; mark.style.color = note ? "#e6c76b" : "#7ee29a"; }
+    if (!text) { markLast = ""; mark.style.opacity = "0"; return; }
+    mark.style.opacity = Date.now() - markShownAt > 8000 ? "0" : ".92";
   }
   setInterval(markStatus, 3000);
   setTimeout(markStatus, 1500);
