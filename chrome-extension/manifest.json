@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "HAF Watcher — BlackHatWorld Hire a Freelancer",
+  "version": "0.3.0",
+  "description": "Polls the Hire a Freelancer forum every 10 minutes, emails you matching leads with a ready-made reply, and posts it after you approve from your phone.",
+  "permissions": ["alarms", "storage", "notifications", "scripting", "tabs"],
+  "host_permissions": [
+    "*://*.blackhatworld.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "action": { "default_popup": "src/popup/popup.html", "default_icon": {
+    "16": "src/icons/icon16.png", "48": "src/icons/icon48.png", "128": "src/icons/icon128.png" } },
+  "options_page": "src/options/options.html",
+  "icons": { "16": "src/icons/icon16.png", "48": "src/icons/icon48.png", "128": "src/icons/icon128.png" }
+}

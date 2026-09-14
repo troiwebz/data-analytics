@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher</title>
+<style>
+  body{width:380px;margin:0;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#0f172a}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#0f172a;color:#fff}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px}
+  .bar{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid #e2e8f0}
+  button{padding:6px 10px;border:0;border-radius:6px;background:#e2e8f0;font-weight:600;cursor:pointer;font-size:12px}
+  .lead{padding:9px 12px;border-bottom:1px solid #f1f5f9}
+  .t{font-weight:600;display:block;color:#0f172a;text-decoration:none}
+  .m{color:#64748b;font-size:11px;margin-top:2px}
+  .s{float:right;font-weight:700;color:#2563eb}
+  .st{font-size:10px;padding:1px 6px;border-radius:99px;background:#e2e8f0;text-transform:uppercase}
+  .POSTED{background:#dcfce7;color:#15803d}.FAILED{background:#fee2e2;color:#b91c1c}
+  #log{max-height:120px;overflow:auto;padding:8px 12px;background:#f8fafc;font:11px/1.4 ui-monospace,Menlo,monospace;color:#475569;border-top:1px solid #e2e8f0}
+  .empty{padding:22px 12px;text-align:center;color:#94a3b8}
+</style>
+<header>
+  <span><span class="dot" id="dot"></span><b id="state">…</b></span>
+  <span id="rate" style="font-size:11px;opacity:.75"></span>
+</header>
+<div class="bar">
+  <button id="poll">Poll now</button>
+  <button id="approvals">Check approvals</button>
+  <button id="opts">Settings</button>
+</div>
+<div id="leads"></div>
+<div id="log"></div>
+<script type="module" src="popup.js"></script>

@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Settings</title>
+<style>
+  body{font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f1f5f9;color:#0f172a}
+  .w{max-width:760px;margin:0 auto;padding:24px}
+  .c{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
+  h1{font-size:20px;margin:0 0 16px} h2{font-size:15px;margin:0 0 12px;color:#334155}
+  label{display:block;font-weight:600;margin:12px 0 4px;font-size:13px}
+  .hint{font-weight:400;color:#64748b;font-size:12px}
+  input[type=text],input[type=number],textarea{width:100%;box-sizing:border-box;padding:9px;
+    border:1px solid #cbd5e1;border-radius:8px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+  textarea{min-height:150px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  button{padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+  button.sec{background:#e2e8f0;color:#0f172a}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  #status{font-size:13px;padding:8px 0}
+  .sw{display:flex;align-items:center;gap:8px;font-weight:600}
+</style>
+<div class="w">
+  <h1>HAF Watcher</h1>
+
+  <div class="c">
+    <h2>Connection</h2>
+    <label class="sw"><input type="checkbox" id="enabled"> Watcher enabled</label>
+    <label>Apps Script web app URL <span class="hint">ends in /exec</span></label>
+    <input type="text" id="webhookUrl" placeholder="https://script.google.com/macros/s/…/exec">
+    <label>Shared secret <span class="hint">must match SHARED_SECRET in Config.gs</span></label>
+    <input type="text" id="sharedSecret">
+    <label>Feed URL</label>
+    <input type="text" id="feedUrl">
+    <div class="row">
+      <div><label>Poll every (minutes)</label><input type="number" id="pollMinutes" min="1"></div>
+      <div><label>Check approvals every (min)</label><input type="number" id="approvalPollMinutes" min="1"></div>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Posting</h2>
+    <label class="sw"><input type="checkbox" id="autoPost"> Post approved leads automatically</label>
+    <div class="row">
+      <div><label>Min score to email</label><input type="number" id="notifyScore" min="0"></div>
+      <div><label>Max posts per day</label><input type="number" id="maxPostsPerDay" min="1"></div>
+      <div><label>Min minutes between posts</label><input type="number" id="minMinutesBetweenPosts" min="0"></div>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Matching <span class="hint">JSON — case-insensitive regex</span></h2>
+    <label>Categories</label><textarea id="categories"></textarea>
+    <label>Boosts</label><textarea id="boosts"></textarea>
+    <label>Excludes <span class="hint">any hit kills the lead</span></label><textarea id="excludes"></textarea>
+  </div>
+
+  <div class="c">
+    <h2>Reply templates <span class="hint">{{var}} substitution, {a|b} spintax</span></h2>
+    <textarea id="templates" style="min-height:280px"></textarea>
+  </div>
+
+  <div class="c bar">
+    <button id="save">Save</button>
+    <button id="test" class="sec">Test connection</button>
+    <button id="poll" class="sec">Poll feed now</button>
+    <button id="reset" class="sec">Reset to defaults</button>
+    <span id="status"></span>
+  </div>
+</div>
+<script type="module" src="options.js"></script>
