@@ -1048,12 +1048,13 @@ const SHORT_GIVE = {
     `Happy to write out the build order and what to cut, no charge.`,
   ],
 };
+// The second line carries the give and the DM pointer together: two lines total.
 const SHORT_CLOSE = [
-  `Sent you a DM with how I'd scope it.`,
-  `Details are in your DMs.`,
+  `Sent it to your DMs.`,
+  `It's in your inbox.`,
+  `Just DM'd it to you.`,
   `Sent it over in DM.`,
-  `DM sent with the outline.`,
-  `Put the whole thing in your inbox.`,
+  `Put it in your inbox.`,
 ];
 
 // n distinct 3-line replies for THIS post. Line 1 speaks to their situation,
@@ -1073,7 +1074,7 @@ HEAT.huntShortOptions = function (p, profile = {}, n = 5) {
   const gives = SHORT_GIVE[role] || SHORT_GIVE.unclear;
   const out = [];
   for (let i = 0; i < Math.min(n, openers.length); i += 1) {
-    out.push(`${openers[i](m)}\n${gives[i % gives.length]}\n${SHORT_CLOSE[i % SHORT_CLOSE.length]}`);
+    out.push(`${openers[i](m)}\n${gives[i % gives.length]} ${SHORT_CLOSE[i % SHORT_CLOSE.length]}`);
   }
   return out;
 };
@@ -1114,6 +1115,15 @@ Send me one paragraph on what ${m.thing} does and who it's for. Within 48 hours 
 If you want it built, we can talk. If not, you have the map.`,
 };
 
+// One-line version of the same offer, for the short letter.
+HEAT.HUNT_OFFER_SHORT = {
+  technical: (m) => `Free offer, no catch: send me a paragraph on what ${m.thing} does and who the first user is, and within 48 hours you get back a clickable 3-screen prototype and the build list. Yours to keep whatever happens next.`,
+  marketing: (m) => `Free offer, no catch: tell me who buys ${m.thing} and what they pay, and within 48 hours you get the offer rewritten in one line, the channel I'd start with, and twenty places to go. Yours to keep.`,
+  design: (m) => `Free offer, no catch: tell me what ${m.thing} does and who it's for, and within 48 hours you get the three screens designed and clickable. Yours to keep.`,
+  business: (m) => `Free offer, no catch: tell me who the buyer is, and within 48 hours you get the one-page version to put in front of them plus ten places those buyers already are. Yours to keep.`,
+  unclear: (m) => `Free offer, no catch: send me a paragraph on what ${m.thing} does, and within 48 hours you get the smallest v1 mapped out and a clickable prototype of it. Yours to keep.`,
+};
+
 // WhatsApp and Telegram links, from whatever the user typed in Options.
 HEAT.waLink = function (v) {
   const s = String(v || "").trim();
@@ -1128,10 +1138,11 @@ HEAT.tgLink = function (v) {
   if (/^https?:\/\//i.test(s)) return s;
   return "https://t.me/" + s.replace(/^@/, "");
 };
-HEAT.huntContactLine = function (profile = {}) {
+HEAT.huntContactLine = function (profile = {}, short = false) {
   const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
   const both = [wa ? "WhatsApp: " + wa : "", tg ? "Telegram: " + tg : ""].filter(Boolean);
   if (!both.length) return "Reply here and I'll get started on it today.";
+  if (short) return `Faster here than Reddit DMs — ${both.join("  ·  ")}`;
   return `Reddit DMs get buried, so it's faster to send it here — ${both.join("  ·  ")}\nOne message with that paragraph and I'll start on it today. Reply here if you'd rather stay on Reddit.`;
 };
 
@@ -1268,6 +1279,85 @@ ${m.contact}
 ${m.sign}`,
 };
 
+
+// "u/jane_builds92" reads like a bot wrote it. Use the name a person would use.
+HEAT.huntName = function (author) {
+  const raw = String(author || "").replace(/^\/?u\//, "").trim();
+  if (!raw) return "there";
+  const first = raw.split(/[_\-.\d]+/).filter(Boolean)[0] || "";
+  if (!/^[A-Za-z]{2,14}$/.test(first)) return "there";
+  const junk = /^(the|real|its|it'?s|mr|mrs|ms|dr|sir|lord|king|queen|big|lil|little|dev|founder|startup|user|reddit|anon|anonymous|deleted|random|just|some|my|new|old|xx|hi|hey|no|not|why|what|who|how)$/i;
+  if (/^(throw|anon|deleted|account|redditor|username)/i.test(first)) return "there";
+  if (junk.test(first)) return "there";
+  return first[0].toUpperCase() + first.slice(1).toLowerCase();
+};
+
+// ---------- what kind of person is this, in one glance -------------------
+const COUNTRIES = [
+  ["India", /\b(india|indian|bangalore|bengaluru|mumbai|delhi|hyderabad|chennai|pune|kolkata|gurgaon|noida|\binr\b|₹)\b/i],
+  ["United States", /\b(usa|u\.s\.|united states|america|american|new york|nyc|san francisco|\bsf\b|bay area|austin|seattle|chicago|boston|los angeles|\bla\b|miami|denver|atlanta|texas|california)\b/i],
+  ["United Kingdom", /\b(uk|u\.k\.|england|london|manchester|british|britain|scotland|£)\b/i],
+  ["Canada", /\b(canada|canadian|toronto|vancouver|montreal|ottawa|calgary)\b/i],
+  ["Australia", /\b(australia|australian|sydney|melbourne|brisbane|perth)\b/i],
+  ["Germany", /\b(germany|german|berlin|munich|hamburg)\b/i],
+  ["Netherlands", /\b(netherlands|dutch|amsterdam|rotterdam)\b/i],
+  ["Nigeria", /\b(nigeria|nigerian|lagos|abuja)\b/i],
+  ["Pakistan", /\b(pakistan|pakistani|karachi|lahore|islamabad)\b/i],
+  ["Philippines", /\b(philippines|filipino|manila|cebu)\b/i],
+  ["Singapore", /\bsingapore(an)?\b/i],
+  ["UAE", /\b(uae|dubai|abu dhabi|emirates)\b/i],
+  ["Brazil", /\b(brazil|brazilian|sao paulo|são paulo|rio de janeiro)\b/i],
+  ["France", /\b(france|french|paris)\b/i],
+  ["Spain", /\b(spain|spanish|madrid|barcelona)\b/i],
+  ["Poland", /\b(poland|polish|warsaw|krakow)\b/i],
+  ["Indonesia", /\b(indonesia|jakarta|bali)\b/i],
+  ["Kenya", /\b(kenya|nairobi)\b/i],
+  ["South Africa", /\b(south africa|johannesburg|cape town)\b/i],
+  ["Europe", /\b(europe|european|\beu\b|€|eur\b)\b/i],
+];
+HEAT.huntCountry = function (p) {
+  const t = ((p.title || "") + " " + (p.body || "") + " " + (p.flair || "")).slice(0, 3000);
+  const based = t.match(/\b(?:based|living|located|i'?m|we'?re|from)\s+(?:in|out of|at)?\s*([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)/);
+  for (const [name, re] of COUNTRIES) if (re.test(t)) return name;
+  if (based && based[1].length > 3) return based[1];
+  if (/\b(r\/)?(indianstartups|indiabusiness)\b/i.test(p.sub || "")) return "India";
+  return "";
+};
+
+// Who is asking: a freelancer, someone running a company, a solo founder.
+HEAT.huntWho = function (p) {
+  const t = ((p.title || "") + " " + (p.body || "")).slice(0, 3000);
+  if (/\b(my|our)\s+(agency|studio|dev shop|firm|consultancy)\b|\bwe(?:'| a)re an? (agency|studio|company)\b/i.test(t)) return "agency owner";
+  if (/\bi (?:run|own|started|founded)\b|\bmy (?:company|business|startup|brand|store|shop)\b|\bwe (?:run|own|have|do|make|hit|are at)\b|\bour (?:company|business|customers|revenue|users|team)\b|\bpaying customers\b/i.test(t)) return "company owner";
+  if (/\bfreelanc|\bindie hacker\b|\bsolo (?:dev|developer|builder)\b|\bi consult\b/i.test(t)) return "freelancer";
+  if (/\b(student|college|university|final year|undergrad)\b/i.test(t)) return "student";
+  if (/\b(my day job|9[ -]?to[ -]?5|9-5|full[- ]time job|currently (?:employed|working at)|after work|nights and weekends)\b/i.test(t)) return "employed, building on the side";
+  return "solo founder";
+};
+
+// A one-glance reading of the post, shown under it in the hunt.
+HEAT.huntSynopsis = function (p) {
+  const t = ((p.title || "") + " " + (p.body || "")).slice(0, 3000);
+  const wants = { technical: "someone to build it", marketing: "marketing / growth", design: "design / UX", business: "business / sales", unclear: "unclear — read the post" }[p.role] || "unclear";
+  const users = t.match(/\b([\d][\d,.]*\s*(?:k|thousand)?)\s*(users|customers|signups|sign-ups|waitlist|downloads|subscribers)\b/i);
+  const money = t.match(/(?:\$|€|£)\s?([\d][\d,.]*\s*k?)\s*(?:\/\s*mo|per month|a month|mrr|arr)?/i);
+  const commit = /\b(full[- ]time)\b/i.test(t) ? "full-time" : /\b(part[- ]time|side project|nights and weekends|evenings|weekends)\b/i.test(t) ? "part-time / side project" : "";
+  const equity = t.match(/\b(\d{1,2})\s*%\s*(?:equity|stake)?/i);
+  return {
+    who: HEAT.huntWho(p),
+    wants,
+    country: HEAT.huntCountry(p),
+    stage: p.stage === "unknown" ? "" : p.stage === "idea" ? "idea only" : p.stage === "building" ? "something built" : "has revenue",
+    money: p.equityOnly ? "equity only, no cash" : p.hasBudget ? "has money to spend" : "",
+    equity: equity ? equity[1] + "% on offer" : "",
+    traction: users ? users[1].trim() + " " + users[2].toLowerCase() : "",
+    revenue: money && /mrr|arr|month/i.test(t.slice(Math.max(0, t.indexOf(money[0])), t.indexOf(money[0]) + 40)) ? money[0].trim() : "",
+    commit,
+    posted: p.created ? p.created : 0,
+    sub: p.sub || "",
+  };
+};
+
 // Pull a short, natural noun phrase for "their thing".
 HEAT.huntThing = function (p) {
   let t = (p.title || "").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
@@ -1299,15 +1389,107 @@ HEAT.huntVars = function (p, profile = {}) {
   const thing = HEAT.huntThing(p);
   const offerFn = HEAT.HUNT_OFFER[p.role] || HEAT.HUNT_OFFER.unclear;
   return {
-    name: p.author ? "u/" + p.author : "there",
+    name: HEAT.huntName(p.author),
     thing, stageLine,
     offer: offerFn({ thing }),
     contact: HEAT.huntContactLine(profile),
+    shortContact: HEAT.huntContactLine(profile, true),
     sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "",
   };
 };
 
-HEAT.huntDM = function (p, profile = {}) {
+
+// Three lengths of the same letter. Short for someone who wrote two lines,
+// long for someone who wrote an essay. Same offer and same close in all three.
+const DM_ONELINE = {
+  technical: (m) => `the first version of ${m.thing} is usually 2 to 4 weeks of work, which is a much smaller commitment than a third of your company`,
+  marketing: (m) => `the first 100 users for ${m.thing} almost never come from marketing, they come from one channel worked by hand`,
+  design: (m) => `what's usually blocking a product at this stage is the flow, not the visuals`,
+  business: (m) => `trying to sell it once, manually, tells you more than ten partner conversations`,
+  unclear: (m) => `"I need a co-founder" and "I need this to exist" look identical from the inside and cost wildly different things`,
+};
+const DM_WHY = {
+  technical: (m) => `A technical co-founder costs 30 to 50 percent of the company and three to six months of searching, and most of those partnerships break because neither side could judge the other's work yet. The first version of ${m.thing} is usually 2 to 4 weeks. Build that first, put it in front of ten people, then decide what you actually need — with evidence instead of hope.`,
+  marketing: (m) => `Bringing in a growth person before the offer is repeatable usually ends the same way: five channels tried, none stick, both sides blame the other. Prove one channel by hand yourself, then bring someone in to scale that one thing.`,
+  design: (m) => `Early products rarely fail for looking bad. They fail because the flow asks too much before it gives anything back, and a designer joining now would be guessing at the same unknowns you are.`,
+  business: (m) => `Before splitting equity, the highest-value thing you can do is try to sell it once, manually, to one real buyer. Everything gets clearer after that: whether it's a real problem, what they'd pay, and whether the gap is a partner or just a first build.`,
+  unclear: (m) => `There are two situations that both look like "I need a co-founder". One is genuinely needing someone to own a function for years. The other, far more common, is needing the thing to exist so you can find out if any of this is real.`,
+};
+const DM_STEPS = {
+  technical: [
+    `Write the one sentence a user would say after using it. Not the vision, the outcome. Everything you build gets judged against that sentence.`,
+    `Cut to three screens: what they enter, what it does, what they get back. Accounts, settings, dashboards and payments can all wait.`,
+    `Do the hard part by hand for the first twenty users. They don't care, and you learn what's actually worth automating.`,
+  ],
+  marketing: [
+    `Write the offer in one sentence a stranger would repeat: we help [who] get [outcome] without [the annoying part].`,
+    `Pick the single place your first 100 users already gather. One subreddit, one group, one list — not "social media".`,
+    `Help twenty of them manually with no link attached, and count how many ask what you do. That number is your real signal.`,
+  ],
+  design: [
+    `Draw the three screens on paper: what the user gives, what happens, what they get.`,
+    `Make the first screen do one useful thing with no signup. Accounts before value is where most early products lose people.`,
+    `Watch five people use it without helping them. Every hesitation is a design brief worth more than a mockup.`,
+  ],
+  business: [
+    `Write one page about the outcome, not the product: who it's for, what changes, what it costs.`,
+    `Take it to ten people who match and ask for the sale, not for feedback. Feedback is polite; "yes, when can I have it" is real.`,
+    `If someone says yes, build the smallest thing that delivers it, even if half of it is you working by hand.`,
+  ],
+  unclear: [
+    `Write down what has to be true in 90 days for this to be worth continuing. Users? Revenue? One signed customer?`,
+    `Ask what actually stands between you and that. If the answer is "it doesn't exist yet", that's a build problem, not a partner problem.`,
+    `Build the three-screen version and put it in front of ten people who have the problem. Watch, don't pitch.`,
+  ],
+};
+
+HEAT.huntDmShort = function (p, profile = {}) {
+  const m = HEAT.huntVars(p, profile);
+  const role = HEAT.SHORT_ROLE(p);
+  const offerShort = (HEAT.HUNT_OFFER_SHORT[role] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing });
+  return `Hi ${m.name},
+
+Saw your post about ${m.thing}. I'm not applying for the co-founder seat — but ${DM_ONELINE[role](m)}.
+
+${offerShort}
+
+${m.shortContact}
+
+${m.sign}`;
+};
+
+HEAT.huntDmMedium = function (p, profile = {}) {
+  const m = HEAT.huntVars(p, profile);
+  const role = HEAT.SHORT_ROLE(p);
+  const steps = DM_STEPS[role].map((x, i) => `${i + 1}. ${x}`).join("\n\n");
+  return `Hi ${m.name},
+
+Saw your post about ${m.thing}. Not applying, but here's what I'd want someone to tell me in your position.
+
+${DM_WHY[role](m)}
+
+If I were doing it this week:
+
+${steps}
+
+${m.stageLine ? m.stageLine + "\n\n" : ""}${m.offer}
+
+${m.contact}
+
+${m.sign}`;
+};
+
+HEAT.DM_SIZES = [
+  { key: "short", label: "Short" },
+  { key: "medium", label: "Medium" },
+  { key: "long", label: "Long" },
+];
+HEAT.huntDM = function (p, profile = {}, size = "long") {
+  if (size === "short") return HEAT.huntDmShort(p, profile);
+  if (size === "medium") return HEAT.huntDmMedium(p, profile);
+  return HEAT.huntDmLong(p, profile);
+};
+HEAT.huntDmLong = function (p, profile = {}) {
   const fn = HEAT.HUNT_DM[p.role] || HEAT.HUNT_DM.unclear;
   return fn(p, HEAT.huntVars(p, profile));
 };

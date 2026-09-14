@@ -10,9 +10,15 @@ Every minute it checks a rotating handful of subreddits where people ask for a p
 
 Then it is the same three moves, one post at a time:
 
-1. **Copy 3 lines** and paste them as the public comment. Three lines, no link, no price, no pitch — one specific observation about their situation, one free useful thing, one line saying a DM is coming. **Another angle** swaps in a different opener if the first does not fit.
-2. **Open DM, pre-filled ↗** opens Reddit's message compose with the subject and the long Laurel Portié style letter already in it: the real diagnosis, five numbered steps they can do this week, and an open door. Read it, edit it, send it.
+1. **Copy + open the post ↗** — one click puts the two-line reply on your clipboard and opens the thread. Paste, post. Two lines only: one observation about their exact situation, one free useful thing plus "sent it to your DMs". No link, no price, no pitch.
+2. **Copy + open the DM ↗** — one click copies the letter and opens Reddit's compose window with subject and body already filled. Pick the length first: **Short** (five lines), **Medium** (diagnosis plus three steps), **Long** (the full Laurel Portié letter). Read it, edit it, send it.
 3. **Posted the reply** (`1`), **Sent the DM** (`2`), **Skip** (`s`), **Not relevant** (`x`). Sending moves you to the next post.
+
+**Under every post, a reading of it.** Who they are (solo founder, company owner, freelancer, agency, student), what they actually want, which country, stage, whether it is equity-only or they have money, how much equity is on offer, traction, and whether it is full-time or a side project — pulled from their own words.
+
+**Click any counter to see the table behind it.** *In queue* lists everyone waiting with who / wants / country / age / fit, and clicking a row jumps straight to that person. *Contacted today* and *Contacted ever* show the database: who, how, where, when.
+
+**Your details live on the hunt page.** The header's **Your details** panel holds your name, what you do, your Reddit username, WhatsApp and Telegram, and opens by itself the first time. No hunting through Options.
 
 **Five options, not one line repeated.** The public reply is built per post from what that person actually wrote, so an equity-only idea-stage post opens on equity, a funded one opens on being able to pay, a crowded thread opens short. Click any option to load it, edit it, copy it. No two options open the same way and nothing is reused post to post.
 
@@ -28,7 +34,7 @@ Then it is the same three moves, one post at a time:
 
 **No files.** Nothing is ever downloaded. Every post, status and contact lives in the extension's own database; **Contacted list** in the header shows it — who, how, where, when, searchable. CSV auto-save for the old scraper is off unless you switch it on in Options.
 
-Nothing is ever posted or sent for you. The extension reads, fills in the text, and you click send on Reddit's own page. Set your sign-off name in Options → it appears at the bottom of every DM.
+Nothing is ever posted or sent for you. The extension reads, fills in the text, and you click send on Reddit's own page. Names come out human: the letter opens "Hi Jane," not "Hi u/jane_builds92," and falls back to "Hi there," for throwaway handles.
 
 ## Everything below is the older lead scraper (popup → Advanced tools)
 

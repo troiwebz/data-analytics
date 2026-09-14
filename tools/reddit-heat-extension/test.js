@@ -205,23 +205,23 @@ assert.strictEqual(H.huntThing({ title: "Anyone want to join my startup?", body:
 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
 const short = H.huntShortReply(hp, { name: "Troi" });
-assert.strictEqual(short.split("\n").length, 3, "the public reply is exactly three lines:\n" + short);
+assert.strictEqual(short.split("\n").length, 2, "the public reply is exactly two lines:\n" + short);
 assert.ok(short.length < 420, "the public reply stays short: " + short.length);
 assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
 const opts = H.huntShortOptions(hp, { name: "Troi" }, 5);
 assert.strictEqual(opts.length, 5, "five options to choose from");
 assert.strictEqual(new Set(opts).size, 5, "and no two are the same");
 assert.strictEqual(new Set(opts.map((o) => o.split("\n")[0])).size, 5, "each opens differently");
-opts.forEach((o) => { assert.strictEqual(o.split("\n").length, 3, o); assert.ok(!/https?:\/\/|\$\d/.test(o)); });
+opts.forEach((o) => { assert.strictEqual(o.split("\n").length, 2, o); assert.ok(!/https?:\/\/|\$\d/.test(o)); });
 assert.ok(opts.some((o) => o.includes("your fitness app")), "at least one names their thing");
 assert.ok(!opts.some((o) => o.includes("co-founder for your fitness app")), "and none doubles the phrase");
 assert.ok(opts[0].includes("Equity-only"), "equity-only posts lead with the equity line");
 assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage: "revenue" }, {})[0].includes("pay for execution"), "funded posts lead with money");
 assert.ok(H.huntShortOptions({ ...hp, comments: 40 }, {}).some((o) => o.startsWith("Plenty of replies")), "a crowded thread gets the short opener");
-for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 3);
+for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 900, "the DM is the long one: " + dm.length);
-assert.ok(dm.startsWith("Hi u/jane,") && dm.includes("— Troi, web developer"));
+assert.ok(dm.startsWith("Hi Jane,") && dm.includes("— Troi, web developer"));
 assert.ok(dm.includes("budget is the constraint"), "equity-only posts get the budget line");
 assert.ok(H.huntComposeUrl(hp, dm).startsWith("https://www.reddit.com/message/compose/?to=jane&subject="));
 assert.ok(H.huntScore({ ...hp, created: Date.now() }) > H.huntScore({ ...hp, created: Date.now() - 5 * 86400000 }), "fresher posts rank higher");
@@ -244,5 +244,33 @@ assert.strictEqual(H.tgLink("troi"), "https://t.me/troi");
 assert.strictEqual(H.waLink(""), "");
 // the 3-line public reply stays clean: no offer, no links
 const short2 = H.huntShortReply(hp, { name: "Troi", whatsapp: "+919876543210" });
-assert.ok(!/wa\.me|t\.me|48 hours/.test(short2) && short2.split("\n").length === 3);
+assert.ok(!/wa\.me|t\.me|48 hours/.test(short2) && short2.split("\n").length === 2);
 console.log("dm offer + private channel: ok");
+
+// names read like a person wrote them
+assert.strictEqual(H.huntName("jane_builds92"), "Jane");
+assert.strictEqual(H.huntName("Noah_Basera"), "Noah");
+assert.strictEqual(H.huntName("throwaway_8812"), "there", "junk handles get no fake first name");
+assert.strictEqual(H.huntName("xX_99_Xx"), "there");
+assert.strictEqual(H.huntName(""), "there");
+
+// three lengths of the same letter, same offer and close in each
+const sizes = ["short", "medium", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
+assert.ok(sizes[0].length < sizes[1].length && sizes[1].length < sizes[2].length, "short < medium < long: " + sizes.map((x) => x.length));
+assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
+sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(/wa\.me\/919000000000/.test(d)); assert.ok(/48 hours/.test(d)); });
+assert.ok(/1\. /.test(sizes[1]) && /1\. /.test(sizes[2]) && !/1\. /.test(sizes[0]), "only the longer letters carry steps");
+
+// the reading of a post
+const syn = H.huntSynopsis({ title: "Looking for a technical co-founder for my fitness app", body: "I run a gym business in Bangalore. 400 users on the waitlist. Equity only (10%), nights and weekends.", role: "technical", stage: "idea", equityOnly: true, sub: "startups" });
+assert.strictEqual(syn.who, "company owner");
+assert.strictEqual(syn.wants, "someone to build it");
+assert.strictEqual(syn.country, "India");
+assert.strictEqual(syn.money, "equity only, no cash");
+assert.strictEqual(syn.equity, "10% on offer");
+assert.strictEqual(syn.traction, "400 users");
+assert.strictEqual(syn.commit, "part-time / side project");
+assert.strictEqual(H.huntWho({ title: "x", body: "I freelance as a designer" }), "freelancer");
+assert.strictEqual(H.huntCountry({ title: "cofounder wanted", body: "we are based in Austin, Texas" }), "United States");
+assert.strictEqual(H.huntCountry({ title: "cofounder wanted", body: "no location given" }), "");
+console.log("synopsis, names, dm sizes: ok");
