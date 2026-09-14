@@ -1,3 +1,4 @@
+import { specificsBlock } from './specifics.js';
 // Reply rendering: spintax + variable substitution.
 
 /** {a|b|c} -> one of a, b, c. Handles nesting by repeated passes. */
@@ -13,7 +14,8 @@ export function spin(text) {
 }
 
 export function renderReply(lead, cfg) {
-  return render(lead, cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0]);
+  return render({ ...lead, specifics: specificsBlock(lead, cfg) },
+                cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0]);
 }
 
 /**
@@ -68,7 +70,8 @@ function render(lead, tpl) {
     url: lead.url || '',
     link: lead.url || '',
     reply: lead.reply || '',
-    offer: lead.offer || ''
+    offer: lead.offer || '',
+    specifics: lead.specifics || ''
   };
 
   let out = spin(tpl);

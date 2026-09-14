@@ -5,7 +5,7 @@ const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
 const BOOL = ['enabled', 'autoPost'];
-const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'dmTemplates', 'compliance'];
+const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 
 function fill(cfg) {
@@ -36,6 +36,8 @@ async function save() {
     patch.excludes.forEach((e) => new RegExp(e, 'i'));
     for (const k of ['mustInclude', 'mustAppearEarly']) (patch.compliance[k] || []).forEach((r) => new RegExp(r.pattern, 'i'));
     for (const k of ['banned', 'warn']) (patch.compliance[k] || []).forEach((p) => new RegExp(p, 'i'));
+    (patch.specifics.rules || []).forEach((r) => new RegExp(r.p, 'i'));
+    (patch.specifics.geoPatterns || []).forEach((g) => new RegExp(g.p, 'i'));
   } catch (e) { return status(`bad regex: ${e.message}`, true); }
 
   if (patch.enabled && !patch.webhookUrl) return status('Set the Apps Script URL before enabling.', true);

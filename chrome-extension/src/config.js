@@ -41,7 +41,11 @@ export const DEFAULT_CONFIG = {
         '\\bseo\\b', 'backlink', 'link building', 'guest post', '\\bpbn\\b',
         'off[- ]?page', 'on[- ]?page', '\\bserp\\b', 'keyword research',
         'domain authority', '\\bda\\s?\\d+', '\\bdr\\s?\\d+', 'rank(ing)? (my|our|the) site',
-        'google ranking', 'local seo', 'gmb', 'google business profile'
+        'google ranking', 'local seo', 'gmb', 'google business profile',
+        // Local-search work is SEO, not a generic enquiry.
+        { p: 'citations?\\b', w: 2 }, { p: '\\bnap\\b', w: 2 },
+        'directory (listing|submission)', 'business listing', 'map ?pack', 'local ?pack',
+        'yext', 'moz local', 'near me', 'schema markup', 'technical seo', '\\baso\\b'
       ]
     },
     {
@@ -143,6 +147,88 @@ export const DEFAULT_CONFIG = {
     ]
   },
 
+  // ---- Thread-specific bullets -------------------------------------------
+  // The template says what we do; these say "we have done exactly this".
+  // First matching rule wins. {{geo}} becomes the places named in the thread,
+  // and a bullet needing a geo is dropped when none was named.
+  specifics: {
+    geoPatterns: [
+      { p: '\\bdubai\\b|\\buae\\b|abu dhabi|sharjah', label: 'Dubai/UAE' },
+      { p: '\\buk\\b|united kingdom|\\blondon\\b|\\bengland\\b|manchester|birmingham', label: 'the UK' },
+      { p: '\\bus(a)?\\b|united states|america\\b', label: 'the US' },
+      { p: '\\bcanada\\b|toronto|vancouver', label: 'Canada' },
+      { p: '\\baustralia\\b|\\bsydney\\b|melbourne', label: 'Australia' },
+      { p: '\\bindia\\b|mumbai|delhi|bangalore', label: 'India' },
+      { p: '\\bgermany\\b|\\bberlin\\b|munich', label: 'Germany' },
+      { p: '\\bsingapore\\b', label: 'Singapore' },
+      { p: 'saudi|\\bksa\\b|riyadh', label: 'Saudi' }
+    ],
+    multiGeoBullet: 'Separate listing sets per market, not one profile stretched across {{geo}}',
+
+    rules: [
+      { p: 'citation|nap\\b|directory (listing|submission)|yext|moz local|business listing',
+        bullets: [
+          'Manual submissions to directories that actually index in {{geo}}, not a blast list',
+          'Existing listings audited first, so duplicates and wrong NAP get fixed before new ones go out',
+          'Live sheet with every citation, its login and its live/pending status'
+        ] },
+      { p: 'gmb|google business profile|google my business|map ?pack|local ?pack',
+        bullets: [
+          'Profile built out properly for {{geo}}: categories, services, service area, hours, Q&A',
+          'Geo-tagged posts and photos on a weekly schedule, not a one-off setup',
+          'Rank tracked on a grid around the pin, so you see movement by area not one average'
+        ] },
+      { p: 'local seo|rank (my|our) (business|shop|store|clinic)|near me',
+        bullets: [
+          'On-page built around the {{geo}} service pages, not generic keywords',
+          'Citations and NAP consistency cleaned up first, since that gates the map pack',
+          'Grid rank tracking around the pin so you can see area-by-area movement'
+        ] },
+      { p: 'guest post|link ?insert|niche edit|\\bpbn\\b|outreach link',
+        bullets: [
+          'Live sites with real traffic only, metrics shown before anything is placed',
+          'You approve every domain before we buy or place',
+          'Anchor mix kept natural, no exact-match stacking'
+        ] },
+      { p: 'e-?commerce|shopify|woocommerce|product page',
+        bullets: [
+          'Product and collection pages templated so the fixes scale across the catalogue',
+          'Schema, internal linking and faceted-navigation handling done properly',
+          'Reporting by collection, so you can see which range is actually earning'
+        ] },
+      { p: 'app store|aso\\b|play store',
+        bullets: [
+          'Keyword field, title and subtitle worked separately for each store',
+          'Screenshot and icon tests run against install rate, not opinion',
+          'Reviews and ratings velocity handled alongside the listing'
+        ] }
+    ],
+
+    // Used when no rule matches: the category's own bullets.
+    defaults: {
+      seo:     ['Full audit, on-page fixes, and a white hat link plan',
+                'First deliverables in 5-7 days',
+                'Monthly rank and traffic report'],
+      ads:     ['Account structure, tracking and conversion events set up properly',
+                'Ad creative produced in house',
+                'Weekly optimisation with a clear spend to result report'],
+      design:  ['Source files included (PSD, AI, Figma)',
+                '2 concepts first, then unlimited tweaks on the one you pick',
+                '2-4 days depending on scope'],
+      social:  ['Real devices and residential connections, matched to the geo you need',
+                'Steady daily posting on your schedule, not bursts',
+                'Warmed accounts and sensible limits so the profile stays healthy'],
+      web:     ['Clean, fast, mobile first build',
+                'On-page SEO done properly from the start',
+                'Timeline depends on page count, happy to scope it today'],
+      content: ['SEO aware, no AI filler',
+                'Sample piece before you commit',
+                '2-3 days per batch'],
+      generic: ['Tell us the details and we will scope it same day',
+                'Clear price before any work starts']
+    }
+  },
+
   // ---- Reply templates -------------------------------------------------
   // {{var}} is substituted. {a|b|c} picks one at random (spintax), so no two
   // replies are byte-identical.
@@ -152,9 +238,7 @@ export const DEFAULT_CONFIG = {
 
 {We can handle this|Happy to help with this|We do this every week}. We run SEO for agencies and direct clients.
 
-- Full audit, on-page fixes, and a white hat link plan
-- First deliverables in 5-7 days
-- Monthly rank and traffic report
+{{specifics}}
 {{budgetLine}}
 {Samples and past results on request|Happy to share live case studies|Can send anonymised client results}. {Dropping you a PM with details|PMing you now}.`,
 
@@ -162,9 +246,7 @@ export const DEFAULT_CONFIG = {
 
 {We handle exactly this|Can definitely help|This is what we do daily}. We manage paid campaigns end to end on Google, Meta and TikTok.
 
-- Account structure, tracking and conversion events set up properly
-- Ad creative produced in house
-- Weekly optimisation with a clear spend to result report
+{{specifics}}
 {{budgetLine}}
 {Happy to walk through past accounts|Can share anonymised campaign data}. {Sending a PM|PMing you the details}.`,
 
@@ -172,9 +254,7 @@ export const DEFAULT_CONFIG = {
 
 {We can do this|Happy to handle this|This is what our team does daily}. We are a design team and {{category}} is what we produce.
 
-- Source files included (PSD, AI, Figma)
-- 2 concepts first, then unlimited tweaks on the one you pick
-- 2-4 days depending on scope
+{{specifics}}
 {{budgetLine}}
 {Portfolio available on request|Can send the portfolio over}. {PMing you now|Sending you a PM}.`,
 
@@ -182,9 +262,7 @@ export const DEFAULT_CONFIG = {
 
 {We can cover this|Happy to handle this|This is exactly what our team does}. We run and post on social accounts every day.
 
-- Real devices and residential connections, matched to the geo you need
-- Steady daily posting on your schedule, not bursts
-- Warmed accounts and sensible limits so the profile stays healthy
+{{specifics}}
 {{budgetLine}}
 {Tell us the platform, geo and volume and we'll scope it today|Send the platform, geo and daily volume and we'll come back with a price}. {Happy to show accounts we already run|Can show current accounts on request}.`,
 
@@ -192,9 +270,7 @@ export const DEFAULT_CONFIG = {
 
 {We can build this|Happy to handle this|This is straightforward for us}. We do site builds and landing pages in house.
 
-- Clean, fast, mobile first build
-- On-page SEO done properly from the start
-- Timeline depends on page count, happy to scope it today
+{{specifics}}
 {{budgetLine}}
 {Live examples on request|Can send live examples}. {Sending a PM|PMing you}.`,
 
@@ -203,8 +279,7 @@ export const DEFAULT_CONFIG = {
 
 {Interested in this|We can help with this|Happy to handle this}. We are a full service agency covering SEO, paid ads, design, web and content, all in house.
 
-- Tell us the details and we will scope it same day
-- Clear price before any work starts
+{{specifics}}
 {{budgetLine}}
 {Happy to share relevant past work|Examples on request}. {PMing you now|Sending a PM}.`,
 
@@ -212,9 +287,7 @@ export const DEFAULT_CONFIG = {
 
 {We can cover this|Happy to handle this|This is something we do a lot of}. Written by people, briefed against real search intent.
 
-- SEO aware, no AI filler
-- Sample piece before you commit
-- 2-3 days per batch
+{{specifics}}
 {{budgetLine}}
 {Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
   },
@@ -292,7 +365,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 11;
+export const CONFIG_VERSION = 12;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -338,6 +411,10 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 12) {
+    next.specifics = next.specifics ?? DEFAULT_CONFIG.specifics;
+    next.templates = DEFAULT_CONFIG.templates;   // now carry a {{specifics}} slot
   }
   if (v < 11) {
     // Em dashes and "•" read as AI-written; templates rewritten without them.
