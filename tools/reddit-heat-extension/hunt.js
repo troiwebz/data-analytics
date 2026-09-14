@@ -294,7 +294,9 @@ $("goPost").onclick = async () => {
 $("goDm").onclick = async () => {
   if (!cur) return;
   await copyText($("dm").value);
-  window.open(huntComposeUrl(cur, $("dm").value), "_blank");
+  // Reddit's "new chat" page; the bridge types the name, opens the chat and fills the box. Nothing is sent by us.
+  await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: cur.id, author: cur.author, text: $("dm").value, at: Date.now() } });
+  window.open("https://www.reddit.com/chat/room/create", "_blank");
   if ($("assumeDm").checked) setTimeout(() => act("dm"), 800);   // counts as sent; the post is struck through in Done and never returns
 };
 $("assumeDm").onchange = () => chrome.storage.local.set({ assumeDm: $("assumeDm").checked });

@@ -1220,14 +1220,21 @@ async function chatTab(create) {
 // Put the drafted reply into Chat's box for this person, and show that tab.
 async function chatFill(withUser, textToFill) {
   const tab = await chatTab(true);
-  const want = "https://www.reddit.com/chat/user/" + encodeURIComponent(withUser);
-  if (!(tab.url || "").toLowerCase().includes("/user/" + withUser.toLowerCase())) {
-    await chrome.tabs.update(tab.id, { url: want, active: true });
-    await new Promise((done) => { const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } }; chrome.tabs.onUpdated.addListener(on); setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000); });
-    await sleep(1500);
-  } else {
+  // If that person's chat is already open, fill it straight away.
+  if ((tab.url || "").toLowerCase().includes("/user/" + withUser.toLowerCase())) {
     await chrome.tabs.update(tab.id, { active: true });
+    try { return await chrome.tabs.sendMessage(tab.id, { type: "chat-fill", text: textToFill }); }
+    catch (e) { return { ok: false, error: "the Chat tab did not answer — reload it and try again" }; }
   }
-  try { return await chrome.tabs.sendMessage(tab.id, { type: "chat-fill", text: textToFill }); }
-  catch (e) { return { ok: false, error: "the Chat tab did not answer — reload it and try again" }; }
+  // Otherwise go through Reddit's "new chat" page: the bridge types the name,
+  // opens the chat and fills the box, then marks pendingDm done.
+  await chrome.storage.local.set({ pendingDm: { kind: "inbox", author: withUser, text: textToFill, at: Date.now() } });
+  await chrome.tabs.update(tab.id, { url: "https://www.reddit.com/chat/room/create", active: true });
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(750);
+    const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
+    if (!pendingDm) return { ok: true };
+    if (pendingDm.done) { await chrome.storage.local.remove("pendingDm"); return { ok: true }; }
+  }
+  return { ok: false, error: `could not open ${withUser}'s chat by itself — in the Chat tab, type the name in the search box and open the chat; the reply fills itself as soon as it opens` };
 }
