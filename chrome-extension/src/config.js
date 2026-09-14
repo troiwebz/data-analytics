@@ -174,9 +174,9 @@ export const DEFAULT_CONFIG = {
 
   // ---- Private message ---------------------------------------------------
   // The offer that closes every PM. Edit this one line and every PM changes.
-  dmOffer: `{We can get started immediately|We can start on this right away|Ready to start today} — {I'll send over a sample first so you can see the quality before you commit to anything|happy to do a quick sample first so you can judge the work yourself|I can put a sample together first so you know exactly what you're getting}.
+  dmOffer: `{Happy to share our portfolio and live samples|I can send over our portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
 
-{Reply here or on the thread and I'll get moving|Just say the word and I'll get started|Send over the details and I'll get going today}.`,
+{We can get started immediately|We can start on this right away|Ready to start today} — {just reply here or on the thread|say the word and I'll get moving|send over the details and I'll get going}.`,
 
   // ---- Private message templates ---------------------------------------
   // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
@@ -234,7 +234,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 6;
+export const CONFIG_VERSION = 7;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -271,8 +271,10 @@ export async function migrateConfig() {
     next.dmOffer = next.dmOffer ?? DEFAULT_CONFIG.dmOffer;
     next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
   }
-  if (v < 6 && /20% off/.test(next.dmOffer || '')) {
-    next.dmOffer = DEFAULT_CONFIG.dmOffer;   // the discount/payment-terms offer is retired
+  // Offers the user asked to retire: the discount/payment-terms one, and the
+  // one that promised bespoke sample work. Replaced unless they wrote their own.
+  if (v < 7 && /20% off|payment only after|sample first so you can judge|sample together first/i.test(next.dmOffer || '')) {
+    next.dmOffer = DEFAULT_CONFIG.dmOffer;
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
