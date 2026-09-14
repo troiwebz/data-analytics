@@ -431,16 +431,21 @@ async function updBackground() {
 let inboxThreads = [];
 let curThread = null;
 let inboxPlan = "";
+let inboxDeal = null;
+let inboxDeals = [];
+let inboxSummary = null;
 let draftBusy = "";
 async function inboxRefresh() {
   const r = await send({ type: "inbox-list" });
   if (!r) return;
-  inboxThreads = r.threads; inboxPlan = r.plan;
+  inboxThreads = r.threads; inboxPlan = r.plan; inboxDeal = r.deal; inboxDeals = r.deals || []; inboxSummary = r.summary;
+  $("sDeals").textContent = inboxSummary ? `${inboxSummary.interested + inboxSummary.agreed} in · ${inboxSummary.cut} cut` : "";
+  if (!$("dealsBox").hidden) renderDeals();
   $("sInbox").textContent = r.needs;
   $("openInbox").classList.toggle("hot", r.needs > 0);
   $("inboxStatus").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)} · Reddit returned ${r.rawCount} message${r.rawCount === 1 ? "" : "s"} · ${r.needs} waiting for a reply${r.rawCount === 0 ? " · if the answer came in Chat, use Paste a reply I got" : ""}` : "not checked yet";
-  $("threadList").innerHTML = inboxThreads.length ? inboxThreads.map((t) => `<div class="thr ${t.needsReply ? "needs" : ""} ${curThread && curThread.id === t.id ? "on" : ""}" data-id="${t.id}"><b>${esc(t.with)}</b><span>${esc((t.post && t.post.title) || t.subject || "").slice(0, 70)}</span><br><span>${t.messages.length} messages · ${ago(t.lastAt)}${t.needsReply ? " · needs a reply" : t.handled ? " · handled" : ""}</span></div>`).join("")
+  $("threadList").innerHTML = inboxThreads.length ? inboxThreads.map((t) => `<div class="thr ${t.needsReply ? "needs" : ""} ${curThread && curThread.id === t.id ? "on" : ""}" data-id="${t.id}"><b>${esc(t.with)}</b><span>${esc((t.post && t.post.title) || t.subject || "").slice(0, 70)}</span><br><span>${t.messages.length} messages · ${ago(t.lastAt)}${t.needsReply ? " · needs a reply" : t.handled ? " · handled" : ""}${t.deal && t.deal.status ? " · " + t.deal.status.toUpperCase() : ""}</span></div>`).join("")
     : `<div class="empty" style="padding:30px 12px">No conversations yet. They appear here once someone answers a DM.</div>`;
   for (const el of $("threadList").querySelectorAll(".thr")) el.onclick = () => openThread(el.dataset.id);
   if (curThread) {
@@ -464,7 +469,7 @@ function renderThread() {
   $("threadMsgs").scrollTop = 1e6;
   const d = t.draft;
   const stage = d ? (INBOX_STAGES.find((s) => s.key === d.stage) || {}).label : "";
-  $("draftStage").textContent = stage || "";
+  $("draftStage").textContent = (stage || "") + (d && d.verdict === "not_interested" ? " · CUT" : d && d.verdict === "interested" ? " · INTERESTED" : "");
   $("draftNote").textContent = d && d.note ? d.note : "";
   $("draft").value = d ? d.reply : "";
   $("draftRedo").hidden = !d || engine() === "templates";
@@ -490,7 +495,7 @@ async function draftWrite(force) {
       finally { if (session.destroy) session.destroy(); }
     }
   } catch (e) { err = String(e && e.message || e); }
-  if (!draft) { draft = inboxTemplateReply(t, profile, inboxPlan); draft.engine = "template"; if (err) draft.note = "AI failed (" + err + "), template used. " + draft.note; }
+  if (!draft) { draft = inboxTemplateReply(t, profile, inboxPlan, inboxDeal); draft.engine = "template"; if (err) draft.note = "AI failed (" + err + "), template used. " + draft.note; }
   await send({ type: "inbox-act", id: t.id, action: "draft", patch: draft });
   t.draft = draft; draftBusy = "";
   renderThread();
@@ -538,9 +543,40 @@ $("threadSkip").onclick = async () => { if (!curThread) return; await send({ typ
 $("inboxCheck").onclick = async () => { $("inboxStatus").textContent = "checking…"; await send({ type: "inbox-poll" }); inboxRefresh(); };
 $("openInbox").onclick = () => { $("inbox").hidden = false; $("main").hidden = true; $("table").hidden = true; $("setup").hidden = true; $("aiPanel").hidden = true; inboxRefresh(); };
 $("closeInbox").onclick = () => { $("inbox").hidden = true; $("main").hidden = false; refresh(); };
-$("openPlan").onclick = () => { $("planBox").hidden = !$("planBox").hidden; $("addBox").hidden = true; $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT; };
-$("planSave").onclick = async () => { inboxPlan = $("planText").value.trim(); await send({ type: "inbox-plan", plan: inboxPlan }); $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400); };
-$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; };
+$("openPlan").onclick = () => {
+  $("planBox").hidden = !$("planBox").hidden; $("addBox").hidden = true; $("dealsBox").hidden = true;
+  $("planText").value = inboxPlan || INBOX_PLAN_DEFAULT;
+  const d = inboxDeal || DEAL_DEFAULT;
+  $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes || ""; $("dDisq").value = d.disqualify || "";
+};
+$("planSave").onclick = async () => {
+  inboxPlan = $("planText").value.trim();
+  const deal = { upfront: Number($("dUp").value) || DEAL_DEFAULT.upfront, share: Number($("dShare").value) || DEAL_DEFAULT.share, expenseShare: Number($("dExp").value) || DEAL_DEFAULT.expenseShare, teamDoes: $("dTeam").value.trim() || DEAL_DEFAULT.teamDoes, disqualify: $("dDisq").value.trim() || DEAL_DEFAULT.disqualify };
+  await send({ type: "inbox-plan", plan: inboxPlan });
+  await send({ type: "inbox-terms", deal });
+  inboxDeal = deal;
+  $("planMsg").hidden = false; setTimeout(() => { $("planMsg").hidden = true; }, 1400);
+};
+$("planReset").onclick = () => { $("planText").value = INBOX_PLAN_DEFAULT; const d = DEAL_DEFAULT; $("dUp").value = d.upfront; $("dShare").value = d.share; $("dExp").value = d.expenseShare; $("dTeam").value = d.teamDoes; $("dDisq").value = d.disqualify; };
+
+// ---- the deals database ---------------------------------------------------
+const DEAL_STATUSES = ["qualifying", "offered", "interested", "agreed", "cut", "lost"];
+function renderDeals() {
+  const s = inboxSummary || {};
+  $("dealsSummary").textContent = `${s.interested || 0} interested · ${s.agreed || 0} agreed · ${s.cut || 0} cut · avg share ${s.avgShare || 0}% · upfront agreed $${s.upfrontTotal || 0}`;
+  $("dealsRows").innerHTML = inboxDeals.length ? inboxDeals.map((d) => `<tr data-id="${d.id}"><td><b>${esc(d.with)}</b><br><span style="color:#98a0b3">${d.messages} msgs · ${ago(d.lastAt)}</span></td><td>${esc(d.post || "—").slice(0, 50)}</td>
+    <td><select data-f="status" style="background:#0d0f14;color:#e8eaf0;border:1px solid #262b36;border-radius:6px;padding:3px">${DEAL_STATUSES.map((x) => `<option value="${x}" ${x === d.status ? "selected" : ""}>${x}</option>`).join("")}</select></td>
+    <td><input data-f="share" type="text" value="${esc(d.share)}" style="width:52px"></td><td><input data-f="upfront" type="text" value="${esc(d.upfront)}" style="width:70px"></td>
+    <td>${esc(d.budget || "?")}</td><td>${esc(d.shareOk || "?")}</td><td><input data-f="note" type="text" value="${esc(d.note)}" style="width:160px" placeholder="note"></td></tr>`).join("")
+    : `<tr><td colspan="8" style="color:#98a0b3">No conversations yet.</td></tr>`;
+  for (const el of $("dealsRows").querySelectorAll("[data-f]")) el.onchange = async () => {
+    const id = el.closest("tr").dataset.id; const f = el.dataset.f;
+    const patch = {}; patch[f] = f === "share" || f === "upfront" ? Number(el.value) || 0 : el.value;
+    await send({ type: "inbox-deal", id, patch }); inboxRefresh();
+  };
+}
+$("openDeals").onclick = async () => { $("dealsBox").hidden = !$("dealsBox").hidden; $("planBox").hidden = true; $("addBox").hidden = true; await inboxRefresh(); renderDeals(); };
+$("dealsCopy").onclick = () => copyText(inboxDeals.map((d) => `${d.with}\t${d.status}\t${d.share}%\t$${d.upfront}\tbudget ${d.budget || "?"}\tshare ${d.shareOk || "?"}\t${d.post}\t${d.note}`).join("\n"), $("dealsCopy"));
 
 // ---- version: running, on disk, on GitHub -------------------------------
 // Nothing to click. The 2-minute updater puts new files in the folder, the

@@ -1588,31 +1588,48 @@ HEAT.huntAiClean = function (out) {
 // ===========================================================================
 // INBOX: replies to your DMs, answered according to a plan
 // ===========================================================================
-HEAT.INBOX_PLAN_DEFAULT = `GOAL: turn this conversation into a $350 engagement.
+// Editable terms. The instructions below reference them as {{UPFRONT}} etc.
+HEAT.DEAL_DEFAULT = { upfront: 350, share: 20, expenseShare: 50, teamDoes: "builds and runs the first version: development, design, launch, the day-to-day operating work — a dedicated team, not a freelancer", disqualify: "equity-only; wants free work; no budget at all; refuses any income share; wants an employee, not a partner; can't say who the customer is" };
 
-WHAT THEY GET FOR $350: a dedicated VA from my team completes the task end to end — the thing we promised (the first version, the plan, the outreach), done for them, not explained to them. All the benefits: daily progress updates, unlimited revisions within the agreed scope, delivered within an agreed number of days, they keep everything, and I stay on as the technical partner they can call afterwards.
+HEAT.INBOX_PLAN_DEFAULT = `WHAT WE ARE DOING: we are not applying to be anyone's co-founder, and we do not work for free. We are qualifying founders for a partnership where they HIRE OUR TEAM (paid), we work as one team with them, and we SHARE EXPENSES AND INCOME. Most people posting for a co-founder want free labour under a nicer name. Our job is to find the few who don't, quickly, and cut the rest politely.
 
-HOW TO GET THERE:
-1. Answer what they actually asked, completely and specifically. Never dodge a question to pitch.
-2. Deliver, or schedule, the free thing we promised in the DM (the prototype / the plan / the twenty places). Ask for the one paragraph if we still need it.
-3. Once they show interest or ask "what next" or "how much": present the $350 offer plainly, in one paragraph — what they get, how long, what happens on day one. No pressure, no fake urgency.
-4. Objections ("too expensive", "can you do it for equity", "I'll think about it"): answer honestly. Equity: no, but the $350 covers the VA's time and I take no cut. Price: compare with what a freelancer charges for the same. Thinking: fine, say what would change their mind and leave the door open.
-5. Close: move to WhatsApp/Telegram, agree the scope in three lines, say how to pay (I will confirm the payment method), and what they will receive first.
+THE OFFER, when they show interest:
+- They pay {{UPFRONT}} upfront to start. That covers our team's first block of work.
+- Our team {{TEAM_DOES}}.
+- Income share: we take {{SHARE}}% of income from what we build and run, for as long as we run it. Expenses are split {{EXPENSE_SHARE}}% us / the rest them, agreed in writing before anything is spent.
+- They keep the company and the IP. We are their team, not their boss.
+
+HOW TO GET THERE, one step per reply:
+1. Answer what they actually asked, completely. Never dodge a question to pitch.
+2. Qualify early. Ask, plainly and warmly, the two questions that matter: is there any budget to start (yes/no), and are they open to a partner team on a share of income rather than a co-founder on equity. Ask in the second reply at the latest.
+3. If they are open: present the offer above, plainly, in one paragraph. No pressure, no fake urgency.
+4. Objections: "equity instead" → no; equity in a pre-product company pays nobody's rent, income share does. "Too expensive" → it is the cheapest way to get a whole team; compare with one hire. "Let me think" → fine; say what would change their mind and leave the door open.
+5. Close: agree the scope in three lines, the {{UPFRONT}} and how to pay (say the method will be confirmed if not set), the {{SHARE}}% share in writing, and move to WhatsApp/Telegram.
+
+CUT, politely, in one short message, and do not chase: anyone who {{DISQUALIFY}}. Wish them well, leave one line saying if that changes we are here.
+
+VERDICT on every reply: "interested" only when they have said yes to money on the table AND to an income share (or asked how to start); "not_interested" when they hit a disqualifier or say no; otherwise "unclear".
 
 COMMON ASKS:
 - "Where are you based / what time zone": answer plainly — {{LOCATION}} — then carry on with the step you are at. Never dodge it.
 - "How are you / hello": one warm line back, then straight to the step you are at; do not pad.
 - "Share your LinkedIn / portfolio": give it — {{LINKEDIN}}. If none is set, say a quick call shows more than a profile and offer one.
-- "Can we have a call / short meet": yes, always. Offer {{CALL}} and two concrete time windows today or tomorrow; ask which suits. Keep the free offer on the table in the same message.
-- "Send me examples of your work": give {{PORTFOLIO}} if set; otherwise the free 48-hour prototype IS the example — say so.
+- "Can we have a call / short meet": yes, always. Offer {{CALL}} and two concrete time windows today or tomorrow; ask which suits.
+- "Send me examples of your work": give {{PORTFOLIO}} if set; otherwise offer a call and a short written plan for their product.
 
-VOICE: same as before — one founder to another, direct, warm, specific, no marketing words, never a compliment opener.`;
+VOICE: one founder to another, direct, warm, specific, no marketing words, never a compliment opener, no long letters — chat replies are 40 to 150 words.`;
 
-// The plan with the user's own links filled in.
-HEAT.inboxPlanFor = function (plan, profile = {}) {
+// The instructions with the operator's own terms and links filled in.
+HEAT.inboxPlanFor = function (plan, profile = {}, deal) {
+  const d = { ...HEAT.DEAL_DEFAULT, ...(deal || profile.deal || {}) };
   const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
   const call = profile.booking ? `my booking link ${profile.booking}` : wa ? `a WhatsApp call on ${wa}` : tg ? `a Telegram call on ${tg}` : "a call (ask which app suits them)";
   return String(plan || HEAT.INBOX_PLAN_DEFAULT)
+    .replace(/\{\{UPFRONT\}\}/g, "$" + d.upfront)
+    .replace(/\{\{SHARE\}\}/g, String(d.share))
+    .replace(/\{\{EXPENSE_SHARE\}\}/g, String(d.expenseShare))
+    .replace(/\{\{TEAM_DOES\}\}/g, d.teamDoes || "")
+    .replace(/\{\{DISQUALIFY\}\}/g, d.disqualify || "")
     .replace(/\{\{LINKEDIN\}\}/g, profile.linkedin || "(no LinkedIn set)")
     .replace(/\{\{CALL\}\}/g, call)
     .replace(/\{\{PORTFOLIO\}\}/g, profile.portfolio || "(no portfolio set)")
@@ -1622,20 +1639,25 @@ HEAT.inboxPlanFor = function (plan, profile = {}) {
 HEAT.INBOX_STAGES = [
   { key: "answer", label: "Answering" },
   { key: "deliver", label: "Delivering the free thing" },
-  { key: "offer", label: "Presenting $350" },
+  { key: "offer", label: "Presenting the offer" },
   { key: "objection", label: "Handling an objection" },
+  { key: "qualify", label: "Qualifying" },
   { key: "close", label: "Closing" },
+  { key: "cut", label: "Cut — not a fit" },
   { key: "done", label: "Done / no reply needed" },
 ];
 
 HEAT.INBOX_SCHEMA = {
   type: "object",
   properties: {
-    reply: { type: "string", description: "The reply to send, ready to paste. 60 to 220 words. Plain text, no markdown headings." },
-    stage: { type: "string", enum: ["answer", "deliver", "offer", "objection", "close", "done"], description: "Which step of the plan this reply performs." },
-    note: { type: "string", description: "One line for the operator: what they asked, what this reply does, and what to watch for." },
+    reply: { type: "string", description: "The reply to send, ready to paste. 40 to 150 words. Plain text." },
+    stage: { type: "string", enum: ["answer", "qualify", "deliver", "offer", "objection", "close", "cut", "done"], description: "Which step of the instructions this reply performs." },
+    verdict: { type: "string", enum: ["interested", "not_interested", "unclear"], description: "Per the VERDICT rule in the instructions." },
+    budget: { type: "string", enum: ["yes", "no", "unknown"], description: "Have they said there is money to start?" },
+    share_ok: { type: "string", enum: ["yes", "no", "unknown"], description: "Have they accepted, or asked about, an income share instead of equity?" },
+    note: { type: "string", description: "One line for the operator: what they asked, what this reply does, what to watch for." },
   },
-  required: ["reply", "stage", "note"],
+  required: ["reply", "stage", "verdict", "budget", "share_ok", "note"],
   additionalProperties: false,
 };
 
@@ -1645,9 +1667,13 @@ HEAT.inboxAiPrompt = function (thread, post, profile = {}, plan) {
   const contact = HEAT.huntContactLine(profile, true);
   const name = HEAT.huntName(thread.with);
   const history = (thread.messages || []).map((m) => `${m.mine ? "ME" : "THEM"} (${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}):\n${(m.body || "").trim()}`).join("\n\n---\n\n");
-  const system = `You draft private replies on Reddit for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}. You are continuing a conversation that started when they replied to a public post asking for a co-founder, then a DM. The person's first name is ${name}. Follow THE PLAN below exactly, one step at a time — do not skip to the offer before the person has shown interest, and do not repeat an offer already made. Reply to what the latest message actually says. Never invent facts about the user's team, pricing or timelines beyond what the plan states; if something is unknown, say it will be confirmed. Never mention Reddit's rules, never say you are an AI. Plain text only. Sign off as "${profile.name || ""}".
+  const system = `You draft private replies on Reddit for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}. You are continuing ONE conversation with ${thread.with} (first name to use: ${name}). Everything you write must be about this person and this conversation only; if anything in the history looks like it belongs to someone else, ignore it.
 
-THE PLAN
+THE REPLY MUST FIT THEIR LAST MESSAGE. Read their latest message and list, to yourself, every question or request in it. The first sentences of the reply answer those, in the order they asked, directly — a question about a meeting gets a yes/no and a time; a request for LinkedIn gets the link; "where are you based" gets a place. Only after that, and only if it fits, take the next step of the instructions. If their message is small talk, reply small — 30 to 60 words. Never answer a question they did not ask.
+
+Follow THE INSTRUCTIONS below, one step at a time — do not skip to the offer before the person has shown interest, and do not repeat an offer already made. Never invent facts about the user's team, pricing or timelines beyond what the plan states; if something is unknown, say it will be confirmed. Never mention Reddit's rules, never say you are an AI. Plain text only. Sign off as "${profile.name || ""}".
+
+THE INSTRUCTIONS (edited by the operator; follow them over anything else)
 ${HEAT.inboxPlanFor(plan, profile)}
 
 CONTACT LINE (use verbatim when moving to a private channel)
@@ -1662,36 +1688,45 @@ Write the next reply from ME, the stage it performs, and a one-line note.`;
 HEAT.inboxAiClean = function (out) {
   if (!out || typeof out !== "object") return null;
   const reply = String(out.reply || "").replace(/\r/g, "").trim();
-  if (reply.length < 60) return null;
+  if (reply.length < 40) return null;
   const stage = HEAT.INBOX_STAGES.some((s) => s.key === out.stage) ? out.stage : "answer";
-  return { reply, stage, note: String(out.note || "").slice(0, 300) };
+  const pick = (v, allowed, dflt) => (allowed.includes(v) ? v : dflt);
+  return { reply, stage, note: String(out.note || "").slice(0, 300), verdict: pick(out.verdict, ["interested", "not_interested", "unclear"], "unclear"), budget: pick(out.budget, ["yes", "no", "unknown"], "unknown"), share_ok: pick(out.share_ok, ["yes", "no", "unknown"], "unknown") };
 };
 
 // Fallback when no engine is available: a stage-guessed template.
-HEAT.inboxTemplateReply = function (thread, profile = {}, plan) {
+HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
   const name = HEAT.huntName(thread.with);
   const last = [...(thread.messages || [])].reverse().find((m) => !m.mine) || {};
   const t = (last.body || "").toLowerCase();
   const contact = HEAT.huntContactLine(profile, true);
   const sign = profile.name ? `\n\n— ${profile.name}` : "";
-  const price = ((plan || HEAT.INBOX_PLAN_DEFAULT).match(/\$\s?(\d[\d,]*)/) || [, "350"])[1];
-  if (/where are you (based|from|located)|which (country|city|time ?zone)|your (location|timezone)/.test(t)) {
-    const where = profile.location ? `I'm based in ${profile.location}` : "I work remotely with founders in a few time zones";
-    return { stage: "answer", note: "they asked where you are — answer, then back to the free offer", reply: `Hi ${name},\n\nDoing well, thanks. ${where}, and I work with founders wherever they are — time zones haven't been a problem so far.\n\nSo we don't lose the thread: send me one paragraph on what you're building and who the first user is, and within 48 hours you get the 3-screen prototype and the build list, free, yours to keep.\n\nFaster here: ${contact}${sign}` };
+  const d = { ...HEAT.DEAL_DEFAULT, ...(deal || profile.deal || {}) };
+  const price = String(d.upfront || 350);
+  const mineCount = (thread.messages || []).filter((m) => m.mine).length;
+  const v = (verdict, budget, share_ok) => ({ verdict, budget, share_ok });
+  // hard no: free work, equity only, no budget at all
+  if (/\b(for free|free of charge|unpaid|no (?:money|budget|funds?) (?:at all|right now)?|can'?t pay|cannot pay|sweat equity|equity only|only equity|just equity|in exchange for equity)\b/.test(t)) {
+    return { stage: "cut", note: "disqualified — free work / equity only. Send and move on, do not chase.", ...v("not_interested", "no", "no"), reply: `Hi ${name},\n\nThanks for being straight about it. Equity-only or unpaid isn't something we do — our team needs to be paid for its time this month, not in three years, so we'd be a bad fit for what you're after.\n\nIf that changes and there's a budget to start plus an income share on the table, we're here. Good luck with it.${sign}` };
+  }
+  if (/\b(yes|ok(ay)?|sounds good|let'?s do|interested|how do we start|next step|i'?m in|deal)\b/.test(t) && /\b(share|percent|%|budget|pay|upfront|\$)\b/.test(t)) {
+    return { stage: "close", note: "they accepted money + share — close", ...v("interested", "yes", "yes"), reply: `Hi ${name},\n\nGood — then three things and we start:\n1. The scope in three lines, so we both know what "done" looks like for the first block.\n2. The $${price} to start, and how you'd like to pay (I'll confirm the method).\n3. In writing: ${d.share}% of income to our team for as long as we run it, expenses split ${d.expenseShare}/${100 - d.expenseShare}, you keep the company and the IP.\n\nThen WhatsApp or Telegram so updates reach you daily: ${contact}${sign}` };
+  }
+  if (/\b(equity|co-?founder (?:share|stake)|what (?:percent|%) (?:equity|of the company))\b/.test(t)) {
+    return { stage: "objection", note: "equity talk — redirect to income share, ask the two questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nEquity in a pre-product company doesn't pay anyone's rent, so we don't work for it — and I'd rather say that now than waste your time. What we do instead is act as your team: $${price} to start, then ${d.share}% of income from what we build and run. You keep the company.\n\nTwo quick questions so we both know if this is worth continuing: is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?${sign}` };
+  }
+  if (/how much|price|cost|charge|rate|\$|what do you (want|expect|charge)|your terms|how does (this|it) work/.test(t)) {
+    return { stage: "offer", note: "they asked for terms — the offer, plainly", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nStraight answer. We don't do co-founder-for-equity; we do partner-team. It works like this: $${price} upfront to start, which covers our team's first block of work. Our team ${d.teamDoes}. Then ${d.share}% of income to us for as long as we run it, expenses split ${d.expenseShare}/${100 - d.expenseShare} and agreed before anything is spent. You keep the company and the IP.\n\nIf that's the kind of partner you want, say so and we'll write the scope in three lines: ${contact}${sign}` };
   }
   if (/linkedin|portfolio|your work|examples?/.test(t) || /meet|call|zoom|google meet|hop on|chat (today|tomorrow)/.test(t)) {
     const li = profile.linkedin ? `LinkedIn: ${profile.linkedin}\n` : "";
     const call = profile.booking ? `pick a slot here: ${profile.booking}` : `${contact} — say a time today or tomorrow and I'll be there`;
-    return { stage: "answer", note: "they asked for LinkedIn / a call — give both, keep the free offer alive", reply: `Hi ${name},\n\nHappy to. ${li}And yes to a short call — ${call}. Two windows that work for me: this evening or tomorrow morning, your time; tell me which.\n\nMeanwhile the free piece stands: one paragraph on what it does today and who the first user is, and you get the 3-screen prototype and build list within 48 hours, call or no call.${sign}` };
+    return { stage: "answer", note: "LinkedIn / call — give both, then qualify on the call", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nHappy to. ${li}And yes to a short call — ${call}. Two windows that work for me: this evening or tomorrow morning, your time; tell me which.\n\nSo the call is useful: we work as a paid partner team on an income share, not as an equity co-founder — is there a budget to start, and is that shape open for you? Either answer is fine, it just tells us what to talk about.${sign}` };
   }
-  if (/how much|price|cost|charge|rate|\$/.test(t)) {
-    return { stage: "offer", note: "they asked about price", reply: `Hi ${name},\n\nStraight answer: $${price}. For that a dedicated person from my team takes the task end to end — you get daily updates, unlimited revisions inside the scope we agree, and you keep everything. I stay on as the technical partner you can call afterwards; the $${price} covers their time, I take no cut.\n\nIf that works, easiest is to agree the scope in three lines here: ${contact}${sign}` };
+  if (/where are you (based|from|located)|which (country|city|time ?zone)|your (location|timezone)/.test(t)) {
+    const where = profile.location ? `I'm based in ${profile.location}` : "I work remotely with founders in a few time zones";
+    return { stage: "answer", note: "they asked where you are — answer, then qualify", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nDoing well, thanks. ${where}, and I work with founders wherever they are — time zones haven't been a problem so far.\n\nSo we don't waste each other's time: we work as a paid partner team on a share of income, not as an equity co-founder. Is there a budget to start, and is that shape open for you? A one-line answer is enough.${sign}` };
   }
-  if (/equity|no money|can'?t pay|free/.test(t)) {
-    return { stage: "objection", note: "equity / no budget objection", reply: `Hi ${name},\n\nI get it, and I'd rather be straight than string you along: equity doesn't work for this, because the person doing the work needs to be paid this month, not in three years. $${price} is what covers their time — that is roughly a day and a half of a freelancer's rate for a job that takes us a week — and I take nothing from it.\n\nIf that's genuinely out of reach right now, tell me what would change in the next month and I'll keep the free piece I promised on the table either way.${sign}` };
-  }
-  if (/ok|sounds good|let'?s do|yes|interested|how do we start|next step/.test(t)) {
-    return { stage: "close", note: "they said yes — close", reply: `Hi ${name},\n\nGood. Three things and we start:\n1. The scope, in three lines, so we both know what "done" means.\n2. How you'd like to pay the $${price} — I'll confirm the method.\n3. Your WhatsApp or Telegram so the updates come to you daily, not to a Reddit inbox.\n\n${contact}${sign}` };
-  }
-  return { stage: "answer", note: "answer their message, then invite the paragraph", reply: `Hi ${name},\n\nThanks for coming back. ${last.body ? "On what you asked — " : ""}happy to go through it properly, and I'd still like to do the free piece I mentioned: send me one paragraph on what it does today and who the first user is, and I'll turn that around within 48 hours.\n\nFaster to do it here: ${contact}${sign}` };
+  const ask = mineCount >= 1 ? `\n\nTwo quick questions so we both know if this is worth continuing: is there a budget to start, yes or no? And are you open to a partner team on a share of income rather than a co-founder on equity?` : "";
+  return { stage: mineCount >= 1 ? "qualify" : "answer", note: "answer, then the two qualifying questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nThanks for coming back. Happy to go through what you asked properly.${ask}\n\nFaster here: ${contact}${sign}` };
 };

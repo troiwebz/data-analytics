@@ -316,20 +316,20 @@ const thr = { id: "t4_a", with: "jane_builds92", messages: [
   { id: "t4_b", author: "jane_builds92", mine: false, body: "Thanks! How much would you charge to build the first version?", at: 2000 },
 ] };
 const ip = H.inboxAiPrompt(thr, { sub: "startups", title: "Looking for a technical co-founder for my fitness app", body: "equity only" }, { name: "Noah", whatsapp: "+919000000000" }, H.INBOX_PLAN_DEFAULT);
-assert.ok(ip.system.includes("$350") && ip.system.includes("VA from my team") && ip.system.includes("one step at a time"));
+assert.ok(ip.system.includes("$350 upfront") && ip.system.includes("HIRE OUR TEAM") && ip.system.includes("one step at a time") && ip.system.includes("THE REPLY MUST FIT THEIR LAST MESSAGE"));
 assert.ok(ip.user.includes("THEM (") && ip.user.includes("How much would you charge") && ip.user.includes("THEIR ORIGINAL POST"));
 assert.ok(ip.system.includes("wa.me/919000000000"));
-assert.deepStrictEqual(ip.schema.required, ["reply", "stage", "note"]);
+assert.deepStrictEqual(ip.schema.required, ["reply", "stage", "verdict", "budget", "share_ok", "note"]);
 assert.strictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "offer", note: "n" }).stage, "offer");
 assert.strictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "bogus", note: "n" }).stage, "answer", "unknown stage falls back");
 assert.strictEqual(H.inboxAiClean({ reply: "too short", stage: "offer", note: "n" }), null);
 const tr = H.inboxTemplateReply(thr, { name: "Noah", whatsapp: "+919000000000" }, H.INBOX_PLAN_DEFAULT);
 assert.strictEqual(tr.stage, "offer", "a price question gets the offer");
-assert.ok(tr.reply.startsWith("Hi Jane,") && tr.reply.includes("$350") && tr.reply.includes("wa.me"));
-assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Can we do this for equity? I have no money" }] }, {}).stage, "objection");
-assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "ok sounds good, how do we start" }] }, {}).stage, "close");
-assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "It is a gym app, first users are my members" }] }, {}).stage, "answer");
-assert.ok(H.inboxTemplateReply(thr, {}, "GOAL: a $500 engagement").reply.includes("$500"), "the price is read from the plan");
+assert.ok(tr.reply.startsWith("Hi Jane,") && tr.reply.includes("$350 upfront") && tr.reply.includes("20% of income") && tr.reply.includes("wa.me"));
+assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Can we do this for equity only? I have no money" }] }, {}).stage, "cut");
+assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "ok sounds good, I have a budget, how do we start" }] }, {}).stage, "close");
+assert.strictEqual(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "It is a gym app, first users are my members" }] }, {}).stage, "qualify");
+assert.ok(H.inboxTemplateReply(thr, { deal: { upfront: 500 } }).reply.includes("$500"), "the upfront comes from the deal terms");
 console.log("inbox: ok");
 
 // plan links + the LinkedIn / call template
@@ -338,9 +338,30 @@ assert.ok(planned.includes("https://linkedin.com/in/noah") && planned.includes("
 assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { booking: "https://cal.com/noah" }).includes("my booking link https://cal.com/noah"));
 const askLi = H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Would you be open for a short meet today? Also could you share your LinkedIn?" }] }, { name: "Noah", linkedin: "https://linkedin.com/in/noah", whatsapp: "+919000000000" });
 assert.strictEqual(askLi.stage, "answer");
-assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && askLi.reply.includes("48 hours"), askLi.reply);
+assert.ok(askLi.reply.includes("LinkedIn: https://linkedin.com/in/noah") && askLi.reply.includes("wa.me") && /budget to start/.test(askLi.reply), askLi.reply);
 console.log("plan links: ok");
 
 assert.ok(H.inboxTemplateReply({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body: "Hello, how are you? Where are you based?" }] }, { name: "Noah", location: "Bangkok, Thailand" }).reply.includes("based in Bangkok, Thailand"));
 assert.ok(H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, { location: "Bangkok" }).includes("Bangkok"));
 console.log("location: ok");
+
+// partner-team instructions: verdicts, cut, terms
+const dealP = { name: "Noah", whatsapp: "+919000000000", deal: { upfront: 500, share: 25, expenseShare: 40 } };
+const planX = H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, dealP);
+assert.ok(planX.includes("$500 upfront") && planX.includes("25% of income") && planX.includes("split 40%") && !planX.includes("{{"), planX.slice(0, 300));
+assert.ok(H.INBOX_PLAN_DEFAULT.includes("HIRE OUR TEAM") && H.INBOX_PLAN_DEFAULT.includes("SHARE EXPENSES AND INCOME") && H.INBOX_PLAN_DEFAULT.includes("VERDICT"));
+const two = (body) => ({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body }] });
+const cutR = H.inboxTemplateReply(two("I can't pay anything right now, it would be equity only"), dealP);
+assert.strictEqual(cutR.stage, "cut"); assert.strictEqual(cutR.verdict, "not_interested"); assert.ok(/isn't something we do/.test(cutR.reply));
+const offerR = H.inboxTemplateReply(two("What are your terms? How does it work?"), dealP);
+assert.strictEqual(offerR.stage, "offer"); assert.ok(offerR.reply.includes("$500 upfront") && offerR.reply.includes("25% of income") && offerR.reply.includes("40/60"));
+const closeR = H.inboxTemplateReply(two("Yes, I have a budget and I'm ok with a share"), dealP);
+assert.strictEqual(closeR.stage, "close"); assert.strictEqual(closeR.verdict, "interested"); assert.ok(closeR.reply.includes("25% of income"));
+const eqR = H.inboxTemplateReply(two("How much equity do you want?"), dealP);
+assert.strictEqual(eqR.stage, "objection"); assert.ok(/budget to start/.test(eqR.reply));
+const qR = H.inboxTemplateReply(two("It's a gym app for my members"), dealP);
+assert.strictEqual(qR.stage, "qualify", "after our first message, the next answer asks the two questions");
+assert.ok(H.INBOX_STAGES.some((s) => s.key === "cut") && H.INBOX_STAGES.some((s) => s.key === "qualify"));
+assert.deepStrictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "cut", verdict: "not_interested", budget: "no", share_ok: "no", note: "n" }).verdict, "not_interested");
+assert.strictEqual(H.inboxAiClean({ reply: "x".repeat(80), stage: "offer", verdict: "bogus", note: "n" }).verdict, "unclear");
+console.log("partner instructions: ok");

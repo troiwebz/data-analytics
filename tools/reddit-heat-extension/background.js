@@ -131,8 +131,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "inbox-mine") { inboxNoteMine(msg.id, msg.body).then(reply); return true; }
   if (msg.type === "inbox-act") { inboxAct(msg.id, msg.action, msg.patch).then(reply); return true; }
   if (msg.type === "inbox-ai") { inboxAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "inbox-deal") { inboxDeal(msg.id, msg.patch || {}).then(reply); return true; }
+  if (msg.type === "inbox-terms") { (async () => { const { inbox = {} } = await chrome.storage.local.get(["inbox"]); await inboxSet({ deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}), ...(msg.deal || {}) } }); reply({ ok: true }); })(); return true; }
   if (msg.type === "inbox-plan") { inboxSet({ plan: msg.plan || "" }).then(() => reply({ ok: true })); return true; }
-  if (msg.type === "inbox-prompt") { (async () => { const st = await inboxGet(); const t = st.threads[msg.id]; if (!t) return reply(null); const hunt = await huntGet(); const { config = {} } = await chrome.storage.local.get(["config"]); reply(inboxAiPrompt(t, t.postId ? hunt.posts[t.postId] : null, config.profile || {}, st.plan || INBOX_PLAN_DEFAULT)); })(); return true; }
+  if (msg.type === "inbox-prompt") { (async () => { const st = await inboxGet(); const t = st.threads[msg.id]; if (!t) return reply(null); const hunt = await huntGet(); const { config = {} } = await chrome.storage.local.get(["config"]); reply(inboxAiPrompt(t, t.postId ? hunt.posts[t.postId] : null, { ...(config.profile || {}), deal: st.deal }, st.plan || INBOX_PLAN_DEFAULT)); })(); return true; }
   if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); p.ai = { ...huntAiClean(msg.ai), at: Date.now(), model: msg.model || "on-device", cents: 0 }; if (!p.ai.public_reply) { delete p.ai; return reply({ ok: false, error: "failed the checks" }); } await huntSet({ posts: st.posts }); reply({ ok: true, ai: p.ai }); })(); return true; }
   if (msg.type === "hunt-ai-test") { (async () => {
       const key = await huntAiKey();
@@ -911,7 +913,7 @@ async function huntAiWrite(id, force) {
 // ===========================================================================
 async function inboxGet() {
   const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
-  return { threads: inbox.threads || {}, lastPoll: inbox.lastPoll || 0, lastError: inbox.lastError || "", plan: inbox.plan || "", me: inbox.me || "" };
+  return { threads: inbox.threads || {}, lastPoll: inbox.lastPoll || 0, lastError: inbox.lastError || "", plan: inbox.plan || "", me: inbox.me || "", deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
 }
 async function inboxSet(patch) {
   const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
@@ -976,7 +978,11 @@ async function inboxList() {
   const list = Object.values(st.threads).filter((t) => t.with).map((t) => ({ ...t, post: t.postId && hunt.posts[t.postId] ? { title: hunt.posts[t.postId].title, sub: hunt.posts[t.postId].sub, body: (hunt.posts[t.postId].body || "").slice(0, 2500) } : null }));
   list.sort((a, b) => (b.needsReply ? 1 : 0) - (a.needsReply ? 1 : 0) || b.lastAt - a.lastAt);
   const { inbox = {} } = await chrome.storage.local.get(["inbox"]);
-  return { threads: list, needs: list.filter((t) => t.needsReply).length, lastPoll: st.lastPoll, lastError: st.lastError, rawCount: inbox.rawCount || 0, plan: st.plan || INBOX_PLAN_DEFAULT };
+  const deals = list.map((t) => ({ id: t.id, with: t.with, post: t.post ? t.post.title : "", status: (t.deal || {}).status || "qualifying", share: (t.deal || {}).share ?? st.deal.share, upfront: (t.deal || {}).upfront ?? st.deal.upfront, note: (t.deal || {}).note || "", verdict: t.verdict || "", budget: t.budget || "", shareOk: t.shareOk || "", lastAt: t.lastAt, messages: t.messages.length }));
+  const counts = {}; for (const d of deals) counts[d.status] = (counts[d.status] || 0) + 1;
+  const inDeals = deals.filter((d) => d.status === "interested" || d.status === "agreed");
+  const summary = { counts, agreed: deals.filter((d) => d.status === "agreed").length, interested: deals.filter((d) => d.status === "interested").length, cut: deals.filter((d) => d.status === "cut").length, avgShare: inDeals.length ? Math.round(inDeals.reduce((a, d) => a + Number(d.share || 0), 0) / inDeals.length * 10) / 10 : 0, upfrontTotal: deals.filter((d) => d.status === "agreed").reduce((a, d) => a + Number(d.upfront || 0), 0) };
+  return { threads: list, needs: list.filter((t) => t.needsReply).length, lastPoll: st.lastPoll, lastError: st.lastError, rawCount: inbox.rawCount || 0, plan: st.plan || INBOX_PLAN_DEFAULT, deal: st.deal, deals, summary };
 }
 
 // A reply that came through Reddit Chat (which cannot be read): pasted by hand.
@@ -1011,7 +1017,7 @@ async function inboxAct(id, action, patch) {
   if (action === "handled") { t.handled = true; t.needsReply = false; t.repliedAt = Date.now(); }
   if (action === "skip") { t.handled = true; t.needsReply = false; }
   if (action === "reopen") { t.handled = false; t.needsReply = true; }
-  if (action === "draft" && patch) t.draft = patch;
+  if (action === "draft" && patch) { t.draft = patch; applyVerdict(t, patch, st.deal); }
   await inboxSet({ threads: st.threads });
   return { ok: true };
 }
@@ -1026,7 +1032,7 @@ async function inboxAiWrite(id, force) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const hunt = await huntGet();
   const post = t.postId ? hunt.posts[t.postId] : null;
-  const { system, user, schema } = inboxAiPrompt(t, post, config.profile || {}, st.plan || INBOX_PLAN_DEFAULT);
+  const { system, user, schema } = inboxAiPrompt(t, post, { ...(config.profile || {}), deal: st.deal }, st.plan || INBOX_PLAN_DEFAULT);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 90000);
   let r, j;
@@ -1049,8 +1055,28 @@ async function inboxAiWrite(id, force) {
   draft.engine = "claude"; draft.at = Date.now();
   draft.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 1000) / 10;
   t.draft = draft;
+  applyVerdict(t, draft, st.deal);
   await inboxSet({ threads: st.threads });
   return { ok: true, draft };
+}
+
+// The deals database lives on the thread: status, our share, upfront, notes.
+function applyVerdict(t, draft, deal) {
+  t.deal = t.deal || { status: "qualifying", share: (deal || DEAL_DEFAULT).share, upfront: (deal || DEAL_DEFAULT).upfront, note: "" };
+  if (t.deal.locked) return;                       // the operator set it by hand; drafts do not overrule
+  t.verdict = draft.verdict || "unclear"; t.budget = draft.budget || "unknown"; t.shareOk = draft.share_ok || "unknown";
+  if (draft.verdict === "not_interested" || draft.stage === "cut") { t.deal.status = "cut"; t.cutAt = t.cutAt || Date.now(); }
+  else if (draft.verdict === "interested" || draft.stage === "close") t.deal.status = "interested";
+  else if (draft.stage === "offer" || draft.stage === "objection") t.deal.status = "offered";
+}
+async function inboxDeal(id, patch) {
+  const st = await inboxGet();
+  const t = st.threads[id];
+  if (!t) return { ok: false };
+  t.deal = { ...(t.deal || { status: "qualifying", share: st.deal.share, upfront: st.deal.upfront, note: "" }), ...patch, locked: true };
+  if (patch.status === "cut") { t.handled = true; t.needsReply = false; }
+  await inboxSet({ threads: st.threads });
+  return { ok: true };
 }
 
 
@@ -1098,9 +1124,9 @@ async function chatDraft(id, force) {
     const r = await inboxAiWrite(id, true);
     if (r.ok) draft = r.draft;
   }
-  if (!draft) { draft = inboxTemplateReply(t, profile, st.plan || INBOX_PLAN_DEFAULT); draft.engine = "template"; t.draft = draft; await inboxSet({ threads: st.threads }); }
+  if (!draft) { draft = inboxTemplateReply(t, profile, st.plan || INBOX_PLAN_DEFAULT, st.deal); draft.engine = "template"; t.draft = draft; applyVerdict(t, draft, st.deal); await inboxSet({ threads: st.threads }); }
   draft.stageLabel = (INBOX_STAGES.find((s) => s.key === draft.stage) || {}).label || draft.stage;
-  return { ok: true, draft, needsReply: !!t.needsReply };
+  return { ok: true, draft, needsReply: !!t.needsReply, dealStatus: (t.deal || {}).status };
 }
 
 async function chatTab(create) {

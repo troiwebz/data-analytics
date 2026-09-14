@@ -161,7 +161,8 @@
       <span class="stat" id="chatStatus"></span>
       <button id="chatDump" class="ghost" title="copies what the bridge sees in the Chat tab, for tuning">What does Chat look like?</button>
       <button id="openAdd" class="ghost">Paste a reply I got</button>
-      <button id="openPlan" class="ghost">The plan</button>
+      <button id="openPlan" class="ghost">Instructions</button>
+      <button id="openDeals" class="ghost">Deals <b id="sDeals"></b></button>
       <button id="closeInbox" class="ghost" style="margin-left:auto">Back to the queue</button>
     </div>
     <div id="addBox" class="card" hidden style="margin-bottom:12px">
@@ -171,9 +172,21 @@
       <div class="row"><button id="addGo" class="primary">Add and draft a reply</button><span id="addMsg" class="foot" style="margin:0"></span></div>
     </div>
     <div id="planBox" class="card" hidden style="margin-bottom:12px">
-      <p class="step"><b>The plan</b> · what every inbox reply steers toward, one step at a time</p>
-      <textarea id="planText" style="height:260px"></textarea>
-      <div class="row"><button id="planSave" class="primary">Save plan</button><button id="planReset" class="ghost">Reset to default</button><span id="planMsg" class="done" hidden>Saved ✓</span></div>
+      <p class="step"><b>Instructions</b> · how every reply moves, changeable any time — the next draft follows the new version</p>
+      <div class="setup" style="margin-bottom:10px">
+        <div><label>Upfront to start ($)</label><input type="text" id="dUp" placeholder="350"></div>
+        <div><label>Our share of income (%)</label><input type="text" id="dShare" placeholder="20"></div>
+        <div><label>Our share of expenses (%)</label><input type="text" id="dExp" placeholder="50"></div>
+        <div style="grid-column:1/-1"><label>What our team does</label><input type="text" id="dTeam"></div>
+        <div style="grid-column:1/-1"><label>Cut anyone who…</label><input type="text" id="dDisq"></div>
+      </div>
+      <label class="foot">The steps, in your words. {{UPFRONT}}, {{SHARE}}, {{EXPENSE_SHARE}}, {{TEAM_DOES}}, {{DISQUALIFY}}, {{LOCATION}}, {{LINKEDIN}}, {{CALL}} are filled from the fields above and Your details.</label>
+      <textarea id="planText" style="height:300px"></textarea>
+      <div class="row"><button id="planSave" class="primary">Save instructions</button><button id="planReset" class="ghost">Reset to default</button><span id="planMsg" class="done" hidden>Saved ✓</span></div>
+    </div>
+    <div id="dealsBox" class="card" hidden style="margin-bottom:12px;padding:0;overflow:auto">
+      <div class="row" style="padding:10px 14px;margin:0"><b>Deals</b><span class="stat" id="dealsSummary"></span><button id="dealsCopy" class="ghost">Copy list</button></div>
+      <table><thead><tr><th>Person</th><th>Post</th><th>Status</th><th>Our %</th><th>Upfront $</th><th>Budget?</th><th>Share ok?</th><th>Note</th></tr></thead><tbody id="dealsRows"></tbody></table>
     </div>
     <div class="wrap">
       <section class="card" style="padding:0;overflow:hidden">

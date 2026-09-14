@@ -69,21 +69,32 @@
     const list = Array.from(byKey.values()).filter((f) => f.body.length > 0).sort((a, b) => a.top - b.top);
     return list.map((f) => ({ author: f.author, mine: me ? f.author.toLowerCase() === me : false, body: f.body }));
   }
+  function headerUser() {
+    const leftEdge = roomListRight();
+    const heads = deepAll("header, h1, h2, h3, [role='heading']").filter(visible).filter((e) => e.getBoundingClientRect().left >= leftEdge && e.getBoundingClientRect().top < 140);
+    for (const h of heads) { const t = text(h); const m = t.match(/^(?:u\/)?([A-Za-z0-9_-]{3,20})$/); if (m) return m[1]; }
+    return "";
+  }
   function roomWith(msgs) {
-    const other = msgs.find((m) => !m.mine && (!me || m.author.toLowerCase() !== me));
-    if (other) return other.author;
+    const hu = headerUser();
+    if (hu && (!me || hu.toLowerCase() !== me)) return hu;
+    const others = msgs.filter((m) => !m.mine && (!me || m.author.toLowerCase() !== me)).map((m) => m.author);
+    if (others.length) { // the most frequent other author in this column
+      const n = {}; for (const a of others) n[a] = (n[a] || 0) + 1;
+      return Object.keys(n).sort((x, y) => n[y] - n[x])[0];
+    }
     const um = (location.pathname.match(/\/user\/([A-Za-z0-9_-]+)/) || [])[1];
     return um || "";
   }
   const roomKey = () => (location.pathname.match(/\/room\/([^/]+)/) || [])[1] || location.pathname;
 
   // ---- the panel on the page ----------------------------------------------
-  let panel, ta, state, fillBtn, sentBtn, redoBtn, stageEl, noteEl, autoCb;
+  let panel, ta, state, fillBtn, sentBtn, redoBtn, stageEl, noteEl, autoCb, whoEl;
   function ensurePanel() {
     if (panel) return;
     panel = document.createElement("div"); panel.id = "rlt-chat";
     panel.style.cssText = "position:fixed;right:16px;bottom:96px;width:420px;max-height:70vh;z-index:2147483647;background:#171a21;color:#e8eaf0;border:1px solid #262b36;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:13px/1.5 -apple-system,Segoe UI,sans-serif;padding:12px;display:flex;flex-direction:column;gap:8px";
-    panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">Reply</b><span id="rlt-stage" style="color:#98a0b3;font-size:12px"></span><span id="rlt-state" style="margin-left:auto;font-size:12px;color:#98a0b3"></span><button id="rlt-hide" style="background:none;border:0;color:#98a0b3;cursor:pointer">✕</button></div>
+    panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">Reply</b><span id="rlt-who" style="color:#e8eaf0;font-weight:600"></span><span id="rlt-stage" style="color:#98a0b3;font-size:12px"></span><span id="rlt-state" style="margin-left:auto;font-size:12px;color:#98a0b3"></span><button id="rlt-hide" style="background:none;border:0;color:#98a0b3;cursor:pointer">✕</button></div>
       <div id="rlt-note" style="color:#98a0b3;font-size:12px"></div>
       <textarea id="rlt-ta" style="width:100%;height:170px;background:#0d0f14;color:#e8eaf0;border:1px solid #262b36;border-radius:8px;padding:8px;font:13px/1.5 inherit;resize:vertical"></textarea>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -93,9 +104,13 @@
         <label style="margin-left:auto;font-size:12px;color:#98a0b3;display:flex;gap:4px;align-items:center"><input type="checkbox" id="rlt-auto">auto-fill when I open a chat</label>
       </div>`;
     document.body.appendChild(panel);
-    ta = panel.querySelector("#rlt-ta"); state = panel.querySelector("#rlt-state"); fillBtn = panel.querySelector("#rlt-fill"); sentBtn = panel.querySelector("#rlt-sent"); redoBtn = panel.querySelector("#rlt-redo"); stageEl = panel.querySelector("#rlt-stage"); noteEl = panel.querySelector("#rlt-note"); autoCb = panel.querySelector("#rlt-auto");
+    ta = panel.querySelector("#rlt-ta"); state = panel.querySelector("#rlt-state"); whoEl = panel.querySelector("#rlt-who"); fillBtn = panel.querySelector("#rlt-fill"); sentBtn = panel.querySelector("#rlt-sent"); redoBtn = panel.querySelector("#rlt-redo"); stageEl = panel.querySelector("#rlt-stage"); noteEl = panel.querySelector("#rlt-note"); autoCb = panel.querySelector("#rlt-auto");
     panel.querySelector("#rlt-hide").onclick = () => { panel.style.display = "none"; };
-    fillBtn.onclick = () => fill(ta.value).then((r) => { state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; });
+    fillBtn.onclick = () => {
+      const onScreen = roomWith(readMessages());
+      if (current && onScreen && onScreen.toLowerCase() !== current.with.toLowerCase()) { state.textContent = `this reply is for ${current.with}, but the open chat is with ${onScreen} — not filling`; state.style.color = "#ff8a65"; return; }
+      fill(ta.value).then((r) => { state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; });
+    };
     sentBtn.onclick = async () => { if (!current) return; await chrome.runtime.sendMessage({ type: "inbox-mine", id: current.id, body: ta.value }); state.textContent = "marked sent"; state.style.color = "#7ee29a"; current = null; };
     redoBtn.onclick = () => draft(true);
     chrome.storage.local.get(["chatAutoFill"]).then((x) => { autoCb.checked = !!x.chatAutoFill; });
@@ -110,13 +125,21 @@
     drafting = false;
     if (!r || !r.ok) { state.textContent = (r && r.error) || "no draft"; state.style.color = "#ff8a65"; return; }
     ta.value = r.draft.reply;
-    stageEl.textContent = "· " + (r.draft.stageLabel || r.draft.stage);
+    whoEl.textContent = "to " + current.with;
+    stageEl.textContent = "· " + (r.draft.stageLabel || r.draft.stage) + (r.draft.verdict === "not_interested" ? " · CUT" : r.draft.verdict === "interested" ? " · INTERESTED" : "");
+    stageEl.style.color = r.draft.verdict === "not_interested" ? "#ff8a65" : r.draft.verdict === "interested" ? "#7ee29a" : "#98a0b3";
     noteEl.textContent = r.draft.note || "";
     state.textContent = r.draft.engine === "claude" ? "written by Claude" : r.draft.engine === "template" ? "template" : "written";
     state.style.color = "#7ee29a";
     panel.style.display = "";
     const { chatAutoFill } = await chrome.storage.local.get(["chatAutoFill"]);
-    if (chatAutoFill && r.needsReply) { const f = await fill(ta.value); if (f.ok) { state.textContent = "auto-filled — read it, press send"; } }
+    // auto-fill only when the room on screen is this person's and the box is empty
+    const onScreen = roomWith(readMessages());
+    const c = findComposer();
+    const boxEmpty = c && (c.tagName === "TEXTAREA" ? !c.value.trim() : !text(c).trim());
+    if (chatAutoFill && r.needsReply && onScreen && onScreen.toLowerCase() === current.with.toLowerCase() && boxEmpty) {
+      const f = await fill(ta.value); if (f.ok) { state.textContent = "auto-filled — read it, press send"; }
+    } else if (chatAutoFill && !boxEmpty) { state.textContent = "box not empty — not auto-filling"; state.style.color = "#e6c76b"; }
   }
 
   async function observe() {
