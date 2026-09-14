@@ -1479,14 +1479,14 @@ Rules that make the reply feel written for THIS post and nobody else:
 - The DM answers their post as a co-founder candidate whose terms are an income and expense split, never equity and never free work. Say that plainly once; do not argue against co-founders.
 - The first line of the DM after the greeting names their product in THEIR words (the card's product), never "your app" or "your startup".
 - Quote at least two of the card's phrases verbatim inside the DMs, in quotation marks, where they fit naturally.
-- End every DM, just before the contact line, with ONE question about the card's biggest_unknown, in their terms — not a generic "does that work for you".
+- End every DM with the CLOSING LINE (below, verbatim). No question at the end, no "let me know", no link, nothing after it but the sign-off.
 - If COMMENTS ON THE THREAD are given, do not offer what others already offered there, and address any pushback the founder wrote in them.
 - If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in r/SaaS that…"), only when it truly fits.
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
 - The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
-- Both DMs: open with the GREETING (below, verbatim), then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the SIGN-OFF (below, verbatim). dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
+- Both DMs: open with the GREETING (below, verbatim), then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the CLOSING LINE (below, verbatim), then the SIGN-OFF (below, verbatim). dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
 - ${m.shape.numbers ? "Use the numbers exactly as written in HOW WE WORK; never invent or change a number." : "NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: " + m.shape.shapeShort + "; they keep the company. Numbers come later, in the conversation, when they ask."}
 - READ THE STAGE. If they already have a working product, users or revenue, never tell them to build a first version or that "v1 is 2 to 4 weeks" — talk about running and growing what exists. Only idea-stage posts get first-version advice.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
@@ -1511,11 +1511,11 @@ ${m.offer}
 GREETING (first line of every DM, verbatim)
 Hi ${m.name},
 
-CONTACT LINE (use verbatim at the end of every DM, before the sign-off)
-${m.contact}
-
+CLOSING LINE (the last sentence of every DM, verbatim)
+Happy to send the portfolio and a short plan for the first block of work if you are ready.
+${profile.dmLinks && m.contact ? "\nCONTACT LINE (after the closing line)\n" + m.contact + "\n" : ""}
 SIGN-OFF
-${m.sign || profile.name || ""}
+${profile.name ? "— " + profile.name : ""}
 
 Write public_reply, dm_short, dm_long and why. Be quick and concrete; no preamble.${compact ? " Keep dm_short about 80 words and dm_long about 220 words with four numbered steps." : ""}`;
   return { system, user, schema: HEAT.AI_SCHEMA };
@@ -1880,6 +1880,9 @@ const S_STAND = [
   () => `I'm up for the co-founder seat, on the condition that we split income and expenses instead of equity.`,
   () => `Happy to be the co-founder here, as long as it's an income and expense split rather than equity.`,
   () => `I'll take the co-founder seat, but the arrangement I want is a split of income and expenses, not shares.`,
+  () => `Yes to co-founder, no to equity: what I'm proposing is that we split income and expenses.`,
+  () => `I'd join you as a co-founder on one term only, that income and expenses get split rather than shares.`,
+  () => `Co-founder works for me. Equity doesn't; a split of income and expenses does.`,
 ];
 const S_TEAM = [
   () => `I don't come alone either: I run a small team.`,
@@ -1887,20 +1890,27 @@ const S_TEAM = [
   () => `I come with a team, which is the useful part.`,
   () => `There's a team behind me, not just me.`,
   () => `I bring a team, and that changes what's possible in a month.`,
+  () => `The team comes with me, which is most of the value here.`,
+  () => `I'm not one pair of hands: there's a small team with me.`,
+  () => `A team comes attached, so the work does not stop at me.`,
 ];
+// The message ends here: an offer to send more, only if they want it.
 const S_PROOF = [
-  () => `Happy to send the portfolio and a short plan for the first block of work.`,
-  () => `I can share what we've built before, and a plan for the first piece, whenever you want it.`,
-  () => `Portfolio and a one-page plan are yours on request.`,
-  () => `If it's useful I'll send examples of our work and how I'd sequence yours.`,
-  () => `Ask and I'll send the portfolio plus how I'd start on this.`,
+  () => `Happy to send the portfolio and a short plan for the first block of work if you are ready.`,
+  () => `If you are ready, I'll send the portfolio and a plan for the first piece.`,
+  () => `Portfolio and a one-page plan are yours whenever you want them.`,
+  () => `Say the word and I'll send examples of our work plus how I'd sequence yours.`,
+  () => `If that sounds workable, I'll send the portfolio and how I'd start on this.`,
+  () => `Tell me and the portfolio plus a first-block plan come straight over.`,
+  () => `When you want them, the portfolio and a short plan are ready to send.`,
+  () => `Ready to send work samples and a plan for the first block whenever it helps.`,
 ];
 const S_NEXT = [
-  () => `No rush on any of it.`,
-  () => `A one-line answer is enough to start.`,
-  () => `Either answer is fine, it just tells me what to send next.`,
-  () => `Say no and I'll leave you alone, that's a fine answer too.`,
-  () => `Two messages is probably all this needs.`,
+  () => `Cheap to test either way.`,
+  () => `Worth an hour before anything bigger.`,
+  () => `That answer usually decides the rest.`,
+  () => `It costs nothing to find out.`,
+  () => `Most of the risk sits in that one answer.`,
 ];
 const S_MOVE_IN = [
   (m) => `If it were mine this week: ${m.moveLower}`,
@@ -1910,31 +1920,33 @@ const S_MOVE_IN = [
   (m) => `${m.move}`,
 ];
 // A style is a whole shape, not a reworded sentence: the order changes too.
+// Four paragraphs, every time: their post, what I'd do, who I am and on what
+// terms, and an offer to send more. No closing question, no channel line.
+// Their post, who I am and on what terms, an offer to send more. The longer
+// size slips one more paragraph in: what I'd do about it this week.
 const STYLES = [
   { key: "plain", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
     `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
-    `${pick(S_PROOF)()} ${m.question}`,
+    pick(S_PROOF)(),
   ] },
   { key: "observation-first", build: (m, pick) => [
     `${m.observation} ${pick(S_OPEN)(m)}`, "",
     `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
-    `${m.question} ${pick(S_PROOF)()}`,
+    pick(S_PROOF)(),
   ] },
-  { key: "useful-first", build: (m, pick) => [
+  { key: "as-for-me", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    pick(S_MOVE_IN)(m), "",
     `As for me, ${lower(pick(S_STAND)())} ${pick(S_TEAM)()} ${m.offer}`, "",
-    `${m.question} ${pick(S_NEXT)()}`,
+    pick(S_PROOF)(),
   ] },
   { key: "brief", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
-    m.question,
+    `${pick(S_STAND)()} ${m.offer}`, "",
+    pick(S_PROOF)(),
   ] },
-  { key: "question-led", build: (m, pick) => [
-    `${pick(S_OPEN)(m)} ${m.question}`, "",
-    `${m.observation} ${pick(S_MOVE_IN)(m)}`, "",
+  { key: "one-breath", build: (m, pick) => [
+    `${pick(S_OPEN)(m)} ${m.observation}`, "",
     `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer} ${pick(S_PROOF)()}`,
   ] },
 ];
@@ -1991,11 +2003,11 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   const seed = slotHash(p.id || p.title || "");
   const recent = opts.recentStyles || [];
   for (let si = 0; si < STYLES.length; si += 1) {
-    for (let vi = 0; vi < 5; vi += 1) {
+    for (let vi = 0; vi < 8; vi += 1) {
       const style = STYLES[(seed + si) % STYLES.length];
       if (!opts.anyStyle && recent.slice(0, 2).includes(style.key)) continue;   // never the same shape twice running
       let n = 0;
-      const pick = (pool) => pool[(seed + vi * 7 + (n++) * 3) % pool.length];
+      const pick = (pool) => pool[(seed + vi * 11 + (n++) * 5) % pool.length];
       // the offer is always your chosen shape, in one sentence, worded a few ways
       const cl = lower(sh.clause || sh.shapeShort);
       const shapes = [
@@ -2005,20 +2017,22 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
         `Concretely, we ${cl}`,
         `Rather than equity, we ${cl}`,
         `No equity and no free work: we ${cl}`,
+        `Put plainly, we ${cl}`,
+        `On the money side, we ${cl}`,
+        `The arrangement: we ${cl}`,
       ];
       let offer = pick(shapes);
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
       const m = { ...base, offer: `${offer}. You keep the company and the IP.` };
       let lines = style.build(m, pick);
-      if (opts.long) {
-        // the longer one adds the step and the proof line, never a link
-        if (!lines.some((x) => typeof x === "string" && (x.includes(m.move) || x.includes(m.moveLower)))) lines = [...lines.slice(0, 2), "", pick(S_MOVE_IN)(m), "", ...lines.slice(2)];
-        if (!lines.some((x) => typeof x === "string" && /portfolio|examples of our work|one-page plan/i.test(x))) lines = [...lines, "", pick(S_PROOF)()];
+      if (opts.long && m.move) {
+        // one more paragraph, right after their post: what I'd do about it
+        lines = [...lines.slice(0, 1), "", `${pick(S_MOVE_IN)(m)} ${pick(S_NEXT)()}`, ...lines.slice(1)];
       }
-      const contact = HEAT.huntContactLine(profile, true);
-      if (contact) lines = [...lines, "", contact];
+      // the channel line only appears if you switched the links on
+      if (profile.dmLinks) { const contact = HEAT.huntContactLine(profile, true); if (contact) lines = [...lines, "", contact]; }
       const body = lines.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-      const text = `Hi ${base.name},\n\n${body}\n\n${v.sign || (profile.name ? "— " + profile.name : "")}`.trim();
+      const text = `Hi ${base.name},\n\n${body}\n\n${profile.name ? "— " + profile.name : ""}`.trim();
       tries.push({ style: style.key, variant: vi, text: clean(text) });
     }
   }

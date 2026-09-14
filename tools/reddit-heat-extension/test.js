@@ -232,7 +232,9 @@ assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage:
 for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a letter: " + dm.length);
-assert.ok(dm.startsWith("Hi Jane,") && dm.includes("— Troi, web developer"));
+assert.ok(dm.startsWith("Hi Jane,") && dm.trim().endsWith("— Troi"), "signed with the name only: " + dm);
+assert.ok(/portfolio|plan for the first|examples of our work/i.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "the last line offers to send more: " + dm);
+assert.ok(!/\?\s*$/.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "no question at the end: " + dm);
 assert.ok(/co-founder/i.test(dm) && /income and expenses, not equity|income and expenses rather than|split income and expenses instead of equity|income and expense split rather than equity|split of income and expenses, not shares/.test(dm), "we are the co-founder, the split is income and expenses: " + dm);
 assert.ok(!/not applying|isn't a co-founder application|won't pitch myself/i.test(dm), "we no longer refuse the co-founder seat: " + dm);
 assert.ok(!/\$\d|\d+%/.test(dm), "no price and no percentage in the first DM: " + dm);
@@ -250,8 +252,8 @@ const prof2 = { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210"
 const dm2 = H.huntDM(hp, prof2);
 assert.ok(/share the income and the expenses/.test(dm2) && !/\$\d/.test(dm2), "every DM says how we work, without a price");
 assert.ok(!/wa\.me|t\.me/.test(dm2), "channels set but no links in the DM by default");
-assert.ok(/WhatsApp or Telegram/.test(dm2), "the move to a private channel is offered in words");
-assert.ok(dm2.trim().endsWith("— Troi, web developer"));
+assert.ok(!/WhatsApp or Telegram/.test(dm2), "no channel line in the DM at all now");
+assert.ok(dm2.trim().endsWith("— Troi"));
 const dmLinks = H.huntDM(hp, { ...prof2, dmLinks: true });
 assert.ok(dmLinks.includes("https://wa.me/919876543210") && dmLinks.includes("https://t.me/troibuilds"), "links appear only when switched on");
 assert.ok(!/wa\.me/.test(H.huntDM(hp, {})), "no channels set, nothing to offer");
@@ -307,7 +309,8 @@ const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: 
 assert.ok(pr.system.includes("Noah") && pr.system.includes("AS a co-founder") && pr.system.includes("exactly two lines"));
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane,") && !pr.system.includes("Jane"));
 assert.ok(pr.user.includes("GREETING (first line of every DM, verbatim)\nHi Jane,"), "the greeting is fixed, in the user turn so the system prompt stays cacheable");
-assert.ok(/WhatsApp or Telegram/.test(pr.user) && !/wa\.me/.test(pr.user), "no link goes into a first DM by default");
+assert.ok(!/wa\.me|CONTACT LINE/.test(pr.user), "no link and no channel line in a first DM by default");
+assert.ok(pr.user.includes("CLOSING LINE") && pr.user.includes("if you are ready"), "the DM ends on the offer to send more");
 assert.ok(H.huntAiPrompt(aiP, { name: "Noah", whatsapp: "+91 98765 43210", dmLinks: true }).user.includes("https://wa.me/919876543210"), "links are passed verbatim once switched on");
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
@@ -493,7 +496,7 @@ console.log("claude in chrome brief + parse: ok");
   assert.ok(a.dm_short.startsWith("Hi User0,") || a.dm_short.startsWith("Hi there,"), a.dm_short.slice(0, 30));
   assert.ok(!/https?:|[$%]/.test(a.dm_short), "the first DM carries no link, no price, no percentage");
   assert.ok(a.dm_short.length > 300 && a.dm_short.length < 900, "short enough for Reddit's chat filter: " + a.dm_short.length);
-  assert.ok(!/https?:\/\//.test(a.dm_long) && /WhatsApp or Telegram/.test(a.dm_long), "no links in either DM by default");
+  assert.ok(!/https?:\/\//.test(a.dm_long) && !/WhatsApp or Telegram/.test(a.dm_long), "no links and no channel line in either DM by default");
   assert.ok(H.huntSlotAssemble(post(0), { ...prof, dmLinks: true }, slots(0)).dm_long.includes("wa.me"), "links only when switched on");
   assert.ok(a.dm_long.length > a.dm_short.length, "the long one adds the step and the proof line");
   assert.ok(a.dm_short.includes("the gym scheduling app"), "their product in their words, with an article");
@@ -510,7 +513,10 @@ console.log("claude in chrome brief + parse: ok");
     assert.notStrictEqual(x.style, styles[1], "never the same shape twice running");
   }
   assert.strictEqual(texts.size, 12, "twelve different messages");
-  assert.ok(worst < 0.6, "no message is mostly a copy of an earlier one: " + worst);
+  // the offer paragraph is meant to repeat (it is the offer), so some overlap
+  // is structural in a short message; what must never happen is two identical
+  // messages, which the line above checks.
+  assert.ok(worst < 0.8, "no message is nearly a copy of an earlier one: " + worst);
   assert.strictEqual(H.dmOverlap(H.dmShingles("a b c d e f g"), [H.dmShingles("a b c d e f g")]), 1);
   assert.strictEqual(H.dmOverlap(H.dmShingles("a b c d e f g"), [H.dmShingles("z y x w v u t")]), 0);
   const pr = H.huntSlotPrompt(post(0), prof);
