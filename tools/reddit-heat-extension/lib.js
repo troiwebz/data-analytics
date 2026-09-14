@@ -982,25 +982,157 @@ HEAT.huntScore = function (p, now = Date.now()) {
 // --------------------------------------------------------------- templates
 // PUBLIC: exactly three lines. One specific observation, one free useful
 // thing, one line saying a DM is on the way. No pitch, no price, no link.
-HEAT.HUNT_SHORT = {
+// Built from pools so two posts never get the same three lines, and so the
+// wording tracks what THIS person said: their role, their stage, whether they
+// have money or are trading equity.
+const SHORT_OBS = {
   technical: [
-    (p, m) => `The hard part on ${m.thing} usually isn't the build, it's deciding what NOT to build for v1.\nHappy to map the smallest version that still proves the idea, free, takes me 20 minutes.\nSent you a DM with how I'd scope it.`,
-    (p, m) => `Ideas like ${m.thing} usually die waiting for the perfect technical co-founder instead of shipping a rough v1.\nI'll sketch the 3-screen version you could test in two weeks, no charge.\nDM sent with the outline.`,
-    (p, m) => `Before you hand over equity: a v1 of this is usually 2 to 4 weeks of work, not a co-founder-sized commitment.\nI wrote out what I'd build first and what I'd cut, free either way.\nSent it to your DMs.`,
+    (m) => `The hard part on ${m.thing} usually isn't the build, it's deciding what NOT to build for v1.`,
+    (m) => `Ideas like ${m.thing} usually die waiting for the perfect technical co-founder instead of shipping a rough v1.`,
+    (m) => `A v1 of ${m.thing} is normally 2 to 4 weeks of work, which is a lot smaller than a co-founder-sized commitment.`,
+    (m) => `Most technical co-founder searches take 3 to 6 months. Most first versions take 3 to 4 weeks.`,
+    (m) => `Worth knowing before you hand over equity: ten real users change the terms of that conversation completely.`,
   ],
   marketing: [
-    (p, m) => `For ${m.thing} the first 100 users almost never come from marketing, they come from one channel you can do by hand.\nI'll name the channel I'd pick for you and why, free.\nDM sent.`,
-    (p, m) => `A marketing co-founder before you have a repeatable offer usually just spreads the guessing around.\nHappy to pressure-test your offer and pick one channel to start with, no charge.\nSent you the notes in DM.`,
+    (m) => `For ${m.thing} the first 100 users almost never come from marketing, they come from one channel you can work by hand.`,
+    (m) => `A growth partner before the offer is repeatable usually just spreads the guessing around.`,
+    (m) => `The first twenty sales for ${m.thing} are almost always manual, and they tell you which channel to hire for.`,
+    (m) => `"We need marketing" is usually a symptom. The offer being hard to repeat is usually the cause.`,
   ],
   design: [
-    (p, m) => `Design is rarely what's blocking ${m.thing} at this stage, the flow is.\nI'll map the 3 screens that actually matter and what to cut, free.\nDM sent with the sketch.`,
+    (m) => `Design is rarely what's blocking ${m.thing} at this stage, the flow is.`,
+    (m) => `Early products almost never fail for looking bad, they fail for asking too much before giving anything back.`,
+    (m) => `A designer joining now would be guessing at the same unknowns you are.`,
   ],
   business: [
-    (p, m) => `The fastest way to find out if this needs a co-founder is to try to sell it once, first.\nHappy to write the one-page version you could put in front of a buyer this week, free.\nSent it over in DM.`,
+    (m) => `The fastest way to find out whether ${m.thing} needs a co-founder is to try to sell it once, first.`,
+    (m) => `One real buyer saying yes tells you more than ten partner conversations.`,
+    (m) => `Execution you can buy. A co-founder you can't easily undo.`,
   ],
   unclear: [
-    (p, m) => `Worth deciding whether you need a partner or just the first version built, they're very different commitments.\nI'll map the smallest v1 for ${m.thing} and what it would take, free.\nDM sent with the detail.`,
+    (m) => `Worth deciding whether you need a partner or just the first version built, they're very different commitments.`,
+    (m) => `Two things look identical from the inside: needing a co-founder, and needing the thing to exist.`,
+    (m) => `If ${m.thing} doesn't exist yet, that's a build problem before it's a partner problem.`,
   ],
+};
+// Lines that only fire when the post actually says so.
+const SHORT_CTX = {
+  equityOnly: (m) => `Equity-only is a hard sell to a good builder, but the first version is cheap enough that you may not need to make it.`,
+  hasBudget: (m) => `Since you can pay for execution, a co-founder is a choice here rather than the only route.`,
+  building: (m) => `You've already built something, which puts you ahead of most people posting this — the next gap is usually users, not a partner.`,
+  revenue: (m) => `With revenue already coming in you're in the strongest position of anyone posting this, and you can buy execution instead of trading equity.`,
+  idea: (m) => `At idea stage the cheapest next step is almost never a co-founder, it's a version ten people can touch.`,
+  crowded: (m) => `Plenty of replies here already, so I'll be short.`,
+};
+const SHORT_GIVE = {
+  technical: [
+    `Happy to map the smallest version that still proves it, free, takes me 20 minutes.`,
+    `I'll sketch the 3 screens you could test in two weeks and what I'd cut, no charge.`,
+    `I wrote out what I'd build first and what I'd leave out, free either way.`,
+  ],
+  marketing: [
+    `I'll name the one channel I'd start with and why, free.`,
+    `Happy to pressure-test the offer and pick the first twenty places to go, no charge.`,
+    `I'll rewrite the offer in one sentence and pick the channel, free either way.`,
+  ],
+  design: [
+    `I'll map the 3 screens that actually matter and what to cut, free.`,
+    `Happy to sketch the flow properly, no charge.`,
+  ],
+  business: [
+    `Happy to write the one-page version you could put in front of a buyer this week, free.`,
+    `I'll draft the page and list ten places those buyers already are, no charge.`,
+  ],
+  unclear: [
+    `I'll map the smallest v1 and what it would take, free.`,
+    `Happy to write out the build order and what to cut, no charge.`,
+  ],
+};
+const SHORT_CLOSE = [
+  `Sent you a DM with how I'd scope it.`,
+  `Details are in your DMs.`,
+  `Sent it over in DM.`,
+  `DM sent with the outline.`,
+  `Put the whole thing in your inbox.`,
+];
+
+// n distinct 3-line replies for THIS post. Line 1 speaks to their situation,
+// line 2 gives something away, line 3 points at the DM. No link, no price.
+HEAT.huntShortOptions = function (p, profile = {}, n = 5) {
+  const m = HEAT.huntVars(p, profile);
+  const role = HEAT.SHORT_ROLE(p);
+  const obs = [];
+  if (p.equityOnly) obs.push(SHORT_CTX.equityOnly);
+  if (p.hasBudget) obs.push(SHORT_CTX.hasBudget);
+  if (p.stage && SHORT_CTX[p.stage]) obs.push(SHORT_CTX[p.stage]);
+  if ((p.comments || 0) > 15) obs.push(SHORT_CTX.crowded);
+  const pool = (SHORT_OBS[role] || SHORT_OBS.unclear);
+  // context lines first (most specific), then the role pool, interleaved so
+  // consecutive options never open the same way
+  const openers = obs.concat(pool);
+  const gives = SHORT_GIVE[role] || SHORT_GIVE.unclear;
+  const out = [];
+  for (let i = 0; i < Math.min(n, openers.length); i += 1) {
+    out.push(`${openers[i](m)}\n${gives[i % gives.length]}\n${SHORT_CLOSE[i % SHORT_CLOSE.length]}`);
+  }
+  return out;
+};
+HEAT.SHORT_ROLE = function (p) { return SHORT_OBS[p.role] ? p.role : "unclear"; };
+HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
+  const opts = HEAT.huntShortOptions(p, profile, 6);
+  return opts[((variant % opts.length) + opts.length) % opts.length];
+};
+
+// The DM closes on two things: a free deliverable worth saying yes to, and a
+// private channel where the conversation actually continues. Reddit DMs get
+// buried; WhatsApp and Telegram do not.
+HEAT.HUNT_OFFER = {
+  technical: (m) => `So here is the offer, and it costs you nothing.
+
+Send me one paragraph: what ${m.thing} does and who the first user is. Within 48 hours I'll send back a clickable 3-screen prototype of v1 you can put in front of real people, the build list in order, and what I'd cut. Yours to keep either way — show it to a co-founder candidate, an investor, or a user, with my name nowhere on it if you prefer.
+
+If you like how I work we can talk about me building the rest. If not, you've lost nothing and you have a prototype and a plan.`,
+  marketing: (m) => `So here is the offer, and it costs you nothing.
+
+Send me one paragraph: who buys ${m.thing} and what they pay today. Within 48 hours I'll send back your offer rewritten in one sentence, the single channel I'd start with and why, and twenty named places or people to go to this week. Yours to keep either way.
+
+If it works and you want help running it, we can talk. If not, you still have the plan.`,
+  design: (m) => `So here is the offer, and it costs you nothing.
+
+Tell me what ${m.thing} does and who it's for. Within 48 hours I'll send back the three screens designed properly — what the user gives, what happens, what they get — as something you can click through. Yours to keep either way.
+
+If you want them built after that, we can talk. If not, you have the screens.`,
+  business: (m) => `So here is the offer, and it costs you nothing.
+
+Tell me who the buyer for ${m.thing} is. Within 48 hours I'll send back the one-page version you can put in front of them and a list of ten places those buyers already are. Yours to keep either way.
+
+If someone says yes and you need it built, we can talk. If not, you've lost nothing.`,
+  unclear: (m) => `So here is the offer, and it costs you nothing.
+
+Send me one paragraph on what ${m.thing} does and who it's for. Within 48 hours I'll send back the smallest v1 mapped out — the three screens, the build order, what to cut — plus a clickable prototype of it. Yours to keep either way.
+
+If you want it built, we can talk. If not, you have the map.`,
+};
+
+// WhatsApp and Telegram links, from whatever the user typed in Options.
+HEAT.waLink = function (v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  const digits = s.replace(/[^\d]/g, "");
+  return digits.length >= 8 ? "https://wa.me/" + digits : "";
+};
+HEAT.tgLink = function (v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  return "https://t.me/" + s.replace(/^@/, "");
+};
+HEAT.huntContactLine = function (profile = {}) {
+  const wa = HEAT.waLink(profile.whatsapp), tg = HEAT.tgLink(profile.telegram);
+  const both = [wa ? "WhatsApp: " + wa : "", tg ? "Telegram: " + tg : ""].filter(Boolean);
+  if (!both.length) return "Reply here and I'll get started on it today.";
+  return `Reddit DMs get buried, so it's faster to send it here — ${both.join("  ·  ")}\nOne message with that paragraph and I'll start on it today. Reply here if you'd rather stay on Reddit.`;
 };
 
 // PRIVATE: the long Laurel-style value bomb. Full diagnosis and steps.
@@ -1025,7 +1157,9 @@ If I were doing it this week:
 
 ${m.stageLine}
 
-If it helps I'll put the specific three screens for ${m.thing} on paper and send them to you, no charge and no obligation. Reply here with what it does today and who the first user is, and I'll write it up.
+${m.offer}
+
+${m.contact}
 
 ${m.sign}`,
 
@@ -1049,7 +1183,9 @@ Here's how I'd do it over the next two weeks:
 
 ${m.stageLine}
 
-Happy to name the specific channel I'd pick for ${m.thing} and the first twenty places to go, free. Tell me who the buyer is and what they pay today, and I'll write it out.
+${m.offer}
+
+${m.contact}
 
 ${m.sign}`,
 
@@ -1073,7 +1209,9 @@ What I'd do first:
 
 ${m.stageLine}
 
-If useful I'll sketch those three screens for ${m.thing} and send them over, free. Tell me what it does and who it's for.
+${m.offer}
+
+${m.contact}
 
 ${m.sign}`,
 
@@ -1097,7 +1235,9 @@ The two-week version:
 
 ${m.stageLine}
 
-Happy to write that one-page version for ${m.thing} and send it to you, free. Tell me who the buyer is and I'll draft it.
+${m.offer}
+
+${m.contact}
 
 ${m.sign}`,
 
@@ -1121,7 +1261,9 @@ The test I'd use:
 
 ${m.stageLine}
 
-If it helps I'll map the smallest v1 for ${m.thing} and send it over, free, no obligation. Tell me what it does and who it's for.
+${m.offer}
+
+${m.contact}
 
 ${m.sign}`,
 };
@@ -1154,14 +1296,17 @@ HEAT.huntVars = function (p, profile = {}) {
     : p.stage === "building" ? "Since you've already built something, you're further along than most, and the next step is usually users rather than a partner."
     : p.equityOnly ? "I know budget is the constraint, so everything above is meant to be doable by you for close to nothing."
     : "";
-  return { name: p.author ? "u/" + p.author : "there", thing: HEAT.huntThing(p), stageLine, sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "" };
+  const thing = HEAT.huntThing(p);
+  const offerFn = HEAT.HUNT_OFFER[p.role] || HEAT.HUNT_OFFER.unclear;
+  return {
+    name: p.author ? "u/" + p.author : "there",
+    thing, stageLine,
+    offer: offerFn({ thing }),
+    contact: HEAT.huntContactLine(profile),
+    sign: profile.name ? `— ${profile.name}${profile.role ? ", " + profile.role : ""}` : "",
+  };
 };
 
-HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
-  const set = HEAT.HUNT_SHORT[p.role] || HEAT.HUNT_SHORT.unclear;
-  const m = HEAT.huntVars(p, profile);
-  return set[variant % set.length](p, m);
-};
 HEAT.huntDM = function (p, profile = {}) {
   const fn = HEAT.HUNT_DM[p.role] || HEAT.HUNT_DM.unclear;
   return fn(p, HEAT.huntVars(p, profile));

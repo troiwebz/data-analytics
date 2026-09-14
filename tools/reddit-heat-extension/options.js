@@ -5,6 +5,8 @@ async function load() {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   $("clientid").value = config.clientId || "";
   $("pname").value = (config.profile || {}).name || ""; $("prole").value = (config.profile || {}).role || "";
+  $("pwa").value = (config.profile || {}).whatsapp || ""; $("ptg").value = (config.profile || {}).telegram || "";
+  $("pre").value = (config.profile || {}).reddit || "";
   $("keywords").value = config.keywordText || DEFAULT_KEYWORD_TEXT.trim();
   $("subs").value = (config.subs && config.subs.length ? config.subs : DEFAULT_SUBS).join("\n");
   $("window").value = config.windowDays || 30;
@@ -12,7 +14,7 @@ async function load() {
   $("dives").value = config.commentDives || 150;
   $("interval").value = config.intervalMin || 180;
   $("alsosearch").checked = !!config.alsoSearch;
-  $("autocsv").checked = config.autoCsv !== false;
+  $("autocsv").checked = config.autoCsv === true;   // off unless you ask for it
   count();
 }
 
@@ -33,7 +35,7 @@ $("save").addEventListener("click", async () => {
   const { config: prevCfg = {} } = await chrome.storage.local.get(["config"]);
   const config = {
     ...prevCfg,
-    profile: { name: $("pname").value.trim(), role: $("prole").value.trim() },
+    profile: { name: $("pname").value.trim(), role: $("prole").value.trim(), whatsapp: $("pwa").value.trim(), telegram: $("ptg").value.trim(), reddit: $("pre").value.trim().replace(/^\/?u\//, "") },
     clientId: $("clientid").value.trim(),
     keywordText: $("keywords").value,
     subs: lines($("subs").value).map((s) => s.replace(/^r\//, "")),
@@ -45,6 +47,7 @@ $("save").addEventListener("click", async () => {
     autoCsv: $("autocsv").checked,
   };
   await chrome.storage.local.set({ config });
+  chrome.runtime.sendMessage({ type: "hunt-me", me: config.profile.reddit });
   await chrome.storage.local.remove("oauth");
   await chrome.runtime.sendMessage({ type: "rearm" });
   $("saved").textContent = "Saved."; $("saved").className = "ok"; setTimeout(() => ($("saved").textContent = ""), 2000);

@@ -14,9 +14,19 @@ Then it is the same three moves, one post at a time:
 2. **Open DM, pre-filled ↗** opens Reddit's message compose with the subject and the long Laurel Portié style letter already in it: the real diagnosis, five numbered steps they can do this week, and an open door. Read it, edit it, send it.
 3. **Posted the reply** (`1`), **Sent the DM** (`2`), **Skip** (`s`), **Not relevant** (`x`). Sending moves you to the next post.
 
+**Five options, not one line repeated.** The public reply is built per post from what that person actually wrote, so an equity-only idea-stage post opens on equity, a funded one opens on being able to pay, a crowded thread opens short. Click any option to load it, edit it, copy it. No two options open the same way and nothing is reused post to post.
+
+**Last 24 or 48 hours.** The window chips in the header are 24h / 48h / 7d, default 48h. Anything older never enters the queue, so you are always early rather than the fortieth comment.
+
+**It checks whether you already replied.** Set your Reddit username in Options (or let it ask your logged-in tab once). Before a post reaches the screen — the current card and the next few — it reads the thread and looks for your username. If you commented there already, the post is dropped and that person goes on the contacted list.
+
 **Nobody twice.** The moment you mark a reply or a DM, that username goes on a contacted list. Every future post by that person — a repost, a different idea, six months later — is hidden and counted under "Already contacted, hidden". **Undo last** puts the most recent one back if you misclicked.
 
 **How it reads Reddit.** Reddit answers 403 to JSON requested by an extension on its own — no cookies, no referrer, not a browsing session. So the hunt keeps one **pinned old.reddit.com tab** and reads through it: a same-origin request carrying your normal logged-in session, the same thing as scrolling the page yourself, a few pages a minute. It opens that tab by itself the first time. If it ever gets nothing back, the page tells you what to check (tab closed, logged out, or Reddit rate-limiting you).
+
+**The DM ends where the deal happens.** Every letter closes with a free, specific 48-hour deliverable (a clickable 3-screen prototype and build list for technical asks, an offer rewrite plus one channel and twenty named places for marketing asks, and so on — theirs to keep either way), then pushes them to **WhatsApp or Telegram**, because Reddit DMs get buried. Put your number and handle in Options; leave them blank and it falls back to replying on Reddit.
+
+**No files.** Nothing is ever downloaded. Every post, status and contact lives in the extension's own database; **Contacted list** in the header shows it — who, how, where, when, searchable. CSV auto-save for the old scraper is off unless you switch it on in Options.
 
 Nothing is ever posted or sent for you. The extension reads, fills in the text, and you click send on Reddit's own page. Set your sign-off name in Options → it appears at the bottom of every DM.
 

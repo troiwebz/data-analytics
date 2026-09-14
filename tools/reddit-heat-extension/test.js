@@ -208,8 +208,17 @@ const short = H.huntShortReply(hp, { name: "Troi" });
 assert.strictEqual(short.split("\n").length, 3, "the public reply is exactly three lines:\n" + short);
 assert.ok(short.length < 420, "the public reply stays short: " + short.length);
 assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
-assert.ok(short.includes("your fitness app") && !short.includes("co-founder for your fitness app"));
-for (let v = 0; v < 4; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 3);
+const opts = H.huntShortOptions(hp, { name: "Troi" }, 5);
+assert.strictEqual(opts.length, 5, "five options to choose from");
+assert.strictEqual(new Set(opts).size, 5, "and no two are the same");
+assert.strictEqual(new Set(opts.map((o) => o.split("\n")[0])).size, 5, "each opens differently");
+opts.forEach((o) => { assert.strictEqual(o.split("\n").length, 3, o); assert.ok(!/https?:\/\/|\$\d/.test(o)); });
+assert.ok(opts.some((o) => o.includes("your fitness app")), "at least one names their thing");
+assert.ok(!opts.some((o) => o.includes("co-founder for your fitness app")), "and none doubles the phrase");
+assert.ok(opts[0].includes("Equity-only"), "equity-only posts lead with the equity line");
+assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage: "revenue" }, {})[0].includes("pay for execution"), "funded posts lead with money");
+assert.ok(H.huntShortOptions({ ...hp, comments: 40 }, {}).some((o) => o.startsWith("Plenty of replies")), "a crowded thread gets the short opener");
+for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 3);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 900, "the DM is the long one: " + dm.length);
 assert.ok(dm.startsWith("Hi u/jane,") && dm.includes("— Troi, web developer"));
@@ -218,3 +227,22 @@ assert.ok(H.huntComposeUrl(hp, dm).startsWith("https://www.reddit.com/message/co
 assert.ok(H.huntScore({ ...hp, created: Date.now() }) > H.huntScore({ ...hp, created: Date.now() - 5 * 86400000 }), "fresher posts rank higher");
 assert.ok(H.huntScore({ ...hp, hasBudget: true, equityOnly: false }) > H.huntScore(hp), "money ranks higher than equity-only");
 console.log("co-founder hunt: ok");
+
+// DM close: the free offer, then the private channel
+const dm2 = H.huntDM(hp, { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210", telegram: "@troibuilds" });
+assert.ok(dm2.includes("here is the offer, and it costs you nothing"), "every DM makes the free offer");
+assert.ok(dm2.includes("clickable 3-screen prototype") && dm2.includes("48 hours"));
+assert.ok(dm2.includes("https://wa.me/919876543210") && dm2.includes("https://t.me/troibuilds"), "both private channels appear");
+assert.ok(dm2.indexOf("wa.me") > dm2.indexOf("costs you nothing"), "the channel comes after the offer");
+assert.ok(dm2.trim().endsWith("— Troi, web developer"));
+const dm3 = H.huntDM({ ...hp, role: "marketing" }, { name: "Troi", whatsapp: "https://wa.me/1555" });
+assert.ok(dm3.includes("twenty named places") && dm3.includes("https://wa.me/1555") && !dm3.includes("t.me"));
+assert.ok(H.huntDM(hp, {}).includes("Reply here and I'll get started"), "no channels set: falls back to replying on Reddit");
+assert.strictEqual(H.waLink("98765 43210"), "https://wa.me/9876543210");
+assert.strictEqual(H.waLink("123"), "");
+assert.strictEqual(H.tgLink("troi"), "https://t.me/troi");
+assert.strictEqual(H.waLink(""), "");
+// the 3-line public reply stays clean: no offer, no links
+const short2 = H.huntShortReply(hp, { name: "Troi", whatsapp: "+919876543210" });
+assert.ok(!/wa\.me|t\.me|48 hours/.test(short2) && short2.split("\n").length === 3);
+console.log("dm offer + private channel: ok");

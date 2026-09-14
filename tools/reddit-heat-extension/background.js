@@ -26,7 +26,7 @@ async function getConfig() {
     maxPages: config.maxPages || 10,
     intervalMin: config.intervalMin || 180,
     commentDives: config.commentDives || 150,
-    autoCsv: config.autoCsv !== false,
+    autoCsv: config.autoCsv === true,   // no file lands in Downloads unless you turn this on
     alsoSearch: !!config.alsoSearch,
   };
 }
@@ -88,7 +88,11 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "reclassify") { reclassifyAll().then((n) => reply({ changed: n })); return true; }
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
   if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
-  if (msg.type === "hunt-act") { huntAct(msg.id, msg.action).then(reply); return true; }
+  if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
+  if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "hunt-window") { huntSet({ maxAgeH: msg.hours || 48 }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "hunt-me") { huntSet({ me: (msg.me || "").replace(/^\/?u\//, "").trim() }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "hunt-contacted") { huntGet().then((st) => reply({ rows: Object.entries(st.contacted).map(([user, c]) => ({ user, ...c })).sort((a, b) => b.at - a.at) })); return true; }
   if (msg.type === "hunt-poll") { huntPoll(true).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-on") { huntSet({ on: !!msg.on }).then(() => { huntArm(!!msg.on); if (msg.on) huntPoll(true); reply({ ok: true }); }); return true; }
   if (msg.type === "hunt-subs") { huntSet({ subs: msg.subs && msg.subs.length ? msg.subs : HUNT_SUBS, perTick: msg.perTick || 4 }).then(() => reply({ ok: true })); return true; }
@@ -481,6 +485,8 @@ async function huntGet() {
     lastError: hunt.lastError || "",
     subs: hunt.subs && hunt.subs.length ? hunt.subs : HUNT_SUBS,
     perTick: hunt.perTick || 4,
+    maxAgeH: hunt.maxAgeH || 48,
+    me: hunt.me || "",
     found: hunt.found || 0,
   };
 }
@@ -586,6 +592,7 @@ async function huntPoll(force) {
         seen += 1;
         const cand = huntCandidate(child);
         if (!cand) continue;
+        if (cand.created && Date.now() - cand.created > (st.maxAgeH + 12) * 3600000) continue;
         const prev = posts[cand.id];
         if (prev) { prev.comments = cand.comments; prev.ups = cand.ups; continue; }
         posts[cand.id] = cand;
@@ -603,6 +610,54 @@ async function huntPoll(force) {
   return { ok: true, added, seen, checked: ok, error: ok ? "" : error };
 }
 
+// Your Reddit username: from Options, else asked of the logged-in tab once.
+async function huntMe() {
+  const st = await huntGet();
+  if (st.me) return st.me;
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const typed = ((config.profile || {}).reddit || "").replace(/^\/?u\//, "").trim();
+  if (typed) { await huntSet({ me: typed }); return typed; }
+  try {
+    const j = await huntFetch("https://old.reddit.com/api/me.json");
+    const name = (j && (j.name || (j.data && j.data.name))) || "";
+    if (name) { await huntSet({ me: name }); return name; }
+  } catch (_) { /* not logged in in that tab */ }
+  return "";
+}
+
+// One cheap read of the thread: if your username is already in it, this post is
+// done — it leaves the queue and the person goes on the contacted list.
+async function huntCheckMine(id) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false };
+  const me = await huntMe();
+  if (!me) return { ok: true, me: "", mine: false };
+  if (p.checkedMine && Date.now() - p.checkedMine < 6 * 3600000) return { ok: true, me, mine: !!p.mine };
+  let mine = false;
+  try {
+    const path = p.permalink.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "");
+    const j = await huntFetch(`https://old.reddit.com${path}.json?limit=200&raw_json=1`);
+    const walk = (node) => {
+      if (!node || mine) return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      const d = node.data || {};
+      if (d.author && d.author.toLowerCase() === me.toLowerCase() && node.kind === "t1") mine = true;
+      if (d.children) walk(d.children);
+      if (d.replies) walk(d.replies);
+    };
+    walk(j);
+  } catch (e) { return { ok: false, error: String(e.message || e) }; }
+  p.checkedMine = Date.now();
+  if (mine) {
+    p.mine = true;
+    const k = (p.author || "").toLowerCase();
+    if (k && !st.contacted[k]) st.contacted[k] = { at: Date.now(), id, how: "already replied", sub: p.sub };
+  }
+  await huntSet({ posts: st.posts, contacted: st.contacted });
+  return { ok: true, me, mine };
+}
+
 // The queue: fit-ranked, never anyone already contacted, never anything you
 // skipped or marked irrelevant.
 async function huntQueue(limit = 40) {
@@ -610,8 +665,12 @@ async function huntQueue(limit = 40) {
   const now = Date.now();
   const list = [];
   let blocked = 0;
+  const maxAge = st.maxAgeH * 3600000;
+  let stale = 0;
   for (const p of Object.values(st.posts)) {
     if (p.act === "skip" || p.act === "not_relevant" || p.dmAt) continue;
+    if (p.mine) { blocked += 1; continue; }              // you already commented there
+    if (now - (p.created || p.firstSeen || 0) > maxAge) { stale += 1; continue; }
     const prior = st.contacted[(p.author || "").toLowerCase()];
     if (prior && prior.id !== p.id) { blocked += 1; continue; }
     list.push({ ...p, score: huntScore(p, now) });
@@ -626,19 +685,22 @@ async function huntQueue(limit = 40) {
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
+    stale,
+    maxAgeH: st.maxAgeH,
+    me: st.me,
     lastPoll: st.lastPoll,
     lastError: st.lastError,
     found: st.found,
   };
 }
 
-async function huntAct(id, action) {
+async function huntAct(id, action, variant) {
   const st = await huntGet();
   const p = st.posts[id];
   if (!p) return { ok: false };
   const now = Date.now();
   if (action === "skip" || action === "not_relevant") p.act = action;
-  if (action === "replied") { p.repliedAt = now; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
+  if (action === "replied") { p.repliedAt = now; p.usedVariant = variant; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
   if (action === "dm") {
     p.dmAt = now;
     const prev = st.contacted[p.author.toLowerCase()];

@@ -33,6 +33,12 @@
 
 <label>Reply sign-off <span class="hint">(optional, used by the reply generator)</span></label>
 <div class="row"><input type="text" id="pname" placeholder="Your first name" style="width:200px"><input type="text" id="prole" placeholder="e.g. web developer, Austin" style="width:280px"></div>
+<label>Where they should message you privately</label>
+<div class="hint">Added to the end of every co-founder DM: "Reddit DMs get buried, it's faster here". Leave blank to skip. WhatsApp takes a number with country code (or a full wa.me link); Telegram takes @handle (or a t.me link).</div>
+<div class="row"><input type="text" id="pwa" placeholder="WhatsApp: +91 98765 43210" style="width:260px"><input type="text" id="ptg" placeholder="Telegram: @yourhandle" style="width:260px"></div>
+<label>Your Reddit username</label>
+<div class="hint">Used to check whether you have already commented on a post before the hunt shows it to you. Without it the hunt asks your logged-in Reddit tab once.</div>
+<div class="row"><input type="text" id="pre" placeholder="Noah_Basera" style="width:260px"></div>
 
 <label>Keywords <span class="hint" id="kwcount"></span></label>
 <div class="hint">Lines starting with <code>#</code> are category headers used for the popup's category filter. Quoted phrases must appear exactly; bare words must all appear somewhere in title or body.</div>
@@ -49,7 +55,7 @@
 </div>
 <div class="row">
   <div><label><input type="checkbox" id="alsosearch"> Also run keyword searches on busy subreddits</label><div class="hint">Reaches past the 1000-post cap; one request per category per subreddit.</div></div>
-  <div><label><input type="checkbox" id="autocsv"> Auto-save CSV after each run</label><div class="hint">Downloads/reddit-lead-threads/</div></div>
+  <div><label><input type="checkbox" id="autocsv"> Auto-save CSV after each run (off by default)</label><div class="hint">Leave this off and nothing is ever written to Downloads. Everything is kept inside the extension's own database and you read it on the dashboard and the contacted list.</div></div>
 </div>
 
 <button id="save">Save</button><span id="saved"></span>

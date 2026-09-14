@@ -6,6 +6,7 @@ const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
 let queue = [];        // local working copy, so a skip advances instantly
 let cur = null;        // the post on screen
 let variant = 0;
+let options = [];
 let profile = {};
 let lastActed = null;
 
@@ -32,7 +33,10 @@ function render() {
   ].filter(Boolean).join(" ");
   $("meta").innerHTML = `r/${p.sub} · u/${p.author} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments · fit ${p.score} ${tags}`;
   $("body").textContent = p.body || "(no body text)";
-  $("short").value = huntShortReply(p, profile, variant);
+  options = huntShortOptions(p, profile, 5);
+  $("opts").innerHTML = options.map((o, i) => `<button class="opt ${i === variant ? "on" : ""}" data-i="${i}"><b>OPTION ${i + 1}</b>${o.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</button>`).join("");
+  for (const b of $("opts").querySelectorAll(".opt")) b.onclick = () => { variant = Number(b.dataset.i); $("short").value = options[variant]; for (const x of $("opts").querySelectorAll(".opt")) x.classList.toggle("on", x === b); };
+  $("short").value = options[variant] || "";
   $("dm").value = huntDM(p, profile);
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
@@ -56,6 +60,9 @@ async function refresh(keepCurrent = true) {
     : r.lastPoll ? "checked " + ago(r.lastPoll) + " · " + r.found + " found so far" : "never checked";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
   $("hint").hidden = !(r.lastError || (!r.total && r.lastPoll));
+  $("sStale").hidden = !r.stale;
+  $("sStale").textContent = r.stale + " older than the window";
+  for (const b of $("win").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.h) === r.maxAgeH);
   $("toggle").textContent = r.on ? "Watching · stop" : "Start watching";
   $("toggle").className = r.on ? "" : "primary";
 
@@ -76,10 +83,11 @@ async function refresh(keepCurrent = true) {
 async function act(action) {
   if (!cur) return;
   lastActed = cur.id;
-  await send({ type: "hunt-act", id: cur.id, action });
+  await send({ type: "hunt-act", id: cur.id, action, variant });
   if (action === "replied") { cur.repliedAt = Date.now(); render(); refresh(); return; }
   next();
   refresh();
+  checkAhead();
 }
 
 async function copy(el, btn) {
@@ -91,7 +99,6 @@ async function copy(el, btn) {
 
 $("copyShort").onclick = () => copy($("short"), $("copyShort"));
 $("copyDm").onclick = () => copy($("dm"), $("copyDm"));
-$("variant").onclick = () => { variant += 1; $("short").value = huntShortReply(cur, profile, variant); };
 $("openPost").onclick = () => cur && window.open(cur.permalink, "_blank");
 $("openDm").onclick = () => cur && window.open(huntComposeUrl(cur, $("dm").value), "_blank");
 $("didReply").onclick = () => act("replied");
@@ -121,9 +128,51 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "x") $("bad").click();
 });
 
+for (const b of document.querySelectorAll("#win button")) {
+  b.onclick = async () => { await send({ type: "hunt-window", hours: Number(b.dataset.h) }); refresh(false); };
+}
+
+// Before you spend a minute on anyone, make sure you are not already in their
+// thread. Checks the card you are on plus the next few, so an "already replied"
+// post is gone before it reaches the screen. Answers are cached for 6 hours.
+let checkingAhead = false;
+async function checkAhead(n = 4) {
+  if (checkingAhead) return;
+  checkingAhead = true;
+  try {
+    for (const item of queue.slice(0, n)) {
+      const r = await send({ type: "hunt-check-mine", id: item.id });
+      if (!r || !r.mine) continue;
+      const wasCurrent = cur && cur.id === item.id;
+      queue = queue.filter((x) => x.id !== item.id);
+      if (wasCurrent) { cur = queue[0] || null; variant = 0; $("sPoll").textContent = `you already replied to u/${item.author} — skipped`; }
+      render();
+    }
+  } finally { checkingAhead = false; }
+}
+
 (async () => {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   profile = config.profile || {};
   await refresh(false);
-  setInterval(() => refresh(true), 20000);
+  checkAhead();
+  setInterval(() => { refresh(true); checkAhead(); }, 20000);
 })();
+
+// The contacted list: the database itself, readable in place. No file, no export.
+async function showContacted() {
+  const r = await send({ type: "hunt-contacted" });
+  const rows = (r && r.rows) || [];
+  $("logRows").innerHTML = rows.length
+    ? rows.map((c) => `<tr><td>u/${c.user}</td><td>${c.how}</td><td>r/${c.sub || "?"}</td><td>${new Date(c.at).toLocaleString()}</td></tr>`).join("")
+    : `<tr><td colspan="4" style="color:#98a0b3">Nobody yet. Everyone you reply to or DM lands here and is blocked from coming back.</td></tr>`;
+  $("logCount").textContent = rows.length;
+  $("log").hidden = false;
+  $("main").hidden = true;
+}
+$("openLog").onclick = showContacted;
+$("closeLog").onclick = () => { $("log").hidden = true; $("main").hidden = false; refresh(); };
+$("logFind").oninput = () => {
+  const q = $("logFind").value.toLowerCase();
+  for (const tr of $("logRows").querySelectorAll("tr")) tr.hidden = q && !tr.textContent.toLowerCase().includes(q);
+};
