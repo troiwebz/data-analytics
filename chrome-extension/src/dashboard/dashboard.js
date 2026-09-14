@@ -148,7 +148,8 @@ function detail(l, staged, cfg) {
         <textarea data-draft="${id}" ${done ? 'readonly' : ''}>${esc(edited[l.threadId] ?? l.draft ?? '')}</textarea>
         <div class="acts">
           <button data-act="copy" data-id="${id}">📋 Copy</button>
-          <button data-act="open" data-id="${id}">🔗 Thread</button>
+          ${done ? `<button data-act="open" data-id="${id}">🔗 Thread</button>`
+                 : `<button data-act="fill" data-id="${id}">📝 Open filled</button>`}
           ${done ? '' : `<button class="go" data-act="post" data-id="${id}">🚀 Post now</button>
           <button data-act="done" data-id="${id}">✅ I posted it</button>
           <button class="warn" data-act="skip" data-id="${id}">⏭ Skip</button>`}
@@ -219,6 +220,14 @@ document.addEventListener('click', async (e) => {
 
   if (act === 'copy')  { await navigator.clipboard.writeText(draft); return say(id, 'Copied — paste into the thread.', true); }
   if (act === 'open')  { chrome.tabs.create({ url: lead.url }); return; }
+  if (act === 'fill') {
+    btn.disabled = true;
+    say(id, 'Opening the thread and typing the reply in…', true);
+    const r = await chrome.runtime.sendMessage({ cmd: 'fill-thread', lead: { ...lead, draft } });
+    btn.disabled = false;
+    return say(id, r?.ok ? 'Filled in — check the tab and press Post reply. 🚀 also fires instantly now.'
+                         : `Could not fill it: ${r?.error || 'unknown'}`, !!r?.ok);
+  }
   if (act === 'copydm') { await navigator.clipboard.writeText(dm); return say(id, 'PM copied.', true); }
   if (act === 'opendm') {
     // Open it filled in, not blank — the body cannot ride in the URL.

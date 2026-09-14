@@ -476,6 +476,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, updated: n });
         break;
       }
+      case 'fill-thread': {                          // 📝 open the thread with the reply typed in
+        const cfg = await getConfig();
+        const staged = (await getStaged())[msg.lead.threadId];
+        if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.lead.threadId, null); }
+        const r = await runInThread(msg.lead, 'stage', { keepTab: true });
+        if (r.ok && r.tabId) {
+          await setStaged(msg.lead.threadId, { tabId: r.tabId, at: Date.now(), title: msg.lead.title });
+          await updateLead(msg.lead.threadId, { staged: true });
+          chrome.tabs.update(r.tabId, { active: true }).catch(() => {});
+        }
+        sendResponse(r);
+        break;
+      }
       case 'send-dm': {                              // ✉️ Send PM now, from the dashboard
         const cfg = await getConfig();
         const gate = await checkDmLimit(cfg);

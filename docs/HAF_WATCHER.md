@@ -81,6 +81,10 @@ Click the toolbar icon for a full tab: one table of every lead.
   sort last rather than pretending to be zero.
 - **Click a row** to open the post snippet, the public reply, the PM and the
   buttons for that lead — 🚀 posts from here without touching Telegram.
+- On the reply side: **📝 Open filled** opens the thread with your reply typed
+  into the quick-reply box but not submitted, so you can read it in place and
+  press Post yourself — and 🚀 then fires in under a second because the tab is
+  already loaded.
 - On the PM side: **✉️ Send PM now** opens BHW's direct-message page, fills
   the recipient, subject and body, and sends. **📝 Open filled** does
   everything except press Send, leaving the tab focused so you can read it.

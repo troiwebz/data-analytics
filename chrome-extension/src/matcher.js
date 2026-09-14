@@ -32,21 +32,32 @@ export function matchLead(item, cfg) {
     if (rx(ex).test(text)) return null;
   }
 
+  // A pattern is either a bare regex string or { p, w } with a weight. Weights
+  // let a strong signal outrank an ambiguous word: "TikTok USA Poster" is
+  // someone posting from US accounts, not a print job, so \btiktok\b (w:3)
+  // has to beat "poster".
   const hitCategories = [];
   const matched = [];
   for (const cat of cfg.categories) {
-    // Record the text that actually matched, not the regex source — the regex
-    // is unreadable in an email ("\\bda\\s?\\d+" vs "DA40").
-    const hits = cat.patterns.map((p) => text.match(rx(p))).filter(Boolean);
+    let weight = 0;
+    const hits = [];
+    for (const raw of cat.patterns) {
+      const src = typeof raw === 'string' ? raw : raw.p;
+      const w = typeof raw === 'string' ? 1 : (raw.w ?? 1);
+      const m = text.match(rx(src));
+      if (m) { hits.push(m); weight += w; }
+    }
     if (hits.length) {
-      hitCategories.push({ key: cat.key, label: cat.label, hits: hits.length });
+      hitCategories.push({ key: cat.key, label: cat.label, hits: hits.length, weight });
+      // Record the text that actually matched, not the regex source — the
+      // regex is unreadable in a card ("\\bda\\s?\\d+" vs "DA40").
       matched.push(...hits.slice(0, 3).map((m) => m[0].trim()));
     }
   }
   if (!hitCategories.length) return null;
 
-  // Category with the most keyword hits wins and picks the template.
-  hitCategories.sort((a, b) => b.hits - a.hits);
+  // Heaviest category wins and picks the template; keyword count breaks ties.
+  hitCategories.sort((a, b) => b.weight - a.weight || b.hits - a.hits);
   const primary = hitCategories[0];
 
   let score = 3 + Math.min(primary.hits, 4);          // base + keyword density

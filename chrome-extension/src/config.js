@@ -58,10 +58,34 @@ export const DEFAULT_CONFIG = {
       key: 'design',
       label: 'Design / Artwork',
       patterns: [
-        '\\bdesign(er)?\\b', 'artwork', '\\blogo\\b', 'banner', 'graphic',
-        'photoshop', 'illustrator', '\\bfigma\\b', 'thumbnail', 'mockup',
-        'ui\\s?/?\\s?ux', 'branding', 'brand identity', 'flyer', 'poster',
-        'social media creative', 'video edit'
+        { p: '\\bdesign(er|s)?\\b', w: 2 }, { p: 'artwork', w: 2 }, { p: '\\blogo\\b', w: 2 },
+        'banner', 'graphic', 'photoshop', 'illustrator', '\\bfigma\\b', 'thumbnail',
+        'mockup', 'ui\\s?/?\\s?ux', 'branding', 'brand identity', 'flyer',
+        // "poster" alone is the person who posts, not a printed poster — the
+        // TikTok USA Poster thread taught us that. Require a design context.
+        // Outweigh Social's generic "poster" (w:3) — an explicit design
+        // context means it really is a printed poster.
+        { p: 'poster design', w: 4 }, { p: 'design(ed|ing)?\\s+(a\\s+)?poster', w: 4 },
+        { p: 'print(ed)?[- ]?(ready )?poster', w: 4 }, { p: '\\ba[0-9] poster', w: 4 },
+        'social media creative', 'video edit', 'banner ad'
+      ]
+    },
+    {
+      key: 'social',
+      label: 'Social / Accounts',
+      patterns: [
+        // Platform + doing-something-with-accounts is the strong signal.
+        { p: '\\btiktok\\b', w: 3 }, { p: '\\binstagram\\b|\\big\\b', w: 3 },
+        { p: '\\byoutube\\b|\\bshorts\\b', w: 3 }, { p: '\\btwitter\\b|\\bx\\.com\\b', w: 2 },
+        { p: '\\bthreads\\b|\\bsnapchat\\b|\\breddit\\b', w: 2 },
+        { p: '\\bposter\\b|\\bposters\\b', w: 3 },          // a person who posts
+        { p: 'post(ing|er)?\\s+(daily|for us|content|videos|reels)', w: 3 },
+        { p: 'account manage|manage (my|our|the) account|account manager', w: 3 },
+        { p: 'aged account|warm(ed)?[- ]up|account warm', w: 3 },
+        { p: '\\b(usa?|uk|canada|australia|german|geo)[- ]?(based|ip|account|number|sim)', w: 3 },
+        { p: 'upload(s|ing)? (videos|reels|shorts|content)', w: 2 },
+        'content calendar', 'engagement group', 'follower growth', 'grow (my|our) (page|account)',
+        'social media manage', 'community manage', 'creator account', 'shadowban'
       ]
     },
     {
@@ -94,9 +118,14 @@ export const DEFAULT_CONFIG = {
 
   // Any hit here kills the lead outright — never emailed, never posted.
   excludes: [
+    // No money in it
     'for free', 'no budget', 'free of charge', 'exchange for',
     'barter', 'revenue share', 'rev ?share', 'equity only', 'unpaid',
-    'no payment', 'partnership only'
+    'no payment', 'partnership only',
+    // Someone selling, not hiring — pitching them our services reads badly.
+    '^\\s*(wts|selling|for sale)\\b', '\\bwts\\b', '\\bfor sale\\b',
+    'accounts? for sale', 'selling (my|our|aged|bulk|\\d)',
+    'i am (selling|offering)', "i'm (selling|offering)"
   ],
 
   // ---- BHW compliance ---------------------------------------------------
@@ -143,6 +172,16 @@ export const DEFAULT_CONFIG = {
 • Turnaround: 2-4 days depending on scope
 {{budgetLine}}
 {Portfolio available on request|Can send the portfolio over}. {PMing you now|Sending you a PM}.`,
+
+    social: `{Hi|Hey} @{{author}},
+
+{We can cover this|Happy to handle this|This is exactly what our team does} — we run and post on social accounts day to day.
+
+• Real devices and residential connections, matched to the geo you need
+• Consistent daily posting to your schedule, not bursts
+• Warmed accounts, sensible limits, no burning the profile
+{{budgetLine}}
+{Tell us the platform, geo and volume and we'll scope it today|Send the platform, geo and daily volume and we'll come back with a price}. {Happy to show accounts we already run|Can show current accounts on request}.`,
 
     web: `{Hi|Hey} @{{author}},
 
@@ -222,6 +261,14 @@ I just saw your HAF thread: {{url}}
 
 {{offer}}`,
 
+    social: `Hi {{author}},
+
+I just saw your HAF thread: {{url}}
+
+{{reply}}
+
+{{offer}}`,
+
     web: `Hi {{author}},
 
 I just saw your HAF thread: {{url}}
@@ -240,7 +287,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 8;
+export const CONFIG_VERSION = 10;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -286,6 +333,16 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 10 && Array.isArray(next.excludes) && !next.excludes.some((e) => /for sale/.test(e))) {
+    next.excludes = DEFAULT_CONFIG.excludes;   // seller-thread guards added
+  }
+  if (v < 9) {
+    // "poster" used to mean design; a Social / Accounts category now owns it.
+    next.categories = DEFAULT_CONFIG.categories;
+    next.templates = { ...DEFAULT_CONFIG.templates, ...(next.templates || {}) };
+    if (!next.templates.social) next.templates.social = DEFAULT_CONFIG.templates.social;
+    if (!next.dmTemplates?.social) next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates, ...(next.dmTemplates || {}) };
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
