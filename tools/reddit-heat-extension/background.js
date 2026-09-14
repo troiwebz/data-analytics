@@ -90,6 +90,14 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "hunt-server-test") { (async () => {
+      try {
+        const r = await fetch(String(msg.url || "").replace(/\/+$/, "") + "/health", { cache: "no-store" });
+        const j = await r.json();
+        reply({ ok: r.ok, health: j });
+      } catch (e) { reply({ ok: false, error: String(e.message || e) }); }
+    })(); return true; }
   if (msg.type === "hunt-window") { huntSet({ maxAgeH: msg.hours || 48 }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-me") { huntSet({ me: (msg.me || "").replace(/^\/?u\//, "").trim() }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-contacted") { huntGet().then((st) => reply({ rows: Object.entries(st.contacted).map(([user, c]) => ({ user, ...c })).sort((a, b) => b.at - a.at) })); return true; }
@@ -486,6 +494,7 @@ async function huntGet() {
     subs: hunt.subs && hunt.subs.length ? hunt.subs : HUNT_SUBS,
     perTick: hunt.perTick || 4,
     maxAgeH: hunt.maxAgeH || 48,
+    server: hunt.server || null,
     me: hunt.me || "",
     found: hunt.found || 0,
   };
@@ -571,9 +580,46 @@ function huntCandidate(child) {
   };
 }
 
+// A collector running on a server does the reading around the clock, so the
+// queue is full even when this laptop was shut. When one is configured and
+// answering, the browser does no Reddit reads of its own.
+async function huntPullServer(st) {
+  const s = st.server;
+  if (!s || !s.url || !s.token) return null;
+  const url = s.url.replace(/\/+$/, "") + `/queue?maxAgeH=${st.maxAgeH}&limit=200`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(url, { headers: { Authorization: "Bearer " + s.token }, cache: "no-store", signal: ctl.signal });
+    if (!r.ok) throw new Error("server HTTP " + r.status + (r.status === 401 ? " — wrong token" : ""));
+    const j = await r.json();
+    const posts = st.posts;
+    let added = 0;
+    for (const cand of j.posts || []) {
+      const prev = posts[cand.id];
+      if (prev) { prev.comments = cand.comments; prev.ups = cand.ups; continue; }
+      posts[cand.id] = { ...cand, firstSeen: cand.firstSeen || Date.now() };
+      added += 1;
+    }
+    return { added, seen: (j.posts || []).length, serverLastPoll: j.lastPoll || 0, error: j.lastError ? "server's own Reddit read failed: " + j.lastError : "" };
+  } catch (e) { return { error: String(e.message || e), failed: true }; }
+  finally { clearTimeout(timer); }
+}
+
 async function huntPoll(force) {
   const st = await huntGet();
   if (!st.on && !force) return { ok: false, error: "hunt is off" };
+
+  const fromServer = await huntPullServer(st);
+  if (fromServer && !fromServer.failed) {
+    const cutoff = Date.now() - HUNT_KEEP_DAYS * 86400000;
+    for (const [id, p] of Object.entries(st.posts)) {
+      if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete st.posts[id];
+    }
+    await huntSet({ posts: st.posts, lastPoll: Date.now(), lastError: fromServer.error || "", serverLastPoll: fromServer.serverLastPoll, found: st.found + fromServer.added, via: "server" });
+    return { ok: true, added: fromServer.added, seen: fromServer.seen, via: "server", error: fromServer.error || "" };
+  }
+  if (fromServer && fromServer.failed) await huntSet({ lastError: "server: " + fromServer.error });
   const subs = st.subs;
   const n = Math.max(1, Math.min(8, st.perTick));
   const picks = [];
@@ -685,6 +731,7 @@ async function huntQueue(limit = 40) {
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
+    server: st.server ? { url: st.server.url, on: true } : null,
     stale,
     maxAgeH: st.maxAgeH,
     me: st.me,

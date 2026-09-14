@@ -36,6 +36,15 @@ Then it is the same three moves, one post at a time:
 
 Nothing is ever posted or sent for you. The extension reads, fills in the text, and you click send on Reddit's own page. Names come out human: the letter opens "Hi Jane," not "Hi u/jane_builds92," and falls back to "Hi there," for throwaway handles.
 
+## Collect around the clock (optional server)
+
+`server/hunt-server.js` is a small Node service that watches the same subreddits
+24/7 and hands the keepers to the extension, so the queue is already full when
+you open the laptop. It reads only — replying and DMing stay manual, in your
+browser. Point the extension at it under **Your details → Collector server**;
+if it ever stops answering, the extension falls back to the pinned Reddit tab on
+its own. Setup, systemd, Docker, Fly and launchd: `server/README.md`.
+
 ## Everything below is the older lead scraper (popup → Advanced tools)
 
 ## Semi-automatic collection

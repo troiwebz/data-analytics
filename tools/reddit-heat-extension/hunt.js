@@ -73,7 +73,7 @@ async function refresh(keepCurrent = true) {
   $("sBlocked").textContent = r.blocked;
   $("sBlockedWrap").title = "posts hidden because you already contacted that person or already replied in the thread";
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
-    : r.lastPoll ? "checked " + ago(r.lastPoll) + " · " + r.found + " found so far" : "never checked";
+    : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
   $("hint").hidden = !r.lastError;
   for (const b of $("win").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.h) === r.maxAgeH);
@@ -131,12 +131,20 @@ $("toggle").onclick = async () => { await send({ type: "hunt-on", on: $("toggle"
 for (const b of document.querySelectorAll("#win button")) b.onclick = async () => { await send({ type: "hunt-window", hours: Number(b.dataset.h) }); refresh(false); };
 
 // ---- your details, right here instead of buried in Options ---------------
+$("testSrv").onclick = async () => {
+  $("srvMsg").textContent = "checking…";
+  const r = await send({ type: "hunt-server-test", url: $("cSrv").value.trim() });
+  $("srvMsg").textContent = r && r.ok
+    ? `server alive · ${r.health.posts} posts held · last poll ${r.health.lastPoll ? new Date(r.health.lastPoll).toLocaleTimeString() : "never"}${r.health.oauth ? "" : " · no reddit api key"}${r.health.lastError ? " · " + r.health.lastError : ""}`
+    : "no answer: " + ((r && r.error) || "check the address");
+};
 $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; };
 $("saveSetup").onclick = async () => {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim() };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
+  await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
   $("setupMsg").hidden = false;
   setTimeout(() => { $("setupMsg").hidden = true; }, 1500);
   render();
@@ -216,6 +224,8 @@ document.addEventListener("keydown", (e) => {
   profile = config.profile || {};
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
+  const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
+  $("cSrv").value = (hunt.server || {}).url || ""; $("cSrvTok").value = (hunt.server || {}).token || "";
   if (!profile.name || !profile.reddit) $("setup").hidden = false;   // first run: ask once
   await refresh(false);
   checkAhead();
