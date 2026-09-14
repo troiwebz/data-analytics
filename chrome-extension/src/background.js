@@ -11,7 +11,7 @@
 
 import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js';
 import { fetchFeed } from './feed.js';
-import { fetchReplyCounts, forumUrlFromFeed } from './listing.js';
+import { fetchListing, forumUrlFromFeed, withListing } from './listing.js';
 import { matchLead } from './matcher.js';
 import { renderReply, renderDm } from './templates.js';
 import { lintDraft } from './compliance.js';
@@ -129,10 +129,11 @@ export async function pollFeed() {
   if (await isFirstRun()) {
     const cutoff = Date.now() - (cfg.backfillHours || 0) * 3600000;
     const recent = items.filter((i) => new Date(i.postedAt).getTime() >= cutoff);
-    const replyCounts = recent.length ? await fetchReplyCounts(forumUrlFromFeed(cfg.feedUrl)) : {};
-    const backfill = recent.map((item) => {
+    const listing = recent.length ? await fetchListing(forumUrlFromFeed(cfg.feedUrl)) : {};
+    const backfill = recent.map((raw) => {
+      const item = withListing(raw, listing[raw.threadId]);
       const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
-      return enrich({ ...m, replyCount: replyCounts[item.threadId] ?? null }, cfg, 'BACKFILL');
+      return enrich(m, cfg, 'BACKFILL');
     });
     await markSeen(items.map((i) => i.threadId));
     if (backfill.length) {
@@ -145,19 +146,20 @@ export async function pollFeed() {
   }
   // Reply counts move fast on a job board — refresh them for everything we
   // already know about on every poll, not just for new threads.
-  const replyCounts = await fetchReplyCounts(forumUrlFromFeed(cfg.feedUrl));
-  await updateReplyCounts(replyCounts);
+  const listing = await fetchListing(forumUrlFromFeed(cfg.feedUrl));
+  await updateReplyCounts(Object.fromEntries(
+    Object.entries(listing).map(([id, v]) => [id, v.replyCount]).filter(([, c]) => c != null)));
 
   if (!fresh.length) return { new: 0, matched: 0 };
 
   const leads = [];
-  for (const item of fresh) {
-    const replyCount = replyCounts[item.threadId] ?? null;
+  for (const raw of fresh) {
+    const item = withListing(raw, listing[raw.threadId]);
     // Every new thread goes through. matchLead only decides category/score;
     // an unmatched thread still gets sent with score 0 and a generic draft.
     const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
     if (m.score < cfg.notifyScore) continue;
-    leads.push(enrich({ ...m, replyCount }, cfg, 'SENT'));
+    leads.push(enrich(m, cfg, 'SENT'));
   }
   await markSeen(fresh.map((i) => i.threadId));
 

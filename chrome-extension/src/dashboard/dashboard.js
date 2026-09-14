@@ -79,7 +79,8 @@ function card(l, staged, cfg) {
         ${isStaged ? '<span class="st APPROVED">armed in tab</span>' : ''}
         <span>👤 <b>${esc(l.author)}</b></span>
         <span class="${stale ? 'stale' : ''}">💬 <b>${replies}</b> replies${l.replyCount != null ? ` · you'd be #${l.replyCount + 1}` : ''}</span>
-        <span>🕒 posted <b>${fmtAbs(l.postedAt)}</b> (${ago(l.postedAt)})</span>
+        <span title="${l.postedAtSource === 'listing' ? 'thread start time, read from the forum listing' : 'from the RSS feed — may be the last reply, not the thread start'}">🕒 posted <b>${fmtAbs(l.postedAt)}</b> (${ago(l.postedAt)})${l.postedAtSource !== 'listing' ? ' <span class="approx">approx</span>' : ''}</span>
+        ${l.lastActivityAt && l.lastActivityAt !== l.postedAt ? `<span>💬 last reply ${fmtAbs(l.lastActivityAt)}</span>` : ''}
         <span>🔎 found ${fmtAbs(l.foundAt)}</span>
         ${l.budget ? `<span>💰 <b>${esc(l.budget)}</b></span>` : ''}
         ${l.categoryLabel ? `<span>${esc(l.categoryLabel)}</span>` : ''}

@@ -175,6 +175,11 @@ First poll seeds silently. Watching starts on the second.
 
 - **Cloudflare.** If the feed comes back as HTML, the extension says so. Open
   BHW in a tab. Don't move fetching into Apps Script — Google's IPs get challenged.
+- **Thread times come from the listing page, not the feed.** XenForo's forum
+  RSS puts the *last post's* date in `<pubDate>`, so a months-old thread that
+  someone just replied to reads as brand new. The listing page carries the
+  thread's own start date, and that is what "posted" shows. If the listing
+  can't be read, the time falls back to the feed and is marked `approx`.
 - **Theme updates.** Every DOM selector is in `src/selectors.js`; listing regexes
   in `src/listing.js`. Those are the only two files to touch.
 - **Staged tabs** live in the same Chrome profile. Don't close them by hand

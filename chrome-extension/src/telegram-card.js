@@ -37,7 +37,10 @@ export function buildCard(lead) {
   const head =
     `${tier} <b>${score} pts</b> · ${esc(lead.categoryLabel || lead.category || '—')}${lead.budget ? ' · ' + esc(lead.budget) : ''}\n` +
     `<b>${esc(lead.title)}</b>\n\n` +
-    `👤 ${esc(lead.author)}   💬 ${replies} replies   🕒 ${esc(when(lead.postedAt))} (${ago(lead.postedAt)})\n` +
+    `👤 ${esc(lead.author)}   💬 ${replies} replies\n` +
+    `🕒 Posted ${esc(when(lead.postedAt))} (${ago(lead.postedAt)})${lead.postedAtSource !== 'listing' ? ' ~approx' : ''}\n` +
+    (lead.lastActivityAt && lead.lastActivityAt !== lead.postedAt
+      ? `💬 Last reply ${esc(when(lead.lastActivityAt))} (${ago(lead.lastActivityAt)})\n` : '') +
     (lead.replyCount != null ? `📊 You'd be reply #${Number(lead.replyCount) + 1}\n` : '') +
     `💰 Suggested: ${esc(suggestedOffer(lead))}\n` +
     (lead.priorContact ? `🔁 You pitched this author on ${esc(lead.priorContact)}\n` : '') +

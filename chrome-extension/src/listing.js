@@ -1,11 +1,18 @@
-// Reply counts are not in the RSS feed, so once per poll we fetch the forum
-// listing page (one request) and pull them out of the HTML with regex — MV3
-// service workers have no DOMParser.
+// The RSS feed gives neither reply counts nor a reliable thread-start time —
+// XenForo's forum feed puts the LAST post's date in <pubDate>, so a bumped old
+// thread looks brand new. Both come from the forum listing page instead (one
+// request per poll), parsed with regex because MV3 service workers have no
+// DOMParser.
 //
-// All markup assumptions live in these three patterns.
+// All markup assumptions live in these patterns.
 const THREAD_SPLIT = /class="[^"]*\bstructItem--thread\b/;
 const THREAD_ID    = /js-threadListItem-(\d+)/;
 const REPLY_COUNT  = /<dt>\s*Replies\s*<\/dt>\s*<dd>\s*([\d.,]+\s*[KkMm]?)\s*<\/dd>/;
+// The thread's own start date: <li class="structItem-startDate">…<time data-timestamp="…">
+const START_BLOCK  = /structItem-startDate[\s\S]{0,400}?<\/li>/;
+const LATEST_BLOCK = /structItem-latestDate[\s\S]{0,400}?(?:<\/li>|<\/div>)/;
+const TIMESTAMP    = /data-timestamp="(\d+)"/;
+const DATETIME     = /datetime="([^"]+)"/;
 
 function num(s) {
   const m = String(s).replace(/,/g, '').match(/([\d.]+)\s*([KkMm])?/);
@@ -15,27 +22,59 @@ function num(s) {
   return Math.round(n * mul);
 }
 
-/** { [threadId]: replyCount } for every thread on the listing page. */
-export function parseReplyCounts(html) {
+/** ISO string from a XenForo <time> element, or null. */
+function timeOf(block) {
+  if (!block) return null;
+  const ts = block.match(TIMESTAMP);
+  if (ts) {
+    const ms = parseInt(ts[1], 10) * 1000;
+    if (isFinite(ms) && ms > 0) return new Date(ms).toISOString();
+  }
+  const dt = block.match(DATETIME);
+  if (dt) {
+    const d = new Date(dt[1]);
+    if (!isNaN(d)) return d.toISOString();
+  }
+  return null;
+}
+
+/** { [threadId]: { replyCount, startedAt, lastActivityAt } } for the listing page. */
+export function parseListing(html) {
   const out = {};
-  const blocks = html.split(THREAD_SPLIT).slice(1);
-  for (const b of blocks) {
+  for (const b of html.split(THREAD_SPLIT).slice(1)) {
     const id = b.match(THREAD_ID);
+    if (!id) continue;
     const rc = b.match(REPLY_COUNT);
-    if (id && rc) out[id[1]] = num(rc[1]);
+    out[id[1]] = {
+      replyCount: rc ? num(rc[1]) : null,
+      startedAt: timeOf((b.match(START_BLOCK) || [])[0]),
+      lastActivityAt: timeOf((b.match(LATEST_BLOCK) || [])[0])
+    };
   }
   return out;
 }
 
-export async function fetchReplyCounts(forumUrl) {
+/** Overlay the listing page's facts: true thread-start time, replies, last activity. */
+export function withListing(item, info) {
+  if (!info) return item;
+  return {
+    ...item,
+    replyCount: info.replyCount ?? item.replyCount ?? null,
+    postedAt: info.startedAt || item.postedAt,
+    postedAtSource: info.startedAt ? 'listing' : (item.postedAtSource || 'feed'),
+    lastActivityAt: info.lastActivityAt || item.lastActivityAt || null
+  };
+}
+
+export async function fetchListing(forumUrl) {
   try {
     const res = await fetch(forumUrl, { credentials: 'include', cache: 'no-store' });
     if (!res.ok) return {};
     const html = await res.text();
     if (!/structItem--thread/.test(html)) return {};   // challenge page or theme change
-    return parseReplyCounts(html);
+    return parseListing(html);
   } catch {
-    return {};   // reply counts are nice-to-have; never fail a poll over them
+    return {};   // listing data is nice-to-have; never fail a poll over it
   }
 }
 

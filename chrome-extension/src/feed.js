@@ -42,6 +42,8 @@ export function parseRss(xml) {
     const link = tag(block, 'link') || tag(block, 'guid');
     const id = threadIdFromUrl(link);
     if (!id) continue;
+    // XenForo's forum feed reports the LAST post's date here, so treat it as
+    // last activity. The real thread-start time comes from the listing page.
     const pub = tag(block, 'pubDate');
     items.push({
       threadId: id,
@@ -49,7 +51,9 @@ export function parseRss(xml) {
       title: tag(block, 'title'),
       author: tag(block, 'dc:creator') || tag(block, 'author') || '',
       snippet: tag(block, 'description').slice(0, 1200),
-      postedAt: pub ? new Date(pub).toISOString() : new Date().toISOString()
+      postedAt: pub ? new Date(pub).toISOString() : new Date().toISOString(),
+      lastActivityAt: pub ? new Date(pub).toISOString() : null,
+      postedAtSource: 'feed'
     });
   }
   return items;
