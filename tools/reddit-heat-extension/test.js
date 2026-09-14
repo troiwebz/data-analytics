@@ -323,7 +323,7 @@ assert.ok(H.huntAiPrompt(aiP, { name: "Noah", whatsapp: "+91 98765 43210", dmLin
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
 assert.ok(pr.system.includes("never for free"), "no free work in the instructions");
-assert.strictEqual(pr.schema.required.length, 7, "the concept card, three answers, why, and the fit verdict"); assert.strictEqual(pr.schema.required[0], "concept", "the card is filled before the replies");
+assert.strictEqual(pr.schema.required.length, 8, "the card, three answers, the two points, why, and the fit verdict"); assert.strictEqual(pr.schema.required[0], "concept", "the card is filled before the replies");
 // cleaner: rejects links, prices, one-liners, stubs
 const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
 assert.ok(H.huntAiClean(good));
@@ -534,3 +534,31 @@ console.log("claude in chrome brief + parse: ok");
   assert.ok(!pr.system.includes("HOW WE WORK"), "the model never writes the offer");
 }
 console.log("template + ai slots: ok");
+
+// Two points that prove you know their market, straight after their post.
+{
+  const prof = { name: "Noah" };
+  const p = { id: "sal", author: "sam", sub: "SaaS", title: "Looking for a co-founder for my salon SaaS", body: "Paying salons already.", role: "marketing", stage: "revenue" };
+  const slots = {
+    product: "salon SaaS", observation: "Paying salons already on board means the question is who runs it every day",
+    points: ["no-shows quietly eat the margin long before churn shows up", "stylists decide whether it gets used, not the owner who signed up"],
+    move: "interview five of the paying salons about where they first heard of you",
+    question: "q?", reply_line: "l", phrase: "", fit: "yes",
+  };
+  const a = H.huntSlotAssemble(p, prof, slots);
+  assert.ok(a.dm_short.includes("no-shows quietly eat the margin") && a.dm_short.includes("stylists decide whether it gets used"), a.dm_short);
+  const paras = a.dm_long.split("\n\n");   // [0] is the greeting
+  assert.ok(/no-shows/.test(paras[2]), "the points come straight after their post: " + a.dm_long);
+  assert.ok(/interview five/.test(paras[3]), "then what I'd do this week: " + a.dm_long);
+  assert.ok(/co-founder/.test(paras[4]), "then the terms: " + a.dm_long);
+  // one point, or none, means no paragraph at all rather than a half one
+  assert.ok(!/no-shows/.test(H.huntSlotAssemble(p, prof, { ...slots, points: ["only one point here"] }).dm_short));
+  assert.ok(!H.huntSlotAssemble(p, prof, { ...slots, points: [] }).dm_short.includes("that decide"));
+  // templates never invent them
+  assert.deepStrictEqual(H.huntLocalSlots(p).points, undefined);
+  const pr = H.huntSlotPrompt(p, prof);
+  assert.ok(pr.schema.required.includes("points") && pr.schema.properties.points.minItems === 2, "the model must return exactly two");
+  assert.ok(pr.system.includes("no-shows, rebooking rates, stylist adoption"), "the prompt shows what a real market point looks like");
+  assert.ok(H.AI_SCHEMA.required.includes("points"), "the full writer supplies them too");
+}
+console.log("two points from their market: ok");

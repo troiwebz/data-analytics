@@ -1459,11 +1459,12 @@ HEAT.AI_SCHEMA = {
     public_reply: { type: "string", description: "Exactly two lines separated by one newline. Line one: ONE specific, useful solution or observation for their exact situation, under 25 words, in their own terms. Line two: exactly the text \"Check your DM.\" No links, no prices, no pitch, no greeting." },
     dm_short: { type: "string", description: "70 to 110 words. An introduction, not a letter." },
     dm_long: { type: "string", description: "130 to 190 words. An introduction with one useful thought and how we work; no numbered plan." },
+    points: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, proving you know THIS market from the inside: the metric that decides it, how its real users behave, an integration or rule everyone in it deals with, or how these products usually fail. Lower case start, no full stop, no generic startup advice." },
     why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
     fit: { type: "string", enum: ["yes", "no"], description: "yes only if the poster is a founder looking for a co-founder for their own idea or product. no if they are offering themselves, recruiting for a job, selling a service, a student project, or otherwise not someone who would pay a team." },
     fit_reason: { type: "string", description: "Under 15 words: why yes or no." },
   },
-  required: ["concept", "public_reply", "dm_short", "dm_long", "why", "fit", "fit_reason"],
+  required: ["concept", "public_reply", "dm_short", "dm_long", "points", "why", "fit", "fit_reason"],
   additionalProperties: false,
 };
 
@@ -1485,6 +1486,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - The DM answers their post as a co-founder candidate whose terms are an income and expense split, never equity and never free work. Say that plainly once; do not argue against co-founders.
 - The first line of the DM after the greeting names their product in THEIR words (the card's product), never "your app" or "your startup".
 - Quote at least two of the card's phrases verbatim inside the DMs, in quotation marks, where they fit naturally.
+- Both DMs carry the TWO POINTS as one short paragraph, straight after the line about their post: two specifics from their market that an outsider could not name. They are the reason the message gets read; never replace them with compliments or with advice that would fit any startup.
 - End every DM with the CLOSING LINE (below, verbatim). No question at the end, no "let me know", no link, nothing after it but the sign-off.
 - If COMMENTS ON THE THREAD are given, do not offer what others already offered there, and address any pushback the founder wrote in them.
 - If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in r/SaaS that…"), only when it truly fits.
@@ -1830,10 +1832,11 @@ HEAT.SLOT_SCHEMA = {
     observation: { type: "string", description: "ONE sentence, under 30 words, about THIS post: a number they gave, the stage they are at, the constraint they named. No advice, no compliment, no marketing words. Must contain a detail nobody else's post would have." },
     move: { type: "string", description: "ONE sentence, under 30 words: the single most useful next step for this exact product and stage. Concrete and doable this week. Never 'find a co-founder'." },
     question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
+    points: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
     reply_line: { type: "string", description: "The public comment: ONE line under 22 words, a useful specific thought for this post. No greeting, no link, no price, no pitch." },
     phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
   },
-  required: ["fit", "fit_reason", "product", "observation", "move", "question", "reply_line", "phrase"],
+  required: ["fit", "fit_reason", "product", "observation", "move", "question", "reply_line", "phrase", "points"],
   additionalProperties: false,
 };
 HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
@@ -1842,6 +1845,8 @@ HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
   const system = `You read one Reddit post from a founder looking for a co-founder and fill in short slots that a message is built from. The message answers as a co-founder candidate whose terms are a split of income and expenses rather than equity. You never write the whole message and you never mention the terms — that text already exists. Your job is only the parts that must come from THIS post.
 
 FIRST, DECIDE FIT. fit = "no" when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer, is recruiting for a salaried job, is selling a service, or is a student project with no path to paying anyone.
+
+The two POINTS are what make this message land: they must read like someone who has built in this exact market. For a salon booking product that is no-shows, rebooking rates, stylist adoption, walk-ins, deposits; for a clinic tool it is intake, no-shows, insurance codes, staff who hate new software; for a marketplace it is the thin side, take rate, leakage off-platform. Name the real thing for THEIR market, never "user acquisition" or "product-market fit".
 
 Then fill the slots. Rules for every slot:
 - Use their own words for their product. Never "your app", "your startup", "your project".
@@ -1909,6 +1914,15 @@ const S_NEXT = [
   () => `That answer usually decides the rest.`,
   () => `It costs nothing to find out.`,
   () => `Most of the risk sits in that one answer.`,
+];
+// The two points, as one paragraph. They come from the model, never from here.
+const S_POINTS = [
+  (m) => `Two things that decide these, from what we've seen: ${m.p1}; and ${m.p2}.`,
+  (m) => `Two details that matter more than people expect here: ${m.p1}, and ${m.p2}.`,
+  (m) => `What usually decides it: ${m.p1}. And ${m.p2}.`,
+  (m) => `Two things I'd be watching: ${m.p1}, and ${m.p2}.`,
+  (m) => `From building in this space: ${m.p1}; ${m.p2}.`,
+  (m) => `The two that bite: ${m.p1}, and ${m.p2}.`,
 ];
 const S_MOVE_IN = [
   (m) => `If it were mine this week: ${m.moveLower}`,
@@ -1987,7 +2001,10 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   const proper = /^[A-Z][A-Za-z0-9]*$/.test(product.split(" ")[0]) && product.split(" ").length <= 2;
   const theProduct = proper ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
   const move = sentence(slots.move);
+  const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8);
   const base = {
+    p1: pts[0] ? pts[0].charAt(0).toLowerCase() + pts[0].slice(1) : "",
+    p2: pts[1] ? pts[1].charAt(0).toLowerCase() + pts[1].slice(1) : "",
     product,
     the: theProduct,
     observation: sentence(slots.observation),
@@ -2021,8 +2038,12 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       const m = { ...base, offer: /[.!?]$/.test(offer) ? offer : offer + "." };
       let lines = style.build(m, pick);
       if (opts.long && m.move) {
-        // one more paragraph, right after their post: what I'd do about it
+        // the longer size adds what I'd do about it this week
         lines = [...lines.slice(0, 1), "", `${pick(S_MOVE_IN)(m)} ${pick(S_NEXT)()}`, ...lines.slice(1)];
+      }
+      if (m.p1 && m.p2) {
+        // straight after their post: the two specifics that show we know this market
+        lines = [...lines.slice(0, 1), "", pick(S_POINTS)(m), ...lines.slice(1)];
       }
       // the channel line only appears if you switched the links on
       if (profile.dmLinks) { const contact = HEAT.huntContactLine(profile, true); if (contact) lines = [...lines, "", contact]; }
