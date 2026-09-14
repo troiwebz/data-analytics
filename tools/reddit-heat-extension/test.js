@@ -448,3 +448,23 @@ console.log("deal shapes: ok");
   assert.strictEqual(H.dealShape({ mode: "custom:missing", custom: [] }).mode, "split", "unknown custom falls back to the default");
 }
 console.log("cacheable prompt + custom offers: ok");
+
+// Claude in Chrome: the brief carries the same rules as the API prompt; the pasted answer parses back.
+{
+  const prof = { name: "Noah", role: "web developer", whatsapp: "+910000000000" };
+  const a = { id: "p1", author: "sam", sub: "SaaS", title: "Need a marketing co-founder for my SaaS", body: "$4k MRR", role: "marketing", stage: "revenue" };
+  const b = { id: "p2", author: "rob", sub: "x", title: "Looking for a design co-founder", body: "MVP built", role: "design", stage: "building" };
+  const brief = H.huntBrief([a, b], prof);
+  assert.ok(brief.includes("FIRST, DECIDE FIT") && brief.includes("=== POST p1 ===") && brief.includes("=== POST p2 ===") && brief.includes("DM LONG:"), "brief has the rules, both posts and the layout");
+  assert.ok(brief.includes("There are 2 posts"));
+  assert.ok(!H.huntBrief([a], prof).includes("There are"));
+  const filler = (n) => "word ".repeat(n).trim();
+  const ans = `=== POST p1 ===\nFIT: yes — founder with revenue\nWHY: $4k MRR\nREPLY:\nInterview five paying customers before hiring for growth.\nCheck your DM.\nDM SHORT:\n${filler(80)}\nDM LONG:\n${filler(150)}\n=== END ===\n=== POST p2 ===\n**FIT:** no — offering himself\nWHY: x\nREPLY: line\nDM SHORT: ${filler(80)}\nDM LONG: ${filler(150)}`;
+  const out = H.huntParseAnswers(ans);
+  assert.deepStrictEqual(out.map((o) => [o.id, o.ai.fit]), [["p1", "yes"], ["p2", "no"]]);
+  assert.strictEqual(H.huntAiClean(out[0].ai).public_reply, "Interview five paying customers before hiring for growth.\nCheck your DM.");
+  assert.strictEqual(H.huntAiClean(out[0].ai).why, "$4k MRR");
+  assert.strictEqual(H.huntParseAnswers(`REPLY:\nline\nDM SHORT:\n${filler(80)}\nDM LONG:\n${filler(150)}`)[0].id, null, "no header → the current card");
+  assert.deepStrictEqual(H.huntParseAnswers("Sure! Here is nothing useful."), []);
+}
+console.log("claude in chrome brief + parse: ok");

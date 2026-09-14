@@ -1846,3 +1846,62 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
   const ask = mineCount >= 1 ? `\n\nTwo quick questions so we both know if this is worth continuing: ${sh.qualify}` : "";
   return { stage: mineCount >= 1 ? "qualify" : "answer", note: "answer, then the two qualifying questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nThanks for coming back. Happy to go through what you asked properly.${ask}\n\nFaster here: ${contact}${sign}` };
 };
+
+
+// ===========================================================================
+// CLAUDE IN CHROME (paste): the same brief the API gets, as text you paste
+// into the Claude browser extension; its answer is pasted back and parsed.
+// ===========================================================================
+HEAT.BRIEF_LAYOUT = `ANSWER IN EXACTLY THIS LAYOUT for every post, plain text, no markdown, no commentary before or after:
+
+=== POST <id> ===
+FIT: yes or no — under 15 words why
+WHY: one short phrase, the most specific thing the replies are built around
+REPLY:
+<one line, under 25 words>
+Check your DM.
+DM SHORT:
+<70 to 110 words>
+DM LONG:
+<130 to 190 words>
+=== END ===`;
+HEAT.huntBrief = function (posts, profile = {}) {
+  const list = Array.isArray(posts) ? posts : [posts];
+  if (!list.length) return "";
+  const first = HEAT.huntAiPrompt(list[0], profile);
+  const parts = [first.system, "", HEAT.BRIEF_LAYOUT, ""];
+  for (const p of list) {
+    const { user } = HEAT.huntAiPrompt(p, profile);
+    parts.push(`=== POST ${p.id} ===`, user.replace(/\n\nWrite public_reply, dm_short, dm_long and why\.[^\n]*$/, ""), "");
+  }
+  parts.push(list.length > 1 ? `There are ${list.length} posts. Answer each one in the layout above, in order, each starting with its "=== POST <id> ===" line.` : `Answer in the layout above, starting with "=== POST ${list[0].id} ===".`);
+  return parts.join("\n");
+};
+// Parse what came back. Returns [{ id, ai }] — id is null when no header was pasted.
+HEAT.huntParseAnswers = function (text) {
+  const raw = String(text || "").replace(/\r/g, "").replace(/\*\*/g, "");
+  const chunks = [];
+  const re = /===\s*POST\s+([^\s=]+)\s*===/g;
+  let m, last = null;
+  while ((m = re.exec(raw))) { if (last) chunks.push({ id: last.id, body: raw.slice(last.end, m.index) }); last = { id: m[1], end: m.index + m[0].length }; }
+  if (last) chunks.push({ id: last.id, body: raw.slice(last.end) }); else chunks.push({ id: null, body: raw });
+  const out = [];
+  for (const c of chunks) {
+    const body = c.body.replace(/===\s*END\s*===/gi, "");
+    const grab = (label, next) => {
+      const r = new RegExp(`(?:^|\\n)\\s*${label}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:${next})\\s*:|$)`, "i");
+      const x = body.match(r); return x ? x[1].trim() : "";
+    };
+    const fitLine = grab("FIT", "WHY|REPLY|DM SHORT|DM LONG");
+    const ai = {
+      fit: /^no\b/i.test(fitLine) ? "no" : "yes",
+      fit_reason: fitLine.replace(/^(yes|no)\s*[—–-]?\s*/i, ""),
+      why: grab("WHY", "FIT|REPLY|DM SHORT|DM LONG"),
+      public_reply: grab("REPLY", "DM SHORT|DM LONG|FIT|WHY"),
+      dm_short: grab("DM SHORT", "DM LONG|FIT|WHY|REPLY"),
+      dm_long: grab("DM LONG", "FIT|WHY|REPLY|DM SHORT"),
+    };
+    if (ai.public_reply || ai.dm_short || ai.dm_long) out.push({ id: c.id, ai });
+  }
+  return out;
+};

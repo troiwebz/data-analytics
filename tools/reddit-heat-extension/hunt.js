@@ -69,7 +69,7 @@ let aiErr = {};
 setInterval(() => { if (cur && aiBusy === cur.id) aiStatus(cur); }, 1000);
 function engine() {
   const e = profile.aiEngine;
-  if (e === "claude" || e === "chrome" || e === "templates") return e;
+  if (e === "claude" || e === "chrome" || e === "templates" || e === "paste") return e;
   return profile.apiKey ? "claude" : "templates";
 }
 async function chromeAvailability() {
@@ -99,8 +99,10 @@ function aiStatus(p) {
   const el = $("aiState");
   const eng = engine();
   $("aiRedo").hidden = !(eng !== "templates" && p.ai);
+  $("pasteTools").hidden = eng !== "paste";
   if (eng === "templates") { el.textContent = profile.aiEngine === "templates" ? "templates" : "templates — pick an engine under AI writing to have replies written to the post"; el.style.color = "#98a0b3"; return; }
-  if (p.ai) { el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : "Claude"}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
+  if (eng === "paste" && !p.ai) { el.textContent = "template shown — copy the brief, paste it into Claude in Chrome, paste the answer back"; el.style.color = "#98a0b3"; return; }
+  if (p.ai) { el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : "Claude"}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${p.ai.why ? " · built around: " + p.ai.why : ""}`; el.style.color = "#7ee29a"; return; }
   if (aiBusy === p.id) { const s = Math.round((Date.now() - aiStart) / 1000); el.textContent = (eng === "chrome" ? `Chrome is writing for this post… ${s}s (on-device is slow, usually 1–2 min)` : `Claude is writing for this post… ${s}s`); el.style.color = "#e6c76b"; return; }
   if (aiErr[p.id]) { el.textContent = "AI failed: " + aiErr[p.id] + " — showing templates"; el.style.color = "#ff8a65"; return; }
   el.textContent = "";
@@ -108,7 +110,7 @@ function aiStatus(p) {
 async function aiWrite(force) {
   if (!cur) return;
   const eng = engine();
-  if (eng === "templates") return;
+  if (eng === "templates" || eng === "paste") return;
   if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id] || aheadBusy === cur.id)) return;
   if (eng === "claude" && !profile.apiKey) { aiErr[cur.id] = "no API key yet — paste one under AI writing, or pick Chrome built-in"; aiStatus(cur); return; }
   const id = cur.id, post = cur;
@@ -149,7 +151,7 @@ async function aiWrite(force) {
 let aheadBusy = "";
 async function aiWriteAhead() {
   const eng = engine();
-  if (eng === "templates" || (eng === "claude" && !profile.apiKey)) return;
+  if (eng === "templates" || eng === "paste" || (eng === "claude" && !profile.apiKey)) return;
   const nxt = queue.find((q) => q !== cur && !q.ai && !aiErr[q.id] && !q.mine);
   if (!nxt || aheadBusy) return;
   aheadBusy = nxt.id;
@@ -164,6 +166,33 @@ async function aiWriteAhead() {
   finally { aheadBusy = ""; }
 }
 $("aiRedo").onclick = () => aiWrite(true);
+
+// ---- Claude in Chrome: copy the brief, paste the answer back ---------------
+function briefFor(list) { return huntBrief(list, profile); }
+$("copyBrief").onclick = () => { if (cur) copyText(briefFor([cur]), $("copyBrief")); };
+$("copyBatch").onclick = () => {
+  const list = queue.filter((q) => !q.ai && !q.mine).slice(0, 10);
+  if (!list.length) { $("pasteMsg").textContent = "nothing waiting"; return; }
+  copyText(briefFor(list), $("copyBatch"));
+  $("pasteMsg").textContent = `${list.length} briefs copied — paste them into Claude in Chrome as one message`;
+};
+$("pasteOpen").onclick = () => { $("pasteBox").hidden = !$("pasteBox").hidden; if (!$("pasteBox").hidden) $("pasteText").focus(); };
+$("pasteCancel").onclick = () => { $("pasteBox").hidden = true; };
+$("pasteGo").onclick = async () => {
+  const answers = huntParseAnswers($("pasteText").value);
+  if (!answers.length) { $("pasteMsg").textContent = "could not find REPLY / DM SHORT / DM LONG in that text — paste Claude's whole answer"; return; }
+  let filled = 0, cancelled = 0; const bad = [];
+  for (const a of answers) {
+    const id = a.id || (cur && cur.id);
+    if (!id) continue;
+    const r = await send({ type: "hunt-ai-save", id, ai: a.ai, model: "claude-chrome" });
+    if (r && r.ok) { filled += 1; for (const q of queue) if (q.id === id) q.ai = r.ai; if (cur && cur.id === id) cur.ai = r.ai; }
+    else if (r && r.cancelled) { cancelled += 1; queue = queue.filter((q) => q.id !== id); if (cur && cur.id === id) cur = queue[0] || null; }
+    else bad.push(`${id}: ${(r && r.error) || "rejected"}`);
+  }
+  $("pasteMsg").textContent = `${filled} filled${cancelled ? ` · ${cancelled} cancelled as not a fit` : ""}${bad.length ? ` · rejected — ${bad.join("; ")}` : ""}`;
+  if (filled || cancelled) { $("pasteText").value = ""; $("pasteBox").hidden = true; variant = 0; render(); refresh(); }
+};
 
 // ---- the AI writing panel ------------------------------------------------
 $("openAi").onclick = () => { $("aiPanel").hidden = !$("aiPanel").hidden; if (!$("aiPanel").hidden) { $("setup").hidden = true; chromeStatus(); } };
@@ -335,6 +364,7 @@ function dealLoad() {
   const d = profile.deal || DEAL_DEFAULT;
   dealOptions();
   $("cDeal").value = dealOffers(d).some((m) => m.key === d.mode) ? d.mode : "split";
+  $("dealCard").innerHTML = $("cDeal").innerHTML; $("dealCard").value = $("cDeal").value;
   $("cUp").value = d.upfront; $("cShare").value = d.share; $("cExp").value = d.expenseShare; $("cNums").checked = !!d.numbersInDm;
   dealShow();
 }
@@ -354,6 +384,7 @@ let dealTimer = 0;
 async function dealSave() {
   profile.deal = dealRead();
   dealShow();
+  $("dealCard").innerHTML = $("cDeal").innerHTML; $("dealCard").value = $("cDeal").value;
   await send({ type: "inbox-terms", deal: profile.deal });
   // Everything already written used the old deal: drop it and write again for the card in front of you.
   for (const q of queue) delete q.ai;
@@ -363,6 +394,11 @@ async function dealSave() {
   setTimeout(() => { $("setupMsg").textContent = "Saves itself as you type."; }, 1800);
 }
 $("cDeal").onchange = () => { if ($("cDeal").value === "__add") { offerForm(null); $("cDeal").value = (profile.deal || DEAL_DEFAULT).mode || "split"; return; } dealSave(); };
+$("dealCard").onchange = () => {
+  const v = $("dealCard").value;
+  if (v === "__add") { $("setup").hidden = false; $("aiPanel").hidden = true; offerForm(null); $("dealCard").value = (profile.deal || DEAL_DEFAULT).mode || "split"; $("offerBox").scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  $("cDeal").value = v; dealSave();
+};
 // ---- your own offers: name + the sentence that goes in the DM ------------
 let offerEditing = null;
 function offerForm(c) {

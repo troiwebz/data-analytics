@@ -199,6 +199,7 @@
         <div class="foot" id="keyMsg" style="margin-top:4px"></div></div></label>
       <label class="engine"><input type="radio" name="engine" value="chrome"><div><b>Chrome built-in (Gemini Nano)</b><span>Free, runs on your Mac, nothing leaves the machine. Smaller model, so plainer writing. One-time model download, needs a recent Chrome.</span>
         <div class="row" style="margin-top:8px"><button id="chromeCheck" class="ghost">Check / download</button><span class="foot" id="chromeMsg" style="margin:0"></span></div></div></label>
+      <label class="engine"><input type="radio" name="engine" value="paste"><div><b>Claude in Chrome (paste)</b><span>Free on your Claude subscription, no API key. Copy the brief from the card, paste it into the Claude browser extension, paste its answer back. Four clicks a post, or ten posts in one paste.</span></div></label>
       <label class="engine"><input type="radio" name="engine" value="templates"><div><b>Templates only</b><span>No AI. The five pre-written options, with the noun swapped in. Instant, free, generic.</span></div></label>
     </div>
     <p class="foot" style="margin:10px 0 0">If the chosen engine fails on a post, the templates are shown for that post and the reason is written above the options. Written replies are kept on the post, so nothing is paid or computed twice; <b>rewrite</b> asks again.</p>
@@ -242,6 +243,16 @@
 
       <section class="card">
         <p class="step"><b>Step 1</b> · public reply — one line, then "Check your DM." <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
+        <div id="pasteTools" class="row" style="margin:0 0 8px" hidden>
+          <button id="copyBrief" class="ghost">1 · Copy the brief</button>
+          <button id="copyBatch" class="ghost">Copy the next 10 briefs</button>
+          <button id="pasteOpen" class="ghost">3 · Paste Claude's answer</button>
+          <span class="foot" style="margin:0">2 · paste the brief into Claude in Chrome, then copy its whole answer</span>
+        </div>
+        <div id="pasteBox" hidden style="margin:0 0 8px">
+          <textarea id="pasteText" style="height:120px" placeholder="paste Claude's whole answer here — one post or ten"></textarea>
+          <div class="row"><button id="pasteGo" class="primary">Fill the cards</button><button id="pasteCancel" class="ghost">Cancel</button><span id="pasteMsg" class="foot" style="margin:0"></span></div>
+        </div>
         <div id="opts"></div>
         <textarea id="short"></textarea>
         <div class="row">
@@ -255,6 +266,7 @@
         <p class="step"><b>Step 2</b> · the DM <span id="dmState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></p>
         <div class="row" style="margin:0 0 8px">
           <span class="sizes" id="sizes"><button data-s="short">Short</button><button data-s="long" class="on">Long</button></span>
+          <label class="foot" style="margin:0 0 0 8px">Offer</label><select id="dealCard" title="what the DM asks for — presets and your own offers"></select>
         </div>
         <textarea id="dm"></textarea>
         <div class="row">
