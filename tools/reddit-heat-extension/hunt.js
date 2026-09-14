@@ -3,7 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
 
-let queue = [];        // local working copy, so a skip advances instantly
+let queue = [];        // what is in front of you: filtered and sorted
+let allQueue = [];     // everything the worker sent, before the view
 let cur = null;        // the post on screen
 let variant = 0;       // which of the public options is picked
 let dmSize = "long";
@@ -260,7 +261,8 @@ async function refresh(keepCurrent = true) {
   $("toggle").className = r.on ? "" : "primary";
 
   const keepId = keepCurrent && cur ? cur.id : null;
-  const fresh = r.queue;
+  allQueue = r.queue;
+  const fresh = applyView(allQueue);
   queue = keepId && fresh.some((x) => x.id === keepId)
     ? [fresh.find((x) => x.id === keepId), ...fresh.filter((x) => x.id !== keepId)]
     : fresh;
@@ -269,6 +271,63 @@ async function refresh(keepCurrent = true) {
   if (!cur || cur.id !== prevId) variant = 0;
   render();
 }
+
+// ---- sort and filter: by age, country, wants, who, stage, money, a word ----
+const VIEW_KEYS = ["qSort", "fCountry", "fWants", "fWho", "fStage", "fMoney", "fAge", "fFind"];
+function viewGet() { const v = {}; for (const k of VIEW_KEYS) v[k] = $(k).value; return v; }
+function viewSave() { try { localStorage.setItem("huntView", JSON.stringify(viewGet())); } catch (_) { /* fine */ } }
+function viewLoad() { try { const v = JSON.parse(localStorage.getItem("huntView") || "{}"); for (const k of VIEW_KEYS) if (v[k] !== undefined && $(k)) $(k).value = v[k]; } catch (_) { /* fine */ } }
+function moneyKey(p) { return p.equityOnly ? "equity" : p.hasBudget ? "budget" : "unknown"; }
+function ageH(p) { return (Date.now() - (p.created || p.firstSeen || Date.now())) / 3600000; }
+function applyView(list) {
+  const v = viewGet();
+  const find = v.fFind.trim().toLowerCase();
+  // options for country and who come from what is actually in the queue
+  fillSelect("fCountry", list.map((p) => huntSynopsis(p).country).filter(Boolean), v.fCountry, "any country");
+  fillSelect("fWho", list.map((p) => huntWho(p)), v.fWho, "anyone");
+  let out = list.filter((p) => {
+    const s = huntSynopsis(p);
+    if (v.fCountry && s.country !== v.fCountry) return false;
+    if (v.fWants && (p.role || "unclear") !== v.fWants) return false;
+    if (v.fWho && s.who !== v.fWho) return false;
+    if (v.fStage && (p.stage || "unknown") !== v.fStage) return false;
+    if (v.fMoney && moneyKey(p) !== v.fMoney) return false;
+    if (v.fAge === "old" ? ageH(p) <= 24 : v.fAge && ageH(p) > Number(v.fAge)) return false;
+    if (find && !`${p.title} ${p.body} ${p.author} r/${p.sub} ${s.country} ${s.who}`.toLowerCase().includes(find)) return false;
+    return true;
+  });
+  const roleOrder = { technical: 0, marketing: 1, design: 2, business: 3, unclear: 4 };
+  const by = {
+    fit: null,
+    newest: (a, b) => (b.created || 0) - (a.created || 0),
+    oldest: (a, b) => (a.created || 0) - (b.created || 0),
+    fewest: (a, b) => (a.comments || 0) - (b.comments || 0),
+    most: (a, b) => (b.comments || 0) - (a.comments || 0),
+    country: (a, b) => (huntSynopsis(a).country || "zzz").localeCompare(huntSynopsis(b).country || "zzz"),
+    wants: (a, b) => (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9),
+    who: (a, b) => huntWho(a).localeCompare(huntWho(b)),
+  }[v.qSort];
+  if (by) out = out.slice().sort(by);
+  $("viewCount").textContent = out.length === list.length ? `${list.length} in front of you` : `showing ${out.length} of ${list.length}`;
+  return out;
+}
+function fillSelect(id, values, keep, anyLabel) {
+  const el = $(id);
+  const counts = {}; for (const x of values) counts[x] = (counts[x] || 0) + 1;
+  const opts = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
+  el.innerHTML = `<option value="">${anyLabel}</option>` + opts.map((o) => `<option value="${esc(o)}">${esc(o)} (${counts[o]})</option>`).join("");
+  el.value = opts.includes(keep) ? keep : "";
+}
+function viewChanged() {
+  viewSave();
+  queue = applyView(allQueue);
+  cur = queue[0] || null; variant = 0;
+  render();
+  if (!$("table").hidden) showTable("queue");
+}
+viewLoad();
+for (const k of VIEW_KEYS) $(k).addEventListener(k === "fFind" ? "input" : "change", viewChanged);
+$("fClear").onclick = () => { for (const k of VIEW_KEYS) $(k).value = k === "qSort" ? "fit" : ""; viewChanged(); };
 
 async function act(action) {
   if (!cur) return;
@@ -444,8 +503,8 @@ function showTable(kind) {
   $("setup").hidden = true;
   $("tableFind").value = "";
   if (kind === "queue") {
-    $("tableTitle").textContent = `Queue (${queue.length})`;
-    $("tableNote").textContent = "Everyone waiting, best fit first. Click a row to work on that one.";
+    $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
+    $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row to work on that one.";
     $("tableHead").innerHTML = "<tr><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>";
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     $("tableRows").innerHTML = (queue.map((p) => {
@@ -458,7 +517,7 @@ function showTable(kind) {
       const done = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime());
       const anchor = $("doneRowsAnchor"); if (!anchor) return;
       anchor.outerHTML = done.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Done today — ${done.length}</td></tr>` + done.map((d) => `<tr class="done"><td><b>${esc(d.title)}</b><br><span style="color:#98a0b3">r/${esc(d.sub)} · ${esc(d.author)}</span></td><td class="mark">${d.repliedAt ? "reply ✓" : ""}</td><td class="mark">${d.dmAt ? "DM ✓" : ""}</td><td></td><td class="when">${new Date(d.at).toLocaleTimeString()}</td><td></td></tr>`).join("") : "";
-      $("tableTitle").textContent = `Queue (${queue.length}) · done today ${done.length}`;
+      $("tableTitle").textContent = (queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`) + ` · done today ${done.length}`;
     });
     for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
       tr.onclick = () => {

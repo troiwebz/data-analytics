@@ -124,6 +124,30 @@
 <main>
   <!-- today's progress: done grows, to-go shrinks; the bar fills -->
   <p class="foot" id="scan" style="margin:-6px 0 12px"></p>
+  <!-- sort and filter: applies to the cards and to the queue table -->
+  <div id="viewBar" class="row" style="gap:8px 12px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
+    <label class="foot" style="margin:0">Sort</label>
+    <select id="qSort">
+      <option value="fit">Best fit first</option>
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="fewest">Fewest comments (less crowded)</option>
+      <option value="most">Most comments</option>
+      <option value="country">Country A–Z</option>
+      <option value="wants">Wants</option>
+      <option value="who">Who</option>
+    </select>
+    <label class="foot" style="margin:0 0 0 6px">Filter</label>
+    <select id="fCountry" title="country"><option value="">any country</option></select>
+    <select id="fWants" title="what they want"><option value="">any want</option><option value="technical">someone to build it</option><option value="marketing">marketing / growth</option><option value="design">design / UX</option><option value="business">business / sales</option><option value="unclear">unclear</option></select>
+    <select id="fWho" title="who is asking"><option value="">anyone</option></select>
+    <select id="fStage" title="stage"><option value="">any stage</option><option value="idea">idea only</option><option value="building">something built</option><option value="revenue">has revenue</option></select>
+    <select id="fMoney" title="money"><option value="">any money</option><option value="budget">has money to spend</option><option value="equity">equity only, no cash</option><option value="unknown">not stated</option></select>
+    <select id="fAge" title="posted"><option value="">any age</option><option value="2">under 2 hours</option><option value="6">under 6 hours</option><option value="24">under 24 hours</option><option value="old">older than 24 hours</option></select>
+    <input type="text" id="fFind" placeholder="find a word, a sub, a name…" style="width:200px">
+    <button id="fClear" class="ghost">Clear</button>
+    <span class="foot" id="viewCount" style="margin:0"></span>
+  </div>
   <div id="prog" class="card" style="margin-bottom:16px;padding:10px 16px">
     <div class="row" style="margin:0;justify-content:space-between"><b id="progText">Today: 0 done · 0 to go</b><span class="foot" id="progSub" style="margin:0"></span></div>
     <div class="bar" style="margin-top:6px"><div id="progFill"></div></div>
