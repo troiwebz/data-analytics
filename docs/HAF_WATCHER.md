@@ -53,6 +53,12 @@ Open thread
 Then the reply on its own, in a code block — **tap once to copy the whole thing**,
 paste into BHW. That's the copy-paste path; BHW sees a human typing.
 
+The card also carries a **private-message draft** for the thread author and an
+**Open PM** link that loads BHW's new-conversation page with the recipient
+already filled in. On the dashboard the PM has its own editable box with
+*Copy PM*, *Open PM page* (copies the text and opens the page) and
+*I sent the PM*, which records it so the lead is never suggested again.
+
 - **🚀 Post now** — the extension posts it. If the lead was staged, that's a
   single click on an already-loaded page: under a second.
 - **✅ I posted it** — you pasted it yourself; log it so it's never suggested again.

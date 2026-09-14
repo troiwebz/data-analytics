@@ -17,7 +17,8 @@ function ago(iso) {
   return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
 }
 
-let edited = {};   // threadId -> draft text edited in the box
+let edited = {};    // threadId -> public reply edited in the box
+let editedDm = {};  // threadId -> PM edited in the box
 
 async function render() {
   const [cfg, leads, log, rate, staged] = await Promise.all([getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
@@ -87,6 +88,7 @@ function card(l, staged) {
       ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank">view your reply</a></div>` : ''}
     </div>
     <div class="side">
+      <div class="lbl">Public reply</div>
       <textarea data-draft="${esc(l.threadId)}" ${done ? 'readonly' : ''}>${esc(edited[l.threadId] ?? l.draft)}</textarea>
       <div class="acts">
         <button data-act="copy" data-id="${esc(l.threadId)}">📋 Copy reply</button>
@@ -95,6 +97,13 @@ function card(l, staged) {
         <button class="go" data-act="post" data-id="${esc(l.threadId)}">🚀 Post now</button>
         <button data-act="done" data-id="${esc(l.threadId)}">✅ I posted it</button>
         <button class="warn" data-act="skip" data-id="${esc(l.threadId)}">⏭ Skip</button>`}
+      </div>
+      <div class="lbl">✉️ Private message to ${esc(l.author)}${l.pmSent ? ' <span class="st POSTED">PM sent</span>' : ''}</div>
+      <textarea class="dm" data-dm="${esc(l.threadId)}">${esc(editedDm[l.threadId] ?? l.dm ?? '')}</textarea>
+      <div class="acts">
+        <button data-act="copydm" data-id="${esc(l.threadId)}">📋 Copy PM</button>
+        <button data-act="opendm" data-id="${esc(l.threadId)}">✉️ Open PM page</button>
+        <button data-act="pmsent" data-id="${esc(l.threadId)}">✅ I sent the PM</button>
       </div>
       <div class="msg" id="msg-${esc(l.threadId)}"></div>
     </div>
@@ -109,6 +118,8 @@ function say(id, text, ok) {
 document.addEventListener('input', (e) => {
   const id = e.target.dataset?.draft;
   if (id) edited[id] = e.target.value;
+  const dmId = e.target.dataset?.dm;
+  if (dmId) editedDm[dmId] = e.target.value;
 });
 
 document.addEventListener('click', async (e) => {
@@ -129,6 +140,24 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (act === 'open') { chrome.tabs.create({ url: lead.url }); return; }
+
+  const dm = editedDm[id] ?? lead.dm ?? '';
+  if (act === 'copydm') {
+    await navigator.clipboard.writeText(dm);
+    say(id, 'PM copied — open the PM page and paste.', true);
+    return;
+  }
+  if (act === 'opendm') {
+    await navigator.clipboard.writeText(dm).catch(() => {});
+    chrome.tabs.create({ url: lead.dmUrl || `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(lead.author)}` });
+    say(id, 'PM page opened with the recipient filled in; the PM text is on your clipboard — paste and send.', true);
+    return;
+  }
+  if (act === 'pmsent') {
+    await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id });
+    delete editedDm[id];
+    return render();
+  }
 
   if (act === 'post') {
     if (!confirm(`Post this reply to "${lead.title}" now?`)) return;

@@ -13,7 +13,9 @@ import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js
 import { fetchFeed } from './feed.js';
 import { fetchReplyCounts, forumUrlFromFeed } from './listing.js';
 import { matchLead } from './matcher.js';
-import { renderReply } from './templates.js';
+import { renderReply, renderDm } from './templates.js';
+import { lintDraft } from './compliance.js';
+import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, updateLead, mergeLeads, updateReplyCounts,
@@ -91,6 +93,25 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // ------------------------------------------------------------------- feed
 
+/** BHW's new-conversation page with the recipient filled in. You paste and send. */
+export function dmUrl(author) {
+  return `https://www.blackhatworld.com/conversations/add?to=${encodeURIComponent(author || '')}`;
+}
+
+/** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
+export function enrich(m, cfg, status) {
+  const draft = renderReply(m, cfg);
+  const dm = renderDm(m, cfg);
+  const lead = {
+    ...m, draft, dm, dmUrl: dmUrl(m.author),
+    lint: lintDraft(draft, cfg.compliance),
+    dmLint: lintDraft(dm, cfg.compliance),
+    status, foundAt: new Date().toISOString()
+  };
+  lead.card = buildCard(lead);
+  return lead;
+}
+
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
@@ -107,8 +128,7 @@ export async function pollFeed() {
     const replyCounts = recent.length ? await fetchReplyCounts(forumUrlFromFeed(cfg.feedUrl)) : {};
     const backfill = recent.map((item) => {
       const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
-      return { ...m, replyCount: replyCounts[item.threadId] ?? null, draft: renderReply(m, cfg),
-               status: 'BACKFILL', foundAt: new Date().toISOString() };
+      return enrich({ ...m, replyCount: replyCounts[item.threadId] ?? null }, cfg, 'BACKFILL');
     });
     await markSeen(items.map((i) => i.threadId));
     if (backfill.length) {
@@ -133,7 +153,7 @@ export async function pollFeed() {
     // an unmatched thread still gets sent with score 0 and a generic draft.
     const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
     if (m.score < cfg.notifyScore) continue;
-    leads.push({ ...m, replyCount, draft: renderReply(m, cfg), status: 'SENT', foundAt: new Date().toISOString() });
+    leads.push(enrich({ ...m, replyCount }, cfg, 'SENT'));
   }
   await markSeen(fresh.map((i) => i.threadId));
 
@@ -326,6 +346,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.threadId, null); }
         await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
         if (cfg.webhookUrl) await reportResult(cfg, msg.threadId, msg.status, msg.detail || '').catch((e) => log(`sheet update failed: ${e.message}`, 'error'));
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'mark-pm': {                              // ✅ "I sent the PM" from the dashboard
+        await updateLead(msg.threadId, { pmSent: true, pmSentAt: new Date().toISOString() });
         sendResponse({ ok: true });
         break;
       }

@@ -13,7 +13,16 @@ export function spin(text) {
 }
 
 export function renderReply(lead, cfg) {
-  const tpl = cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0];
+  return render(lead, cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0]);
+}
+
+/** The private message to the thread author. */
+export function renderDm(lead, cfg) {
+  const t = cfg.dmTemplates || {};
+  return render(lead, t[lead.category] || t.generic || Object.values(t)[0]);
+}
+
+function render(lead, tpl) {
   if (!tpl) return '';
 
   const budgetLine = lead.budget
@@ -26,6 +35,7 @@ export function renderReply(lead, cfg) {
     budget: lead.budget || '',
     budgetLine,
     category: (lead.categoryLabel || lead.category || 'this').toLowerCase(),
+    threadTitle: lead.title || '',
     link: lead.url || ''
   };
 

@@ -17,7 +17,7 @@ export const DEFAULT_CONFIG = {
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
 
   notifyScore: 0,              // send everything; Telegram decides what buzzes
-  autoPost: true,              // act on 🚀 taps from Telegram (nothing posts without one)
+  autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minMinutesBetweenPosts: 3,   // spacing between two 🚀 posts
 
@@ -96,6 +96,16 @@ export const DEFAULT_CONFIG = {
     'no payment', 'partnership only'
   ],
 
+  // ---- BHW compliance ---------------------------------------------------
+  // Every public reply and PM is checked before it goes anywhere. A failing
+  // draft is never auto-posted; it still reaches you, flagged with the rule.
+  compliance: {
+    mustInclude: [],                                   // e.g. { pattern: 'your-sales-thread', label: 'BST link' }
+    mustAppearEarly: [],                               // e.g. { pattern: 'Telegram', within: 120, label: 'contact at top' }
+    banned: ['free trial'],
+    warn: ['guaranteed', 'guarantee', '100%', 'cheapest']
+  },
+
   // ---- Reply templates -------------------------------------------------
   // {{var}} is substituted. {a|b|c} picks one at random (spintax), so no two
   // replies are byte-identical.
@@ -103,7 +113,7 @@ export const DEFAULT_CONFIG = {
   templates: {
     seo: `{Hi|Hey} @{{author}},
 
-{I can take this on|This is squarely what we do|Happy to handle this} — we run SEO for agencies and direct clients, so {{category}} work is our day job.
+{This is squarely what we do|Happy to handle this|We do this daily} — we run SEO for agencies and direct clients, so {{category}} work is our day job.
 
 • What you get: full audit, on-page fixes, and a white-hat link plan
 • Turnaround: first deliverables in 5-7 days
@@ -123,7 +133,7 @@ export const DEFAULT_CONFIG = {
 
     design: `{Hi|Hey} @{{author}},
 
-{We can do this|Right up our street|Happy to take this on} — we're a design team, so {{category}} is what we produce daily.
+{We can do this|Right up our street|Happy to handle this} — we're a design team, so {{category}} is what we produce daily.
 
 • Source files included (PSD / AI / Figma)
 • 2 concepts first, then unlimited tweaks on the chosen one
@@ -144,7 +154,7 @@ export const DEFAULT_CONFIG = {
     // Used when no category matched. Kept deliberately open-ended.
     generic: `{Hi|Hey} @{{author}},
 
-{Interested in this|We can help with this|This is something we can take on} — we're a full-service agency (SEO, paid ads, design, web, content), so whatever the scope, it's in-house.
+{Interested in this|We can help with this|Happy to handle this} — we're a full-service agency (SEO, paid ads, design, web, content), so whatever the scope, it's in-house.
 
 • Tell us the details and we'll scope it same day
 • Clear price before any work starts
@@ -153,17 +163,69 @@ export const DEFAULT_CONFIG = {
 
     content: `{Hi|Hey} @{{author}},
 
-{We can cover this|Happy to take this|This is something we do a lot of} — written by humans, briefed against real search intent.
+{We can cover this|Happy to handle this|This is something we do a lot of} — written by humans, briefed against real search intent.
 
 • SEO-aware, no AI filler
 • Sample piece before you commit
 • Turnaround: 2-3 days per batch
 {{budgetLine}}
 {Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
+  },
+
+  // ---- Private message templates ---------------------------------------
+  // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
+  dmTemplates: {
+    generic: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}" — {we can take care of this|this is right in our lane}.
+
+Quick version: we're a full-service agency (SEO, paid ads, design, web, content), everything in-house, one point of contact.
+{{budgetLine}}
+If you share the scope and deadline I'll come back with a fixed quote today. {Happy to hop on a call too|Or a quick call if easier}.`,
+
+    seo: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}".
+
+We run SEO for agencies and direct clients — audit, on-page, and a white-hat link plan with monthly reporting.
+{{budgetLine}}
+Send me the site and target keywords and I'll send a fixed quote + timeline today. {Case studies on request|Happy to share results from similar sites}.`,
+
+    ads: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}".
+
+We manage paid campaigns end to end — Google, Meta, TikTok — setup, creative, tracking, weekly optimisation.
+{{budgetLine}}
+Share the offer, geo and monthly spend and I'll come back with a plan and price today.`,
+
+    design: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}".
+
+We're a design team — logos, banners, ad creatives, social, print. Source files included, 2 concepts first, unlimited tweaks on the chosen one.
+{{budgetLine}}
+Tell me sizes, style references and deadline and I'll quote today. {Portfolio on request|Can send the portfolio over}.`,
+
+    web: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}".
+
+We build sites and landing pages in-house — clean, fast, mobile-first, on-page SEO done from the start.
+{{budgetLine}}
+Send the page count / reference sites and I'll scope and price it today.`,
+
+    content: `{Hi|Hey} {{author}},
+
+{Saw your thread|Just read your post} "{{threadTitle}}".
+
+Human-written, SEO-aware content briefed against real search intent — no AI filler. Sample piece before you commit.
+{{budgetLine}}
+Share topics, word count and volume and I'll quote per batch today.`
   }
 };
 
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 4;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -184,6 +246,15 @@ export async function migrateConfig() {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
     next.templates = { ...DEFAULT_CONFIG.templates, ...(next.templates || {}) };  // adds 'generic'
+  }
+  if (v < 4) {
+    for (const k of ['compliance']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+    next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates, ...(next.dmTemplates || {}) };
+    for (const [k, t] of Object.entries(next.templates || {})) {   // retire the old opener
+      if (typeof t === 'string') next.templates[k] = t.replace(/\{I can take this on\|/, '{').replace(/\|Happy to take this on\}/, '|Happy to handle this}');
+    }
   }
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
