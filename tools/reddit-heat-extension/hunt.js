@@ -71,7 +71,7 @@ setInterval(() => { if (cur && aiBusy === cur.id) aiStatus(cur); }, 1000);
 function engine() {
   const e = profile.aiEngine;
   if (e === "claude" || e === "chrome" || e === "templates" || e === "paste" || e === "slots") return e;
-  return profile.apiKey ? "claude" : "templates";
+  return profile.apiKey ? "slots" : "templates";   // with a key, every answer is written for the post
 }
 async function chromeAvailability() {
   if (typeof LanguageModel === "undefined") return "unsupported";
@@ -105,7 +105,7 @@ function aiStatus(p) {
   if (eng === "paste" && !p.ai) { el.textContent = "template shown — copy the brief, paste it into Claude in Chrome, paste the answer back"; el.style.color = "#98a0b3"; return; }
   if (p.ai) {
     const c = p.ai.concept;
-    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `your template · ${p.ai.style} style${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
+    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `Claude into your blueprint · ${p.ai.style} shape${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
     el.style.color = p.ai.generic ? "#e6c76b" : "#7ee29a";
     if (p.ai.generic) el.textContent += " · none of their words quoted — read it before sending";
     return;
@@ -714,7 +714,7 @@ document.addEventListener("keydown", (e) => {
   profile = config.profile || {};
   profile.deal = { ...DEAL_DEFAULT, ...(inbox.deal || {}) };
   dealLoad();
-  $("cModel").value = AI_PRICES_UI[profile.aiModel] ? profile.aiModel : "claude-opus-5";
+  $("cModel").value = AI_PRICES_UI[profile.aiModel] ? profile.aiModel : "claude-sonnet-5";
   $("cBudget").value = ((Number(profile.aiBudgetCents) > 0 ? profile.aiBudgetCents : 100) / 100).toFixed(2); $("cPolish").checked = profile.aiPolish !== false;
   $("cLinks").checked = !!profile.dmLinks;
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";

@@ -220,7 +220,7 @@
     <p class="step" style="margin-bottom:10px"><b>AI writing</b> · who writes the reply and the DMs for each post</p>
     <div class="engines">
       <label class="engine"><input type="radio" name="engine" value="claude"><div><b>Anthropic API (Claude)</b><span>Best quality. Reads the whole post, writes the reply and both DMs to it. A few cents per post, with your own key.</span>
-        <div class="row" style="margin-top:8px"><label class="foot" style="margin:0">Model</label><select id="cModel"><option value="claude-opus-5">Claude Opus 5 · best writing · about 2–4¢ a post</option><option value="claude-sonnet-5">Claude Sonnet 5 · very good · about 1–1.5¢ a post (60% cheaper)</option></select></div>
+        <div class="row" style="margin-top:8px"><label class="foot" style="margin:0">Model</label><select id="cModel"><option value="claude-sonnet-5">Claude Sonnet 5 · the default · about 1¢ a post</option><option value="claude-opus-5">Claude Opus 5 · a touch better, about 2–4¢ a post</option></select></div>
         <div class="row" style="margin-top:8px"><input type="password" id="cKey" placeholder="sk-ant-… from console.anthropic.com" style="flex:1;min-width:260px"><button id="testKey" class="ghost">Test key</button></div>
         <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center">Daily budget $<input type="text" id="cBudget" placeholder="1.00" style="width:64px"> <span>— when it is used up, cards fall back to templates until tomorrow</span></label>
@@ -229,7 +229,7 @@
         <div class="foot" id="keyMsg" style="margin-top:4px"></div></div></label>
       <label class="engine"><input type="radio" name="engine" value="chrome"><div><b>Chrome built-in (Gemini Nano)</b><span>Free, runs on your Mac, nothing leaves the machine. Smaller model, so plainer writing. One-time model download, needs a recent Chrome.</span>
         <div class="row" style="margin-top:8px"><button id="chromeCheck" class="ghost">Check / download</button><span class="foot" id="chromeMsg" style="margin:0"></span></div></div></label>
-      <label class="engine"><input type="radio" name="engine" value="slots"><div><b>Template + AI slots</b><span>Your own skeleton, five different shapes, sentence pools rotated per post. The model only fills what must come from the post: their product, one observation, one next step, one question. About ½¢ a post, and no two messages read alike.</span></div></label>
+      <label class="engine"><input type="radio" name="engine" value="slots"><div><b>Template + AI slots · recommended</b><span>Every answer is written by Claude for that exact post, but only the parts that must be: their product, one observation, the two points about their market, one next step. Your blueprint is assembled here, so you pay for four short lines instead of a whole letter. About ½¢ a post on Sonnet, and no two messages read alike.</span></div></label>
       <label class="engine"><input type="radio" name="engine" value="paste"><div><b>Claude in Chrome (paste)</b><span>Free on your Claude subscription, no API key. Copy the brief from the card, paste it into the Claude browser extension, paste its answer back. Four clicks a post, or ten posts in one paste.</span></div></label>
       <label class="engine"><input type="radio" name="engine" value="templates"><div><b>Templates only</b><span>No AI. The five pre-written options, with the noun swapped in. Instant, free, generic.</span></div></label>
     </div>

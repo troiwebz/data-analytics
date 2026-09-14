@@ -1841,6 +1841,7 @@ HEAT.SLOT_SCHEMA = {
 };
 HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
   const compact = !!opts.compact;
+  const recent = (opts.recent || []).filter(Boolean).slice(0, 5);
   const sh = HEAT.dealShape({ ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) });
   const system = `You read one Reddit post from a founder looking for a co-founder and fill in short slots that a message is built from. The message answers as a co-founder candidate whose terms are a split of income and expenses rather than equity. You never write the whole message and you never mention the terms — that text already exists. Your job is only the parts that must come from THIS post.
 
@@ -1868,6 +1869,7 @@ Wants: ${s.wants}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not s
 ${HEAT.huntContextText(p, true)}
 For context only, never write about it: we answer as a co-founder who ${sh.clause || sh.shapeShort}.
 
+${recent.length ? `\nOPENINGS ALREADY USED ON OTHER POSTS TODAY (say something different)\n${recent.map((x) => "- " + x).join("\n")}\n` : ""}
 Fill every slot. Be concrete and quick.`;
   return { system, user, schema: HEAT.SLOT_SCHEMA };
 };

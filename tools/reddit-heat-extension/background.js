@@ -913,7 +913,9 @@ async function huntContext(p) {
   p.ctx = ctx;
   return ctx;
 }
-async function aiModel() { const { config = {} } = await chrome.storage.local.get(["config"]); const m = (config.profile || {}).aiModel; return AI_PRICES[m] ? m : AI_MODEL; }
+// Sonnet is the default everywhere: the blueprint is assembled here, so the
+// model only writes the few lines that must come from this post.
+async function aiModel() { const { config = {} } = await chrome.storage.local.get(["config"]); const m = (config.profile || {}).aiModel; return AI_PRICES[m] ? m : AI_SLOT_MODEL; }
 function aiCents(model, u) {
   const [pin, pout] = AI_PRICES[model] || AI_PRICES[AI_MODEL];
   const usd = ((u.input_tokens || 0) * pin + (u.cache_creation_input_tokens || 0) * pin * 1.25 + (u.cache_read_input_tokens || 0) * pin * 0.1 + (u.output_tokens || 0) * pout) / 1e6;
@@ -1021,7 +1023,9 @@ async function huntSlotWrite(id, force) {
   if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢) — templates until tomorrow, or raise it under AI writing` };
   await huntContext(p);
   const profile = { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
-  const { system, user, schema } = huntSlotPrompt(p, profile);
+  const sent = Array.isArray(st.sent) ? st.sent : [];
+  const recent = sent.map((x) => x.line).filter(Boolean).slice(0, 5);
+  const { system, user, schema } = huntSlotPrompt(p, profile, { recent });
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 60000);
   let r, j;
@@ -1043,7 +1047,6 @@ async function huntSlotWrite(id, force) {
     await huntSet({ posts: st.posts });
     return { ok: false, cancelled: true, reason: p.cancelReason };
   }
-  const sent = Array.isArray(st.sent) ? st.sent : [];
   const ai = huntSlotAssemble(p, profile, slots, { avoid: sent.map((x) => x.sh), recentStyles: sent.map((x) => x.style) });
   if (!ai.public_reply || ai.dm_short.length < 180) return { ok: false, error: "the slots came back too thin — press rewrite" };
   ai.at = Date.now();
@@ -1054,7 +1057,7 @@ async function huntSlotWrite(id, force) {
   const shingles = ai.shingles || [];
   delete ai.shingles;
   p.ai = ai;
-  await huntSet({ posts: st.posts, sent: [{ at: Date.now(), style: ai.style, sh: shingles }, ...sent].slice(0, 40) });
+  await huntSet({ posts: st.posts, sent: [{ at: Date.now(), style: ai.style, sh: shingles, line: String(slots.observation || "").split(/\s+/).slice(0, 12).join(" ") }, ...sent].slice(0, 40) });
   return { ok: true, ai };
 }
 async function huntPolish(key, p, ai) {
