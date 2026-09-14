@@ -233,6 +233,8 @@ for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).sp
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a letter: " + dm.length);
 assert.ok(dm.startsWith("Hi Jane,") && dm.includes("— Troi, web developer"));
+assert.ok(/co-founder/i.test(dm) && /income and expenses, not equity|income and expenses rather than|split income and expenses instead of equity|income and expense split rather than equity|split of income and expenses, not shares/.test(dm), "we are the co-founder, the split is income and expenses: " + dm);
+assert.ok(!/not applying|isn't a co-founder application|won't pitch myself/i.test(dm), "we no longer refuse the co-founder seat: " + dm);
 assert.ok(!/\$\d|\d+%/.test(dm), "no price and no percentage in the first DM: " + dm);
 assert.ok(/share the income and the expenses/.test(dm) && /You keep the company and the IP\./.test(dm), "the shape is the pitch: " + dm);
 assert.ok(!/https?:\/\//.test(dm), "no link in a first DM, it sends Reddit chat to the requests folder: " + dm);
@@ -302,14 +304,14 @@ console.log("synopsis, names, dm sizes: ok");
 // AI prompt: built from the post, offer and contact line passed through
 const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
 const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
-assert.ok(pr.system.includes("Noah") && pr.system.includes("partner team") && pr.system.includes("exactly two lines"));
+assert.ok(pr.system.includes("Noah") && pr.system.includes("AS a co-founder") && pr.system.includes("exactly two lines"));
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane,") && !pr.system.includes("Jane"));
 assert.ok(pr.user.includes("GREETING (first line of every DM, verbatim)\nHi Jane,"), "the greeting is fixed, in the user turn so the system prompt stays cacheable");
 assert.ok(/WhatsApp or Telegram/.test(pr.user) && !/wa\.me/.test(pr.user), "no link goes into a first DM by default");
 assert.ok(H.huntAiPrompt(aiP, { name: "Noah", whatsapp: "+91 98765 43210", dmLinks: true }).user.includes("https://wa.me/919876543210"), "links are passed verbatim once switched on");
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
-assert.ok(pr.system.includes("never offer free work"), "no free work in the instructions");
+assert.ok(pr.system.includes("never for free"), "no free work in the instructions");
 assert.strictEqual(pr.schema.required.length, 7, "the concept card, three answers, why, and the fit verdict"); assert.strictEqual(pr.schema.required[0], "concept", "the card is filled before the replies");
 // cleaner: rejects links, prices, one-liners, stubs
 const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
@@ -330,7 +332,7 @@ const thr = { id: "t4_a", with: "jane_builds92", messages: [
   { id: "t4_b", author: "jane_builds92", mine: false, body: "Thanks! How much would you charge to build the first version?", at: 2000 },
 ] };
 const ip = H.inboxAiPrompt(thr, { sub: "startups", title: "Looking for a technical co-founder for my fitness app", body: "equity only" }, { name: "Noah", whatsapp: "+919000000000" }, H.INBOX_PLAN_DEFAULT);
-assert.ok(ip.system.includes("50% of income") && ip.system.includes("No upfront") && ip.system.includes("HIRE OUR TEAM") && ip.system.includes("one step at a time") && ip.system.includes("THE REPLY MUST FIT THEIR LAST MESSAGE"));
+assert.ok(ip.system.includes("50% of income") && ip.system.includes("No upfront") && ip.system.includes("WITH OUR OWN TEAM") && ip.system.includes("one step at a time") && ip.system.includes("THE REPLY MUST FIT THEIR LAST MESSAGE"));
 assert.ok(ip.user.includes("THEM (") && ip.user.includes("How much would you charge") && ip.user.includes("THEIR ORIGINAL POST"));
 assert.ok(ip.system.includes("wa.me/919000000000"));
 assert.deepStrictEqual(ip.schema.required, ["reply", "stage", "verdict", "budget", "share_ok", "note"]);
@@ -364,10 +366,11 @@ console.log("location: ok");
 const dealP = { name: "Noah", whatsapp: "+919000000000", deal: { mode: "upfront_share", upfront: 500, share: 25, expenseShare: 40 } };
 const planX = H.inboxPlanFor(H.INBOX_PLAN_DEFAULT, dealP);
 assert.ok(planX.includes("$500 upfront") && planX.includes("25% of income") && planX.includes("split 40/60") && planX.includes("upfront + income share") && !planX.includes("{{"), planX.slice(0, 300));
-assert.ok(H.INBOX_PLAN_DEFAULT.includes("HIRE OUR TEAM") && H.INBOX_PLAN_DEFAULT.includes("SHARE EXPENSES AND INCOME") && H.INBOX_PLAN_DEFAULT.includes("VERDICT"));
+assert.ok(H.INBOX_PLAN_DEFAULT.includes("WITH OUR OWN TEAM") && H.INBOX_PLAN_DEFAULT.includes("SHARE EXPENSES AND INCOME") && H.INBOX_PLAN_DEFAULT.includes("VERDICT"));
+assert.ok(H.INBOX_PLAN_DEFAULT.includes("we ARE answering as a co-founder"), "the inbox takes the co-founder seat too");
 const two = (body) => ({ ...thr, messages: [thr.messages[0], { ...thr.messages[1], body }] });
 const cutR = H.inboxTemplateReply(two("I can't pay anything right now, it would be equity only"), dealP);
-assert.strictEqual(cutR.stage, "cut"); assert.strictEqual(cutR.verdict, "not_interested"); assert.ok(/isn't something we do/.test(cutR.reply));
+assert.strictEqual(cutR.stage, "cut"); assert.strictEqual(cutR.verdict, "not_interested"); assert.ok(/isn't something I can take on/.test(cutR.reply));
 const offerR = H.inboxTemplateReply(two("What are your terms? How does it work?"), dealP);
 assert.strictEqual(offerR.stage, "offer"); assert.ok(offerR.reply.includes("$500 upfront") && offerR.reply.includes("25% of income") && offerR.reply.includes("40/60"));
 const closeR = H.inboxTemplateReply(two("Yes, I have a budget and I'm ok with a share"), dealP);
