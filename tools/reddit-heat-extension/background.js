@@ -843,7 +843,8 @@ async function huntAiWrite(id, force) {
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no api key", noKey: true };
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  const { system, user, schema } = huntAiPrompt(p, config.profile || {});
+  const { system, user: user0, schema } = huntAiPrompt(p, config.profile || {});
+  const user = user0 + (force === "shorter" ? "\n\nYour previous public_reply was too long. This time keep it under 35 words in total, two short lines." : "");
 
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 90000);
@@ -882,6 +883,10 @@ async function huntAiWrite(id, force) {
   let parsed = null;
   try { parsed = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
   const ai = huntAiClean(parsed);
+  if (ai && ai.tooLong) {
+    if (force !== "shorter") return huntAiWrite(id, "shorter");   // one more try, told to be brief
+    return { ok: false, error: "the model kept the public reply too long — press rewrite" };
+  }
   if (!ai) return { ok: false, error: "the model's reply failed the checks (two lines, no links, no prices, lengths)" };
   const u = j.usage || {};
   ai.at = Date.now();

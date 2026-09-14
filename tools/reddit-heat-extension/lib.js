@@ -1521,7 +1521,7 @@ HEAT.huntComposeUrl = function (p, body) {
 HEAT.AI_SCHEMA = {
   type: "object",
   properties: {
-    public_reply: { type: "string", description: "Exactly two lines separated by one newline. No links, no prices, no pitch, no mention of being available for hire." },
+    public_reply: { type: "string", description: "Exactly two short lines separated by one newline, at most 35 words in total. Line one: one specific detail from their post, under 18 words. Line two: the free thing waiting in their DM, under 17 words. No links, no prices, no pitch." },
     dm_short: { type: "string", description: "70 to 110 words." },
     dm_long: { type: "string", description: "260 to 380 words, with four numbered steps." },
     why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
@@ -1541,7 +1541,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
-- The public reply is exactly two lines: line one is a specific, useful observation about their situation; line two gives them one concrete free thing tied to it and says the detail is in their DM. No link, no price, no "I'm a developer".
+- The public reply is exactly two SHORT lines, at most 35 words in total — it sits under a Reddit post, so brevity is the whole point. Line one (under 18 words): one specific observation that proves you read their post, in their own words. Line two (under 17 words): the one free thing tied to it, and that the detail is in their DM. No link, no price, no "I'm a developer", no greeting.
 - Both DMs: open "Hi ${m.name}," then their situation, then the real advice, then the offer (below), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". The short DM uses the short offer; the long one uses the full offer.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
   const user = `THE POST
@@ -1577,6 +1577,7 @@ HEAT.huntAiClean = function (out) {
   let pub = str(out.public_reply).split("\n").map((l) => l.trim()).filter(Boolean);
   if (pub.length > 2) pub = [pub[0], pub.slice(1).join(" ")];
   if (pub.length < 2 || /https?:\/\/|\$\s?\d|€\s?\d|£\s?\d/.test(pub.join(" "))) return null;
+  if (pub.join(" ").split(/\s+/).length > 55) return { tooLong: true };   // caller asks again, shorter
   const dm_short = str(out.dm_short), dm_long = str(out.dm_long);
   if (dm_short.length < 180 || dm_long.length < 700) return null;
   return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300) };

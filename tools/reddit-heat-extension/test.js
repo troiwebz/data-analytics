@@ -287,7 +287,7 @@ console.log("synopsis, names, dm sizes: ok");
 // AI prompt: built from the post, offer and contact line passed through
 const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
 const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
-assert.ok(pr.system.includes("Noah") && pr.system.includes("value bomb") && pr.system.includes("exactly two lines"));
+assert.ok(pr.system.includes("Noah") && pr.system.includes("value bomb") && pr.system.includes("exactly two SHORT lines"));
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane") === false);
 assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the instructions");
 assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
@@ -302,6 +302,8 @@ assert.strictEqual(H.huntAiClean({ ...good, public_reply: "costs $500\nline two"
 assert.strictEqual(H.huntAiClean({ ...good, dm_long: "short" }), null);
 assert.strictEqual(H.huntAiClean(good).public_reply.split("\n").length, 2);
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "a\nb\nc" }).public_reply, "a\nb c", "three lines fold into two");
+assert.ok(pr.system.includes("at most 35 words") && pr.schema.properties.public_reply.description.includes("35 words"), "the public reply is told to be short");
+assert.deepStrictEqual(H.huntAiClean({ ...good, public_reply: ("word ".repeat(40)).trim() + "\n" + ("word ".repeat(30)).trim() }), { tooLong: true }, "a long public reply is sent back for a shorter one");
 console.log("ai prompt + cleaner: ok");
 
 // inbox: prompt, cleaner, template fallback
