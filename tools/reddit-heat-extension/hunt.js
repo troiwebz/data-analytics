@@ -468,8 +468,8 @@ function renderThread() {
   $("draftNote").textContent = d && d.note ? d.note : "";
   $("draft").value = d ? d.reply : "";
   $("draftRedo").hidden = !d || engine() === "templates";
-  $("sentByHand").hidden = !t.manual;
-  $("goReply").textContent = t.manual ? "Copy + open their chat ↗" : "Open the reply, filled in ↗";
+  $("sentByHand").hidden = !(t.manual || t.chat);
+  $("goReply").textContent = t.chat ? "Fill the reply in Chat ↗" : t.manual ? "Copy + open their chat ↗" : "Open the reply, filled in ↗";
   $("draftState").textContent = d ? (d.engine === "claude" ? `written by Claude${d.cents ? " · " + d.cents + "¢" : ""}` : d.engine === "chrome" ? "written by Chrome, on-device" : "template") : (draftBusy === t.id ? "writing…" : "");
   $("draftState").style.color = d ? "#7ee29a" : "#e6c76b";
 }
@@ -500,6 +500,12 @@ $("goReply").onclick = async () => {
   const t = curThread; if (!t) return;
   const text = $("draft").value;
   await copyText(text);
+  if (t.chat) {
+    const r = await send({ type: "chat-fill", with: t.with, text });
+    $("draftState").textContent = r && r.ok ? "filled in Chat — read it there and press send" : "could not fill: " + ((r && r.error) || "no answer") + " (it is on your clipboard)";
+    $("draftState").style.color = r && r.ok ? "#7ee29a" : "#ff8a65";
+    return;
+  }
   if (t.manual) { window.open("https://chat.reddit.com/user/" + encodeURIComponent(t.with), "_blank"); return; }   // chat: paste with ⌘V
   const last = [...t.messages].reverse().find((m) => !m.mine) || t.messages[t.messages.length - 1];
   await chrome.storage.local.set({ pendingMessage: { threadId: t.id, replyTo: last && last.id, text, at: Date.now() } });
@@ -507,6 +513,19 @@ $("goReply").onclick = async () => {
 };
 $("copyReply").onclick = () => copyText($("draft").value, $("copyReply"));
 $("sentByHand").onclick = async () => { if (!curThread) return; await send({ type: "inbox-mine", id: curThread.id, body: $("draft").value }); curThread = null; inboxRefresh(); renderThread(); };
+$("openChat").onclick = () => send({ type: "chat-open" });
+$("chatDump").onclick = async () => {
+  const d = await send({ type: "chat-dump" });
+  const s = JSON.stringify(d, null, 1);
+  await copyText(s, $("chatDump"));
+  $("chatStatus").textContent = d && d.error ? d.error : `copied · composer: ${d.composer} · with: ${d.with || "?"} · ${d.messages.length} messages seen`;
+};
+async function chatStatus() {
+  const s = await send({ type: "chat-status" });
+  if (!s) return;
+  $("chatStatus").textContent = s.open ? `Chat tab open${s.seen ? " · last read " + ago(s.seen) : " · nothing read yet — open a conversation in it"}` : "no Chat tab — click Open Reddit Chat and keep it open";
+  $("chatStatus").style.color = s.open ? "" : "#ff8a65";
+}
 $("openAdd").onclick = () => { $("addBox").hidden = !$("addBox").hidden; $("planBox").hidden = true; };
 $("addGo").onclick = async () => {
   const r = await send({ type: "inbox-add", with: $("addUser").value, body: $("addBody").value });
@@ -600,9 +619,10 @@ document.addEventListener("keydown", (e) => {
   checkAhead();
   showVersion();
   updBackground();
-  inboxRefresh();
+  inboxRefresh(); chatStatus();
   send({ type: "inbox-poll" }).then(inboxRefresh);
-  setInterval(() => send({ type: "inbox-poll" }).then(inboxRefresh), 60000);
+  setInterval(() => { send({ type: "inbox-poll" }).then(inboxRefresh); chatStatus(); }, 60000);
+  setInterval(inboxRefresh, 10000);
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

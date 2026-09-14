@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddit Lead Threads (private)",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "description": "Scrapes the Reddit pages you browse (listings, searches, threads), walks next pages and threads for you, matches hundreds of keywords, scores every thread on lead evidence, and saves a CSV. Optional background crawler.",
   "permissions": [
     "storage",
@@ -15,6 +15,7 @@
     "https://old.reddit.com/*",
     "https://www.reddit.com/*",
     "https://oauth.reddit.com/*",
+    "https://chat.reddit.com/*",
     "https://api.anthropic.com/*"
   ],
   "background": {
@@ -45,6 +46,15 @@
       ],
       "js": [
         "prefill-new.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.reddit.com/*"
+      ],
+      "js": [
+        "chat-bridge.js"
       ],
       "run_at": "document_idle"
     }

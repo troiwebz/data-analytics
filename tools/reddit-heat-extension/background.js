@@ -121,6 +121,11 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+  if (msg.type === "chat-observe") { chatObserve(msg.with, msg.messages).then(reply); return true; }
+  if (msg.type === "chat-fill") { chatFill(msg.with, msg.text).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "chat-open") { chatTab(true).then((t) => { chrome.tabs.update(t.id, { active: true }); reply({ ok: true }); }); return true; }
+  if (msg.type === "chat-status") { (async () => { const t = await chatTab(false); const { inbox = {} } = await chrome.storage.local.get(["inbox"]); reply({ open: !!t, url: t && t.url, seen: inbox.chatSeen || 0 }); })(); return true; }
+  if (msg.type === "chat-dump") { (async () => { const t = await chatTab(false); if (!t) return reply({ error: "no Chat tab open" }); try { reply(await chrome.tabs.sendMessage(t.id, { type: "chat-dump" })); } catch (e) { reply({ error: "the Chat tab did not answer — reload it" }); } })(); return true; }
   if (msg.type === "inbox-add") { inboxAdd(msg.with, msg.body).then(reply); return true; }
   if (msg.type === "inbox-mine") { inboxNoteMine(msg.id, msg.body).then(reply); return true; }
   if (msg.type === "inbox-act") { inboxAct(msg.id, msg.action, msg.patch).then(reply); return true; }
@@ -1045,4 +1050,59 @@ async function inboxAiWrite(id, force) {
   t.draft = draft;
   await inboxSet({ threads: st.threads });
   return { ok: true, draft };
+}
+
+
+// ===========================================================================
+// REDDIT CHAT: what the bridge in the chat.reddit.com tab sees
+// ===========================================================================
+async function chatObserve(withUser, messages) {
+  const user = String(withUser || "").replace(/^\/?u\//, "").trim();
+  if (!user || !messages || !messages.length) return { ok: false };
+  const st = await inboxGet();
+  const hunt = await huntGet();
+  const id = "chat_" + user.toLowerCase();
+  const post = Object.values(hunt.posts).find((p) => (p.author || "").toLowerCase() === user.toLowerCase());
+  const t = st.threads[id] || (st.threads[id] = { id, with: user, subject: "", messages: [], lastAt: 0, handled: false, postId: post ? post.id : "", unread: 0, chat: true });
+  if (!t.postId && post) t.postId = post.id;
+  let added = 0;
+  for (const m of messages) {
+    const body = String(m.body || "").trim();
+    if (!body) continue;
+    if (t.messages.some((x) => x.mine === !!m.mine && x.body === body)) continue;
+    t.messages.push({ id: "c_" + Date.now() + "_" + added, author: m.mine ? (st.me || "me") : (m.author || user), mine: !!m.mine, body, at: Date.now() - (messages.length - messages.indexOf(m)) * 1000 });
+    added += 1;
+    if (!m.mine) { t.handled = false; t.draft = null; }
+  }
+  if (added) {
+    const last = t.messages[t.messages.length - 1];
+    t.needsReply = !!(last && !last.mine && !t.handled);
+    t.lastAt = Date.now();
+    await inboxSet({ threads: st.threads, lastPoll: Date.now(), lastError: "", chatSeen: Date.now() });
+  }
+  return { ok: true, added };
+}
+
+async function chatTab(create) {
+  const tabs = await chrome.tabs.query({ url: "https://chat.reddit.com/*" });
+  if (tabs.length) return tabs[0];
+  if (!create) return null;
+  const tab = await chrome.tabs.create({ url: "https://chat.reddit.com/", active: true, pinned: true });
+  await new Promise((done) => { const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } }; chrome.tabs.onUpdated.addListener(on); setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000); });
+  return tab;
+}
+
+// Put the drafted reply into Chat's box for this person, and show that tab.
+async function chatFill(withUser, textToFill) {
+  const tab = await chatTab(true);
+  const want = "https://chat.reddit.com/user/" + encodeURIComponent(withUser);
+  if (!(tab.url || "").toLowerCase().includes("/user/" + withUser.toLowerCase())) {
+    await chrome.tabs.update(tab.id, { url: want, active: true });
+    await new Promise((done) => { const on = (id, info) => { if (id === tab.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } }; chrome.tabs.onUpdated.addListener(on); setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); done(); }, 15000); });
+    await sleep(1500);
+  } else {
+    await chrome.tabs.update(tab.id, { active: true });
+  }
+  try { return await chrome.tabs.sendMessage(tab.id, { type: "chat-fill", text: textToFill }); }
+  catch (e) { return { ok: false, error: "the Chat tab did not answer — reload it and try again" }; }
 }
