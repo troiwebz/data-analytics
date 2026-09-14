@@ -6,7 +6,18 @@
 # stdout is the protocol channel, so nothing else may print to it. Framing is
 # done with perl (present on every Mac) because macOS ships bash 3.2, which
 # cannot emit NUL bytes from printf.
-HERE="$(cd "$(dirname "$0")" && pwd)"
+# Running update.sh overwrites THIS file while bash is still reading it, which
+# kills the host mid-run. So the first thing we do is run from a throwaway copy.
+if [ "$RLT_HOST_SELF" != "1" ]; then
+  export RLT_HOST_SELF=1
+  export RLT_HOST_HOME="$(cd "$(dirname "$0")" && pwd)"
+  SELF="$(mktemp "${TMPDIR:-/tmp}/rlt-host.XXXXXX")"
+  cat "$0" > "$SELF"
+  bash "$SELF" "$@"; CODE=$?
+  rm -f "$SELF"
+  exit $CODE
+fi
+HERE="${RLT_HOST_HOME:-$(cd "$(dirname "$0")" && pwd)}"
 export LC_ALL=C
 exec 2>>"$HERE/native-host.log"
 echo "--- $(date '+%Y-%m-%d %H:%M:%S') host started (bash $BASH_VERSION)" >&2
