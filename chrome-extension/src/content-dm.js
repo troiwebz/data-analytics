@@ -49,8 +49,7 @@
     // Body: same editor as a thread reply.
     const rich = pick(S.richEditor, form);
     const plain = pick(S.plainTextarea, form);
-    const html = String(body || '').split(/\n{2,}/)
-      .map((p) => `<p>${p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>`).join('');
+    const html = globalThis.HAF_HTML(body);
 
     if (rich) {
       rich.focus();

@@ -32,10 +32,7 @@
   function insert(form) {
     const rich = pick(S.richEditor, form);
     const plain = pick(S.plainTextarea, form);
-    const html = draft
-      .split(/\n{2,}/)
-      .map((p) => `<p>${p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>`)
-      .join('');
+    const html = globalThis.HAF_HTML(draft);
 
     if (rich) {
       rich.focus();

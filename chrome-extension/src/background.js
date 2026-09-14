@@ -343,7 +343,7 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
       const done = () => { clearTimeout(timer); chrome.runtime.onMessage.removeListener(onMsg); };
       chrome.runtime.onMessage.addListener(onMsg);
     });
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/selectors.js', 'src/content-dm.js'] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/selectors.js', 'src/content-lib.js', 'src/content-dm.js'] });
     const result = await pending;
 
     if (result.ok && result.sent) {
@@ -410,7 +410,7 @@ export async function runInThread(lead, mode, opts = {}) {
       args: [lead.draft || '', mode, String(lead.threadId)]
     });
     const pending = waitForResult(lead.threadId);
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['src/selectors.js', 'src/content-post.js'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['src/selectors.js', 'src/content-lib.js', 'src/content-post.js'] });
     const result = await pending;
     return { ...result, tabId };
   } catch (e) {

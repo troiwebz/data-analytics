@@ -35,8 +35,12 @@ export function renderDm(lead, cfg) {
  */
 function forPm(reply) {
   return String(reply)
+    // The PM has its own greeting.
     .replace(/^\s*(hi|hey|hello)\b[^\n]*\n+/i, '')
+    // "PMing you now" makes no sense to someone reading the PM.
     .replace(/\s*\b(dropping you a pm|sending (?:you )?a pm|pming you(?: the details| now)?)\b[^.\n]*\.?/gi, '')
+    // The PM closes with the portfolio offer — don't say it twice.
+    .replace(/^[^\n]*\b(portfolio|samples|case studies|client results|live examples)\b[^\n]*$/gim, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
