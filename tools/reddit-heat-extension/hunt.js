@@ -240,7 +240,15 @@ async function copyText(text, btn) {
 }
 
 // One click: the text is on the clipboard and the page is open. Paste and go.
-$("goPost").onclick = async () => { if (!cur) return; await copyText($("short").value); window.open(cur.permalink, "_blank"); };
+// Open the thread with the reply already sitting in Reddit's comment box.
+$("goPost").onclick = async () => {
+  if (!cur) return;
+  const text = $("short").value;
+  await copyText(text);                                   // fallback if the box cannot be found
+  await chrome.storage.local.set({ pendingReply: { id: cur.id, permalink: cur.permalink, text, variant, at: Date.now() } });
+  const path = cur.permalink.replace(/^https?:\/\/[^/]+/, "");
+  window.open("https://old.reddit.com" + path, "_blank");   // old.reddit: the box is a plain textarea we can fill
+};
 $("goDm").onclick = async () => { if (!cur) return; await copyText($("dm").value); window.open(huntComposeUrl(cur, $("dm").value), "_blank"); };
 $("copyShort").onclick = () => copyText($("short").value, $("copyShort"));
 $("copyDm").onclick = () => copyText($("dm").value, $("copyDm"));

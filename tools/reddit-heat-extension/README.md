@@ -10,7 +10,7 @@ Every minute it checks a rotating handful of subreddits where people ask for a p
 
 Then it is the same three moves, one post at a time:
 
-1. **Copy + open the post ↗** — one click puts the two-line reply on your clipboard and opens the thread. Paste, post. Two lines only: one observation about their exact situation, one free useful thing plus "sent it to your DMs". No link, no price, no pitch.
+1. **Open the post, reply filled in ↗** — one click opens the thread on old.reddit.com with the two-line reply already sitting in Reddit's comment box, highlighted, cursor in it. Read it, edit if you like, click Reddit's own **save**. The post is marked *replied* the moment you do — no button to press afterwards. (The text is also on your clipboard, in case the thread is locked or you are logged out.) Two lines only: one observation about their exact situation, one free useful thing plus "sent it to your DMs". No link, no price, no pitch.
 2. **Copy + open the DM ↗** — one click copies the letter and opens Reddit's compose window with subject and body already filled. Pick the length first: **Short** (five lines), **Medium** (diagnosis plus three steps), **Long** (the full Laurel Portié letter). Read it, edit it, send it.
 3. **Posted the reply** (`1`), **Sent the DM** (`2`), **Skip** (`s`), **Not relevant** (`x`). Sending moves you to the next post.
 

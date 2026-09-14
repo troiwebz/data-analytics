@@ -208,3 +208,46 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     .catch((e) => reply({ ok: false, error: String(e.message || e) }));
   return true;
 });
+
+// ---------------------------------------------------------------------------
+// Pre-filled reply. The hunt page stores the text it wants posted and opens
+// the thread; here we put it in Reddit's own comment box, highlighted, with
+// the cursor in it. You read it and click Reddit's "save". The click is yours.
+// When the form is submitted, the post is marked replied on the hunt page.
+// ---------------------------------------------------------------------------
+(async function prefillReply() {
+  if (!/\/comments\/[a-z0-9]+/i.test(location.pathname)) return;
+  const { pendingReply } = await chrome.storage.local.get(["pendingReply"]);
+  if (!pendingReply || !pendingReply.text) return;
+  const idOf = (u) => ((u || "").match(/\/comments\/([a-z0-9]+)/i) || [])[1];
+  if (idOf(pendingReply.permalink) !== idOf(location.pathname)) return;
+  if (Date.now() - (pendingReply.at || 0) > 20 * 60000) { chrome.storage.local.remove("pendingReply"); return; }
+
+  const ta = document.querySelector(".commentarea > .usertext .usertext-edit textarea, .commentarea form.usertext textarea");
+  const note = document.createElement("div");
+  note.style.cssText = "margin:8px 0;padding:8px 12px;border-radius:8px;background:#ff5722;color:#fff;font:13px/1.4 -apple-system,Segoe UI,sans-serif;font-weight:600";
+  if (!ta) {
+    note.textContent = "Reddit Lead Threads: no comment box here (logged out, or locked thread). The reply is on your clipboard.";
+    (document.querySelector(".commentarea") || document.body).prepend(note);
+    return;
+  }
+  const form = ta.closest("form");
+  ta.value = pendingReply.text;
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+  ta.dispatchEvent(new Event("change", { bubbles: true }));
+  ta.style.outline = "3px solid #ff5722";
+  ta.style.minHeight = "110px";
+  note.textContent = "Reply pre-filled from the hunt. Read it, edit if you like, then click save below. It is marked as replied the moment you do.";
+  form.parentNode.insertBefore(note, form);
+  ta.scrollIntoView({ block: "center" });
+  ta.focus();
+  const marked = () => {
+    chrome.runtime.sendMessage({ type: "hunt-act", id: pendingReply.id, action: "replied", variant: pendingReply.variant });
+    note.textContent = "Posted. Marked as replied on the hunt page — go back and send the DM.";
+    note.style.background = "#2ea043";
+  };
+  form.addEventListener("submit", marked, { once: true });
+  const btn = form.querySelector("button[type=submit], .usertext-buttons button");
+  if (btn) btn.addEventListener("click", marked, { once: true });
+  chrome.storage.local.remove("pendingReply");
+})();
