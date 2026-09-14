@@ -305,7 +305,7 @@ assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is p
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
 assert.ok(pr.system.includes("never offer free work"), "no free work in the instructions");
-assert.strictEqual(pr.schema.required.length, 6, "three answers, why, and the fit verdict");
+assert.strictEqual(pr.schema.required.length, 7, "the concept card, three answers, why, and the fit verdict"); assert.strictEqual(pr.schema.required[0], "concept", "the card is filled before the replies");
 // cleaner: rejects links, prices, one-liners, stubs
 const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
 assert.ok(H.huntAiClean(good));

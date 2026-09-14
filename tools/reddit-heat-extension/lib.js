@@ -1618,9 +1618,39 @@ HEAT.huntComposeUrl = function (p, body) {
 // A language model reads the actual post and writes to it. The prompt is
 // built here (pure, testable); the request is made in background.js.
 // ===========================================================================
+// What the founder is actually building, in their words. Filled BEFORE the
+// replies are written; the replies must be built from it.
+HEAT.CONCEPT_TYPES = ["marketplace", "saas", "consumer_app", "hardware", "service_agency", "community_content", "other"];
+HEAT.CONCEPT_SCHEMA = {
+  type: "object",
+  properties: {
+    product: { type: "string", description: "What they are building, in their own words, under 12 words." },
+    customer: { type: "string", description: "Who it is for, in their words." },
+    problem: { type: "string", description: "The problem it solves, in their words." },
+    stage_now: { type: "string", description: "What exists today: idea / mockups / MVP / users / revenue, with the numbers they gave." },
+    missing: { type: "string", description: "What they say is missing or what they are asking for." },
+    type: { type: "string", enum: HEAT.CONCEPT_TYPES },
+    phrases: { type: "array", items: { type: "string" }, description: "Two or three short phrases quoted VERBATIM from the post (3 to 12 words each) that a reply should echo." },
+    biggest_unknown: { type: "string", description: "The one thing they most need to find out next, from what they wrote." },
+  },
+  required: ["product", "customer", "problem", "stage_now", "missing", "type", "phrases", "biggest_unknown"],
+  additionalProperties: false,
+};
+// One concrete first move per concept type: the "useful thought" is picked
+// from here and adapted to the card, so it is specific and correct.
+HEAT.PLAYBOOK = {
+  marketplace: ["Fill the supply side by hand before spending anything on demand: twenty providers you personally onboarded beat a launch.", "Run the first ten transactions manually (you are the matching engine) and only build what those ten needed.", "Pick one city or one niche; a marketplace that is thin everywhere is empty everywhere."],
+  saas: ["Get five paying customers on a manual version before automating; their first month tells you the real feature list.", "Charge from day one, even a small amount; free users tell you nothing about the product.", "Watch churn before growth: one lost customer interviewed is worth more than ten new sign-ups."],
+  consumer_app: ["Find one community where the first hundred users already gather and be useful there by hand before any store launch.", "Cut to the single action that gives value in the first minute; accounts, settings and social can wait.", "Measure day-seven return rate before spending on installs; installs without return are rented, not owned."],
+  hardware: ["Sell ten units of a hand-built version before tooling; a pre-order with money down is the only real validation.", "Separate the risky part (the sensor, the battery, the compliance) and test it alone first.", "Write the unit cost at 1,000 units now; most hardware ideas die on that line, not on the prototype."],
+  service_agency: ["Productise one offer with a fixed price and a fixed deliverable; 'we do everything' sells nothing.", "Land the first three clients from your own network before any marketing; their results are the marketing.", "Write the delivery checklist once so the second client costs half the first."],
+  community_content: ["Run it manually for 90 days (one channel, one format, one cadence) before building anything.", "Pick the one metric that means it is alive (replies, not members) and post that weekly.", "Monetise the smallest thing people already ask you for, not a course you have not written."],
+  other: ["Write the one sentence a user would say after using it; everything gets judged against that sentence.", "Try to sell it once, manually, to one real buyer before building anything else.", "Find out who already pays for the workaround today; that is the customer and the price."],
+};
 HEAT.AI_SCHEMA = {
   type: "object",
   properties: {
+    concept: HEAT.CONCEPT_SCHEMA,
     public_reply: { type: "string", description: "Exactly two lines separated by one newline. Line one: ONE specific, useful solution or observation for their exact situation, under 25 words, in their own terms. Line two: exactly the text \"Check your DM.\" No links, no prices, no pitch, no greeting." },
     dm_short: { type: "string", description: "70 to 110 words. An introduction, not a letter." },
     dm_long: { type: "string", description: "130 to 190 words. An introduction with one useful thought and how we work; no numbered plan." },
@@ -1628,7 +1658,7 @@ HEAT.AI_SCHEMA = {
     fit: { type: "string", enum: ["yes", "no"], description: "yes only if the poster is a founder who might hire a partner team (paid, income share). no if they are offering themselves, recruiting for a job, selling a service, a student project, or otherwise not someone who would pay a team." },
     fit_reason: { type: "string", description: "Under 15 words: why yes or no." },
   },
-  required: ["public_reply", "dm_short", "dm_long", "why", "fit", "fit_reason"],
+  required: ["concept", "public_reply", "dm_short", "dm_long", "why", "fit", "fit_reason"],
   additionalProperties: false,
 };
 
@@ -1641,7 +1671,17 @@ HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
 
 FIRST, DECIDE FIT. We only want founders who might HIRE a partner team — they have a product or idea they own and need it built or grown, and could pay to start. Set fit = "no" and explain in fit_reason when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "ideal fit:", "what I bring"), is recruiting for a salaried job, is selling a service, is a student project with no path to paying, or is asking for something we do not do. When fit is "no", still fill the other fields briefly, but nobody will read them.
 
+WORK IN THIS ORDER. Step 1: fill the CONCEPT card from the post alone, quoting two or three of their phrases verbatim. Step 2: pick the concept type and take ONE move from the PLAYBOOK for that type; adapt it to their product, stage and numbers — that adapted move is the "useful thought" in the replies. Step 3: write, building every sentence from the card.
+
+PLAYBOOK (one move per type; adapt it, never paste it)
+${Object.entries(HEAT.PLAYBOOK).map(([k, v]) => k + ": " + v.map((x, i) => (i + 1) + ") " + x).join(" ")).join("\n")}
+
 Rules that make the reply feel written for THIS post and nobody else:
+- The first line of the DM after the greeting names their product in THEIR words (the card's product), never "your app" or "your startup".
+- Quote at least two of the card's phrases verbatim inside the DMs, in quotation marks, where they fit naturally.
+- End every DM, just before the contact line, with ONE question about the card's biggest_unknown, in their terms — not a generic "does that work for you".
+- If COMMENTS ON THE THREAD are given, do not offer what others already offered there, and address any pushback the founder wrote in them.
+- If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in r/SaaS that…"), only when it truly fits.
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
@@ -1659,7 +1699,7 @@ ${(p.body || "(no body)").slice(0, compact ? 2500 : 6000)}
 
 WHAT WE READ FROM IT (may be wrong; trust the post over this)
 Wants: ${s.wants}. Who: ${s.who}. Country: ${s.country || "not stated"}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + ". " : ""}${s.commit ? "Time: " + s.commit + "." : ""}
-
+${HEAT.huntContextText(p, compact)}
 THE DEAL SHAPE: ${m.shape.label}. Present exactly this shape, no other.
 
 HOW WE WORK, short (for dm_short)
@@ -1693,7 +1733,68 @@ HEAT.huntAiClean = function (out) {
   pub = [first, HEAT.PUBLIC_CLOSE];
   const dm_short = str(out.dm_short), dm_long = str(out.dm_long);
   if (dm_short.length < 180 || dm_long.length < 450) return null;
-  return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300), fit: out.fit === "no" ? "no" : "yes", fit_reason: str(out.fit_reason).slice(0, 200) };
+  const c = out.concept && typeof out.concept === "object" ? out.concept : null;
+  const concept = c ? { product: str(c.product).slice(0, 120), customer: str(c.customer).slice(0, 120), problem: str(c.problem).slice(0, 200), stage_now: str(c.stage_now).slice(0, 160), missing: str(c.missing).slice(0, 160), type: HEAT.CONCEPT_TYPES.includes(c.type) ? c.type : "other", phrases: (Array.isArray(c.phrases) ? c.phrases : []).map((x) => str(x).slice(0, 120)).filter(Boolean).slice(0, 3), biggest_unknown: str(c.biggest_unknown).slice(0, 200) } : null;
+  const both = (dm_short + "\n" + dm_long).toLowerCase();
+  const quoted = concept ? concept.phrases.filter((ph) => ph.length >= 6 && both.includes(ph.toLowerCase())) : [];
+  return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300), fit: out.fit === "no" ? "no" : "yes", fit_reason: str(out.fit_reason).slice(0, 200), concept, quoted, generic: !!concept && concept.phrases.length > 0 && quoted.length === 0 };
+};
+
+// Comments on the thread and the author's other posts, as text for the prompt
+// (read through the pinned tab, cached on the post; both optional).
+HEAT.huntContextText = function (p, compact) {
+  const ctx = p.ctx || {};
+  const parts = [];
+  if (Array.isArray(ctx.comments) && ctx.comments.length) {
+    parts.push("COMMENTS ON THE THREAD (what others already offered; the founder's own replies matter most)");
+    for (const c of ctx.comments.slice(0, compact ? 4 : 8)) parts.push(`- ${c.author}${c.op ? " (the founder)" : ""}: ${String(c.body || "").slice(0, compact ? 160 : 260)}`);
+    parts.push("");
+  }
+  if (Array.isArray(ctx.author) && ctx.author.length) {
+    parts.push("THE AUTHOR ELSEWHERE (their other recent posts and comments)");
+    for (const a of ctx.author.slice(0, compact ? 3 : 6)) parts.push(`- r/${a.sub}: ${String(a.text || "").slice(0, compact ? 140 : 220)}`);
+    parts.push("");
+  }
+  return parts.join("\n");
+};
+
+// The polish pass: a second, cheaper model reads the post and the drafts and
+// rewrites only the sentences that could have been sent to anyone.
+HEAT.POLISH_SCHEMA = {
+  type: "object",
+  properties: {
+    generic: { type: "array", items: { type: "string" }, description: "Each sentence in the drafts that carries no detail from this post (could be sent to any founder). Empty if none." },
+    public_reply: { type: "string", description: "The public reply, two lines: the (rewritten if needed) first line, then exactly 'Check your DM.'" },
+    dm_short: { type: "string", description: "dm_short with only the generic sentences rewritten; everything else word for word." },
+    dm_long: { type: "string", description: "dm_long with only the generic sentences rewritten; everything else word for word." },
+  },
+  required: ["generic", "public_reply", "dm_short", "dm_long"],
+  additionalProperties: false,
+};
+HEAT.huntPolishPrompt = function (p, ai) {
+  const c = ai.concept || {};
+  const system = `You are the editor of Reddit replies written to a founder. Your only job: find every sentence in the drafts that could have been sent to ANY founder — it carries no detail from this post — and rewrite that sentence so it uses a specific detail from the post or the concept card (their product name in their words, a number they gave, their customer, their stage, a phrase of theirs in quotation marks). Keep every other sentence word for word. Never touch the greeting line, the paragraph that starts "How we work", the contact line, or the sign-off. Keep each text about the same length. Keep the public reply's first line under 25 words and its second line exactly "Check your DM.". No marketing words, no compliments, no new promises, no prices.`;
+  const user = `THE POST
+Title: ${p.title || ""}
+Body:
+${(p.body || "(no body)").slice(0, 5000)}
+
+CONCEPT CARD
+Product: ${c.product || "?"} · Customer: ${c.customer || "?"} · Problem: ${c.problem || "?"} · Today: ${c.stage_now || "?"} · Missing: ${c.missing || "?"} · Biggest unknown: ${c.biggest_unknown || "?"}
+Their phrases: ${(c.phrases || []).map((x) => '"' + x + '"').join(", ") || "none"}
+
+DRAFTS
+public_reply:
+${ai.public_reply}
+
+dm_short:
+${ai.dm_short}
+
+dm_long:
+${ai.dm_long}
+
+List the generic sentences, then return all three texts with only those sentences rewritten.`;
+  return { system, user, schema: HEAT.POLISH_SCHEMA };
 };
 
 // ===========================================================================
