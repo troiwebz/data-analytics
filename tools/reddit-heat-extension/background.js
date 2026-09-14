@@ -781,6 +781,18 @@ async function huntQueue(limit = 40) {
     list.push({ ...p, score: huntScore(p, now) });
   }
   list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || b.score - a.score);
+  // One card per person: the same founder cross-posts to several subreddits.
+  // Keep the best-fit post, remember the others as "also posted in".
+  const seenAuthor = {};
+  const collapsed = [];
+  let dupes = 0;
+  for (const p of list) {
+    const k = (p.author || "").toLowerCase();
+    if (k && seenAuthor[k]) { seenAuthor[k].also = (seenAuthor[k].also || []).concat([{ sub: p.sub, permalink: p.permalink, id: p.id }]); dupes += 1; continue; }
+    if (k) seenAuthor[k] = p;
+    collapsed.push(p);
+  }
+  list.length = 0; list.push(...collapsed);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const yday = today.getTime() - 86400000;
   const contacted = Object.values(st.contacted);
@@ -793,7 +805,7 @@ async function huntQueue(limit = 40) {
   return {
     queue: list.slice(0, limit),
     total: list.length,
-    blocked, later, doneToday, doneYesterday, newSince, lastDone,
+    blocked, later, dupes, doneToday, doneYesterday, newSince, lastDone,
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -829,6 +841,8 @@ async function huntAct(id, action, variant) {
   const now = Date.now();
   if (action === "skip" || action === "not_relevant") p.act = action;
   if (action === "later") { const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(7, 0, 0, 0); p.laterUntil = t.getTime(); }
+  const sameAuthor = Object.values(st.posts).filter((q) => q.id !== id && (q.author || "").toLowerCase() === (p.author || "").toLowerCase());
+  if (action === "skip" || action === "not_relevant" || action === "later") for (const q of sameAuthor) { if (action === "later") q.laterUntil = p.laterUntil; else q.act = action; }
   if (action === "replied") { p.repliedAt = now; p.usedVariant = variant; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
   if (action === "dm") {
     p.dmAt = now;

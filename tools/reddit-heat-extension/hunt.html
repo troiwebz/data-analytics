@@ -76,7 +76,8 @@
   .thr.needs b::before { content:"● "; color:var(--or); }
   .msg { padding:8px 10px; margin:6px 0; border-radius:8px; background:#12151c; font-size:13px; white-space:pre-wrap; }
   .msg.mine { background:#1a2230; margin-left:40px; } .msg small { display:block; color:var(--dim); margin-bottom:3px; font-size:11px; }
-  tr.done td { text-decoration: line-through; opacity:.6; } tr.done td.when { text-decoration:none; opacity:1; }
+  tr.done td { text-decoration: line-through; opacity:.6; } tr.done td.when, tr.done td.mark { text-decoration:none; opacity:1; }
+  #progFill { background: var(--ok); }
   .thr.filled b { text-decoration: line-through; opacity:.55; } .thr.filled span { opacity:.6; }
   body.light { --bg:#f4f5f7; --card:#ffffff; --line:#dfe3ea; --fg:#17191c; --dim:#5b6472; }
   body.light header { background:#ffffff; }
@@ -117,6 +118,12 @@
 </header>
 
 <main>
+  <!-- today's progress: done grows, to-go shrinks; the bar fills -->
+  <div id="prog" class="card" style="margin-bottom:16px;padding:10px 16px">
+    <div class="row" style="margin:0;justify-content:space-between"><b id="progText">Today: 0 done · 0 to go</b><span class="foot" id="progSub" style="margin:0"></span></div>
+    <div class="bar" style="margin-top:6px"><div id="progFill"></div></div>
+  </div>
+
   <!-- the update strip: what the updater is doing, live -->
   <div id="upd" class="card" hidden style="margin-bottom:16px;padding:12px 16px">
     <div class="row" style="margin:0;justify-content:space-between"><b id="updTitle">Updating…</b><button id="updClose" class="ghost" style="padding:2px 8px">hide</button></div>

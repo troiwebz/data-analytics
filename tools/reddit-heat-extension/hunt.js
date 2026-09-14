@@ -32,7 +32,8 @@ function render() {
     p.hasBudget ? '<span class="tag money">has money</span>' : "",
     p.equityOnly ? '<span class="tag equity">equity only</span>' : "",
   ].filter(Boolean).join(" ");
-  $("meta").innerHTML = `r/${p.sub} · ${esc(p.author)} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments · fit ${p.score} ${tags}`;
+  const also = (p.also || []).map((a) => `<a href="${esc(a.permalink)}" target="_blank" style="color:#8ab4ff">r/${esc(a.sub)}</a>`).join(", ");
+  $("meta").innerHTML = `r/${p.sub} · ${esc(p.author)} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments · fit ${p.score} ${tags}${also ? ` · <span class="tag" title="the same person cross-posted; one card, the rest hidden">also in ${also}</span>` : ""}`;
   $("body").textContent = p.body || "(no body text)";
 
   // the reading of the post, under the post
@@ -194,8 +195,13 @@ async function refresh(keepCurrent = true) {
   $("sQueue").textContent = r.total;
   $("sToday").textContent = r.contactedToday;
   $("sEver").textContent = r.contactedTotal;
-  $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "");
+  $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "") + (r.dupes ? ` · ${r.dupes} cross-posts folded` : "");
   $("sDoneToday").textContent = r.doneToday;
+  const toGo = r.total;
+  const pct = r.doneToday + toGo ? Math.round(100 * r.doneToday / (r.doneToday + toGo)) : 0;
+  $("progText").textContent = `Today: ${r.doneToday} done · ${toGo} to go`;
+  $("progFill").style.width = pct + "%";
+  $("progSub").textContent = r.doneToday ? `${pct}% of what is in front of you · ${r.contactedToday} people contacted today${r.doneYesterday ? " · yesterday " + r.doneYesterday : ""}` : (r.doneYesterday ? `yesterday you did ${r.doneYesterday}` : "");
   const since = r.lastDone && r.doneYesterday ? `Yesterday you did ${r.doneYesterday} · ${r.newSince} new since` : r.lastDone ? `${r.newSince} new since your last one` : "";
   $("sSince").textContent = since; $("sSince").hidden = !since;
   $("sBlockedWrap").title = "posts hidden because you already contacted that person or already replied in the thread";
@@ -316,10 +322,18 @@ function showTable(kind) {
     $("tableNote").textContent = "Everyone waiting, best fit first. Click a row to work on that one.";
     $("tableHead").innerHTML = "<tr><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>";
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
-    $("tableRows").innerHTML = queue.map((p) => {
+    $("tableRows").innerHTML = (queue.map((p) => {
       const s = huntSynopsis(p);
       return `<tr class="pick" data-id="${p.id}"><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
-    }).join("") || `<tr><td colspan="6" style="color:#98a0b3">Nobody waiting yet.</td></tr>`;
+    }).join("") || `<tr><td colspan="6" style="color:#98a0b3">Nobody waiting yet.</td></tr>`) + `<tr id="doneRowsAnchor"></tr>`;
+    // today's finished ones stay in the list, struck through, so the day's work is visible
+    send({ type: "hunt-done" }).then((r) => {
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const done = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime());
+      const anchor = $("doneRowsAnchor"); if (!anchor) return;
+      anchor.outerHTML = done.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Done today — ${done.length}</td></tr>` + done.map((d) => `<tr class="done"><td><b>${esc(d.title)}</b><br><span style="color:#98a0b3">r/${esc(d.sub)} · ${esc(d.author)}</span></td><td class="mark">${d.repliedAt ? "reply ✓" : ""}</td><td class="mark">${d.dmAt ? "DM ✓" : ""}</td><td></td><td class="when">${new Date(d.at).toLocaleTimeString()}</td><td></td></tr>`).join("") : "";
+      $("tableTitle").textContent = `Queue (${queue.length}) · done today ${done.length}`;
+    });
     for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
       tr.onclick = () => {
         const i = queue.findIndex((x) => x.id === tr.dataset.id);
