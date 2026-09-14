@@ -679,7 +679,7 @@ async function huntPoll(force) {
   }
   if (fromServer && fromServer.failed) await huntSet({ lastError: "server: " + fromServer.error });
   const subs = st.subs;
-  const n = Math.max(1, Math.min(8, st.perTick));
+  const n = force ? subs.length : Math.max(1, Math.min(8, st.perTick));   // Check now sweeps every subreddit
   const picks = [];
   for (let i = 0; i < n; i += 1) picks.push(subs[(st.cursor + i) % subs.length]);
   const query = HUNT_QUERIES[st.cursor % HUNT_QUERIES.length];
@@ -687,7 +687,7 @@ async function huntPoll(force) {
   urls.push(`https://old.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`);
 
   const posts = st.posts;
-  let added = 0, seen = 0, error = "", ok = 0;
+  let added = 0, seen = 0, error = "", ok = 0, known = 0, dropped = 0;
   for (const url of urls) {
     try {
       const j = await huntFetch(url);
@@ -695,23 +695,24 @@ async function huntPoll(force) {
       for (const child of (j.data && j.data.children) || []) {
         seen += 1;
         const cand = huntCandidate(child);
-        if (!cand) continue;
+        if (!cand) { dropped += 1; continue; }
         if (cand.created && Date.now() - cand.created > (st.maxAgeH + 12) * 3600000) continue;
         const prev = posts[cand.id];
-        if (prev) { prev.comments = cand.comments; prev.ups = cand.ups; continue; }
+        if (prev) { known += 1; prev.comments = cand.comments; prev.ups = cand.ups; continue; }
         posts[cand.id] = cand;
         added += 1;
       }
     } catch (e) { error = String(e.message || e); }
-    await sleep(1200);                         // stay well under Reddit's public pace
+    await sleep(force ? 700 : 1200);           // stay well under Reddit's public pace
   }
   // Forget stale, untouched candidates so the store cannot grow forever.
   const cutoff = Date.now() - HUNT_KEEP_DAYS * 86400000;
   for (const [id, p] of Object.entries(posts)) {
     if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
   }
-  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added });
-  return { ok: true, added, seen, checked: ok, error: ok ? "" : error };
+  const report = `scanned ${seen} posts in ${picks.map((x) => "r/" + x).join(", ")} + search · ${added} new co-founder ask${added === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a co-founder ask${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
+  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
+  return { ok: true, added, seen, known, dropped, checked: ok, error: ok ? "" : error, report };
 }
 
 // Your Reddit username: from Options, else asked of the logged-in tab once.
@@ -810,6 +811,7 @@ async function huntQueue(limit = 40) {
     queue: list.slice(0, limit),
     total: list.length,
     blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
+    lastReport: st.lastReport || "",
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -867,6 +869,26 @@ async function huntAct(id, action, variant) {
 // ===========================================================================
 const AI_URL = "https://api.anthropic.com/v1/messages";
 const AI_MODEL = "claude-opus-5";
+// $ per million tokens: input, output, cache write (1.25x), cache read (0.1x)
+const AI_PRICES = { "claude-opus-5": [5, 25], "claude-sonnet-5": [2, 10] };
+async function aiModel() { const { config = {} } = await chrome.storage.local.get(["config"]); const m = (config.profile || {}).aiModel; return AI_PRICES[m] ? m : AI_MODEL; }
+function aiCents(model, u) {
+  const [pin, pout] = AI_PRICES[model] || AI_PRICES[AI_MODEL];
+  const usd = ((u.input_tokens || 0) * pin + (u.cache_creation_input_tokens || 0) * pin * 1.25 + (u.cache_read_input_tokens || 0) * pin * 0.1 + (u.output_tokens || 0) * pout) / 1e6;
+  return Math.round(usd * 1000) / 10;
+}
+// The request body shared by both writers: the static system prompt is cached
+// (a prefix hit costs a tenth), fallbacks only where the model supports them.
+function aiBody(model, system, user, schema, maxTokens) {
+  const body = { model, max_tokens: maxTokens, output_config: { effort: "low", format: { type: "json_schema", schema } }, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] };
+  if (model === "claude-opus-5") body.fallbacks = "default";
+  return body;
+}
+function aiHeaders(key, model) {
+  const h = { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
+  if (model === "claude-opus-5") h["anthropic-beta"] = "server-side-fallback-2026-07-01";
+  return h;
+}
 
 async function huntAiKey() {
   const { config = {} } = await chrome.storage.local.get(["config"]);
@@ -881,6 +903,7 @@ async function huntAiWrite(id, force) {
   if (p.ai && !force && (p.ai.dealV || 0) === (inbox.dealV || 0)) return { ok: true, ai: p.ai, cached: true };
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no api key", noKey: true };
+  const model = await aiModel();
   const { system, user: user0, schema } = huntAiPrompt(p, { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } });
   const user = user0 + (force === "shorter" ? "\n\nYour previous public_reply was too long. This time keep it under 35 words in total, two short lines." : "");
 
@@ -891,21 +914,8 @@ async function huntAiWrite(id, force) {
     r = await fetch(AI_URL, {
       method: "POST",
       signal: ctl.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "server-side-fallback-2026-07-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: 3000,
-        fallbacks: "default",
-        output_config: { effort: "low", format: { type: "json_schema", schema } },
-        system,
-        messages: [{ role: "user", content: user }],
-      }),
+      headers: aiHeaders(key, model),
+      body: JSON.stringify(aiBody(model, system, user, schema, 3000)),
     });
     j = await r.json().catch(() => ({}));
   } catch (e) {
@@ -935,9 +945,9 @@ async function huntAiWrite(id, force) {
   const u = j.usage || {};
   ai.at = Date.now();
   ai.dealV = inbox.dealV || 0;
-  ai.model = j.model || AI_MODEL;
-  // Opus 5 list price: $5 in, $25 out per million tokens
-  ai.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 100 * 10) / 10;
+  ai.model = j.model || model;
+  ai.cents = aiCents(model, u);
+  ai.cached = u.cache_read_input_tokens || 0;
   p.ai = ai;
   await huntSet({ posts: st.posts });
   return { ok: true, ai };
@@ -1097,6 +1107,7 @@ async function inboxAiWrite(id, force) {
   if (t.draft && t.draft.engine === "claude" && !force) return { ok: true, draft: t.draft, cached: true };
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no api key", noKey: true };
+  const model = await aiModel();
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const hunt = await huntGet();
   const post = t.postId ? hunt.posts[t.postId] : null;
@@ -1107,8 +1118,8 @@ async function inboxAiWrite(id, force) {
   try {
     r = await fetch(AI_URL, {
       method: "POST", signal: ctl.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 2000, fallbacks: "default", output_config: { effort: "low", format: { type: "json_schema", schema } }, system, messages: [{ role: "user", content: user }] }),
+      headers: aiHeaders(key, model),
+      body: JSON.stringify(aiBody(model, system, user, schema, 2000)),
     });
     j = await r.json().catch(() => ({}));
   } catch (e) { return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than 90s" : "could not reach api.anthropic.com" }; }
@@ -1121,7 +1132,7 @@ async function inboxAiWrite(id, force) {
   if (!draft) return { ok: false, error: "the reply failed the checks" };
   const u = j.usage || {};
   draft.engine = "claude"; draft.at = Date.now();
-  draft.cents = Math.round((((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1e6) * 1000) / 10;
+  draft.cents = aiCents(model, u);
   t.draft = draft;
   applyVerdict(t, draft, st.deal);
   await inboxSet({ threads: st.threads });

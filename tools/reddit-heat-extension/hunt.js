@@ -215,6 +215,8 @@ async function refresh(keepCurrent = true) {
   $("sBlockedWrap").title = "posts hidden because you already contacted that person or already replied in the thread";
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
+  $("sPoll").title = r.lastReport || "";
+  if (r.lastReport && !r.lastError) $("scan").textContent = "Last check: " + r.lastReport; else if (!r.lastReport) $("scan").textContent = "";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
   $("hint").hidden = !r.lastError;
   for (const b of $("win").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.h) === r.maxAgeH);
@@ -279,8 +281,9 @@ $("undo").onclick = async () => { if (lastActed) { await send({ type: "hunt-act"
 $("now").onclick = async () => {
   $("now").textContent = "Checking…"; $("now").disabled = true;
   try {
-    const r = await Promise.race([send({ type: "hunt-poll" }), new Promise((ok) => setTimeout(() => ok({ error: "no answer in 45s — reload the pinned old.reddit.com tab" }), 45000))]);
+    const r = await Promise.race([send({ type: "hunt-poll" }), new Promise((ok) => setTimeout(() => ok({ error: "no answer in 90s — reload the pinned old.reddit.com tab" }), 90000))]);
     if (r && r.error) $("sPoll").textContent = "last check failed: " + r.error;
+    else if (r && r.report) $("scan").textContent = "This check: " + r.report;
   } finally { $("now").textContent = "Check now"; $("now").disabled = false; refresh(); checkAhead(); }
 };
 $("toggle").onclick = async () => { await send({ type: "hunt-on", on: $("toggle").textContent.startsWith("Start") }); refresh(); };
@@ -299,7 +302,7 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$(
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
+  profile = { ...(config.profile || {}), aiModel: $("cModel").value, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -318,12 +321,20 @@ for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBo
   $(id).addEventListener("blur", () => saveSetup(true));
 }
 $("showAdv").onclick = () => { $("adv").hidden = !$("adv").hidden; };
+const AI_PRICES_UI = { "claude-opus-5": "Claude Opus 5 · best writing · about 2–4¢ a post", "claude-sonnet-5": "Claude Sonnet 5 · very good · about 1–1.5¢ a post (60% cheaper)" };
+$("cModel").onchange = async () => { await saveSetup(true); aiErr = {}; for (const q of queue) delete q.ai; if (cur) { delete cur.ai; render(); } };
 
 // ---- the deal: one dropdown, everything downstream follows it -------------
-for (const m of DEAL_MODES) { const o = document.createElement("option"); o.value = m.key; o.textContent = m.label; $("cDeal").appendChild(o); }
+function dealOptions() {
+  const d = profile.deal || DEAL_DEFAULT;
+  $("cDeal").innerHTML = "";
+  for (const m of dealOffers(d)) { const o = document.createElement("option"); o.value = m.key; o.textContent = (m.custom ? "★ " : "") + m.label; $("cDeal").appendChild(o); }
+  const add = document.createElement("option"); add.value = "__add"; add.textContent = "＋ Add a new offer / service…"; $("cDeal").appendChild(add);
+}
 function dealLoad() {
   const d = profile.deal || DEAL_DEFAULT;
-  $("cDeal").value = DEAL_MODES.some((m) => m.key === d.mode) ? d.mode : "split";
+  dealOptions();
+  $("cDeal").value = dealOffers(d).some((m) => m.key === d.mode) ? d.mode : "split";
   $("cUp").value = d.upfront; $("cShare").value = d.share; $("cExp").value = d.expenseShare; $("cNums").checked = !!d.numbersInDm;
   dealShow();
 }
@@ -333,8 +344,10 @@ function dealRead() {
 function dealShow() {
   const sh = dealShape(dealRead());
   $("cUpWrap").hidden = !sh.hasUpfront;
-  $("cShareWrap").hidden = sh.mode === "upfront";
+  $("cShareWrap").hidden = sh.mode === "upfront" || sh.custom;
   $("cExpWrap").hidden = sh.mode !== "split" && sh.mode !== "upfront_share";
+  $("cNumsWrap").hidden = !!sh.custom;
+  $("offerEdit").hidden = !sh.custom; $("offerDel").hidden = !sh.custom;
   $("dealPreview").textContent = `In the first DM: "…we come in as your team and ${sh.shape}." Then: "${sh.question}" · In the inbox, when they ask: ${sh.terms}`;
 }
 let dealTimer = 0;
@@ -349,7 +362,30 @@ async function dealSave() {
   $("setupMsg").textContent = "Deal saved ✓ — rewriting the replies";
   setTimeout(() => { $("setupMsg").textContent = "Saves itself as you type."; }, 1800);
 }
-$("cDeal").onchange = dealSave;
+$("cDeal").onchange = () => { if ($("cDeal").value === "__add") { offerForm(null); $("cDeal").value = (profile.deal || DEAL_DEFAULT).mode || "split"; return; } dealSave(); };
+// ---- your own offers: name + the sentence that goes in the DM ------------
+let offerEditing = null;
+function offerForm(c) {
+  offerEditing = c ? c.id : null;
+  $("offerBox").hidden = false;
+  $("oName").value = c ? c.name : ""; $("oDm").value = c ? c.dm : ""; $("oTerms").value = c ? (c.terms || "") : ""; $("oQ").value = c ? (c.question || "") : "";
+  $("oName").focus();
+}
+$("offerEdit").onclick = () => { const d = profile.deal || {}; const c = (d.custom || []).find((x) => "custom:" + x.id === d.mode); if (c) offerForm(c); };
+$("offerDel").onclick = async () => { const d = profile.deal || {}; profile.deal = { ...d, custom: (d.custom || []).filter((x) => "custom:" + x.id !== d.mode), mode: "split" }; dealLoad(); await dealSave(); };
+$("offerCancel").onclick = () => { $("offerBox").hidden = true; offerEditing = null; };
+$("offerSave").onclick = async () => {
+  const name = $("oName").value.trim(), dm = $("oDm").value.trim();
+  if (!name || !dm) { $("oMsg").textContent = "a name and the DM sentence are needed"; return; }
+  const d = profile.deal || { ...DEAL_DEFAULT };
+  const custom = [...(d.custom || [])];
+  const id = offerEditing || ("c" + Date.now().toString(36));
+  const item = { id, name, dm, terms: $("oTerms").value.trim(), question: $("oQ").value.trim() };
+  const i = custom.findIndex((x) => x.id === id); if (i >= 0) custom[i] = item; else custom.push(item);
+  profile.deal = { ...d, custom, mode: "custom:" + id };
+  $("offerBox").hidden = true; offerEditing = null; $("oMsg").textContent = "";
+  dealLoad(); await dealSave();
+};
 $("cNums").onchange = dealSave;
 for (const id of ["cUp", "cShare", "cExp"]) {
   $(id).addEventListener("input", () => { dealShow(); clearTimeout(dealTimer); dealTimer = setTimeout(dealSave, 900); });
@@ -569,6 +605,7 @@ document.addEventListener("keydown", (e) => {
   profile = config.profile || {};
   profile.deal = { ...DEAL_DEFAULT, ...(inbox.deal || {}) };
   dealLoad();
+  $("cModel").value = AI_PRICES_UI[profile.aiModel] ? profile.aiModel : "claude-opus-5";
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";

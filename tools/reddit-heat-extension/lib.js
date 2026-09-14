@@ -1094,16 +1094,36 @@ HEAT.huntShortReply = function (p, profile = {}, variant = 0) {
 // buried; WhatsApp and Telegram do not.
 // What we ask for. One dropdown; every reply, DM and inbox step reads it.
 HEAT.DEAL_MODES = [
-  { key: "split", label: "Income + expense split (default 50/50)" },
-  { key: "upfront_share", label: "Upfront to start + income share" },
-  { key: "share", label: "Income share only, no upfront" },
-  { key: "upfront", label: "Upfront only — paid work, no share" },
+  { key: "split", label: "VA team · income + expense split (default 50/50)" },
+  { key: "upfront_share", label: "VA team · upfront to start + income share" },
+  { key: "share", label: "VA team · income share only, no upfront" },
+  { key: "upfront", label: "VA team · paid work, upfront only, no share" },
 ];
+// Presets plus the operator's own offers (deal.custom = [{ id, name, dm, terms, question, qualify }]).
+HEAT.dealOffers = function (deal) {
+  const custom = Array.isArray((deal || {}).custom) ? deal.custom : [];
+  return [...HEAT.DEAL_MODES, ...custom.filter((c) => c && c.id && c.name).map((c) => ({ key: "custom:" + c.id, label: c.name, custom: true }))];
+};
+HEAT.customOffer = function (c) {
+  const dm = String(c.dm || "").trim().replace(/[.\s]+$/, "");
+  const q = String(c.question || "").trim() || "is that a shape you're open to?";
+  return {
+    mode: "custom:" + c.id, custom: true, label: String(c.name || "").trim(),
+    shape: dm, shapeShort: dm.length > 160 ? dm.slice(0, 157).replace(/\s+\S*$/, "") + "…" : dm,
+    question: q, terms: String(c.terms || "").trim() || dm + ".",
+    qualify: String(c.qualify || "").trim() || "is there a budget to start, yes or no? And is that shape open for you?",
+    numbers: false, upfront: 0, share: 0, expenseShare: 0, hasUpfront: false,
+  };
+};
 // The deal in words. `shape`/`shapeShort` go in the first DM (numbers only
 // when numbersInDm is on); `terms` is the full offer with numbers for the
 // inbox; `qualify` is the two questions that fit this shape.
 HEAT.dealShape = function (deal) {
   const d = { ...HEAT.DEAL_DEFAULT, ...(deal || {}) };
+  if (typeof d.mode === "string" && d.mode.startsWith("custom:")) {
+    const c = (Array.isArray(d.custom) ? d.custom : []).find((x) => x && "custom:" + x.id === d.mode);
+    if (c && String(c.dm || "").trim()) return HEAT.customOffer(c);
+  }
   const mode = HEAT.DEAL_MODES.some((x) => x.key === d.mode) ? d.mode : "split";
   const nums = !!d.numbersInDm;
   const up = "$" + (Number(d.upfront) || HEAT.DEAL_DEFAULT.upfront);
@@ -1149,29 +1169,34 @@ HEAT.dealShape = function (deal) {
 
 // How we work, in their terms. The shape is the pitch; numbers only if the
 // operator switched them on for the first DM.
+// A custom offer is the operator's own sentence, used whole; presets get the role flavour.
+const OFFER_CUSTOM = (m, sh) => `How we work, so you can decide fast: ${sh.shape}. You keep the company and the IP.
+
+One question so neither of us wastes time: ${sh.question}`;
+const OFFER_CUSTOM_SHORT = (m, sh) => `${sh.shapeShort.charAt(0).toUpperCase() + sh.shapeShort.slice(1)}; you keep the company. Is that shape open for you?`;
 HEAT.HUNT_OFFER = {
-  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work, so you can decide fast: we don't join as an equity co-founder and we don't work for free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP; we're the team that builds and runs it, not the boss.
+  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM(m, sh); return `How we work, so you can decide fast: we don't join as an equity co-founder and we don't work for free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP; we're the team that builds and runs it, not the boss.
 
 One question so neither of us wastes time: ${sh.question}`; },
-  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company.
+  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM(m, sh); return `How we work: we don't take equity and we don't work free. We act as your growth team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company.
 
 One question: ${sh.question}`; },
-  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: not as an equity co-founder, not for free. As your team — ${m.deal.teamDoes} — ${sh.shape}. You keep the company and the IP.
+  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM(m, sh); return `How we work: not as an equity co-founder, not for free. As your team — ${m.deal.teamDoes} — ${sh.shape}. You keep the company and the IP.
 
 One question: ${sh.question}`; },
-  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we come in as your operating team — ${m.deal.teamDoes} — and ${sh.shape}. Not equity, not free. You keep the company.
+  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM(m, sh); return `How we work: we come in as your operating team — ${m.deal.teamDoes} — and ${sh.shape}. Not equity, not free. You keep the company.
 
 One question: ${sh.question}`; },
-  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP.
+  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM(m, sh); return `How we work: we don't join for equity and we don't work free. We come in as your team — ${m.deal.teamDoes} — and ${sh.shape}. You keep the company and the IP.
 
 One question: ${sh.question}`; },
 };
 HEAT.HUNT_OFFER_SHORT = {
-  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
-  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't take equity and don't work free — we act as your growth team and ${sh.shapeShort}; you keep the company. Is that open for you?`; },
-  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `Not equity, not free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
-  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We come in as your operating team and ${sh.shapeShort} — not equity, not free; you keep the company. Is that open for you?`; },
-  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
+  technical: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM_SHORT(m, sh); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
+  marketing: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM_SHORT(m, sh); return `We don't take equity and don't work free — we act as your growth team and ${sh.shapeShort}; you keep the company. Is that open for you?`; },
+  design: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM_SHORT(m, sh); return `Not equity, not free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
+  business: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM_SHORT(m, sh); return `We come in as your operating team and ${sh.shapeShort} — not equity, not free; you keep the company. Is that open for you?`; },
+  unclear: (m) => { const sh = m.shape || HEAT.dealShape(m.deal); if (sh.custom) return OFFER_CUSTOM_SHORT(m, sh); return `We don't join for equity and don't work free — we come in as your team and ${sh.shapeShort}; you keep the company. Is that shape open for you?`; },
 };
 
 // WhatsApp and Telegram links, from whatever the user typed in Options.
@@ -1621,7 +1646,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
 - The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
-- Both DMs: open "Hi ${m.name}," then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the sign-off "${m.sign || profile.name || ""}". dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
+- Both DMs: open with the GREETING (below, verbatim), then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the contact line (below, verbatim), then the SIGN-OFF (below, verbatim). dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
 - ${m.shape.numbers ? "Use the numbers exactly as written in HOW WE WORK; never invent or change a number." : "NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: " + m.shape.shapeShort + "; they keep the company. Numbers come later, in the conversation, when they ask."}
 - READ THE STAGE. If they already have a working product, users or revenue, never tell them to build a first version or that "v1 is 2 to 4 weeks" — talk about running and growing what exists. Only idea-stage posts get first-version advice.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
@@ -1642,6 +1667,9 @@ ${offerShort}
 
 HOW WE WORK, full (for dm_long)
 ${m.offer}
+
+GREETING (first line of every DM, verbatim)
+Hi ${m.name},
 
 CONTACT LINE (use verbatim at the end of every DM, before the sign-off)
 ${m.contact}
@@ -1804,7 +1832,7 @@ HEAT.inboxTemplateReply = function (thread, profile = {}, plan, deal) {
     return { stage: "objection", note: "equity talk — redirect to income share, ask the two questions", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nEquity in a pre-product company doesn't pay anyone's rent, so we don't work for it — and I'd rather say that now than waste your time. What we do instead is act as your team: ${sh.shapeShort}. You keep the company.\n\nTwo quick questions so we both know if this is worth continuing: ${sh.qualify}${sign}` };
   }
   if (/how much|price|cost|charge|rate|\$|what do you (want|expect|charge)|your terms|how does (this|it) work/.test(t)) {
-    return { stage: "offer", note: "they asked for terms — the offer, plainly", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nStraight answer. We don't do co-founder-for-equity; we do partner-team. It works like this: ${sh.terms} Our team ${d.teamDoes}.\n\nIf that's the kind of partner you want, say so and we'll write the scope in three lines: ${contact}${sign}` };
+    return { stage: "offer", note: "they asked for terms — the offer, plainly", ...v("unclear", "unknown", "unknown"), reply: `Hi ${name},\n\nStraight answer. We don't do co-founder-for-equity; we do partner-team. It works like this: ${sh.terms}${sh.custom ? "" : " Our team " + d.teamDoes + "."}\n\nIf that's the kind of partner you want, say so and we'll write the scope in three lines: ${contact}${sign}` };
   }
   if (/linkedin|portfolio|your work|examples?/.test(t) || /meet|call|zoom|google meet|hop on|chat (today|tomorrow)/.test(t)) {
     const li = profile.linkedin ? `LinkedIn: ${profile.linkedin}\n` : "";

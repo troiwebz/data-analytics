@@ -299,8 +299,8 @@ console.log("synopsis, names, dm sizes: ok");
 const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
 const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
 assert.ok(pr.system.includes("Noah") && pr.system.includes("partner team") && pr.system.includes("exactly two lines"));
-assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane") === false);
-assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the instructions");
+assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane,") && !pr.system.includes("Jane"));
+assert.ok(pr.user.includes("GREETING (first line of every DM, verbatim)\nHi Jane,"), "the greeting is fixed, in the user turn so the system prompt stays cacheable");
 assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
 assert.ok(pr.user.includes("HOW WE WORK") && !/\$\d/.test(pr.user.split("HOW WE WORK")[1] || ""), "how we work is passed through without a price");
 assert.ok(pr.system.includes("NO PRICE, NO PERCENTAGE") && pr.system.includes("READ THE STAGE"));
@@ -432,3 +432,19 @@ console.log("stage-aware dm: ok");
   assert.ok(closeX.stage === "close" && /then two things/.test(closeX.reply) && closeX.reply.includes("50/50"), closeX.reply);
 }
 console.log("deal shapes: ok");
+
+// The system prompt is byte-identical across posts, so the API can cache it.
+{
+  const prof = { name: "Noah", role: "web developer", whatsapp: "+910000000000" };
+  const a = H.huntAiPrompt({ title: "Need a technical co-founder for my gym app", body: "idea stage", author: "jane", role: "technical", stage: "idea" }, prof);
+  const b = H.huntAiPrompt({ title: "Looking for a marketing co-founder for my SaaS", body: "$4k MRR", author: "sam_k", role: "marketing", stage: "revenue" }, prof);
+  assert.strictEqual(a.system, b.system, "system prompt must not vary per post");
+  assert.ok(a.user.includes("GREETING") && a.user.includes("Hi Jane,") && b.user.includes("Hi Sam,"));
+  const custom = { mode: "custom:c1", custom: [{ id: "c1", name: "VA · 50/50", dm: "we run your day-to-day as your VA team and split income and expenses 50/50" }] };
+  assert.deepStrictEqual(H.dealOffers(custom).map((o) => o.key).slice(-1), ["custom:c1"]);
+  const dm = H.huntDM({ title: "Need a co-founder for my app", body: "idea", author: "x", role: "unclear" }, { ...prof, deal: custom }, "short");
+  assert.ok(dm.includes("We run your day-to-day as your VA team and split income and expenses 50/50; you keep the company."), dm);
+  assert.ok(H.huntAiPrompt({ title: "t", body: "b", author: "x", role: "unclear" }, { ...prof, deal: custom }).user.includes("THE DEAL SHAPE: VA · 50/50"));
+  assert.strictEqual(H.dealShape({ mode: "custom:missing", custom: [] }).mode, "split", "unknown custom falls back to the default");
+}
+console.log("cacheable prompt + custom offers: ok");
