@@ -1,11 +1,16 @@
 /* Runs inside a BlackHatWorld thread page. Injected by the service worker
- * together with selectors.js, after __HAF_DRAFT__ has been set.
+ * together with selectors.js, after the __HAF_* globals have been set.
+ *
+ *   __HAF_MODE__ = 'full'    insert the reply and submit it
+ *                  'stage'   insert the reply, do NOT submit (tab stays open, armed)
+ *                  'submit'  the reply is already in the editor — just submit it
+ *
  * Reports back over chrome.runtime.sendMessage — more reliable than relying
  * on executeScript's completion value for an async script. */
 (function () {
   const S = globalThis.HAF_SELECTORS;
   const draft = globalThis.__HAF_DRAFT__;
-  const dryRun = globalThis.__HAF_DRY_RUN__ === true;
+  const mode = globalThis.__HAF_MODE__ || 'full';
   const threadId = globalThis.__HAF_THREAD_ID__;
 
   const pick = (list, root = document) => {
@@ -13,8 +18,7 @@
       const el = root.querySelector(sel);
       if (el && el.offsetParent !== null) return el;
     }
-    // Hidden inputs legitimately have no layout box, so try again without the check.
-    for (const sel of list) {
+    for (const sel of list) {           // hidden inputs have no layout box
       const el = root.querySelector(sel);
       if (el) return el;
     }
@@ -25,24 +29,7 @@
     for (const t of types) el.dispatchEvent(new Event(t, { bubbles: true }));
   };
 
-  async function run() {
-    if (!draft || !draft.trim()) return { ok: false, error: 'empty draft' };
-    if (/\/login\b|\/register\b/.test(location.pathname)) {
-      return { ok: false, error: 'not logged in to BlackHatWorld' };
-    }
-
-    const form = pick(S.form);
-    if (!form) {
-      const blocked = pick(S.blocked);
-      return {
-        ok: false,
-        error: blocked
-          ? `no reply form — ${blocked.textContent.trim().slice(0, 120)}`
-          : 'no quick-reply form on this page (thread locked, or not logged in)'
-      };
-    }
-
-    // --- put the text in the editor ------------------------------------
+  function insert(form) {
     const rich = pick(S.richEditor, form);
     const plain = pick(S.plainTextarea, form);
     const html = draft
@@ -53,8 +40,7 @@
     if (rich) {
       rich.focus();
       rich.innerHTML = html;
-      // Froala/XenForo listen for these; without them the hidden field stays empty.
-      fire(rich, 'input', 'keyup', 'change', 'blur');
+      fire(rich, 'input', 'keyup', 'change', 'blur');   // XenForo syncs its hidden field on these
       const hidden = pick(S.hiddenInput, form);
       if (hidden) { hidden.value = html; fire(hidden, 'input', 'change'); }
     } else if (plain) {
@@ -62,17 +48,19 @@
       plain.value = draft;
       fire(plain, 'input', 'keyup', 'change');
     } else {
-      return { ok: false, error: 'found the form but no editor inside it' };
+      return 'found the form but no editor inside it';
     }
+    return null;
+  }
 
-    await sleep(700); // let the editor sync its hidden field
+  function editorHasText(form) {
+    const rich = pick(S.richEditor, form);
+    const plain = pick(S.plainTextarea, form);
+    return (rich && rich.textContent.trim().length > 20) ||
+           (plain && plain.value.trim().length > 20);
+  }
 
-    const landed = (rich && rich.textContent.trim().length > 20) ||
-                   (plain && plain.value.trim().length > 20);
-    if (!landed) return { ok: false, error: 'text did not stick in the editor' };
-
-    if (dryRun) return { ok: true, dryRun: true, note: 'draft inserted, not submitted' };
-
+  async function submit(form) {
     const msgSel = S.message.join(',');
     const before = document.querySelectorAll(msgSel).length;
     const btn = pick(S.submit, form);
@@ -87,14 +75,38 @@
         return { ok: true, postUrl: last.querySelector('a[href*="/post-"]')?.href || location.href };
       }
       const err = document.querySelector('.blockMessage--error, .js-errorMessage');
-      if (err && err.textContent.trim()) {
-        return { ok: false, error: err.textContent.trim().slice(0, 200) };
-      }
+      if (err && err.textContent.trim()) return { ok: false, error: err.textContent.trim().slice(0, 200) };
     }
     return { ok: false, error: 'submitted but no confirmation after 15s — check the thread manually' };
   }
 
+  async function run() {
+    if (/\/login\b|\/register\b/.test(location.pathname)) {
+      return { ok: false, error: 'not logged in to BlackHatWorld' };
+    }
+    const form = pick(S.form);
+    if (!form) {
+      const blocked = pick(S.blocked);
+      return { ok: false, error: blocked
+        ? `no reply form — ${blocked.textContent.trim().slice(0, 120)}`
+        : 'no quick-reply form on this page (thread locked, or not logged in)' };
+    }
+
+    if (mode !== 'submit') {
+      if (!draft || !draft.trim()) return { ok: false, error: 'empty draft' };
+      const err = insert(form);
+      if (err) return { ok: false, error: err };
+      await sleep(700);
+      if (!editorHasText(form)) return { ok: false, error: 'text did not stick in the editor' };
+      if (mode === 'stage') return { ok: true, staged: true };
+    } else if (!editorHasText(form)) {
+      return { ok: false, error: 'staged reply is gone from the editor (page reloaded?)' };
+    }
+
+    return submit(form);
+  }
+
   run()
     .catch((e) => ({ ok: false, error: `content script: ${e && e.message ? e.message : String(e)}` }))
-    .then((result) => chrome.runtime.sendMessage({ type: 'haf-post-result', threadId, result }));
+    .then((result) => chrome.runtime.sendMessage({ type: 'haf-post-result', threadId, mode, result }));
 })();

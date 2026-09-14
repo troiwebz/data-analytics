@@ -1,13 +1,14 @@
-/** Google Sheet as the state store. Editable from the Sheets mobile app. */
+/** Google Sheet as the permanent record. One row per thread ever seen. */
 
 function sheet_() {
-  const id = SHEET_ID || PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) throw new Error('No sheet yet — run setup() once from the editor.');
   const ss = SpreadsheetApp.openById(id);
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
     sh.appendRow(HEADERS);
+    sh.setFrozenRows(1);
   }
   return sh;
 }
@@ -24,9 +25,11 @@ function rowsToObjects_(sh) {
 }
 
 function findRow_(sh, threadId) {
-  const ids = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), 1).getValues();
-  for (let i = 1; i < ids.length; i++) {
-    if (String(ids[i][0]) === String(threadId)) return i + 1;
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(threadId)) return i + 2;
   }
   return 0;
 }
@@ -46,15 +49,35 @@ function getLead_(threadId) {
   return o;
 }
 
-/** Insert a lead unless we already have that threadId. Returns true if new. */
-function insertLead_(lead) {
+/** Date of the most recent POSTED reply to this author, or ''. */
+function priorContact_(author) {
+  if (!author) return '';
+  const authorCol = HEADERS.indexOf('author'), statusCol = HEADERS.indexOf('status'),
+        decidedCol = HEADERS.indexOf('decidedAt');
+  const sh = sheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return '';
+  const rows = sh.getRange(2, 1, last - 1, HEADERS.length).getValues();
+  let latest = '';
+  rows.forEach(function (r) {
+    if (String(r[authorCol]).toLowerCase() === String(author).toLowerCase() &&
+        r[statusCol] === 'POSTED' && String(r[decidedCol]) > latest) {
+      latest = String(r[decidedCol]);
+    }
+  });
+  return latest ? latest.slice(0, 10) : '';
+}
+
+/** Insert unless we already have that threadId. Returns true if new. */
+function insertLead_(lead, status, lint) {
   const sh = sheet_();
   if (findRow_(sh, lead.threadId)) return false;
   sh.appendRow([
     String(lead.threadId),
     lead.foundAt || new Date().toISOString(),
     lead.postedAt || '',
-    lead.score || 0,
+    lead.replyCount == null ? '' : Number(lead.replyCount),
+    Number(lead.score) || 0,
     lead.categoryLabel || lead.category || '',
     lead.author || '',
     lead.title || '',
@@ -63,27 +86,26 @@ function insertLead_(lead) {
     lead.url || '',
     String(lead.snippet || '').slice(0, 4000),
     lead.draft || '',
-    'PENDING',
+    lint ? (lint.ok ? 'ok' : lint.errors.join(' | ')) : '',
+    status,
     '', '', ''
   ]);
   return true;
 }
 
-/** Creates the spreadsheet on first use and prints what to paste into Config.gs. */
+/** Creates the spreadsheet on first use. Run once from the editor. */
 function setup() {
-  let id = SHEET_ID || PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  let id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) {
     const ss = SpreadsheetApp.create('HAF Watcher — leads');
     id = ss.getId();
     PropertiesService.getScriptProperties().setProperty('SHEET_ID', id);
-    ss.getSheets()[0].setName(SHEET_NAME);
-    ss.getSheetByName(SHEET_NAME).appendRow(HEADERS);
-    ss.getSheetByName(SHEET_NAME).setFrozenRows(1);
+    const sh = ss.getSheets()[0];
+    sh.setName(SHEET_NAME);
+    sh.appendRow(HEADERS);
+    sh.setFrozenRows(1);
   }
-  const url = 'https://docs.google.com/spreadsheets/d/' + id;
-  Logger.log('Sheet ready: ' + url);
-  Logger.log('Optionally paste this into Config.gs -> SHEET_ID: ' + id);
-  Logger.log('Emails will go to: ' + (EMAIL_TO || Session.getEffectiveUser().getEmail()));
-  Logger.log('Now: Deploy > New deployment > Web app > Execute as me, Anyone.');
-  return url;
+  Logger.log('Sheet: https://docs.google.com/spreadsheets/d/' + id);
+  Logger.log('Next: Deploy > New deployment > Web app > Execute as me, Anyone.');
+  Logger.log('Then run registerTelegramWebhook().');
 }

@@ -81,3 +81,21 @@ export async function getLog() {
   const { [LOG_KEY]: l } = await chrome.storage.local.get(LOG_KEY);
   return l || [];
 }
+
+// ---- staged tabs: { [threadId]: { tabId, at, title } } ---------------------
+const STAGED_KEY = 'stagedTabs';
+
+export async function getStaged() {
+  const { [STAGED_KEY]: s } = await chrome.storage.local.get(STAGED_KEY);
+  return s || {};
+}
+export async function setStaged(threadId, entry) {
+  const s = await getStaged();
+  if (entry) s[threadId] = entry; else delete s[threadId];
+  await chrome.storage.local.set({ [STAGED_KEY]: s });
+}
+export async function removeStagedByTab(tabId) {
+  const s = await getStaged();
+  for (const [id, e] of Object.entries(s)) if (e.tabId === tabId) delete s[id];
+  await chrome.storage.local.set({ [STAGED_KEY]: s });
+}

@@ -18,13 +18,22 @@ async function render() {
   $('state').textContent = cfg.enabled ? `Watching · every ${cfg.pollMinutes}m` : 'Paused';
   $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} today`;
 
+  const staged = await chrome.runtime.sendMessage({ cmd: 'staged' }).catch(() => ({}));
+  const day = Date.now() - 86400000;
+  const today = leads.filter((l) => new Date(l.foundAt).getTime() > day);
+  const n = (s) => today.filter((l) => l.status === s).length;
+  $('stats').innerHTML = [
+    [today.length, 'seen'], [n('POSTED'), 'posted'], [n('FAILED'), 'failed'],
+    [Object.keys(staged || {}).length, 'staged']
+  ].map(([v, k]) => `<div class="k"><b>${v}</b><span>${k}</span></div>`).join('');
+
   $('leads').innerHTML = leads.length
     ? leads.slice(0, 12).map((l) => `
         <div class="lead">
           <span class="s">${l.score}</span>
           <a class="t" href="${l.url}" target="_blank">${escapeHtml(l.title).slice(0, 70)}</a>
           <div class="m">
-            <span class="st ${l.status || ''}">${l.status || 'sent'}</span>
+            <span class="st ${l.status || ''}">${l.status || 'sent'}</span>${l.staged ? ' <span class="st STAGED">armed</span>' : ''}${l.replyCount != null ? ` · 💬 ${l.replyCount}` : ''}
             ${escapeHtml(l.categoryLabel || '')} · ${l.budget ? escapeHtml(l.budget) + ' · ' : ''}${ago(l.foundAt)}
             ${l.error ? `<br><span style="color:#b91c1c">${escapeHtml(l.error).slice(0, 90)}</span>` : ''}
           </div>

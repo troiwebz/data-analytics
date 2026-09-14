@@ -8,16 +8,23 @@ export const FEED_URL =
 export const DEFAULT_CONFIG = {
   enabled: false,              // flipped on from Options once the webhook is set
   feedUrl: FEED_URL,
-  pollMinutes: 10,             // how often to check the forum
+  pollMinutes: 3,              // how often to check the forum
+  jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
 
   webhookUrl: '',              // Apps Script /exec URL
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
 
-  notifyScore: 4,              // only email leads scoring at or above this
-  autoPost: true,              // post approved leads automatically
-  maxPostsPerDay: 10,          // hard cap, resets at local midnight
-  minMinutesBetweenPosts: 3,   // spacing between two posts
+  notifyScore: 0,              // send everything; Telegram decides what buzzes
+  autoPost: true,              // act on 🚀 taps from Telegram (nothing posts without one)
+  maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
+  minMinutesBetweenPosts: 3,   // spacing between two 🚀 posts
+
+  // Staging: for strong leads, open the thread in a background tab and type the
+  // reply in WITHOUT submitting. A 🚀 tap then just clicks Submit — sub-second.
+  stageScore: 10,              // stage leads at or above this score
+  maxStagedTabs: 3,            // never hold more than this many tabs open
+  stageTtlMinutes: 20,         // close a staged tab if you haven't decided by then
 
   // ---- Matching -------------------------------------------------------
   // A lead must hit at least one category. The first category it hits picks
@@ -132,6 +139,16 @@ export const DEFAULT_CONFIG = {
 • Turnaround depends on page count — can scope it today
 {{budgetLine}}
 {Live examples on request|Can send live examples}. {Sending a PM|PMing you}.`,
+
+    // Used when no category matched. Kept deliberately open-ended.
+    generic: `{Hi|Hey} @{{author}},
+
+{Interested in this|We can help with this|This is something we can take on} — we're a full-service agency (SEO, paid ads, design, web, content), so whatever the scope, it's in-house.
+
+• Tell us the details and we'll scope it same day
+• Clear price before any work starts
+{{budgetLine}}
+{Happy to share relevant past work|Examples on request}. {PMing you now|Sending a PM}.`,
 
     content: `{Hi|Hey} @{{author}},
 

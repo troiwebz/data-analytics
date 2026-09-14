@@ -2,7 +2,8 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl'];
-const NUM = ['pollMinutes', 'approvalPollMinutes', 'notifyScore', 'maxPostsPerDay', 'minMinutesBetweenPosts'];
+const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'notifyScore', 'maxPostsPerDay',
+            'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
 const BOOL = ['enabled', 'autoPost'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates'];
 const $ = (id) => document.getElementById(id);

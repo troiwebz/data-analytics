@@ -1,139 +1,191 @@
 # HAF Watcher
 
-Watches **[BlackHatWorld → Hire a Freelancer](https://www.blackhatworld.com/forums/hire-a-freelancer.76/)**,
-emails you matching job posts with a ready-made reply, and posts that reply
-after you approve it — from your phone.
+Watches **[BlackHatWorld → Hire a Freelancer](https://www.blackhatworld.com/forums/hire-a-freelancer.76/)**
+every 3 minutes, sends every new thread to your phone on Telegram with a
+ready-to-paste reply, and — only when you tap 🚀 — posts it for you.
 
 ```
- ┌──────────── server / always-on PC ────────────┐
- │  Chrome Extension                             │
- │   every 10 min → fetch RSS → match → draft ───┼──┐
- │   every 1 min  → ask "what did I approve?" ◄──┼──┼──┐
- │   approved? open thread, type, post ──────────┼──┤  │
- └───────────────────────────────────────────────┘  │  │
-                                                    ▼  │
-                            ┌──────────────────────────┴─┐
-                            │ Apps Script + Google Sheet │
-                            └────────────┬───────────────┘
-                                         │ email        ▲ you tap
-                                         ▼              │
-                                  📧 Gmail on your phone
+ ┌──────────── server / always-on PC ──────────────┐
+ │  Chrome Extension                               │
+ │   every 3 min  → RSS + listing page             │
+ │                → score, draft, reply count      │
+ │                → push to Apps Script ───────────┼──┐
+ │                → STAGE hot leads: open thread   │  │
+ │                  in a background tab, type the  │  │
+ │                  reply in, do NOT submit        │  │
+ │   every 1 min  → "anything tapped 🚀?" ◄────────┼──┼──┐
+ │                → staged tab? click Submit (<1s) │  │  │
+ │                  else open + type + post        │  │  │
+ └─────────────────────────────────────────────────┘  │  │
+                                                      ▼  │
+                              ┌───────────────────────────┴──┐
+                              │ Apps Script + Google Sheet   │
+                              │ dedupe · expire · lint · log │
+                              └────────────┬─────────────────┘
+                                           │ card + reply     ▲ 🚀 / ✅ / ⏭
+                                           ▼                  │
+                                    📱 Telegram on your phone
 ```
 
 The extension is the only piece that can post (it holds your BHW login).
-Apps Script is the brain and the phone UI. No server, no domain, no cost.
+Apps Script is the brain, the Sheet is the permanent record, Telegram is the UI.
+
+---
+
+## What you see on your phone
+
+Two messages per thread. The card:
+
+```
+🔥 17 pts · SEO / Links · $500
+Need monthly SEO backlinks - budget $500
+
+👤 buyerguy   💬 2 replies   ⏱ 3 min ago
+📊 You'd be reply #3
+💰 Suggested: $450/mo
+🔎 SEO, backlink, DA40, recurring, budget:$500
+
+Open thread
+[ 🚀 Post now ] [ ✅ I posted it ]
+[ ⏭ Skip      ] [ 🔗 Thread     ]
+```
+
+Then the reply on its own, in a code block — **tap once to copy the whole thing**,
+paste into BHW. That's the copy-paste path; BHW sees a human typing.
+
+- **🚀 Post now** — the extension posts it. If the lead was staged, that's a
+  single click on an already-loaded page: under a second.
+- **✅ I posted it** — you pasted it yourself; log it so it's never suggested again.
+- **⏭ Skip** — log it as skipped.
+
+Score decides only whether your phone **buzzes**: 🔥 and ⭐ buzz, • arrives
+silently. Nothing is dropped. Change the threshold any time with `/buzz 12`.
+
+### Commands
+
+| | |
+|---|---|
+| `/stats` | today, 7 days, by category, wins |
+| `/buzz 12` | buzz for score ≥ 12, silent below |
+| `/pause` · `/resume` | stop / start sending (threads still logged) |
+| `/pending` | what's waiting on you |
+| `/won 1234567` | mark a lead won, so `/stats` learns which templates convert |
+
+---
+
+## The database
+
+One Google Sheet row per thread **ever seen**, never deleted:
+
+```
+threadId · foundAt · postedAt · replyCount · score · category · author · title
+budget · matched · url · snippet · draft · compliance · status · decidedAt · result · error
+```
+
+`NEW → SENT → APPROVED → POSTED` · `SKIPPED` · `EXPIRED` · `FAILED`
+
+Enforced on every poll:
+- a thread id ever recorded is **never sent twice**
+- more than `EXPIRE_AFTER_REPLIES` (10) replies → `EXPIRED`, logged, not sent — the buyer already picked someone
+- an author you already `POSTED` to is re-alerted with *"🔁 you pitched this author on 2026-09-10"*
+  (`REALERT_KNOWN_AUTHORS = false` to hard-block instead)
+
+## Compliance linter
+
+Every draft is checked against `COMPLIANCE` in `Config.gs` before it's sent:
+
+```js
+mustInclude:     [{ pattern: '...', label: 'BST link' }],   // must appear
+mustAppearEarly: [{ pattern: '...', within: 120 }],         // must be near the top
+banned:          ['free trial'],                            // never
+warn:            ['guaranteed', '100%'],                    // flagged, allowed
+```
+
+A failing draft is still sent — flagged ❌ with the broken rule named — so
+nothing is silently handed to you that would break forum rules. Fill this in
+from the HAF rules before going live.
 
 ---
 
 ## Setup
 
-### 1. Apps Script (~10 min)
+### 1. Telegram (2 min)
+1. Message [@BotFather](https://t.me/botfather) → `/newbot` → copy the **token**.
+2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric **id**.
+3. Open a chat with your new bot and press Start (bots can't message you first).
 
-1. Go to <https://script.google.com> → **New project**, name it `HAF Watcher`.
-2. Create four files matching `apps-script/` in this repo and paste the contents:
-   `Config.gs`, `Auth.gs`, `Sheet.gs`, `Email.gs`, `Code.gs`.
-3. In **Config.gs**, set `SHARED_SECRET` to a long random string
-   (run `crypto.randomUUID()` in any browser console). Optionally set `EMAIL_TO`.
-4. Run `setup()` once. Approve the permission prompt. The log prints your new
-   Sheet's URL — the Sheet is also where you can edit drafts from your phone.
-5. **Deploy → New deployment → Web app**
-   - Execute as: **Me**
-   - Who has access: **Anyone**
-6. Copy the `/exec` URL.
+### 2. Apps Script (10 min)
+1. <https://script.google.com> → New project → create the files in `apps-script/`
+   with the same names and paste the contents.
+2. In **Config.gs** set `SHARED_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+   `TELEGRAM_WEBHOOK_SECRET` (any two long random strings; `crypto.randomUUID()`).
+3. Run `setup()` once → approve permissions → Sheet URL in the log.
+4. **Deploy → New deployment → Web app** → Execute as **Me** → Access **Anyone** → copy the `/exec` URL.
+5. Run `registerTelegramWebhook()` once. Your bot says 👋.
 
-> "Anyone" sounds alarming but is required — Gmail on your phone opens the link
-> without a Google session. The shared secret protects the API, and the approval
-> links are HMAC-signed and expire in 12 hours.
+### 3. Extension (2 min)
+1. `chrome://extensions` → Developer mode → **Load unpacked** → the `chrome-extension/` folder
+   (the folder that directly contains `manifest.json`).
+2. Options → paste the `/exec` URL + `SHARED_SECRET` → **Test connection** → **Watcher enabled** → Save.
+3. Be logged into BlackHatWorld in that Chrome profile.
 
-### 2. Chrome extension (~2 min)
-
-1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
-   select the `chrome-extension/` folder.
-2. Open the extension's **Options**:
-   - paste the `/exec` URL and the same shared secret
-   - press **Test connection** — it should print your Sheet URL
-   - tick **Watcher enabled** → **Save**
-3. Make sure you're logged into BlackHatWorld in that Chrome profile.
-
-The first poll **seeds** the current threads silently, so you don't get 20
-emails at once. Real watching starts from the second poll.
+First poll seeds silently. Watching starts on the second.
 
 ---
 
-## Daily flow
+## Tuning (Options page)
 
-1. Someone posts in HAF.
-2. Within 10 minutes the extension reads it, scores it, and — if it clears
-   your threshold — builds the reply and pushes it to Apps Script.
-3. You get an email: their post, your ready reply, and three buttons.
-4. Tap **Post this reply** → a confirm page → tap the button.
-5. Within a minute the extension opens the thread, types the reply, posts it,
-   and emails you the confirmation.
-
-**Edit first** opens a mobile page with the draft in a text box.
-
----
-
-## Tuning
-
-Everything lives on the Options page.
-
-| Setting | Default | Notes |
+| | default | |
 |---|---|---|
-| `notifyScore` | 4 | Raise it if you get too many emails |
-| `maxPostsPerDay` | 10 | Hard cap, resets at local midnight |
-| `minMinutesBetweenPosts` | 3 | Spacing between two posts |
-| `autoPost` | on | Turn off to use it as an alert-only tool |
+| Poll every | 3 min | + up to 40 s random jitter |
+| Min score to send | 0 | everything goes through |
+| Stage leads ≥ | 10 | opened + typed in a background tab, unsent |
+| Max staged tabs | 3 | auto-closed after 20 min undecided |
+| Max 🚀 posts / day | 10 | copy-paste is uncapped — that's you |
+| Min minutes between 🚀 | 3 | |
 
-**Scoring:** base 3 + keyword density + boosts (recurring/agency/urgent) +
-budget (up to 5) + freshness (up to 3). A `$2k/mo` agency ads job scores ~21;
-a vague one-off scores ~5.
+## On not being noticed
 
-**Categories** map keywords to reply templates. Adding a service means adding a
-category and a template with the same `key`.
-
-**Templates** support `{{author}}`, `{{budget}}`, `{{budgetLine}}`,
-`{{category}}`, `{{title}}`, plus `{a|b|c}` spintax so no two replies are
-byte-identical.
-
----
+- **Reads** are RSS + one listing page, ~1000 requests/day with jitter, from
+  your own browser with your own cookies. Indistinguishable from leaving the tab open.
+- **Copy-paste posts** are literally you. There is nothing to detect.
+- **🚀 posts** are a click in your own session — same as manual, but capped
+  and spaced.
+- What actually gets accounts flagged is **the same text across many threads,
+  and volume**. Spintax + five distinct templates + the daily cap are the real
+  protection. There is deliberately no fingerprint spoofing or proxying here;
+  it wouldn't help against that and it breaks.
 
 ## Things that will bite you
 
-- **BHW must be logged in** in the Chrome profile running the extension, and the
-  machine must be awake. Approved leads queue in the Sheet until it is.
-- **Cloudflare.** If the feed starts returning HTML instead of XML, the
-  extension says so. Opening BHW in a tab usually clears it. Don't move the
-  fetching into Apps Script — Google's IPs get challenged far more.
-- **Theme updates break posting.** Every selector is in
-  `src/selectors.js`; that's the only file to fix.
-- **Never approve on a bare GET.** Mail scanners pre-fetch links in email — a
-  one-tap approve URL *will* fire by itself. That's why the GET only renders a
-  confirmation page and the state change happens on POST.
-- **Volume is what gets you banned, not automation.** Eight near-identical
-  replies in ten minutes is a report. The caps exist for a reason; leave them low.
-
----
+- **Cloudflare.** If the feed comes back as HTML, the extension says so. Open
+  BHW in a tab. Don't move fetching into Apps Script — Google's IPs get challenged.
+- **Theme updates.** Every DOM selector is in `src/selectors.js`; listing regexes
+  in `src/listing.js`. Those are the only two files to touch.
+- **Staged tabs** live in the same Chrome profile. Don't close them by hand
+  unless you mean to — the 🚀 then falls back to a full open-and-post.
+- **Apps Script cannot read request headers**, so Telegram's webhook secret rides
+  in the query string. That's why `registerTelegramWebhook()` exists.
 
 ## Files
 
 ```
-chrome-extension/
-  manifest.json
-  src/background.js       alarms, orchestration, posting
-  src/feed.js             RSS fetch + regex parse (no DOMParser in MV3 workers)
-  src/matcher.js          categories, boosts, excludes, scoring, budget parsing
-  src/templates.js        spintax + variable substitution
-  src/selectors.js        every BHW DOM selector — the one file to fix on breakage
-  src/content-post.js     types into the XenForo editor and confirms the post
-  src/store.js            seen threads, lead history, rate limits, log
-  src/sync.js             Apps Script client
-  src/options/            full settings UI
-  src/popup/              status, recent leads, manual poll
+chrome-extension/src/
+  background.js    alarms, polling, staging, 🚀 handling
+  feed.js          RSS fetch + regex parse
+  listing.js       reply counts from the forum listing page
+  matcher.js       categories, boosts, excludes, scoring, budget
+  templates.js     spintax + variables
+  selectors.js     every BHW DOM selector
+  content-post.js  modes: full / stage / submit
+  store.js         seen, leads, rate limit, staged tabs, log
+  sync.js          Apps Script client
+  options/ popup/  settings · live status
 apps-script/
-  Config.gs               secret, recipient, sheet id
-  Auth.gs                 HMAC approval tokens
-  Sheet.gs                state store + setup()
-  Email.gs                the lead email
-  Code.gs                 doPost API + doGet mobile pages
+  Config.gs        secrets, behaviour, COMPLIANCE rules   ← the one you edit
+  Code.gs          doPost API + Telegram routing
+  Telegram.gs      cards, buttons, callbacks, /commands, /stats
+  Compliance.gs    the linter
+  Sheet.gs         state + setup()
+  Auth.gs, Email.gs
 ```

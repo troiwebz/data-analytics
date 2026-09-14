@@ -13,7 +13,7 @@ export function spin(text) {
 }
 
 export function renderReply(lead, cfg) {
-  const tpl = cfg.templates[lead.category] || Object.values(cfg.templates)[0];
+  const tpl = cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0];
   if (!tpl) return '';
 
   const budgetLine = lead.budget
