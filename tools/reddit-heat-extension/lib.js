@@ -949,7 +949,10 @@ HEAT.classifyCofounder = function (title, body) {
   if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "job seeker" };
   if (!COFOUNDER_ASK.test(all)) return { keep: false, why: "not a co-founder ask" };
   // Someone OFFERING to be a co-founder is not a prospect either.
-  if (/\b(i|we)(?:'m| am|'re| are)? (?:a |an )?(?:available|open|looking to join|offering)\b|\bi want to be (?:a |your )?co[- ]?founder|\bjoin your (?:startup|team|project)\b/i.test(t)) return { keep: false, why: "offering to join" };
+  if (/\b(i|we)(?:'m| am|'re| are)? (?:a |an )?(?:available|open|looking to join|offering)\b|\bi want to be (?:a |your )?co[- ]?founder|\bjoin your (?:startup|team|project)\b|\b(?:co[- ]?founder|cto|cmo|developer|engineer|marketer)\s+available\b|\bavailable\s*(?::|as|for)\s*(?:a |an )?(?:co[- ]?founder|cto|technical)|\b\[?(?:offering|available|for hire)\]?\s*[:\-–]/i.test(t)) return { keep: false, why: "offering to join" };
+  // The body says it when the title does not: an "ideal fit" list, "drop a comment or DM", "I own the growth + product".
+  const ownAsk = /\b(?:need|looking for|seeking|want)\b[^.]{0,80}\bfor (?:my|our)\b/i.test(t);   // "need a co-founder for my app": a founder
+  if (!ownAsk && /\bideal (?:fit|founder)\s*:|\bhappy to share more\b|\bdrop a comment or dm\b|\bi(?:'d| would)? (?:own|run|handle) (?:the )?(?:growth|product|tech|engineering)\b|\bwhat i bring\b|\bmy background\s*:|\bi(?:'m| am) (?:less|more) interested in\b.*\b(?:equity|co[- ]?founder|jv)\b|\blooking to (?:join|partner with|team up with) (?:a |an )?(?:founder|startup|team)\b/i.test(all)) return { keep: false, why: "offering to join" };
   // Nor is a builder describing what THEY can build. "I can handle the
   // technical side, feel free to reach out" is a competitor, not a lead.
   const builderVoice = /\bi (?:can|could|will|would) (?:handle|build|code|develop|take care of|own|cover) (?:the |all )?(?:technical|tech|dev|development|engineering|backend|coding|product)\b|\bi(?:'m| am) (?:a |an )?(?:developer|engineer|programmer|coder|cto|full[- ]stack|backend|frontend|ml engineer|ai engineer|data scientist|software (?:engineer|developer)|technical (?:person|founder|guy|co[- ]?founder))\b|\bi have (?:\d+\+? years|years of|a background|experience) (?:in|of|with) (?:software|coding|engineering|development|programming|ml|ai|backend)\b|\bmy (?:tech|technical|engineering) (?:skills|background|expertise|experience)\b|\bi handle the technical\b|\bhappy to build (?:it|this|the)\b|\bi can build (?:it|this|the mvp|anything)\b|\blooking for (?:an? )?(?:idea|ideas|problem to solve|non[- ]technical (?:co[- ]?founder|partner|founder))\b/i;
@@ -1320,6 +1323,7 @@ HEAT.huntCountry = function (p) {
 // Who is asking: a freelancer, someone running a company, a solo founder.
 HEAT.huntWho = function (p) {
   const t = ((p.title || "") + " " + (p.body || "")).slice(0, 3000);
+  if (/\b(?:co[- ]?founder|cto|developer|marketer)\s+available\b|\bideal (?:fit|founder)\s*:|\bwhat i bring\b|\blooking to join\b/i.test(t)) return "offering themselves — not a prospect";
   if (/\b(my|our)\s+(agency|studio|dev shop|firm|consultancy)\b|\bwe(?:'| a)re an? (agency|studio|company)\b/i.test(t)) return "agency owner";
   if (/\bi (?:run|own|started|founded)\b|\bmy (?:company|business|startup|brand|store|shop)\b|\bwe (?:run|own|have|do|make|hit|are at)\b|\bour (?:company|business|customers|revenue|users|team)\b|\bpaying customers\b/i.test(t)) return "company owner";
   if (/\bfreelanc|\bindie hacker\b|\bsolo (?:dev|developer|builder)\b|\bi consult\b/i.test(t)) return "freelancer";
@@ -1527,8 +1531,10 @@ HEAT.AI_SCHEMA = {
     dm_short: { type: "string", description: "70 to 110 words. An introduction, not a letter." },
     dm_long: { type: "string", description: "130 to 190 words. An introduction with one useful thought and how we work; no numbered plan." },
     why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
+    fit: { type: "string", enum: ["yes", "no"], description: "yes only if the poster is a founder who might hire a partner team (paid, income share). no if they are offering themselves, recruiting for a job, selling a service, a student project, or otherwise not someone who would pay a team." },
+    fit_reason: { type: "string", description: "Under 15 words: why yes or no." },
   },
-  required: ["public_reply", "dm_short", "dm_long", "why"],
+  required: ["public_reply", "dm_short", "dm_long", "why", "fit", "fit_reason"],
   additionalProperties: false,
 };
 
@@ -1538,6 +1544,8 @@ HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
   const s = HEAT.huntSynopsis(p);
   const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
   const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}, who runs a team that founders hire as their partner team: paid upfront, then a share of income. The person you are writing to posted on Reddit asking for a co-founder. You are NOT applying to be their co-founder, and you never offer free work of any kind. The public reply gives ONE genuinely useful, specific line for their situation. The DM is an INTRODUCTION, not a letter: what you noticed in their post, one specific useful thought, how we work (the HOW WE WORK text below, adapted), the two questions — then stop. Never pitch, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
+
+FIRST, DECIDE FIT. We only want founders who might HIRE a partner team — they have a product or idea they own and need it built or grown, and could pay to start. Set fit = "no" and explain in fit_reason when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "ideal fit:", "what I bring"), is recruiting for a salaried job, is selling a service, is a student project with no path to paying, or is asking for something we do not do. When fit is "no", still fill the other fields briefly, but nobody will read them.
 
 Rules that make the reply feel written for THIS post and nobody else:
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
@@ -1584,7 +1592,7 @@ HEAT.huntAiClean = function (out) {
   pub = [first, HEAT.PUBLIC_CLOSE];
   const dm_short = str(out.dm_short), dm_long = str(out.dm_long);
   if (dm_short.length < 180 || dm_long.length < 450) return null;
-  return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300) };
+  return { public_reply: pub.join("\n"), dm_short, dm_long, why: str(out.why).slice(0, 300), fit: out.fit === "no" ? "no" : "yes", fit_reason: str(out.fit_reason).slice(0, 200) };
 };
 
 // ===========================================================================

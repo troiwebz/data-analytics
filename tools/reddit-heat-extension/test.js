@@ -210,6 +210,10 @@ assert.strictEqual(H.huntThing({ title: "Looking for advice on finding a cofound
 assert.strictEqual(cf("Looking for more product ideas", "I can handle the technical side, especially AI/ML and backend. If someone is looking for a technical co-founder, feel free to reach out.").why, "is a builder themselves");
 assert.strictEqual(cf("Need a marketing co-founder", "I am a full-stack developer, built the MVP alone, need someone for growth.").why, "is a builder themselves");
 assert.strictEqual(cf("Looking for a technical co-founder", "I am not technical. I have an idea for a fitness app and cannot build it.").keep, true, "non-technical founders stay");
+assert.strictEqual(cf("Cofounder Available: DTC marketing & Full Stack Tech Development", "AI workflows, automation, CRM. I'm less interested in pure agency retainer work and more in equity / co-founder / JV where I own the growth + product systems end-to-end. Ideal fit: health / wellness. If you're a founder in SG / AU / HK looking for a tech / growth co-founder, drop a comment or DM — happy to share more.").why, "offering to join", "someone offering himself is not a lead");
+assert.strictEqual(cf("[Offering] Senior dev looking to join an early-stage team", "10 years experience").keep, false);
+assert.strictEqual(cf("Need a technical co-founder for my clinic booking app", "I run two clinics. Ideal partner: someone who can build and ship.").keep, true, "'ideal partner' from a founder is still a lead");
+assert.strictEqual(H.huntAiClean({ ...{ public_reply: "x\nCheck your DM.", dm_short: "s".repeat(300), dm_long: "l".repeat(900), why: "w" }, fit: "no", fit_reason: "offering himself" }).fit, "no");
 assert.strictEqual(cf("Need a developer co-founder", "I have 10 years in sales. My technical skills are zero.").keep, true, "'my technical skills are zero' is not builder voice");
 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
@@ -295,7 +299,7 @@ assert.ok(pr.system.includes('open "Hi Jane,"'), "the greeting is fixed in the i
 assert.ok(pr.user.includes("https://wa.me/919876543210"), "the contact line is passed verbatim");
 assert.ok(pr.user.includes("HOW WE WORK") && pr.user.includes("$350"), "how we work is passed through");
 assert.ok(pr.system.includes("never offer free work"), "no free work in the instructions");
-assert.strictEqual(pr.schema.required.length, 4, "three answers plus why");
+assert.strictEqual(pr.schema.required.length, 6, "three answers, why, and the fit verdict");
 // cleaner: rejects links, prices, one-liners, stubs
 const good = { public_reply: "Line one about the gym.\nLine two, free thing, in your DM.", dm_short: "x".repeat(300), dm_long: "z".repeat(900), why: "the waitlist" };
 assert.ok(H.huntAiClean(good));

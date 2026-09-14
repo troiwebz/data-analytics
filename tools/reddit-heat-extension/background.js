@@ -802,10 +802,11 @@ async function huntQueue(limit = 40) {
   const doneYesterday = all.filter((p) => doneAt(p) >= yday && doneAt(p) < today.getTime()).length;
   const lastDone = Math.max(0, ...all.map(doneAt));
   const newSince = all.filter((p) => (p.firstSeen || 0) > lastDone && !p.act && !p.dmAt && !p.mine).length;
+  const aiCancelled = all.filter((p) => p.cancelledBy === "ai" && (p.actAt || 0) >= today.getTime()).length;
   return {
     queue: list.slice(0, limit),
     total: list.length,
-    blocked, later, dupes, doneToday, doneYesterday, newSince, lastDone,
+    blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -922,6 +923,12 @@ async function huntAiWrite(id, force) {
     return { ok: false, error: "the model kept the public reply too long — press rewrite" };
   }
   if (!ai) return { ok: false, error: "the model's reply failed the checks (two lines, no links, no prices, lengths)" };
+  // The AI's cancel: not a founder who would hire a team -> gone, with the reason.
+  if (ai.fit === "no") {
+    p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = ai.fit_reason || "not a fit";
+    await huntSet({ posts: st.posts });
+    return { ok: false, cancelled: true, reason: p.cancelReason };
+  }
   const u = j.usage || {};
   ai.at = Date.now();
   ai.model = j.model || AI_MODEL;

@@ -126,6 +126,13 @@ async function aiWrite(force) {
     r = await send({ type: "hunt-ai", id, force: !!force });
   }
   aiBusy = "";
+  if (r && r.cancelled) {
+    // Claude judged this person not a fit: drop the card, say why, move on
+    queue = queue.filter((q) => q.id !== id);
+    if (cur && cur.id === id) { cur = queue[0] || null; variant = 0; render(); $("sPoll").textContent = `AI cancelled ${post.author}: ${r.reason}`; }
+    refresh(); aiWriteAhead();
+    return;
+  }
   if (r && r.ok) {
     delete aiErr[id];
     for (const q of queue) if (q.id === id) q.ai = r.ai;
@@ -150,7 +157,8 @@ async function aiWriteAhead() {
     let r;
     if (eng === "chrome") { const out = await chromeWrite(nxt); r = await send({ type: "hunt-ai-save", id: nxt.id, ai: out, model: "on-device" }); }
     else r = await send({ type: "hunt-ai", id: nxt.id });
-    if (r && r.ok) { for (const q of queue) if (q.id === nxt.id) q.ai = r.ai; if (cur && cur.id === nxt.id) { cur.ai = r.ai; variant = 0; render(); } }
+    if (r && r.cancelled) { queue = queue.filter((q) => q.id !== nxt.id); if (cur && cur.id === nxt.id) { cur = queue[0] || null; render(); } refresh(); }
+    else if (r && r.ok) { for (const q of queue) if (q.id === nxt.id) q.ai = r.ai; if (cur && cur.id === nxt.id) { cur.ai = r.ai; variant = 0; render(); } }
     else aiErr[nxt.id] = (r && r.error) || "no answer";
   } catch (e) { aiErr[nxt.id] = String(e && e.message || e); }
   finally { aheadBusy = ""; }
@@ -195,7 +203,7 @@ async function refresh(keepCurrent = true) {
   $("sQueue").textContent = r.total;
   $("sToday").textContent = r.contactedToday;
   $("sEver").textContent = r.contactedTotal;
-  $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "") + (r.dupes ? ` · ${r.dupes} cross-posts folded` : "");
+  $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "") + (r.dupes ? ` · ${r.dupes} cross-posts folded` : "") + (r.aiCancelled ? ` · ${r.aiCancelled} cancelled by AI today` : "");
   $("sDoneToday").textContent = r.doneToday;
   const toGo = r.total;
   const pct = r.doneToday + toGo ? Math.round(100 * r.doneToday / (r.doneToday + toGo)) : 0;
