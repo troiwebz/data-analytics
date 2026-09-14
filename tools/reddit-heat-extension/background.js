@@ -120,6 +120,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "version-check-now") { Promise.all([checkRemoteVersion(), checkVersion()]).then(() => reply({ ok: true })); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "chat-observe") { chatObserve(msg.with, msg.messages, msg.v).then(reply); return true; }
@@ -554,6 +555,8 @@ async function huntGet() {
     server: hunt.server || null,
     me: hunt.me || "",
     found: hunt.found || 0,
+    sent: Array.isArray(hunt.sent) ? hunt.sent : [],   // fingerprints of the last DMs built, so none repeats
+    lastReport: hunt.lastReport || "",
   };
 }
 async function huntSet(patch) {
@@ -873,6 +876,7 @@ const AI_MODEL = "claude-opus-5";
 // $ per million tokens: input, output, cache write (1.25x), cache read (0.1x)
 const AI_PRICES = { "claude-opus-5": [5, 25], "claude-sonnet-5": [2, 10] };
 const AI_POLISH_MODEL = "claude-sonnet-5";
+const AI_SLOT_MODEL = "claude-sonnet-5";   // the slots are a small extraction; the shape is written here
 // ---- the daily cap: cents spent today across every call, against the budget in Your details
 const dayKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 async function spendGet() {
@@ -1000,6 +1004,57 @@ async function huntAiWrite(id, force) {
   }
   p.ai = ai;
   await huntSet({ posts: st.posts });
+  return { ok: true, ai };
+}
+// The template engine: one cheap call fills the slots, the message is built
+// here from your skeleton, and every one is checked against the last forty you
+// sent so no two read alike.
+async function huntSlotWrite(id, force) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false, error: "post not found" };
+  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
+  if (p.ai && !force && (p.ai.dealV || 0) === (inbox.dealV || 0)) return { ok: true, ai: p.ai, cached: true };
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no api key", noKey: true };
+  const spent = await spendGet();
+  if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢) — templates until tomorrow, or raise it under AI writing` };
+  await huntContext(p);
+  const profile = { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
+  const { system, user, schema } = huntSlotPrompt(p, profile);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 60000);
+  let r, j;
+  try {
+    r = await fetch(AI_URL, { method: "POST", signal: ctl.signal, headers: aiHeaders(key, AI_SLOT_MODEL), body: JSON.stringify(aiBody(AI_SLOT_MODEL, system, user, schema, 900)) });
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than 60s" : "could not reach api.anthropic.com: " + String(e.message || e) };
+  } finally { clearTimeout(timer); }
+  if (!r.ok) {
+    const msg = (j.error && j.error.message) || ("HTTP " + r.status);
+    return { ok: false, error: r.status === 401 ? "the API key was rejected — check it in Your details" : r.status === 429 ? "rate limited by the API, try again in a minute" : msg };
+  }
+  if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this post" };
+  const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  let slots; try { slots = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
+  if (slots.fit === "no") {
+    p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = String(slots.fit_reason || "not a fit").slice(0, 200);
+    await huntSet({ posts: st.posts });
+    return { ok: false, cancelled: true, reason: p.cancelReason };
+  }
+  const sent = Array.isArray(st.sent) ? st.sent : [];
+  const ai = huntSlotAssemble(p, profile, slots, { avoid: sent.map((x) => x.sh), recentStyles: sent.map((x) => x.style) });
+  if (!ai.public_reply || ai.dm_short.length < 180) return { ok: false, error: "the slots came back too thin — press rewrite" };
+  ai.at = Date.now();
+  ai.dealV = inbox.dealV || 0;
+  ai.model = "template+slots";
+  ai.cents = aiCents(AI_SLOT_MODEL, j.usage || {});
+  await spendAdd(ai.cents);
+  const shingles = ai.shingles || [];
+  delete ai.shingles;
+  p.ai = ai;
+  await huntSet({ posts: st.posts, sent: [{ at: Date.now(), style: ai.style, sh: shingles }, ...sent].slice(0, 40) });
   return { ok: true, ai };
 }
 async function huntPolish(key, p, ai) {

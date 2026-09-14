@@ -70,7 +70,7 @@ let aiErr = {};
 setInterval(() => { if (cur && aiBusy === cur.id) aiStatus(cur); }, 1000);
 function engine() {
   const e = profile.aiEngine;
-  if (e === "claude" || e === "chrome" || e === "templates" || e === "paste") return e;
+  if (e === "claude" || e === "chrome" || e === "templates" || e === "paste" || e === "slots") return e;
   return profile.apiKey ? "claude" : "templates";
 }
 async function chromeAvailability() {
@@ -105,7 +105,7 @@ function aiStatus(p) {
   if (eng === "paste" && !p.ai) { el.textContent = "template shown — copy the brief, paste it into Claude in Chrome, paste the answer back"; el.style.color = "#98a0b3"; return; }
   if (p.ai) {
     const c = p.ai.concept;
-    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
+    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `your template · ${p.ai.style} style${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
     el.style.color = p.ai.generic ? "#e6c76b" : "#7ee29a";
     if (p.ai.generic) el.textContent += " · none of their words quoted — read it before sending";
     return;
@@ -123,7 +123,9 @@ async function aiWrite(force) {
   const id = cur.id, post = cur;
   aiBusy = id; aiStart = Date.now(); aiStatus(cur);
   let r;
-  if (eng === "chrome") {
+  if (eng === "slots") {
+    r = await send({ type: "hunt-slots", id, force: !!force });
+  } else if (eng === "chrome") {
     try {
       const avail = await chromeAvailability();
       if (avail === "unsupported") throw new Error("this Chrome has no built-in model (need Chrome 138+; see AI writing)");
@@ -164,7 +166,8 @@ async function aiWriteAhead() {
   aheadBusy = nxt.id;
   try {
     let r;
-    if (eng === "chrome") { const out = await chromeWrite(nxt); r = await send({ type: "hunt-ai-save", id: nxt.id, ai: out, model: "on-device" }); }
+    if (eng === "slots") r = await send({ type: "hunt-slots", id: nxt.id });
+    else if (eng === "chrome") { const out = await chromeWrite(nxt); r = await send({ type: "hunt-ai-save", id: nxt.id, ai: out, model: "on-device" }); }
     else r = await send({ type: "hunt-ai", id: nxt.id });
     if (r && r.cancelled) { queue = queue.filter((q) => q.id !== nxt.id); if (cur && cur.id === nxt.id) { cur = queue[0] || null; render(); } refresh(); }
     else if (r && r.ok) { for (const q of queue) if (q.id === nxt.id) q.ai = r.ai; if (cur && cur.id === nxt.id) { cur.ai = r.ai; variant = 0; render(); } }

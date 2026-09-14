@@ -468,3 +468,37 @@ console.log("cacheable prompt + custom offers: ok");
   assert.deepStrictEqual(H.huntParseAnswers("Sure! Here is nothing useful."), []);
 }
 console.log("claude in chrome brief + parse: ok");
+
+// Template + AI slots: your skeleton, five shapes, nothing repeated, nothing filterable.
+{
+  const prof = { name: "Noah", role: "web developer", whatsapp: "+910000000000" };
+  const slots = (n) => ({ fit: "yes", fit_reason: "founder", product: ["gym scheduling app", "SaaS for clinics", "booking platform", "HeySakhi"][n % 4], observation: `observation ${n} naming a number only this post gave`, move: `the concrete step ${n} for this week`, question: `which side is harder to fill for case ${n}?`, reply_line: `a useful line for ${n}`, phrase: "their words" });
+  const post = (n) => ({ id: "p" + n, author: "user" + n, sub: "startups", title: "Looking for a co-founder", role: ["technical", "marketing", "design", "business"][n % 4], stage: ["idea", "building", "revenue"][n % 3] });
+  assert.strictEqual(H.SLOT_STYLES.length, 5);
+  const a = H.huntSlotAssemble(post(0), prof, slots(0));
+  assert.ok(a.dm_short.startsWith("Hi User0,") || a.dm_short.startsWith("Hi there,"), a.dm_short.slice(0, 30));
+  assert.ok(!/https?:|[$%]/.test(a.dm_short), "the first DM carries no link, no price, no percentage");
+  assert.ok(a.dm_short.length > 300 && a.dm_short.length < 900, "short enough for Reddit's chat filter: " + a.dm_short.length);
+  assert.ok(a.dm_long.includes("wa.me"), "the long one carries the contact line");
+  assert.ok(a.dm_short.includes("the gym scheduling app"), "their product in their words, with an article");
+  assert.ok(H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("HeySakhi") && !H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("the HeySakhi"), "a product name keeps its own form");
+  assert.strictEqual(a.public_reply.split("\n")[1], H.PUBLIC_CLOSE);
+  // the offer follows the deal dropdown, custom offers included
+  const own = H.huntSlotAssemble(post(1), { ...prof, deal: { mode: "custom:c1", custom: [{ id: "c1", name: "VA", dm: "we run your day-to-day as your VA team and split income and expenses 50/50" }] } }, slots(1));
+  assert.ok(/run your day-to-day as your VA team/i.test(own.dm_short), own.dm_short);
+  // twelve in a row: every one a different text, no style twice running, overlap kept low
+  const sent = []; const styles = []; let worst = 0; const texts = new Set();
+  for (let i = 0; i < 12; i += 1) {
+    const x = H.huntSlotAssemble(post(i), prof, slots(i), { avoid: sent, recentStyles: styles });
+    sent.push(x.shingles); styles.unshift(x.style); texts.add(x.dm_short); worst = Math.max(worst, x.overlap);
+    assert.notStrictEqual(x.style, styles[1], "never the same shape twice running");
+  }
+  assert.strictEqual(texts.size, 12, "twelve different messages");
+  assert.ok(worst < 0.6, "no message is mostly a copy of an earlier one: " + worst);
+  assert.strictEqual(H.dmOverlap(H.dmShingles("a b c d e f g"), [H.dmShingles("a b c d e f g")]), 1);
+  assert.strictEqual(H.dmOverlap(H.dmShingles("a b c d e f g"), [H.dmShingles("z y x w v u t")]), 0);
+  const pr = H.huntSlotPrompt(post(0), prof);
+  assert.ok(pr.system.includes("FIRST, DECIDE FIT") && pr.system.includes("no emoji") && pr.schema.required.includes("observation"));
+  assert.ok(!pr.system.includes("HOW WE WORK"), "the model never writes the offer");
+}
+console.log("template + ai slots: ok");

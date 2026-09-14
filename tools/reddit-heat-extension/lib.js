@@ -2006,3 +2006,252 @@ HEAT.huntParseAnswers = function (text) {
   }
   return out;
 };
+
+// ===========================================================================
+// TEMPLATE + AI SLOTS
+// One fixed skeleton (saw your post → what I understand → how we work → next
+// step), five different styles, sentence pools rotated per post, and only four
+// short slots written by the model. Built to look hand-written every time:
+// no two DMs share the same style, the same sentences, or the same phrasing,
+// and each one is checked against the last ones you sent before it is shown.
+// ===========================================================================
+HEAT.SLOT_SCHEMA = {
+  type: "object",
+  properties: {
+    fit: { type: "string", enum: ["yes", "no"], description: "no if they are offering themselves, recruiting for a salaried job, selling a service, or otherwise not a founder who might take on a paid partner team." },
+    fit_reason: { type: "string", description: "Under 15 words." },
+    product: { type: "string", description: "What they are building, in THEIR words, 2 to 6 words, no article. e.g. 'gym scheduling app', 'marketplace for dentists'." },
+    observation: { type: "string", description: "ONE sentence, under 30 words, about THIS post: a number they gave, the stage they are at, the constraint they named. No advice, no compliment, no marketing words. Must contain a detail nobody else's post would have." },
+    move: { type: "string", description: "ONE sentence, under 30 words: the single most useful next step for this exact product and stage. Concrete and doable this week. Never 'find a co-founder'." },
+    question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
+    reply_line: { type: "string", description: "The public comment: ONE line under 22 words, a useful specific thought for this post. No greeting, no link, no price, no pitch." },
+    phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
+  },
+  required: ["fit", "fit_reason", "product", "observation", "move", "question", "reply_line", "phrase"],
+  additionalProperties: false,
+};
+HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
+  const compact = !!opts.compact;
+  const sh = HEAT.dealShape({ ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) });
+  const system = `You read one Reddit post from a founder looking for a co-founder and fill in short slots that a message is built from. You never write the whole message and you never mention the offer — that text already exists. Your job is only the parts that must come from THIS post.
+
+FIRST, DECIDE FIT. fit = "no" when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer, is recruiting for a salaried job, is selling a service, or is a student project with no path to paying anyone.
+
+Then fill the slots. Rules for every slot:
+- Use their own words for their product. Never "your app", "your startup", "your project".
+- Every sentence must contain something only this post could have said: a number, a city, a customer type, a constraint they named.
+- No marketing words (leverage, unlock, elevate, seamless, game-changer), no compliments, no "great post", no exclamation marks, no emoji.
+- Never promise free work, a free prototype, or a timeline you were not told.
+- No links, no prices, no percentages, anywhere.
+- Plain words a busy person reads in one pass.`;
+  const s = HEAT.huntSynopsis(p);
+  const user = `THE POST
+Subreddit: r/${p.sub || "?"}
+Author: ${p.author || "?"}
+Title: ${p.title || ""}
+Body:
+${(p.body || "(no body)").slice(0, compact ? 2000 : 5000)}
+
+WHAT WE READ FROM IT (may be wrong; trust the post)
+Wants: ${s.wants}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + "." : ""}
+${HEAT.huntContextText(p, true)}
+For context only, never write about it: we come in as their team and ${sh.shapeShort}.
+
+Fill every slot. Be concrete and quick.`;
+  return { system, user, schema: HEAT.SLOT_SCHEMA };
+};
+
+// --- sentence pools -------------------------------------------------------
+// Each line is a whole sentence. The builder picks one per slot, per style,
+// so the same two DMs never read alike.
+const S_OPEN = [
+  (m) => `Saw your post about ${m.the}.`,
+  (m) => `Your post about ${m.the} came up in r/${m.sub}.`,
+  (m) => `Read your post on ${m.the} this morning.`,
+  (m) => `Came across your post looking for help with ${m.the}.`,
+  (m) => `Your post about ${m.the} is the reason I'm writing.`,
+  (m) => `Just read what you wrote about ${m.the}.`,
+];
+const S_STAND = [
+  () => `I'm not applying for the co-founder seat.`,
+  () => `This isn't a co-founder application.`,
+  () => `I'm not after the co-founder seat, so I'll keep this short.`,
+  () => `I'm not writing to be your co-founder.`,
+  () => `I won't pitch myself as a co-founder.`,
+];
+const S_TEAM = [
+  () => `I run a small team of my own.`,
+  () => `What I have is a team rather than just myself.`,
+  () => `I come with a team, which is the useful part.`,
+  () => `There's a team behind me, not just me.`,
+  () => `I bring a team, and that changes what's possible in a month.`,
+];
+const S_PROOF = [
+  () => `Happy to send the portfolio and a short plan for the first block of work.`,
+  () => `I can share what we've built before, and a plan for the first piece, whenever you want it.`,
+  () => `Portfolio and a one-page plan are yours on request.`,
+  () => `If it's useful I'll send examples of our work and how I'd sequence yours.`,
+  () => `Ask and I'll send the portfolio plus how I'd start on this.`,
+];
+const S_NEXT = [
+  () => `No rush on any of it.`,
+  () => `A one-line answer is enough to start.`,
+  () => `Either answer is fine, it just tells me what to send next.`,
+  () => `Say no and I'll leave you alone, that's a fine answer too.`,
+  () => `Two messages is probably all this needs.`,
+];
+const S_MOVE_IN = [
+  (m) => `If it were mine this week: ${m.moveLower}`,
+  (m) => `One thing I'd do first: ${m.moveLower}`,
+  (m) => `The step I'd take before anything else: ${m.moveLower}`,
+  (m) => `Worth doing before you bring anyone in: ${m.moveLower}`,
+  (m) => `${m.move}`,
+];
+// A style is a whole shape, not a reworded sentence: the order changes too.
+const STYLES = [
+  { key: "plain", build: (m, pick) => [
+    `${pick(S_OPEN)(m)} ${m.observation}`, "",
+    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `${pick(S_PROOF)()} ${m.question}`,
+  ] },
+  { key: "observation-first", build: (m, pick) => [
+    `${m.observation} ${pick(S_OPEN)(m)}`, "",
+    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `${m.question} ${pick(S_PROOF)()}`,
+  ] },
+  { key: "useful-first", build: (m, pick) => [
+    `${pick(S_OPEN)(m)} ${m.observation}`, "",
+    pick(S_MOVE_IN)(m), "",
+    `As for me, ${lower(pick(S_STAND)())} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `${m.question} ${pick(S_NEXT)()}`,
+  ] },
+  { key: "brief", build: (m, pick) => [
+    `${pick(S_OPEN)(m)} ${m.observation}`, "",
+    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
+    m.question,
+  ] },
+  { key: "question-led", build: (m, pick) => [
+    `${pick(S_OPEN)(m)} ${m.question}`, "",
+    `${m.observation} ${pick(S_MOVE_IN)(m)}`, "",
+    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer} ${pick(S_PROOF)()}`,
+  ] },
+];
+function lower(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
+HEAT.SLOT_STYLES = STYLES.map((s) => s.key);
+
+// A small deterministic hash, so the same post always gets the same style
+// unless it clashes with something already sent.
+function slotHash(s) { let h = 2166136261; for (let i = 0; i < String(s).length; i += 1) { h ^= String(s).charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); }
+
+// Six-word shingles: how a new DM is compared with the ones already sent.
+HEAT.dmShingles = function (text, n = 6) {
+  const w = String(text || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let i = 0; i + n <= w.length; i += 1) out.push(w.slice(i, i + n).join(" "));
+  return out;
+};
+HEAT.dmOverlap = function (shingles, previous) {
+  if (!shingles.length || !previous || !previous.length) return 0;
+  const mine = new Set(shingles);
+  let worst = 0;
+  for (const prev of previous) {
+    const set = new Set(prev);
+    let hit = 0;
+    for (const s of mine) if (set.has(s)) hit += 1;
+    worst = Math.max(worst, hit / mine.size);
+  }
+  return Math.round(worst * 100) / 100;
+};
+
+// Build the message from the slots. Tries every style and variant and keeps
+// the one that reads least like anything already sent.
+HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
+  const avoid = opts.avoid || [];
+  const v = HEAT.huntVars(p, profile);
+  const sh = v.shape;
+  const product = String(slots.product || HEAT.huntThing(p).replace(/^your /, "")).trim().replace(/^(?:the|a|an|your|my)\s+/i, "");
+  // "the gym scheduling app", but "HeySakhi" keeps its own name
+  const proper = /^[A-Z][A-Za-z0-9]*$/.test(product.split(" ")[0]) && product.split(" ").length <= 2;
+  const theProduct = proper ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
+  const move = sentence(slots.move);
+  const base = {
+    product,
+    the: theProduct,
+    observation: sentence(slots.observation),
+    move,
+    moveLower: move.charAt(0).toLowerCase() + move.slice(1),
+    question: sentence(slots.question, "?"),
+    sub: p.sub || "reddit",
+    name: v.name,
+  };
+  const tries = [];
+  const seed = slotHash(p.id || p.title || "");
+  const recent = opts.recentStyles || [];
+  for (let si = 0; si < STYLES.length; si += 1) {
+    for (let vi = 0; vi < 5; vi += 1) {
+      const style = STYLES[(seed + si) % STYLES.length];
+      if (!opts.anyStyle && recent.slice(0, 2).includes(style.key)) continue;   // never the same shape twice running
+      let n = 0;
+      const pick = (pool) => pool[(seed + vi * 7 + (n++) * 3) % pool.length];
+      // the offer is always your chosen shape, in one sentence, worded a few ways
+      const shapes = [
+        `We come in as your team and ${lower(sh.shapeShort)}`,
+        `We'd work as your team, and ${lower(sh.shapeShort)}`,
+        `The shape is simple: we're your team, and we ${lower(sh.shapeShort).replace(/^we\s+/i, "")}`,
+        `We'd be your team on this, and ${lower(sh.shapeShort)}`,
+        `Rather than equity, we work as your team and ${lower(sh.shapeShort)}`,
+        `No equity and no free work: we're your team, and we ${lower(sh.shapeShort).replace(/^we\s+/i, "")}`,
+      ];
+      let offer = pick(shapes);
+      offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
+      const m = { ...base, offer: `${offer}. You keep the company and the IP.` };
+      const body = style.build(m, pick).filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      const text = `Hi ${base.name},\n\n${body}\n\n${v.sign || (profile.name ? "— " + profile.name : "")}`.trim();
+      tries.push({ style: style.key, variant: vi, text: clean(text) });
+    }
+  }
+  if (!tries.length) return HEAT.huntSlotBuild(p, profile, slots, { ...opts, anyStyle: true });
+  let best = null;
+  for (const t of tries) {
+    const overlap = HEAT.dmOverlap(HEAT.dmShingles(t.text), avoid);
+    if (!best || overlap < best.overlap) best = { ...t, overlap };
+    if (overlap < 0.1) break;
+  }
+  return best;
+
+  function sentence(x, end = ".") {
+    let s = String(x || "").replace(/\s+/g, " ").trim();
+    if (!s) return "";
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+    if (!/[.!?]$/.test(s)) s += end;
+    return s.replace(/!+$/, ".");
+  }
+  function clean(s) {
+    return s
+      .replace(/https?:\/\/\S+/g, "")                                   // never a link in the first message
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")          // no emoji
+      .replace(/ {2,}/g, " ")
+      .replace(/ \n/g, "\n")
+      .trim();
+  }
+};
+
+// The whole answer for one post, built from the slots: public reply + both DMs.
+HEAT.huntSlotAssemble = function (p, profile = {}, slots = {}, opts = {}) {
+  const built = HEAT.huntSlotBuild(p, profile, slots, opts);
+  const v = HEAT.huntVars(p, profile);
+  const line = String(slots.reply_line || "").replace(/\s+/g, " ").trim().replace(/[.!?]*$/, ".");
+  const long = `${built.text.replace(/\n\n(— .*)$/, "\n\n" + HEAT.huntContactLine(profile) + "\n\n$1")}`;
+  return {
+    concept: { product: String(slots.product || ""), customer: "", problem: "", stage_now: "", missing: "", type: "other", phrases: [], biggest_unknown: String(slots.question || "") },
+    public_reply: `${line}\n${HEAT.PUBLIC_CLOSE}`,
+    dm_short: built.text,
+    dm_long: long,
+    why: String(slots.observation || "").slice(0, 200),
+    fit: slots.fit === "no" ? "no" : "yes",
+    fit_reason: String(slots.fit_reason || "").slice(0, 200),
+    style: built.style,
+    overlap: built.overlap,
+    shingles: HEAT.dmShingles(built.text),
+  };
+};
