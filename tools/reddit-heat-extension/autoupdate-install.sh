@@ -6,7 +6,7 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LABEL="com.reddit-lead-threads.update"
-INTERVAL="${1:-3600}"   # seconds; pass e.g. 1800 for every 30 minutes
+INTERVAL="${1:-120}"    # seconds; every 2 minutes by default (pass e.g. 3600 for hourly)
 
 if [ "$(uname)" = "Darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -25,11 +25,12 @@ if [ "$(uname)" = "Darwin" ]; then
 EOF
   launchctl unload "$PLIST" 2>/dev/null || true
   launchctl load "$PLIST"
-  echo "Automatic updates ON (every $((INTERVAL/60)) minutes)."
+  echo "Automatic updates ON (every $INTERVAL seconds)."
   echo "Log: $HERE/autoupdate.log"
   echo "Turn off with: ./autoupdate-uninstall.sh"
 else
-  LINE="0 * * * * /bin/bash $HERE/update.sh >> $HERE/autoupdate.log 2>&1"
+  MIN=$(( INTERVAL / 60 )); [ "$MIN" -lt 1 ] && MIN=1
+  LINE="*/$MIN * * * * /bin/bash $HERE/update.sh >> $HERE/autoupdate.log 2>&1"
   ( crontab -l 2>/dev/null | grep -v "$HERE/update.sh" ; echo "$LINE" ) | crontab -
-  echo "Automatic updates ON (hourly via cron). Log: $HERE/autoupdate.log"
+  echo "Automatic updates ON (every $MIN minutes via cron). Log: $HERE/autoupdate.log"
 fi

@@ -223,6 +223,31 @@ async function checkAhead(n = 4) {
   } finally { checkingAhead = false; }
 }
 
+// ---- version: running, on disk, on GitHub -------------------------------
+async function showVersion() {
+  const v = await send({ type: "version-state" });
+  if (!v) return;
+  const el = $("ver");
+  el.className = "stat";
+  if (v.diskAhead) {
+    el.textContent = `v${v.onDisk} downloaded · click to reload`;
+    el.className = "stat go";
+    el.title = v.busy ? "a sweep is running; it will reload on its own when that finishes" : "the updater already put the new files in your folder";
+  } else if (v.remoteAhead) {
+    el.textContent = `v${v.remote} is out · yours is v${v.running} · updating…`;
+    el.className = "stat hot";
+    el.title = "the hourly/2-minute updater will fetch it; or run ./update.sh now";
+  } else {
+    el.textContent = `v${v.running} · latest`;
+    el.title = v.remoteCheckedAt ? "GitHub checked " + ago(v.remoteCheckedAt) : "GitHub not checked yet";
+  }
+}
+$("ver").onclick = async () => {
+  const v = await send({ type: "version-state" });
+  if (v && v.diskAhead) { await send({ type: "reload-now" }); setTimeout(() => location.reload(), 1200); }
+  else showVersion();
+};
+
 document.addEventListener("keydown", (e) => {
   if (/input|textarea/i.test(e.target.tagName || "")) return;
   if (e.key === "1") $("didReply").click();
@@ -252,5 +277,7 @@ document.addEventListener("keydown", (e) => {
   }
   await refresh(false);
   checkAhead();
+  showVersion();
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
+  setInterval(showVersion, 30000);
 })();

@@ -39,6 +39,29 @@ async function arm() {
 // update.sh (or a fresh unzip) put a newer version in the folder, reload so
 // Chrome picks it up without anyone clicking anything. Never reloads mid-sweep.
 const VERSION_ALARM = "version-check";
+const RAW_MANIFEST = "https://raw.githubusercontent.com/troiwebz/data-analytics/claude/brave-fermat-6ysqd0/tools/reddit-heat-extension/manifest.json";
+function semverGt(a, b) {
+  const pa = String(a || "0").split(".").map(Number), pb = String(b || "0").split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0); }
+  return false;
+}
+// Every couple of minutes: what is the newest version on GitHub? Lets the page
+// say "2.4.4 is on its way" instead of leaving you guessing.
+async function checkRemoteVersion() {
+  try {
+    const r = await fetch(RAW_MANIFEST + "?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.version) await chrome.storage.local.set({ remoteVersion: j.version, remoteCheckedAt: Date.now() });
+  } catch (_) { /* offline */ }
+}
+async function versionState() {
+  const running = chrome.runtime.getManifest().version;
+  let onDisk = running;
+  try { onDisk = (await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json()).version || running; } catch (_) { /* mid-copy */ }
+  const { remoteVersion = "", remoteCheckedAt = 0, sweepState = null, auto = null } = await chrome.storage.local.get(["remoteVersion", "remoteCheckedAt", "sweepState", "auto"]);
+  return { running, onDisk, remote: remoteVersion, remoteCheckedAt, diskAhead: semverGt(onDisk, running), remoteAhead: semverGt(remoteVersion, onDisk), busy: !!(sweepState || auto) };
+}
 async function checkVersion() {
   try {
     const onDisk = await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json();
@@ -64,9 +87,10 @@ async function reclassifyAll() {
   if (changed) await chrome.storage.local.set({ posts });
   return changed;
 }
-chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
-chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 });  huntGet().then((h) => huntArm(h.on)); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
+chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
+const REMOTE_ALARM = "remote-version";
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === REMOTE_ALARM) checkRemoteVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (!msg) return;
   if (msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -91,6 +115,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "version-state") { versionState().then(reply); return true; }
+  if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-whoami") { huntMe().then((me) => reply({ me })).catch(() => reply({ me: "" })); return true; }
   if (msg.type === "hunt-server-test") { (async () => {
       try {
