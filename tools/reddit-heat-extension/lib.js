@@ -948,6 +948,11 @@ HEAT.classifyCofounder = function (title, body) {
   if (!COFOUNDER_ASK.test(all)) return { keep: false, why: "not a co-founder ask" };
   // Someone OFFERING to be a co-founder is not a prospect either.
   if (/\b(i|we)(?:'m| am|'re| are)? (?:a |an )?(?:available|open|looking to join|offering)\b|\bi want to be (?:a |your )?co[- ]?founder|\bjoin your (?:startup|team|project)\b/i.test(t)) return { keep: false, why: "offering to join" };
+  // Nor is a builder describing what THEY can build. "I can handle the
+  // technical side, feel free to reach out" is a competitor, not a lead.
+  const builderVoice = /\bi (?:can|could|will|would) (?:handle|build|code|develop|take care of|own|cover) (?:the |all )?(?:technical|tech|dev|development|engineering|backend|coding|product)\b|\bi(?:'m| am) (?:a |an )?(?:developer|engineer|programmer|coder|cto|full[- ]stack|backend|frontend|ml engineer|ai engineer|data scientist|software (?:engineer|developer)|technical (?:person|founder|guy|co[- ]?founder))\b|\bi have (?:\d+\+? years|years of|a background|experience) (?:in|of|with) (?:software|coding|engineering|development|programming|ml|ai|backend)\b|\bmy (?:tech|technical|engineering) (?:skills|background|expertise|experience)\b|\bi handle the technical\b|\bhappy to build (?:it|this|the)\b|\bi can build (?:it|this|the mvp|anything)\b|\blooking for (?:an? )?(?:idea|ideas|problem to solve|non[- ]technical (?:co[- ]?founder|partner|founder))\b/i;
+  const asksForBuilder = /\b(?:need|looking for|seeking|want) (?:a |an |someone |somebody )?(?:technical|tech|developer|engineer|coder|programmer|cto)\b|\bcan'?t code\b|\bno technical\b|\bnon[- ]?technical founder\b|\bcannot (?:build|code)\b|\bi(?:'m| am) not technical\b/i;
+  if (builderVoice.test(all) && !asksForBuilder.test(t) && !/\b(?:i|we) (?:can'?t|cannot|don'?t) (?:code|build)\b|\bnot technical\b/i.test(all)) return { keep: false, why: "is a builder themselves" };
   let role = "unclear";
   if (ROLE_TECH.test(all)) role = "technical";
   else if (ROLE_MARKETING.test(all)) role = "marketing";
@@ -1365,6 +1370,8 @@ HEAT.huntThing = function (p) {
   // left is the venture: "for my fitness app" -> "your fitness app".
   t = t.replace(/^.*\b(?:co[- ]?founders?|cofounders?|cto|cmo|coo|technical partner|business partner|developer|engineer|designer|partner)\b/i, " ").trim();
   const junk = /^(?:co[- ]?founder|cofounder|partner|someone|somebody|anyone|help|equity|my (?:startup|idea|project)|our (?:startup|idea|project)|the (?:project|idea)|this|it)\b/i;
+  // "more product ideas", "advice", "feedback": not a venture, so never "your more product ideas"
+  const filler = /\b(?:ideas?|advice|feedback|thoughts|tips|suggestions|opinions?|input|recommendations?|guidance|mentor|mentorship|networking|connections?|people|folks|anyone|everyone|founders?|partners?|team ?mates?|members?|investors?|funding|money|equity|job|work|role|position|opportunit)\b|^(?:more|some|any|new|good|great|the best|a few|few|other|fellow)\b/i;
   const clean = (x) => x.replace(/\s*[-–—|(,.:;!?]+\s*$/, "").replace(/\s+/g, " ").trim();
   const tries = [
     /(?:^|\s)(?:for|on|behind|building|built|launching|making|developing|to build)\s+(?:my|our|a|an|the)\s+([A-Za-z0-9][\w' -]{2,40})/,
@@ -1374,11 +1381,14 @@ HEAT.huntThing = function (p) {
     const m = t.match(re);
     if (m) {
       const phrase = clean(m[1]);
-      if (phrase.length > 2 && !junk.test(phrase)) return "your " + phrase;
+      if (phrase.length > 2 && !junk.test(phrase) && !filler.test(phrase)) return "your " + phrase;
     }
   }
-  const app = (p.body || "").match(/\b(?:app|platform|marketplace|saas|tool|site|product|startup)\b/i);
-  return app ? "your " + app[0].toLowerCase() : "your idea";
+  const b = (p.body || "").replace(/\s+/g, " ");
+  const built = b.match(/\b(?:building|built|launching|launched|working on|creating|developing|making)\s+(?:a|an|the|my|our)\s+([a-z0-9][\w' -]{2,40}?)(?=[.,;:!?)]|\s(?:that|which|for|to|and|but|so|where)\b)/i);
+  if (built) { const phrase = clean(built[1]); if (phrase.length > 2 && !filler.test(phrase)) return "your " + phrase; }
+  const app = b.match(/\b(?:app|platform|marketplace|saas|tool|product|startup)\b/i);
+  return app ? "your " + app[0].toLowerCase() : "what you're building";
 };
 
 HEAT.huntVars = function (p, profile = {}) {

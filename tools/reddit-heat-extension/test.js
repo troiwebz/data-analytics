@@ -201,7 +201,14 @@ assert.strictEqual(cf("What is your favourite CRM?", "Just curious.").keep, fals
 assert.strictEqual(H.huntThing({ title: "Looking for a technical co-founder for my fitness app" }), "your fitness app");
 assert.strictEqual(H.huntThing({ title: "[Seeking] Technical cofounder for AI-powered resume builder" }), "your AI-powered resume builder");
 assert.strictEqual(H.huntThing({ title: "Need a marketing co-founder for my SaaS (B2B)" }), "your SaaS");
-assert.strictEqual(H.huntThing({ title: "Anyone want to join my startup?", body: "Building a scheduling tool." }), "your tool");
+assert.strictEqual(H.huntThing({ title: "Anyone want to join my startup?", body: "Building a scheduling tool for gyms that saves time." }), "your scheduling tool");
+assert.strictEqual(H.huntThing({ title: "Looking for more product ideas", body: "" }), "what you're building", "filler titles never become 'your more product ideas'");
+assert.strictEqual(H.huntThing({ title: "Looking for advice on finding a cofounder", body: "" }), "what you're building");
+// the poster who IS the builder is a competitor, not a lead
+assert.strictEqual(cf("Looking for more product ideas", "I can handle the technical side, especially AI/ML and backend. If someone is looking for a technical co-founder, feel free to reach out.").why, "is a builder themselves");
+assert.strictEqual(cf("Need a marketing co-founder", "I am a full-stack developer, built the MVP alone, need someone for growth.").why, "is a builder themselves");
+assert.strictEqual(cf("Looking for a technical co-founder", "I am not technical. I have an idea for a fitness app and cannot build it.").keep, true, "non-technical founders stay");
+assert.strictEqual(cf("Need a developer co-founder", "I have 10 years in sales. My technical skills are zero.").keep, true, "'my technical skills are zero' is not builder voice");
 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
 const short = H.huntShortReply(hp, { name: "Troi" });
