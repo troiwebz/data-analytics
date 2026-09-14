@@ -1110,7 +1110,7 @@ HEAT.customOffer = function (c) {
   return {
     mode: "custom:" + c.id, custom: true, label: String(c.name || "").trim(),
     shape: dm, shapeShort: dm.length > 160 ? dm.slice(0, 157).replace(/\s+\S*$/, "") + "…" : dm,
-    clause: dm.replace(/^we\s+/i, ""),
+    clause: dm.replace(/^we\s+/i, ""), tail: dm.charAt(0).toUpperCase() + dm.slice(1) + ".",
     question: q, terms: String(c.terms || "").trim() || dm + ".",
     qualify: String(c.qualify || "").trim() || "is there a budget to start, yes or no? And is that shape open for you?",
     numbers: false, upfront: 0, share: 0, expenseShare: 0, hasUpfront: false,
@@ -1137,6 +1137,7 @@ HEAT.dealShape = function (deal) {
       shape: nums ? `we share the income and the expenses with you — ${sh} of income to our team, expenses split ${ex} — agreed in writing before anything is spent` : `we share the income and the expenses with you${equal ? ", equally" : ""}, agreed in writing before anything is spent`,
       shapeShort: nums ? `share income and expenses with you (${sh} of income, expenses ${ex})` : `share the income and expenses with you${equal ? " equally" : ""}`,
       clause: nums ? `share the income and the expenses with you, ${sh} of income to us and expenses split ${ex}` : `share the income and the expenses with you${equal ? ", equally" : ""}`,
+      tail: nums ? `${sh} of income to us, expenses split ${ex}, all agreed in writing before anything is spent.` : `Everything split${equal ? " equally" : ""}, agreed in writing before anything is spent.`,
       question: `is a co-founder on a split of income and expenses, rather than equity, a shape you're open to?`,
       terms: `No upfront. ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing before anything is spent. You keep the company and the IP.`,
       qualify: `can you carry your side of the expenses to start, yes or no? And are you open to a co-founder on a split of income and expenses rather than equity?`,
@@ -1146,6 +1147,7 @@ HEAT.dealShape = function (deal) {
       shape: nums ? `${up} upfront to start, then ${sh} of income to our team for as long as we run it, agreed in writing` : `a small amount upfront to start, then a share of the income for as long as we run it, agreed in writing`,
       shapeShort: nums ? `${up} to start, then ${sh} of income` : `a small upfront to start, then a share of the income`,
       clause: nums ? `take ${up} upfront to start, then ${sh} of the income for as long as we run it` : `take a small amount upfront to start, then a share of the income for as long as we run it`,
+      tail: nums ? `${up} upfront to start, then ${sh} of the income for as long as we run it, agreed in writing.` : `A small amount upfront to start, then a share of the income for as long as we run it, agreed in writing.`,
       question: `is a co-founder who is paid to start and then shares the income, rather than one on equity, a shape you're open to?`,
       terms: `${up} upfront to start, which covers our team's first block of work. Then ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing. You keep the company and the IP.`,
       qualify: `is there a budget to start, yes or no? And are you open to a co-founder on a share of income rather than on equity?`,
@@ -1155,6 +1157,7 @@ HEAT.dealShape = function (deal) {
       shape: nums ? `no upfront: we carry our own costs and take ${sh} of income for as long as we run it, agreed in writing` : `no upfront: we carry our own costs and take a share of the income for as long as we run it, agreed in writing`,
       shapeShort: nums ? `no upfront, ${sh} of income` : `no upfront, a share of the income`,
       clause: nums ? `take nothing upfront and ${sh} of the income once it earns` : `take nothing upfront and a share of the income once it earns`,
+      tail: nums ? `Nothing upfront; ${sh} of the income once it earns, agreed in writing.` : `Nothing upfront; the share starts when the income does, agreed in writing.`,
       question: `is a co-founder on a share of income, rather than on equity, a shape you're open to?`,
       terms: `No upfront. ${sh} of income to our team for as long as we run it, agreed in writing; we carry our own costs. You keep the company and the IP.`,
       qualify: `is there income today, or a clear path to it? And are you open to a co-founder on a share of income rather than on equity?`,
@@ -1164,6 +1167,7 @@ HEAT.dealShape = function (deal) {
       shape: nums ? `paid work, ${up} per block, no equity and no share of your income` : `paid work in fixed blocks, no equity and no share of your income`,
       shapeShort: nums ? `paid work, ${up} per block, no equity` : `paid work in blocks, no equity, no share`,
       clause: nums ? `work at ${up} per block, with no equity and no share of your income` : `work in fixed paid blocks, with no equity and no share of your income`,
+      tail: nums ? `${up} per block of work, paid before each block, and no share of your income.` : `Paid in fixed blocks, and no share of your income.`,
       question: `is a paid team, rather than a co-founder on equity, a shape you're open to?`,
       terms: `${up} per block of work, paid before each block starts; no equity and no share of your income. You keep the company and the IP.`,
       qualify: `is there a budget to start, yes or no? And is a paid team, rather than an equity co-founder, open for you?`,
@@ -1386,7 +1390,9 @@ HEAT.huntLocalSlots = function (p) {
     : `Two different things look identical from the inside: needing a partner, and needing the thing to exist`;
   const move = { technical: `cut it to the three screens that carry the whole idea and put those in front of ten people`, marketing: `work one channel by hand for twenty customers before hiring anyone to scale it`, design: `watch five people use it without helping them and write down every hesitation`, business: `try to sell it once, manually, to one real buyer before splitting anything`, unclear: `write down what has to be true in ninety days, then ask what actually stands in the way` }[role];
   const question = { technical: `what is the one thing it has to do on day one?`, marketing: `where did the last handful of interested people come from?`, design: `where do people stop today?`, business: `who has already told you they would pay for this?`, unclear: `what would tell you in ninety days that this is worth continuing?` }[role];
-  return { product: thing, observation, move, question, reply_line: observation, phrase: "", fit: "yes", fit_reason: "" };
+  // no "move" here on purpose: a step guessed from the category reads as
+  // filler. Only a model that has read the post supplies one.
+  return { product: thing, observation, move: "", question, reply_line: observation, phrase: "", fit: "yes", fit_reason: "" };
 };
 HEAT.huntDmShort = function (p, profile = {}) {
   return HEAT.huntSlotBuild(p, profile, HEAT.huntLocalSlots(p)).text;
@@ -1874,25 +1880,17 @@ const S_OPEN = [
 ];
 // The stance: yes to the co-founder seat, but the split is income and
 // expenses rather than equity, and nobody works for free.
+// The whole claim in one sentence: yes to co-founder, a team comes with me,
+// and we share both what it costs and what it earns.
 const S_STAND = [
-  () => `I'd come in as a co-founder, with one difference: the split is income and expenses, not equity.`,
-  () => `I'm answering as a co-founder, but on a split of income and expenses rather than a slice of the company.`,
-  () => `I'm up for the co-founder seat, on the condition that we split income and expenses instead of equity.`,
-  () => `Happy to be the co-founder here, as long as it's an income and expense split rather than equity.`,
-  () => `I'll take the co-founder seat, but the arrangement I want is a split of income and expenses, not shares.`,
-  () => `Yes to co-founder, no to equity: what I'm proposing is that we split income and expenses.`,
-  () => `I'd join you as a co-founder on one term only, that income and expenses get split rather than shares.`,
-  () => `Co-founder works for me. Equity doesn't; a split of income and expenses does.`,
-];
-const S_TEAM = [
-  () => `I don't come alone either: I run a small team.`,
-  () => `What I bring is a team rather than just myself.`,
-  () => `I come with a team, which is the useful part.`,
-  () => `There's a team behind me, not just me.`,
-  () => `I bring a team, and that changes what's possible in a month.`,
-  () => `The team comes with me, which is most of the value here.`,
-  () => `I'm not one pair of hands: there's a small team with me.`,
-  () => `A team comes attached, so the work does not stop at me.`,
+  () => `I can be your co-founder on this: my team works alongside you, and we share the expenses and share the profit.`,
+  () => `Yes, I can take the co-founder seat — team included, expenses shared, profit shared.`,
+  () => `I'd come in as your co-founder with my own team, sharing what it costs to run and what it earns.`,
+  () => `Happy to be your co-founder: shared team, shared expenses, shared profit.`,
+  () => `I can co-found this with you — my team joins the work, and the expenses and the profit are both split.`,
+  () => `I'm offering to be your co-founder, bring my team, and share both the expenses and the profit with you.`,
+  () => `Co-founder, yes: a team comes with me, and we carry the expenses together and split the profit.`,
+  () => `I'd be your co-founder on a shared footing — my team, shared costs, shared profit.`,
 ];
 // The message ends here: an offer to send more, only if they want it.
 const S_PROOF = [
@@ -1927,27 +1925,27 @@ const S_MOVE_IN = [
 const STYLES = [
   { key: "plain", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP.`, "",
     pick(S_PROOF)(),
   ] },
   { key: "observation-first", build: (m, pick) => [
     `${m.observation} ${pick(S_OPEN)(m)}`, "",
-    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP.`, "",
     pick(S_PROOF)(),
   ] },
   { key: "as-for-me", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `As for me, ${lower(pick(S_STAND)())} ${pick(S_TEAM)()} ${m.offer}`, "",
+    `As for me — ${lower(pick(S_STAND)()).replace(/:/, ",")} ${m.offer} You keep the company and the IP.`, "",
     pick(S_PROOF)(),
   ] },
   { key: "brief", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${m.offer}`, "",
+    `${pick(S_STAND)()} You keep the company and the IP.`, "",
     pick(S_PROOF)(),
   ] },
   { key: "one-breath", build: (m, pick) => [
     `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${pick(S_TEAM)()} ${m.offer} ${pick(S_PROOF)()}`,
+    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP. ${pick(S_PROOF)()}`,
   ] },
 ];
 // never turn the pronoun "I" into "i"
@@ -2009,21 +2007,18 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       let n = 0;
       const pick = (pool) => pool[(seed + vi * 11 + (n++) * 5) % pool.length];
       // the offer is always your chosen shape, in one sentence, worded a few ways
-      const cl = lower(sh.clause || sh.shapeShort);
+      const tl = sh.tail || ("we " + lower(sh.clause || sh.shapeShort));
       const shapes = [
-        `We ${cl}`,
-        `In practice: we ${cl}`,
-        `The shape is simple: we ${cl}`,
-        `Concretely, we ${cl}`,
-        `Rather than equity, we ${cl}`,
-        `No equity and no free work: we ${cl}`,
-        `Put plainly, we ${cl}`,
-        `On the money side, we ${cl}`,
-        `The arrangement: we ${cl}`,
+        `${tl}`,
+        `In practice: ${lower(tl)}`,
+        `Concretely, ${lower(tl)}`,
+        `Put plainly, ${lower(tl)}`,
+        `On the money side, ${lower(tl)}`,
+        `The arrangement: ${lower(tl)}`,
       ];
       let offer = pick(shapes);
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
-      const m = { ...base, offer: `${offer}. You keep the company and the IP.` };
+      const m = { ...base, offer: /[.!?]$/.test(offer) ? offer : offer + "." };
       let lines = style.build(m, pick);
       if (opts.long && m.move) {
         // one more paragraph, right after their post: what I'd do about it

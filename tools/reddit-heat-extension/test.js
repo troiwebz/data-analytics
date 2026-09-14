@@ -235,10 +235,11 @@ assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a
 assert.ok(dm.startsWith("Hi Jane,") && dm.trim().endsWith("— Troi"), "signed with the name only: " + dm);
 assert.ok(/portfolio|plan for the first|examples of our work/i.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "the last line offers to send more: " + dm);
 assert.ok(!/\?\s*$/.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "no question at the end: " + dm);
-assert.ok(/co-founder/i.test(dm) && /income and expenses, not equity|income and expenses rather than|split income and expenses instead of equity|income and expense split rather than equity|split of income and expenses, not shares/.test(dm), "we are the co-founder, the split is income and expenses: " + dm);
+assert.ok(/co-founder/i.test(dm), "we answer as the co-founder: " + dm);
+assert.ok(/team/i.test(dm) && /expenses/i.test(dm) && /profit|income/i.test(dm), "the one sentence carries team, expenses and profit: " + dm);
 assert.ok(!/not applying|isn't a co-founder application|won't pitch myself/i.test(dm), "we no longer refuse the co-founder seat: " + dm);
 assert.ok(!/\$\d|\d+%/.test(dm), "no price and no percentage in the first DM: " + dm);
-assert.ok(/share the income and the expenses/.test(dm) && /You keep the company and the IP\./.test(dm), "the shape is the pitch: " + dm);
+assert.ok(/share the (?:income|expenses)|split equally|shared expenses/i.test(dm) && /You keep the company and the IP\./.test(dm), "the shape is the pitch: " + dm);
 assert.ok(!/https?:\/\//.test(dm), "no link in a first DM, it sends Reddit chat to the requests folder: " + dm);
 assert.ok(!/30 to 50 percent|three to six months|2 to 4 weeks/.test(dm), "no essay about co-founders: " + dm);
 assert.ok(!/48 hours|prototype|no charge|costs you nothing|free build/i.test(dm), "no free work promised: " + dm);
@@ -250,7 +251,7 @@ console.log("co-founder hunt: ok");
 // DM close: the free offer, then the private channel
 const prof2 = { name: "Troi", role: "web developer", whatsapp: "+91 98765 43210", telegram: "@troibuilds" };
 const dm2 = H.huntDM(hp, prof2);
-assert.ok(/share the income and the expenses/.test(dm2) && !/\$\d/.test(dm2), "every DM says how we work, without a price");
+assert.ok(/share the (?:income|expenses)|split equally|shared expenses/i.test(dm2) && !/\$\d/.test(dm2), "every DM says how we work, without a price");
 assert.ok(!/wa\.me|t\.me/.test(dm2), "channels set but no links in the DM by default");
 assert.ok(!/WhatsApp or Telegram/.test(dm2), "no channel line in the DM at all now");
 assert.ok(dm2.trim().endsWith("— Troi"));
@@ -279,7 +280,14 @@ assert.strictEqual(H.huntName(""), "there");
 
 // three lengths of the same letter, same offer and close in each
 const sizes = ["short", "long", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
-assert.ok(sizes[0].length < sizes[2].length, "short < long: " + sizes.map((x) => x.length));
+// without a model-written step for this post there is nothing extra to add,
+// so the template's short and long are the same three paragraphs on purpose
+assert.strictEqual(sizes[0].length, sizes[2].length, "template sizes match when there is no post-specific step");
+{
+  const withStep = H.huntSlotAssemble({ ...hp, id: "sz" }, { name: "Noah" }, { product: "fitness app", observation: "Four hundred on the waitlist answers the demand question", move: "pre-sell ten gyms a month of the beta", question: "q?", reply_line: "l", phrase: "", fit: "yes" });
+  assert.ok(withStep.dm_long.length > withStep.dm_short.length, "with a written step, long is longer");
+  assert.ok(withStep.dm_long.includes("pre-sell ten gyms") && !withStep.dm_short.includes("pre-sell ten gyms"));
+}
 assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
 sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(!/https?:\/\//.test(d), "no links"); assert.ok(!/\$\d/.test(d), "no price in the DM"); });
 const builtDm = H.huntDM({ ...hp, stage: "building", body: "We already have a working product with paying recruiters." }, { name: "Noah" }, "short");
@@ -425,16 +433,18 @@ console.log("stage-aware dm: ok");
   assert.deepStrictEqual(H.DEAL_MODES.map((m) => m.key), ["split", "upfront_share", "share", "upfront"]);
   assert.strictEqual(H.DEAL_DEFAULT.mode, "split"); assert.strictEqual(H.DEAL_DEFAULT.share, 50); assert.strictEqual(H.DEAL_DEFAULT.expenseShare, 50);
   const dflt = H.huntDM(p, prof, "long");
-  assert.ok(/share the income and the expenses with you, equally/.test(dflt), "default DM says the split in words:\n" + dflt);
+  assert.ok(/shared expenses|share the expenses|split equally|expenses together/i.test(dflt), "default DM says the split in words:\n" + dflt);
   assert.ok(!/[$%]/.test(dflt), "no numbers in the first DM by default");
   const withNums = H.huntDM(p, { ...prof, deal: { numbersInDm: true } }, "long");
   assert.ok(withNums.includes("50% of income to us") && withNums.includes("50/50"), "numbers appear when switched on:\n" + withNums);
+  assert.ok(!/split equally, agreed/.test(withNums), "with numbers on, the numbers replace the words");
   const up = H.huntDM(p, { ...prof, deal: { mode: "upfront_share" } }, "short");
-  assert.ok(/take a small amount upfront to start, then a share of the income/.test(up) && !/\$/.test(up), up);
+  assert.ok(/small amount upfront to start, then a share of the income/i.test(up) && !/\$/.test(up), up);
   const shareOnly = H.huntDM(p, { ...prof, deal: { mode: "share" } }, "long");
-  assert.ok(/take nothing upfront and a share of the income/.test(shareOnly), shareOnly);
+  assert.ok(/nothing upfront/i.test(shareOnly), shareOnly);
   const paid = H.huntDM(p, { ...prof, deal: { mode: "upfront", numbersInDm: true, upfront: 900 } }, "long");
   assert.ok(paid.includes("$900 per block") && /no share of your income/.test(paid), paid);
+  assert.ok(H.dealShape({}).tail && H.dealShape({ mode: "share" }).tail, "every shape has a terms line");
   for (const mode of ["split", "upfront_share", "share", "upfront"]) {
     const pr = H.huntAiPrompt(p, { ...prof, deal: { mode } });
     assert.ok(pr.user.includes("THE DEAL SHAPE: " + H.dealShape({ mode }).label), mode + " named in the prompt");

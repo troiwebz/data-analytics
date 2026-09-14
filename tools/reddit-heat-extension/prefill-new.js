@@ -1,73 +1,141 @@
-// Runs on www.reddit.com (new Reddit) thread pages only. Puts the reply the
-// hunt chose into Reddit's comment editor so you read it and click Comment.
+// Runs on www.reddit.com (new Reddit) thread pages. Puts the reply the hunt
+// chose into Reddit's comment editor so you read it and click Comment.
 // New Reddit's composer is a Lexical editor inside shadow DOM, collapsed until
-// clicked, so this expands it, types into it, and watches for the click.
+// clicked, and the site navigates without reloading, so this keeps watching:
+// open the composer, type, show what happened, and hand over if it can't.
 // Nothing is submitted by this script.
-(async function prefillNewReddit() {
-  if (!/\/comments\/[a-z0-9]+/i.test(location.pathname)) return;
-  const { pendingReply } = await chrome.storage.local.get(["pendingReply"]);
-  if (!pendingReply || !pendingReply.text) return;
-  const idOf = (u) => ((u || "").match(/\/comments\/([a-z0-9]+)/i) || [])[1];
-  if (idOf(pendingReply.permalink) !== idOf(location.pathname)) return;
-  if (Date.now() - (pendingReply.at || 0) > 20 * 60000) { chrome.storage.local.remove("pendingReply"); return; }
-
+(function prefillNewReddit() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // querySelector that also walks into every open shadow root
-  function deep(sel, root = document) {
-    const hit = root.querySelector(sel);
-    if (hit) return hit;
-    for (const el of root.querySelectorAll("*")) {
-      if (el.shadowRoot) { const r = deep(sel, el.shadowRoot); if (r) return r; }
+  const idOf = (u) => ((u || "").match(/\/comments\/([a-z0-9]+)/i) || [])[1];
+
+  function deepAll(sel, root = document, out = []) {
+    for (const el of root.querySelectorAll(sel)) out.push(el);
+    for (const el of root.querySelectorAll("*")) if (el.shadowRoot) deepAll(sel, el.shadowRoot, out);
+    return out;
+  }
+  const deep = (sel) => deepAll(sel)[0] || null;
+  const visible = (e) => e && (e.offsetParent !== null || e.getClientRects().length);
+  const textOf = (el) => (el && (el.innerText || el.textContent) || "").replace(/\s+/g, " ").trim();
+
+  // ---- the little card, same idea as the one in Chat ----------------------
+  let card, cardMsg, off = false;
+  function ensureCard() {
+    if (card || off) return;
+    card = document.createElement("div");
+    card.id = "rlt-reply";
+    card.style.cssText = "position:fixed;right:16px;bottom:16px;width:360px;z-index:2147483647;background:#171a21;color:#e8eaf0;border:1px solid #262b36;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:13px/1.5 -apple-system,Segoe UI,sans-serif;padding:12px;display:flex;flex-direction:column;gap:8px";
+    card.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">Public reply</b><span id="rlt-r-state" style="margin-left:auto;font-size:12px;color:#98a0b3"></span><button id="rlt-r-x" style="background:none;border:0;color:#98a0b3;cursor:pointer;font-size:15px">✕</button></div>
+      <div id="rlt-r-msg" style="color:#98a0b3;font-size:12px">Opening Reddit's comment box…</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button id="rlt-r-go" style="background:#ff5722;border:0;color:#fff;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Fill the box</button>
+        <button id="rlt-r-copy" style="background:#1e222b;border:1px solid #262b36;color:#e8eaf0;padding:7px 10px;border-radius:7px;cursor:pointer">Copy the reply</button>
+      </div>`;
+    document.body.appendChild(card);
+    cardMsg = card.querySelector("#rlt-r-msg");
+    card.querySelector("#rlt-r-x").onclick = () => { off = true; card.remove(); card = null; };
+    card.querySelector("#rlt-r-go").onclick = () => { STEP.tries = 0; STEP.done = false; run(true); };
+    card.querySelector("#rlt-r-copy").onclick = async () => { try { await navigator.clipboard.writeText(STEP.text); say("copied — click Reddit's box and press ⌘V"); } catch (_) { /* focus rules */ } };
+  }
+  function say(t, color) { ensureCard(); if (cardMsg) { cardMsg.textContent = t; cardMsg.style.color = color || "#98a0b3"; } }
+  function state(t, color) { ensureCard(); const el = card && card.querySelector("#rlt-r-state"); if (el) { el.textContent = t; el.style.color = color || "#98a0b3"; } }
+
+  // ---- finding and opening Reddit's composer ------------------------------
+  function findEditor() {
+    const cands = deepAll('shreddit-composer [contenteditable="true"], comment-composer-host [contenteditable="true"], [data-lexical-editor="true"][contenteditable="true"], faceplate-form [contenteditable="true"], textarea[name="comment"], div[contenteditable="true"][role="textbox"]')
+      .filter(visible).filter((e) => !e.closest("#rlt-reply"));
+    return cands[0] || null;
+  }
+  function openComposer() {
+    const hosts = deepAll("comment-composer-host, shreddit-composer, shreddit-async-loader[bundlename='comment_composer']").filter(visible);
+    for (const h of hosts) {
+      const inner = h.querySelector('button, [role="button"], [contenteditable], div');
+      (inner || h).scrollIntoView({ block: "center" });
+      (inner || h).click();
     }
-    return null;
+    // the "Add a comment" / "Join the conversation" placeholder
+    const holders = deepAll('button, [role="button"], div, p, span').filter(visible)
+      .filter((e) => !e.closest("#rlt-reply"))
+      .filter((e) => /^(add a comment|join the conversation|what are your thoughts\??|write a comment|comment)$/i.test(textOf(e)));
+    if (holders[0]) { holders[0].scrollIntoView({ block: "center" }); holders[0].click(); }
+    return hosts.length || holders.length;
   }
-  const note = document.createElement("div");
-  note.style.cssText = "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;max-width:720px;padding:10px 16px;border-radius:10px;background:#ff5722;color:#fff;font:14px/1.4 -apple-system,Segoe UI,sans-serif;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.35)";
-  document.body.appendChild(note);
-  const say = (t, bg) => { note.textContent = t; if (bg) note.style.background = bg; };
-  say("Opening the comment box…");
+  async function typeInto(editor, text) {
+    editor.scrollIntoView({ block: "center" });
+    editor.focus();
+    await sleep(120);
+    if (editor.tagName === "TEXTAREA") {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(editor, text);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      return editor.value === text;
+    }
+    let ok = false;
+    try { ok = document.execCommand("insertText", false, text); } catch (_) { /* try paste */ }
+    if (!ok || !textOf(editor).includes(text.slice(0, 20))) {
+      try {
+        const dt = new DataTransfer(); dt.setData("text/plain", text);
+        editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+        await sleep(200);
+      } catch (_) { /* clipboard fallback below */ }
+    }
+    return textOf(editor).includes(text.slice(0, 20));
+  }
 
-  // 1. expand the composer if it is collapsed
-  let editor = null;
-  for (let i = 0; i < 60 && !editor; i += 1) {
-    editor = deep('shreddit-composer [contenteditable="true"]') || deep('comment-composer-host [contenteditable="true"]') || deep('[data-lexical-editor="true"][contenteditable="true"]');
-    if (editor) break;
-    const trigger = deep("comment-composer-host") || deep('[data-testid="trigger-button"]') || deep("shreddit-async-loader[bundlename='comment_composer']");
-    if (trigger && i % 4 === 0) { trigger.scrollIntoView({ block: "center" }); trigger.click(); const inner = trigger.querySelector("button, [role=button], div") ; if (inner) inner.click(); }
-    await sleep(250);
-  }
-  if (!editor) {
-    say("Could not find Reddit's comment box (logged out, locked, or Reddit changed its page). The reply is on your clipboard — click the box and press ⌘V.", "#c62828");
-    return;
-  }
-
-  // 2. type into it the way a person would, so Reddit's editor registers it
-  editor.scrollIntoView({ block: "center" });
-  editor.focus();
-  await sleep(150);
-  let typed = false;
-  try { typed = document.execCommand("insertText", false, pendingReply.text); } catch (_) { /* no execCommand */ }
-  if (!typed || !(editor.textContent || "").includes(pendingReply.text.slice(0, 20))) {
-    // fall back to a paste-style insertion
+  // ---- the loop ------------------------------------------------------------
+  const STEP = { id: "", text: "", tries: 0, done: false, watching: false, busy: false };
+  async function run(force) {
+    if (STEP.busy) return;
+    if (!/\/comments\/[a-z0-9]+/i.test(location.pathname)) { if (card) { card.remove(); card = null; } STEP.id = ""; STEP.done = false; return; }
+    const { pendingReply } = await chrome.storage.local.get(["pendingReply"]);
+    if (!pendingReply || !pendingReply.text) return;
+    if (idOf(pendingReply.permalink) !== idOf(location.pathname)) return;
+    if (Date.now() - (pendingReply.at || 0) > 30 * 60000) { await chrome.storage.local.remove("pendingReply"); return; }
+    if (STEP.done && !force) return;
+    if (STEP.id !== pendingReply.id) { STEP.id = pendingReply.id; STEP.tries = 0; STEP.done = false; }
+    STEP.text = pendingReply.text;
+    STEP.busy = true;
     try {
-      const dt = new DataTransfer(); dt.setData("text/plain", pendingReply.text);
-      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-      await sleep(200);
-    } catch (_) { /* leave it to the clipboard */ }
+      ensureCard();
+      watchSubmit(pendingReply);
+      let editor = findEditor();
+      if (!editor) {
+        STEP.tries += 1;
+        if (STEP.tries > 24) { state("stuck", "#ff8a65"); say("Reddit's comment box did not open. The reply is on your clipboard — click the box and press ⌘V, or press Fill the box to try again.", "#ff8a65"); STEP.done = true; return; }
+        openComposer();
+        say(`opening Reddit's comment box… (${STEP.tries})`, "#e6c76b");
+        return;
+      }
+      const ok = await typeInto(editor, pendingReply.text);
+      const host = editor.closest("shreddit-composer") || editor;
+      if (host && host.style) host.style.outline = "3px solid #ff5722";
+      if (ok) {
+        state("filled ✓", "#7ee29a");
+        say("Reply is in the box. Read it, then click Reddit's Comment button — the post is marked replied the moment you do.", "#7ee29a");
+        STEP.done = true;
+        await chrome.storage.local.set({ pendingReply: { ...pendingReply, filled: true } });
+      } else {
+        STEP.tries += 1;
+        if (STEP.tries > 6) { state("paste it", "#e6c76b"); say("The box is open but Reddit would not take the text. It is on your clipboard — click in the box and press ⌘V.", "#e6c76b"); STEP.done = true; }
+      }
+    } finally { STEP.busy = false; }
   }
-  const ok = (editor.textContent || "").includes(pendingReply.text.slice(0, 20));
-  const host = editor.closest("shreddit-composer") || editor.getRootNode().host || editor;
-  (host.style ? host : editor).style.outline = "3px solid #ff5722";
-  say(ok ? "Reply filled in. Read it, edit if you like, then click Comment. It is marked as replied the moment you do."
-         : "The box is open but Reddit would not take the text. It is on your clipboard — click in the box and press ⌘V.", ok ? "#ff5722" : "#d29922");
-  chrome.storage.local.remove("pendingReply");
 
-  // 3. the click on Reddit's own Comment button marks the post replied
-  const isSubmit = (path) => path.some((el) => el && el.tagName === "BUTTON" && (el.getAttribute("slot") === "submit-button" || el.type === "submit" || /^(comment|reply)$/i.test((el.textContent || "").trim())));
-  document.addEventListener("click", (e) => {
-    if (!isSubmit(e.composedPath())) return;
-    chrome.runtime.sendMessage({ type: "hunt-act", id: pendingReply.id, action: "replied", variant: pendingReply.variant });
-    say("Posted. Marked as replied on the hunt page — go back and send the DM.", "#2ea043");
-    setTimeout(() => note.remove(), 6000);
-  }, true);
+  // Reddit's own Comment button marks the post replied on the hunt page.
+  let watched = false;
+  function watchSubmit(pendingReply) {
+    if (watched) return;
+    watched = true;
+    const isSubmit = (path) => path.some((el) => el && el.tagName === "BUTTON" && (el.getAttribute("slot") === "submit-button" || el.type === "submit" || /^(comment|reply|post)$/i.test(textOf(el))));
+    document.addEventListener("click", async (e) => {
+      if (!isSubmit(e.composedPath())) return;
+      chrome.runtime.sendMessage({ type: "hunt-act", id: pendingReply.id, action: "replied", variant: pendingReply.variant });
+      await chrome.storage.local.remove("pendingReply");
+      state("posted ✓", "#7ee29a");
+      say("Posted, and marked as replied on the hunt page. Go back and send the DM.", "#7ee29a");
+      setTimeout(() => { if (card) { card.remove(); card = null; } }, 6000);
+    }, true);
+  }
+
+  // new Reddit navigates without reloading, so keep looking
+  setInterval(run, 1200);
+  setTimeout(run, 400);
 })();
