@@ -11,7 +11,7 @@
 
 import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js';
 import { fetchFeed } from './feed.js';
-import { fetchListing, forumUrlFromFeed, withListing } from './listing.js';
+import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { matchLead } from './matcher.js';
 import { renderReply, renderDm } from './templates.js';
 import { lintDraft } from './compliance.js';
@@ -179,6 +179,51 @@ export async function pollFeed() {
     await stageLeads(hot, cfg);
   }
   return { new: fresh.length, matched: leads.length, staged: hot.length };
+}
+
+/**
+ * Walk the forum listing pages and record every thread in the window into the
+ * database. Reaches threads the RSS feed has long dropped. Listing rows carry
+ * no post body, so these are matched on the title alone and marked
+ * bodyless — the score is a floor, not a verdict. Nothing is sent to Telegram.
+ */
+export async function deepBackfill({ pages = 5, sinceDays = 0, fromDate = '', toDate = '' } = {}) {
+  const cfg = await getConfig();
+  const from = fromDate ? new Date(fromDate).getTime()
+             : sinceDays ? Date.now() - sinceDays * 86400000 : -Infinity;
+  const to = toDate ? new Date(toDate).getTime() + 86400000 : Infinity;   // inclusive day
+
+  await log(`deep backfill: reading up to ${pages} listing page(s)…`);
+  const listing = await fetchListingPages(forumUrlFromFeed(cfg.feedUrl), pages, {
+    onPage: (page, found, total) => log(`  page ${page}: ${found} thread(s), ${total} so far`)
+  });
+
+  const seen = await getSeen();
+  const rows = Object.values(listing).filter((r) => {
+    if (!r.threadId || !r.url || seen[r.threadId]) return false;
+    const t = r.startedAt ? new Date(r.startedAt).getTime() : NaN;
+    return isFinite(t) ? t >= from && t <= to : from === -Infinity;
+  });
+
+  const leads = rows.map((r) => {
+    const item = {
+      threadId: r.threadId, url: r.url, title: r.title, author: r.author,
+      snippet: '', postedAt: r.startedAt || new Date().toISOString(),
+      lastActivityAt: r.lastActivityAt, postedAtSource: r.startedAt ? 'listing' : 'unknown',
+      replyCount: r.replyCount
+    };
+    const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
+    return { ...enrich(m, cfg, 'BACKFILL'), bodyless: true };
+  });
+
+  await markSeen(rows.map((r) => r.threadId));
+  if (leads.length) {
+    await recordLeads(leads);
+    try { await pushLeads(cfg, leads, { backfill: true }); }
+    catch (e) { await log(`deep backfill push failed, kept locally: ${e.message}`, 'error'); }
+  }
+  await log(`deep backfill: ${leads.length} thread(s) recorded of ${Object.keys(listing).length} seen`);
+  return { ok: true, scanned: Object.keys(listing).length, backfilled: leads.length };
 }
 
 // ---------------------------------------------------------------- staging
@@ -353,6 +398,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
         if (cfg.webhookUrl) await reportResult(cfg, msg.threadId, msg.status, msg.detail || '').catch((e) => log(`sheet update failed: ${e.message}`, 'error'));
         sendResponse({ ok: true });
+        break;
+      }
+      case 'deep-backfill': {                        // walk N listing pages into the database
+        sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
         break;
       }
       case 'regen': {                                // rebuild PM + card for leads saved before the PM existed

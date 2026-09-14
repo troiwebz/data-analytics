@@ -47,6 +47,8 @@
   #log{padding:0 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
   #log div.error{color:var(--red)}
   .stale{color:var(--red);font-weight:600}
+  label.f{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:var(--mute)}
+  label.f input[type=date]{font-size:12px}
   .approx{font-size:10px;color:var(--amber);border:1px solid #fde68a;border-radius:4px;padding:0 4px}
   #cmd{font:11px ui-monospace,Menlo,monospace;background:#1e293b;color:#cbd5e1;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #334155}
   #cmd:hover{background:#334155}
@@ -60,6 +62,7 @@
   <button id="approvals">Check approvals</button>
   <button id="sync">Sync from Sheet</button>
   <button id="backfill">Backfill 48h</button>
+  <button id="deep" title="Walk the forum listing pages and record everything in a date window">Scrape all…</button>
   <button id="regen" title="Regenerate the PM draft for every lead from the current templates">Rebuild PMs</button>
   <button id="opts">Settings</button>
   <button id="update" class="pri" title="Reload the extension from the folder on disk">Update now</button>
@@ -77,13 +80,29 @@
     <option>SENT</option><option>APPROVED</option><option>POSTED</option>
     <option>SKIPPED</option><option>FAILED</option><option>BACKFILL</option><option>EXPIRED</option>
   </select>
+  <select id="fcat"><option value="">All categories</option></select>
   <select id="fsort">
-    <option value="found">Newest found</option>
-    <option value="posted">Newest posted</option>
-    <option value="score">Highest score</option>
-    <option value="replies">Fewest replies</option>
+    <option value="posted_desc">Posted — newest first</option>
+    <option value="posted_asc">Posted — oldest first</option>
+    <option value="found_desc">Found — newest first</option>
+    <option value="found_asc">Found — oldest first</option>
+    <option value="score_desc">Potential — high to low</option>
+    <option value="score_asc">Potential — low to high</option>
+    <option value="replies_asc">Replies — fewest first</option>
+    <option value="replies_desc">Replies — most first</option>
+    <option value="budget_desc">Budget — high to low</option>
+    <option value="activity_desc">Last reply — newest first</option>
   </select>
-  <label style="font-size:13px"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
+</div>
+<div class="bar" style="padding-top:0">
+  <label class="f">score <input type="number" id="fminscore" min="0" placeholder="min" style="width:62px"></label>
+  <label class="f">replies <input type="number" id="fminrep" min="0" placeholder="min" style="width:62px">
+    – <input type="number" id="fmaxrep" min="0" placeholder="max" style="width:62px"></label>
+  <label class="f">posted <input type="date" id="ffrom"> – <input type="date" id="fto"></label>
+  <label class="f"><input type="checkbox" id="fbudget"> has budget</label>
+  <label class="f"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
+  <button id="fclear">Clear</button>
+  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
 </div>
 <main id="leads"></main>
 <div id="log"></div>

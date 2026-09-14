@@ -38,21 +38,57 @@ async function render() {
   ].map(([v, k]) => `<div class="k"><b>${v}</b><span>${k}</span></div>`).join('');
 
   // ---- filter / sort
+  const cats = [...new Set(leads.map((l) => l.categoryLabel || l.category).filter(Boolean))].sort();
+  const catSel = $('fcat');
+  if (catSel.options.length !== cats.length + 1) {
+    const keep = catSel.value;
+    catSel.innerHTML = '<option value="">All categories</option>' +
+      cats.map((c) => `<option>${esc(c)}</option>`).join('');
+    catSel.value = keep;
+  }
+
   const q = $('q').value.trim().toLowerCase();
   const fs = $('fstatus').value;
+  const fc = $('fcat').value;
+  const minScore = numOr($('fminscore').value, -Infinity);
+  const minRep = numOr($('fminrep').value, -Infinity);
+  const maxRep = numOr($('fmaxrep').value, Infinity);
+  const from = $('ffrom').value ? new Date($('ffrom').value).getTime() : -Infinity;
+  const to = $('fto').value ? new Date($('fto').value).getTime() + 86400000 : Infinity;
+  const budgetOnly = $('fbudget').checked;
   const hide = $('hidedone').checked;
+
   let list = leads.filter((l) => {
     if (fs && l.status !== fs) return false;
+    if (fc && (l.categoryLabel || l.category) !== fc) return false;
     if (hide && ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status)) return false;
+    if ((l.score ?? 0) < minScore) return false;
+    const rep = l.replyCount ?? null;
+    if (minRep > -Infinity && (rep == null || rep < minRep)) return false;
+    if (maxRep < Infinity && (rep == null || rep > maxRep)) return false;
+    if (budgetOnly && !l.budget) return false;
+    const t = new Date(l.postedAt).getTime();
+    if (isFinite(t) && (t < from || t > to)) return false;
     if (q && !`${l.title} ${l.author} ${(l.matched || []).join(' ')} ${l.category}`.toLowerCase().includes(q)) return false;
     return true;
   });
-  const sort = $('fsort').value;
-  list.sort((a, b) =>
-    sort === 'score' ? b.score - a.score :
-    sort === 'replies' ? (a.replyCount ?? 999) - (b.replyCount ?? 999) :
-    sort === 'posted' ? new Date(b.postedAt) - new Date(a.postedAt) :
-    new Date(b.foundAt) - new Date(a.foundAt));
+
+  const time = (v) => { const t = new Date(v).getTime(); return isFinite(t) ? t : 0; };
+  const rep = (l) => l.replyCount ?? 9999;
+  const SORTS = {
+    posted_desc:   (a, b) => time(b.postedAt) - time(a.postedAt),
+    posted_asc:    (a, b) => time(a.postedAt) - time(b.postedAt),
+    found_desc:    (a, b) => time(b.foundAt) - time(a.foundAt),
+    found_asc:     (a, b) => time(a.foundAt) - time(b.foundAt),
+    score_desc:    (a, b) => (b.score ?? 0) - (a.score ?? 0) || time(b.postedAt) - time(a.postedAt),
+    score_asc:     (a, b) => (a.score ?? 0) - (b.score ?? 0),
+    replies_asc:   (a, b) => rep(a) - rep(b) || time(b.postedAt) - time(a.postedAt),
+    replies_desc:  (a, b) => rep(b) - rep(a),
+    budget_desc:   (a, b) => (b.budgetAmount ?? 0) - (a.budgetAmount ?? 0) || (b.score ?? 0) - (a.score ?? 0),
+    activity_desc: (a, b) => time(b.lastActivityAt || b.postedAt) - time(a.lastActivityAt || a.postedAt),
+  };
+  list.sort(SORTS[$('fsort').value] || SORTS.found_desc);
+  $('count').textContent = `${list.length} of ${leads.length}`;
 
   $('leads').innerHTML = list.length ? list.map((l) => card(l, staged, cfg)).join('')
     : `<div class="empty">Nothing here yet.<br>New HAF threads appear within ${cfg.pollMinutes} minutes of being posted. Click <b>Backfill 48h</b> to load recent history.</div>`;
@@ -229,7 +265,27 @@ $('cmd').addEventListener('click', async () => {
 });
 
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
-['q', 'fstatus', 'fsort', 'hidedone'].forEach((id) => $(id).addEventListener('input', render));
+const FILTERS = ['q', 'fstatus', 'fcat', 'fsort', 'fminscore', 'fminrep', 'fmaxrep', 'ffrom', 'fto', 'fbudget', 'hidedone'];
+FILTERS.forEach((id) => $(id).addEventListener('input', render));
+$('fclear').addEventListener('click', () => {
+  for (const id of FILTERS) {
+    const el = $(id);
+    if (el.type === 'checkbox') el.checked = false;
+    else el.value = id === 'fsort' ? 'posted_desc' : '';
+  }
+  render();
+});
+
+$('deep').addEventListener('click', async () => {
+  const pages = parseInt(prompt('How many listing pages to walk? (20 threads per page, ~1.2s each)', '5'), 10);
+  if (!isFinite(pages) || pages < 1) return;
+  const days = parseInt(prompt('Only threads started in the last N days? (0 = no limit)', '30'), 10);
+  $('deep').textContent = 'Scraping…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'deep-backfill', opts: { pages, sinceDays: isFinite(days) ? days : 0 } });
+  $('deep').textContent = 'Scrape all…';
+  alert(r?.error ? r.error : `Scanned ${r.scanned} thread(s), recorded ${r.backfilled} new one(s).\n\nListing rows carry no post body, so these are scored on the title alone.`);
+  render();
+});
 
 $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
 

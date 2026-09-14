@@ -9,10 +9,19 @@ const THREAD_SPLIT = /class="[^"]*\bstructItem--thread\b/;
 const THREAD_ID    = /js-threadListItem-(\d+)/;
 const REPLY_COUNT  = /<dt>\s*Replies\s*<\/dt>\s*<dd>\s*([\d.,]+\s*[KkMm]?)\s*<\/dd>/;
 // The thread's own start date: <li class="structItem-startDate">…<time data-timestamp="…">
+const TITLE_LINK   = /<div class="structItem-title"[\s\S]{0,600}?<a href="([^"]*\/threads\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/;
+const AUTHOR       = /data-author="([^"]*)"/;
 const START_BLOCK  = /structItem-startDate[\s\S]{0,400}?<\/li>/;
 const LATEST_BLOCK = /structItem-latestDate[\s\S]{0,400}?(?:<\/li>|<\/div>)/;
 const TIMESTAMP    = /data-timestamp="(\d+)"/;
 const DATETIME     = /datetime="([^"]+)"/;
+
+function text(html) {
+  return String(html || '').replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ').trim();
+}
 
 function num(s) {
   const m = String(s).replace(/,/g, '').match(/([\d.]+)\s*([KkMm])?/);
@@ -45,10 +54,16 @@ export function parseListing(html) {
     const id = b.match(THREAD_ID);
     if (!id) continue;
     const rc = b.match(REPLY_COUNT);
+    const link = b.match(TITLE_LINK);
+    const author = b.match(AUTHOR);
     out[id[1]] = {
+      threadId: id[1],
       replyCount: rc ? num(rc[1]) : null,
       startedAt: timeOf((b.match(START_BLOCK) || [])[0]),
-      lastActivityAt: timeOf((b.match(LATEST_BLOCK) || [])[0])
+      lastActivityAt: timeOf((b.match(LATEST_BLOCK) || [])[0]),
+      title: link ? text(link[2]) : '',
+      author: author ? text(author[1]) : '',
+      url: link ? new URL(link[1], 'https://www.blackhatworld.com').href : ''
     };
   }
   return out;
@@ -76,6 +91,26 @@ export async function fetchListing(forumUrl) {
   } catch {
     return {};   // listing data is nice-to-have; never fail a poll over it
   }
+}
+
+/**
+ * Walk several listing pages. Returns one merged map plus the raw per-thread
+ * rows, so a deep backfill can reach threads the RSS feed no longer carries.
+ * Pages are fetched one at a time with a pause — this is a bulk read of a
+ * forum, not a burst.
+ */
+export async function fetchListingPages(forumUrl, pages = 1, { delayMs = 1200, onPage } = {}) {
+  const merged = {};
+  for (let page = 1; page <= Math.max(1, pages); page++) {
+    const url = page === 1 ? forumUrl : `${forumUrl.replace(/\/$/, '')}/page-${page}`;
+    const one = await fetchListing(url);
+    const found = Object.keys(one).length;
+    Object.assign(merged, one);
+    if (onPage) await onPage(page, found, Object.keys(merged).length);
+    if (!found) break;                      // past the last page
+    if (page < pages) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return merged;
 }
 
 /** Derive the listing URL from the feed URL. */
