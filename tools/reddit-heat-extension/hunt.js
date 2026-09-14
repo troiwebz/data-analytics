@@ -166,6 +166,7 @@ function showTable(kind) {
     $("tableTitle").textContent = `Queue (${queue.length})`;
     $("tableNote").textContent = "Everyone waiting, best fit first. Click a row to work on that one.";
     $("tableHead").innerHTML = "<tr><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>";
+    tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     $("tableRows").innerHTML = queue.map((p) => {
       const s = huntSynopsis(p);
       return `<tr class="pick" data-id="${p.id}"><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
@@ -186,6 +187,7 @@ function showTable(kind) {
     $("tableTitle").textContent = (kind === "today" ? "Contacted today" : "Contacted ever") + ` (${rows.length})`;
     $("tableNote").textContent = "This is the database. It lives inside the extension, nothing is downloaded, and everyone on it is permanently blocked from the queue.";
     $("tableHead").innerHTML = "<tr><th>Person</th><th>How</th><th>Where</th><th>When</th></tr>";
+    tableText = () => rows.map((c) => `${c.user}  ${c.how}  r/${c.sub || "?"}  ${new Date(c.at).toLocaleString()}`).join("\n");
     $("tableRows").innerHTML = rows.length
       ? rows.map((c) => `<tr><td>${esc(c.user)}</td><td>${esc(c.how)}</td><td>r/${esc(c.sub || "?")}</td><td>${new Date(c.at).toLocaleString()}</td></tr>`).join("")
       : `<tr><td colspan="4" style="color:#98a0b3">Nobody yet. Everyone you reply to or DM lands here.</td></tr>`;
@@ -194,6 +196,10 @@ function showTable(kind) {
 $("sQueueBtn").onclick = () => showTable("queue");
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
+// Everything in the table as plain text on the clipboard: the fastest way to
+// show someone what the hunt is finding, without a file.
+let tableText = () => "";
+$("copyTable").onclick = () => copyText(tableText(), $("copyTable"));
 $("closeTable").onclick = () => { $("table").hidden = true; $("main").hidden = false; refresh(); };
 $("tableFind").oninput = () => {
   const q = $("tableFind").value.toLowerCase();
