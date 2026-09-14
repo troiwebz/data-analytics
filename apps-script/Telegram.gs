@@ -183,9 +183,25 @@ function handleCommand_(msg) {
         '/pause · /resume — stop/start sending leads\n' +
         '/pending — what\'s waiting for you\n' +
         '/won 1234567 — mark a lead as won (for template stats)\n' +
-        '/version — which version is running', true);
+        '/version — which version is running\n' +
+        '/ai — Claude-written specifics on/off, or set the model\n' +
+        '/cost — what Claude has cost today', true);
     case 'stats':
       return tgSay_(statsText_(), true);
+    case 'cost':
+      return tgSay_(aiUsageText_(), true);
+    case 'ai': {
+      const on = arg.toLowerCase();
+      if (on === 'on' || on === 'off') {
+        setProp_('AI_SPECIFICS', on === 'on' ? 'yes' : 'no');
+        return tgSay_(on === 'on'
+          ? (aiKey_() ? '🤖 Claude specifics on.' : '⚠️ On, but ANTHROPIC_API_KEY is not set in Script Properties.')
+          : '🤖 Claude specifics off. Replies use the built-in rules.', true);
+      }
+      if (arg) { setProp_('ANTHROPIC_MODEL', arg); return tgSay_('Model set to <b>' + tgEsc_(arg) + '</b>.', true); }
+      return tgSay_('Claude specifics: <b>' + (aiEnabled_() ? 'on' : 'off') + '</b> (' + tgEsc_(aiModel_()) + ')\n' +
+                    '/ai on · /ai off · /ai claude-haiku-4-5 · /cost', true);
+    }
     case 'version':
       return tgSay_('HAF Watcher Apps Script <b>' + VERSION + '</b>', true);
     case 'buzz': {

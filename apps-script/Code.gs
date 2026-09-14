@@ -33,6 +33,7 @@ function doPost(e) {
       case 'pending': return json_({ ok: true, leads: handlePending_() });
       case 'result':  return json_(handleResult_(body));
       case 'recent':  return json_({ ok: true, leads: handleRecent_(body.limit || 300) });
+      case 'specifics': return json_({ ok: true, specifics: aiSpecifics_(body.leads || []) });
       default:        return json_({ ok: false, error: 'unknown action' });
     }
   } catch (err) {

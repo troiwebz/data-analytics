@@ -14,7 +14,11 @@ export function spin(text) {
 }
 
 export function renderReply(lead, cfg) {
-  return render({ ...lead, specifics: specificsBlock(lead, cfg) },
+  // Claude's bullets when we have them, the built-in rules when we don't.
+  const block = lead.aiSpecifics?.length
+    ? lead.aiSpecifics.map((b) => `- ${b}`).join('\n')
+    : specificsBlock(lead, cfg);
+  return render({ ...lead, specifics: block },
                 cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0]);
 }
 

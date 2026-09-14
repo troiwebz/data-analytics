@@ -16,7 +16,7 @@ import { matchLead } from './matcher.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
-import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
+import { pushLeads, fetchApproved, reportResult, fetchRecent, fetchSpecifics } from './sync.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -109,7 +109,8 @@ export function dmUrl(author, title) {
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
-export function enrich(m, cfg, status) {
+export function enrich(m, cfg, status, aiSpecifics) {
+  if (aiSpecifics?.length) m = { ...m, aiSpecifics };
   const draft = renderReply(m, cfg);
   const dm = renderDm(m, cfg);
   const dmTitle = renderDmTitle(m, cfg);
@@ -159,15 +160,19 @@ export async function pollFeed() {
 
   if (!fresh.length) return { new: 0, matched: 0 };
 
-  const leads = [];
-  for (const raw of fresh) {
-    const item = withListing(raw, listing[raw.threadId]);
-    // Every new thread goes through. matchLead only decides category/score;
-    // an unmatched thread still gets sent with score 0 and a generic draft.
-    const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
-    if (m.score < cfg.notifyScore) continue;
-    leads.push(enrich(m, cfg, 'SENT'));
-  }
+  // Every new thread goes through. matchLead only decides category/score;
+  // an unmatched thread still gets sent with score 0 and a generic draft.
+  const matched = fresh
+    .map((raw) => {
+      const item = withListing(raw, listing[raw.threadId]);
+      return matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
+    })
+    .filter((m) => m.score >= cfg.notifyScore);
+
+  // One batched request for the whole poll, so the instructions are paid for
+  // once rather than once per lead. Falls back to the built-in rules.
+  const ai = await specificsFor(matched, cfg);
+  const leads = matched.map((m) => enrich(m, cfg, 'SENT', ai[m.threadId]));
   await markSeen(fresh.map((i) => i.threadId));
 
   if (!leads.length) return { new: fresh.length, matched: 0 };
@@ -459,9 +464,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
         break;
       }
-      case 'regen': {                                // rebuild PM + card for leads saved before the PM existed
+      case 'regen': {                                // rebuild drafts/PM/card from current templates
         const cfg = await getConfig();
         const leads = await getLeads();
+        const fresh = msg.withAi ? await specificsFor(leads.filter((l) => !l.aiSpecifics).slice(0, 40), cfg) : {};
+        for (const [id, bullets] of Object.entries(fresh)) await updateLead(id, { aiSpecifics: bullets });
         let n = 0;
         for (const l of leads) {
           const dm = renderDm(l, cfg);

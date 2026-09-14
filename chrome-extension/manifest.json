@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HAF Watcher — BlackHatWorld Hire a Freelancer",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Polls the Hire a Freelancer forum every 10 minutes, emails you matching leads with a ready-made reply, and posts it after you approve from your phone.",
   "permissions": ["alarms", "storage", "notifications", "scripting", "tabs"],
   "host_permissions": [

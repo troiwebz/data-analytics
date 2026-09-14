@@ -32,4 +32,8 @@ export const reportResult = (cfg, threadId, status, detail) =>
 /** Last N rows of the Sheet (needs the Apps Script 'recent' action). */
 export const fetchRecent = (cfg, limit = 300) => call(cfg, 'recent', { limit }).then((d) => d.leads || []);
 
+/** Claude-written bullets for a batch of leads. {} when it is off or fails. */
+export const fetchSpecifics = (cfg, leads) =>
+  call(cfg, 'specifics', { leads }).then((d) => d.specifics || {});
+
 export const ping = (cfg) => call(cfg, 'ping');

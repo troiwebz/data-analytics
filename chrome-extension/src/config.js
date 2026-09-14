@@ -12,6 +12,9 @@ export const DEFAULT_CONFIG = {
   jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
   backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
+  aiSpecifics: true,           // let Claude write the bullets (needs ANTHROPIC_API_KEY
+                               // in Apps Script Script Properties); falls back to rules
+
 
   webhookUrl: '',              // Apps Script /exec URL
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
@@ -365,7 +368,7 @@ I just saw your HAF thread: {{url}}
   }
 };
 
-export const CONFIG_VERSION = 12;
+export const CONFIG_VERSION = 13;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -412,6 +415,7 @@ export async function migrateConfig() {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
   }
+  if (v < 13 && next.aiSpecifics == null) next.aiSpecifics = DEFAULT_CONFIG.aiSpecifics;
   if (v < 12) {
     next.specifics = next.specifics ?? DEFAULT_CONFIG.specifics;
     next.templates = DEFAULT_CONFIG.templates;   // now carry a {{specifics}} slot
