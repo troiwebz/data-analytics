@@ -78,14 +78,22 @@
     <div class="setup">
       <div><label>Your name (signs the DM)</label><input type="text" id="cName" placeholder="Noah"></div>
       <div><label>What you do</label><input type="text" id="cRole" placeholder="web developer"></div>
-      <div><label>Your Reddit username</label><input type="text" id="cReddit" placeholder="Noah_Basera"></div>
+      <div><label>Your Reddit username</label><input type="text" id="cReddit" placeholder="reading it from your Reddit tab…"></div>
       <div><label>WhatsApp (with country code)</label><input type="text" id="cWa" placeholder="+91 98765 43210"></div>
       <div><label>Telegram</label><input type="text" id="cTg" placeholder="@noahbasera"></div>
-      <div><label>Collector server (optional)</label><input type="text" id="cSrv" placeholder="https://your-server:8787"></div>
-      <div><label>Server token</label><input type="text" id="cSrvTok" placeholder="the HUNT_TOKEN you set"></div>
     </div>
-    <div class="row"><button id="saveSetup" class="primary">Save</button><button id="testSrv" class="ghost">Test server</button><span id="setupMsg" class="done" hidden>Saved ✓</span><span id="srvMsg" class="foot" style="margin:0"></span>
-      <span class="foot" style="margin:0">Your Reddit username lets the hunt skip posts you already replied to. WhatsApp and Telegram are pasted at the end of every DM.</span></div>
+    <div class="row"><button id="showAdv" class="ghost" style="padding:2px 0;border:0;color:var(--dim);font-size:12px">Advanced: collector server ▾</button></div>
+    <div id="adv" hidden>
+      <p class="foot" style="margin:0 0 8px">Only if you run <code>server/hunt-server.js</code> on a machine that stays on. Leave both blank otherwise — the hunt reads Reddit through your own pinned tab.</p>
+      <div class="setup">
+        <div><label>Collector server URL</label><input type="text" id="cSrv" placeholder="leave blank"></div>
+        <div><label>Server token</label><input type="text" id="cSrvTok" placeholder="leave blank"></div>
+      </div>
+      <div class="row"><button id="testSrv" class="ghost">Test server</button><span id="srvMsg" class="foot" style="margin:0"></span></div>
+    </div>
+    <div class="row"><span id="setupMsg" class="foot" style="margin:0">Saves itself as you type.</span>
+      </div>
+    <p class="foot" style="margin:6px 0 0">Your Reddit username lets the hunt skip posts you already replied to — it fills itself in from your logged-in tab. WhatsApp and Telegram go at the end of every DM.</p>
   </div>
 
   <!-- any table view: queue, contacted -->

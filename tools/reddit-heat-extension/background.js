@@ -91,6 +91,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "hunt-whoami") { huntMe().then((me) => reply({ me })).catch(() => reply({ me: "" })); return true; }
   if (msg.type === "hunt-server-test") { (async () => {
       try {
         const r = await fetch(String(msg.url || "").replace(/\/+$/, "") + "/health", { cache: "no-store" });

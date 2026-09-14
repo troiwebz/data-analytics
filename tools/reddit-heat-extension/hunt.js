@@ -139,16 +139,22 @@ $("testSrv").onclick = async () => {
     : "no answer: " + ((r && r.error) || "check the address");
 };
 $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; };
-$("saveSetup").onclick = async () => {
+// Saves itself. No Save button to forget, no half-filled form.
+let saveTimer = null;
+async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   profile = { ...(config.profile || {}), name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim() };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
-  $("setupMsg").hidden = false;
-  setTimeout(() => { $("setupMsg").hidden = true; }, 1500);
+  if (!quiet) { $("setupMsg").textContent = "Saved ✓"; setTimeout(() => { $("setupMsg").textContent = "Saves itself as you type."; }, 1400); }
   render();
-};
+}
+for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cSrv", "cSrvTok"]) {
+  $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
+  $(id).addEventListener("blur", () => saveSetup(true));
+}
+$("showAdv").onclick = () => { $("adv").hidden = !$("adv").hidden; };
 
 // ---- tables: click any counter to see exactly what is behind it ----------
 function showTable(kind) {
@@ -227,6 +233,17 @@ document.addEventListener("keydown", (e) => {
   const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
   $("cSrv").value = (hunt.server || {}).url || ""; $("cSrvTok").value = (hunt.server || {}).token || "";
   if (!profile.name || !profile.reddit) $("setup").hidden = false;   // first run: ask once
+  // fill in what we can work out ourselves, so there is less to type
+  if (!profile.reddit) {
+    const who = await send({ type: "hunt-whoami" });
+    if (who && who.me) {
+      $("cReddit").value = who.me;
+      if (!$("cName").value) $("cName").value = huntName(who.me) === "there" ? "" : huntName(who.me);
+      await saveSetup(true);
+    } else {
+      $("cReddit").placeholder = "type it, e.g. Noah_Basera";
+    }
+  }
   await refresh(false);
   checkAhead();
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
