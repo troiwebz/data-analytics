@@ -116,6 +116,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "version-state") { versionState().then(reply); return true; }
+  if (msg.type === "version-check-now") { Promise.all([checkRemoteVersion(), checkVersion()]).then(() => reply({ ok: true })); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); p.ai = { ...huntAiClean(msg.ai), at: Date.now(), model: msg.model || "on-device", cents: 0 }; if (!p.ai.public_reply) { delete p.ai; return reply({ ok: false, error: "failed the checks" }); } await huntSet({ posts: st.posts }); reply({ ok: true, ai: p.ai }); })(); return true; }

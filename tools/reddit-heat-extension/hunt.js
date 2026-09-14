@@ -332,28 +332,45 @@ async function checkAhead(n = 4) {
 }
 
 // ---- version: running, on disk, on GitHub -------------------------------
+// Nothing to click. The 2-minute updater puts new files in the folder, the
+// worker reloads the extension within a minute of that, and this pill just
+// narrates it. If GitHub stays ahead for too long, the updater is not running.
+let remoteAheadSince = 0;
 async function showVersion() {
   const v = await send({ type: "version-state" });
   if (!v) return;
   const el = $("ver");
   el.className = "stat";
   if (v.diskAhead) {
-    el.textContent = `v${v.onDisk} downloaded · click to reload`;
+    el.textContent = `v${v.onDisk} downloaded · reloading…`;
     el.className = "stat go";
-    el.title = v.busy ? "a sweep is running; it will reload on its own when that finishes" : "the updater already put the new files in your folder";
-  } else if (v.remoteAhead) {
-    el.textContent = `v${v.remote} is out · yours is v${v.running} · updating…`;
-    el.className = "stat hot";
-    el.title = "the hourly/2-minute updater will fetch it; or run ./update.sh now";
-  } else {
-    el.textContent = `v${v.running} · latest`;
-    el.title = v.remoteCheckedAt ? "GitHub checked " + ago(v.remoteCheckedAt) : "GitHub not checked yet";
+    el.title = v.busy ? "a sweep is running; it reloads when that finishes" : "";
+    // do not wait for the worker's minute tick; nothing on this page is lost, the queue lives in storage
+    if (!v.busy && !document.querySelector("textarea:focus")) { await send({ type: "reload-now" }); setTimeout(() => location.reload(), 1500); }
+    return;
   }
+  if (v.remoteAhead) {
+    remoteAheadSince = remoteAheadSince || Date.now();
+    const waited = Math.round((Date.now() - remoteAheadSince) / 60000);
+    if (waited >= 6) {
+      el.textContent = `v${v.remote} is out but nothing arrived in ${waited} min — automatic updates are off. Run ./autoupdate-install.sh once`;
+      el.className = "stat hot";
+      el.title = "in Terminal: cd \"$HOME/Downloads/reddit-heat-extension 7\" && ./update.sh && ./autoupdate-install.sh";
+    } else {
+      el.textContent = `v${v.remote} is out · arriving in the background (≤2 min)`;
+      el.className = "stat hot";
+      el.title = "the updater fetches it, then the extension reloads itself; nothing to do";
+    }
+    return;
+  }
+  remoteAheadSince = 0;
+  el.textContent = `v${v.running} · latest`;
+  el.title = v.remoteCheckedAt ? "GitHub checked " + ago(v.remoteCheckedAt) + " · updates happen by themselves" : "GitHub not checked yet";
 }
 $("ver").onclick = async () => {
   const v = await send({ type: "version-state" });
   if (v && v.diskAhead) { await send({ type: "reload-now" }); setTimeout(() => location.reload(), 1200); }
-  else showVersion();
+  else { await send({ type: "version-check-now" }); showVersion(); }
 };
 
 document.addEventListener("keydown", (e) => {
@@ -391,5 +408,5 @@ document.addEventListener("keydown", (e) => {
   checkAhead();
   showVersion();
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
-  setInterval(showVersion, 30000);
+  setInterval(showVersion, 15000);
 })();
