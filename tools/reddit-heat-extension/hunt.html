@@ -66,6 +66,10 @@
   .engine b { display:block; margin-bottom:2px; }
   .engine span { color:var(--dim); font-size:12.5px; }
   .engine > div { flex:1; }
+  .bar { height:8px; background:#0d0f14; border:1px solid var(--line); border-radius:999px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; width:0; background:var(--or); transition:width .4s; }
+  .bar.ok > div { background:var(--ok); }
+  .bar.bad > div { background:#c62828; }
   [hidden] { display:none !important; }
   @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
 </style>
@@ -81,11 +85,23 @@
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
   <span class="stat" id="sPoll">never checked</span>
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
+  <button id="updNow" class="ghost">Update now</button>
   <button id="openAi" class="ghost">AI writing</button>
   <button id="openSetup" class="ghost">Your details</button>
 </header>
 
 <main>
+  <!-- the update strip: what the updater is doing, live -->
+  <div id="upd" class="card" hidden style="margin-bottom:16px;padding:12px 16px">
+    <div class="row" style="margin:0;justify-content:space-between"><b id="updTitle">Updating…</b><button id="updClose" class="ghost" style="padding:2px 8px">hide</button></div>
+    <div class="bar"><div id="updFill"></div></div>
+    <div id="updLog" class="foot" style="margin:6px 0 0;font-family:ui-monospace,monospace;white-space:pre-wrap;max-height:140px;overflow:auto"></div>
+    <div id="updConnect" hidden style="margin-top:10px">
+      <p class="foot" style="margin:0 0 6px">Chrome only lets an extension run something on your Mac after you register it once. Copy this, paste it in Terminal, press Enter — then the button works forever:</p>
+      <div class="row" style="margin:0"><code id="updCmd" style="background:#0d0f14;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px;flex:1;min-width:280px;overflow:auto"></code><button id="updCopy" class="primary">Copy command</button></div>
+    </div>
+    <p class="foot" id="updBg" style="margin:8px 0 0"></p>
+  </div>
   <!-- your details -->
   <div id="setup" class="card" hidden style="margin-bottom:16px">
     <p class="step" style="margin-bottom:10px"><b>Your details</b> · used in every reply and DM</p>

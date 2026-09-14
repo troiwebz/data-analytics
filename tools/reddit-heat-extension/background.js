@@ -87,7 +87,7 @@ async function reclassifyAll() {
   if (changed) await chrome.storage.local.set({ posts });
   return changed;
 }
-chrome.runtime.onInstalled.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onInstalled.addListener(() => { huntReclassify(); arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
 chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
 const REMOTE_ALARM = "remote-version";
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === REMOTE_ALARM) checkRemoteVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
@@ -779,6 +779,21 @@ async function huntQueue(limit = 40) {
     lastError: st.lastError,
     found: st.found,
   };
+}
+
+// After an update the classifier may have learnt to drop something that is
+// already sitting in the queue (beta-tester asks, builders). Re-run it.
+async function huntReclassify() {
+  const st = await huntGet();
+  let dropped = 0;
+  for (const [id, p] of Object.entries(st.posts)) {
+    if (p.act || p.repliedAt || p.dmAt) continue;
+    const c = classifyCofounder(p.title, p.body);
+    if (!c.keep) { delete st.posts[id]; dropped += 1; continue; }
+    Object.assign(p, { role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget });
+  }
+  if (dropped || true) await huntSet({ posts: st.posts });
+  return dropped;
 }
 
 async function huntAct(id, action, variant) {

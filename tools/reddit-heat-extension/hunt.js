@@ -115,6 +115,7 @@ async function aiWrite(force) {
   const eng = engine();
   if (eng === "templates") return;
   if (!force && (cur.ai || aiBusy === cur.id || aiErr[cur.id])) return;
+  if (eng === "claude" && !profile.apiKey) { aiErr[cur.id] = "no API key yet — paste one under AI writing, or pick Chrome built-in"; aiStatus(cur); return; }
   const id = cur.id, post = cur;
   aiBusy = id; aiStart = Date.now(); aiStatus(cur);
   let r;
@@ -341,6 +342,61 @@ async function checkAhead(n = 4) {
   } finally { checkingAhead = false; }
 }
 
+// ---- Update now: runs update.sh on your machine through the native host and
+// shows every line it prints, as a strip. Needs the one-time registration.
+const HOST = "com.redditleadthreads.updater";
+function updShow(title, pct, cls) { if ($("upd").hidden) updBackground(); $("upd").hidden = false; $("updTitle").textContent = title; $("updFill").style.width = pct + "%"; $("upd").querySelector(".bar").className = "bar " + (cls || ""); }
+function updLine(t) { const el = $("updLog"); el.textContent += (el.textContent ? "\n" : "") + t; el.scrollTop = el.scrollHeight; }
+function updConnectCmd() { return `cd "$HOME/Downloads/reddit-heat-extension 7" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
+function hostPort(cmd) {
+  return new Promise((resolve) => {
+    let port;
+    try { port = chrome.runtime.connectNative(HOST); } catch (e) { return resolve({ error: String(e.message || e), missing: true }); }
+    const got = [];
+    port.onMessage.addListener((m) => { got.push(m); if (typeof onHostMessage === "function") onHostMessage(m); });
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError && chrome.runtime.lastError.message;
+      if (!got.length && err) return resolve({ error: err, missing: /not found|Specified native messaging host|forbidden/i.test(err) });
+      resolve({ messages: got });
+    });
+    port.postMessage({ cmd });
+  });
+}
+let onHostMessage = null;
+$("updNow").onclick = async () => {
+  $("updLog").textContent = ""; $("updConnect").hidden = true;
+  updShow("Updating…", 5, "");
+  onHostMessage = (m) => {
+    if (m.line !== undefined) {
+      updLine(m.line);
+      if (/Downloading/.test(m.line)) updShow("Downloading from GitHub…", 35, "");
+      if (/Now on:/.test(m.line) && $("updLog").textContent.split("Now on:").length > 2) updShow("Copying files…", 75, "");
+    }
+    if (m.done) {
+      if (m.code === 0) { updShow(`Files on disk: v${m.onDisk}. Reloading the extension…`, 100, "ok"); setTimeout(showVersion, 800); }
+      else updShow("Update failed — see the log below", 100, "bad");
+      updBackground();
+    }
+  };
+  const r = await hostPort("update");
+  onHostMessage = null;
+  if (r.error) {
+    updShow(r.missing ? "One-time setup needed" : "Could not run the updater", 100, "bad");
+    updLine(r.error);
+    $("updConnect").hidden = false;
+    $("updCmd").textContent = updConnectCmd();
+  }
+};
+$("updCopy").onclick = () => copyText(updConnectCmd(), $("updCopy"));
+$("updClose").onclick = () => { $("upd").hidden = true; };
+// what the background updater is doing, from the machine itself
+async function updBackground() {
+  const r = await hostPort("status");
+  const s = r.messages && r.messages.find((m) => m.status);
+  if (!s) { $("updBg").textContent = ""; return; }
+  $("updBg").textContent = `Background updater: ${s.scheduler === "off" ? "OFF — run the command above once and it turns on" : s.scheduler + ", every 2 min"} · folder has v${s.onDisk}${s.lastLog ? " · last log: " + s.lastLog : ""}`;
+}
+
 // ---- version: running, on disk, on GitHub -------------------------------
 // Nothing to click. The 2-minute updater puts new files in the folder, the
 // worker reloads the extension within a minute of that, and this pill just
@@ -363,9 +419,9 @@ async function showVersion() {
     remoteAheadSince = remoteAheadSince || Date.now();
     const waited = Math.round((Date.now() - remoteAheadSince) / 60000);
     if (waited >= 6) {
-      el.textContent = `v${v.remote} is out but nothing arrived in ${waited} min — automatic updates are off. Run ./autoupdate-install.sh once`;
+      el.textContent = `v${v.remote} is out but nothing arrived in ${waited} min — automatic updates are off. Click Update now`;
       el.className = "stat hot";
-      el.title = "in Terminal: cd \"$HOME/Downloads/reddit-heat-extension 7\" && ./update.sh && ./autoupdate-install.sh";
+      el.title = "the background updater is not running on this machine";
     } else {
       el.textContent = `v${v.remote} is out · arriving in the background (≤2 min)`;
       el.className = "stat hot";
@@ -417,6 +473,7 @@ document.addEventListener("keydown", (e) => {
   await refresh(false);
   checkAhead();
   showVersion();
+  updBackground();
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

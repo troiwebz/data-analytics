@@ -6,7 +6,39 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LABEL="com.reddit-lead-threads.update"
-INTERVAL="${1:-120}"    # seconds; every 2 minutes by default (pass e.g. 3600 for hourly)
+# Arguments, in any order: a number = seconds between background updates
+# (default 120); a 32-letter word = the extension's id from chrome://extensions,
+# which registers the "Update now" button's native host for that extension.
+INTERVAL=120; EXT_ID=""
+for a in "$@"; do
+  case "$a" in
+    [0-9]*) INTERVAL="$a" ;;
+    [a-p]*) EXT_ID="$a" ;;
+  esac
+done
+
+if [ -n "$EXT_ID" ]; then
+  HOST="com.redditleadthreads.updater"
+  chmod +x "$HERE/native-host.sh" 2>/dev/null || true
+  for DIR in "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" \
+             "$HOME/Library/Application Support/Chromium/NativeMessagingHosts" \
+             "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
+             "$HOME/.config/google-chrome/NativeMessagingHosts" \
+             "$HOME/.config/chromium/NativeMessagingHosts"; do
+    case "$DIR" in "$HOME/Library/"*) [ "$(uname)" = "Darwin" ] || continue ;; *) [ "$(uname)" = "Darwin" ] && continue ;; esac
+    mkdir -p "$DIR"
+    cat > "$DIR/$HOST.json" <<EOF
+{
+  "name": "$HOST",
+  "description": "Reddit Lead Threads: runs update.sh for the Update now button",
+  "path": "$HERE/native-host.sh",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+}
+EOF
+  done
+  echo "Update now button connected for extension $EXT_ID."
+fi
 
 if [ "$(uname)" = "Darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
