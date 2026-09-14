@@ -180,9 +180,12 @@ function handleCommand_(msg) {
         '/buzz 12 — only buzz for score ≥ 12 (now ' + buzzScore_() + ')\n' +
         '/pause · /resume — stop/start sending leads\n' +
         '/pending — what\'s waiting for you\n' +
-        '/won 1234567 — mark a lead as won (for template stats)', true);
+        '/won 1234567 — mark a lead as won (for template stats)\n' +
+        '/version — which version is running', true);
     case 'stats':
       return tgSay_(statsText_(), true);
+    case 'version':
+      return tgSay_('HAF Watcher Apps Script <b>' + VERSION + '</b>', true);
     case 'buzz': {
       const n = parseInt(arg, 10);
       if (!isFinite(n)) return tgSay_('Buzz threshold is ' + buzzScore_() + '. Send /buzz 12 to change.', true);

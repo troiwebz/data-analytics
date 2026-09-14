@@ -3,23 +3,26 @@
  * Nothing here is committed with real values — keep your token out of git.
  */
 
+const VERSION = '0.6.0';
+
 // --- Secrets --------------------------------------------------------------
-// Must match "sharedSecret" in the extension's Options page.
-// Generate one: run crypto.randomUUID() in any browser console.
-const SHARED_SECRET = 'CHANGE-ME-to-a-long-random-string';
-
-// From @BotFather: /newbot, then paste the token here.
-const TELEGRAM_BOT_TOKEN = '';
-
-// From @userinfobot: send it any message, it replies with your numeric id.
-const TELEGRAM_CHAT_ID = '';
-
-// Random string appended to the webhook URL so only Telegram can reach it.
-// (Apps Script cannot read request headers, so the secret rides in the query.)
-const TELEGRAM_WEBHOOK_SECRET = 'CHANGE-ME-too';
-
-// Optional email fallback. Leave blank to disable email entirely.
-const EMAIL_TO = '';
+// Preferred: set these once in  ⚙️ Project Settings → Script Properties.
+// Then code updates (/update) never overwrite them. The literal here is only
+// a fallback for people who paste values straight into the file.
+//
+//   SHARED_SECRET            must match "Shared secret" in the extension
+//   TELEGRAM_BOT_TOKEN       from @BotFather
+//   TELEGRAM_CHAT_ID         from @userinfobot
+//   TELEGRAM_WEBHOOK_SECRET  any long random string
+//   EMAIL_TO                 optional email fallback
+//   GITHUB_TOKEN             fine-grained PAT, read-only "Contents" on the repo — enables /update
+//   GITHUB_REPO              owner/name            (default troiwebz/data-analytics)
+//   GITHUB_REF               branch to update from (default claude/wizardly-brahmagupta-178bgm)
+const SHARED_SECRET           = prop_('SHARED_SECRET', 'CHANGE-ME-to-a-long-random-string');
+const TELEGRAM_BOT_TOKEN      = prop_('TELEGRAM_BOT_TOKEN', '');
+const TELEGRAM_CHAT_ID        = prop_('TELEGRAM_CHAT_ID', '');
+const TELEGRAM_WEBHOOK_SECRET = prop_('TELEGRAM_WEBHOOK_SECRET', 'CHANGE-ME-too');
+const EMAIL_TO                = prop_('EMAIL_TO', '');
 
 // --- Behaviour ------------------------------------------------------------
 // Leads at or above this score buzz your phone. Below it they arrive silently.

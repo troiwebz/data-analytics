@@ -174,6 +174,8 @@ $('backfill').addEventListener('click', async () => {
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
 ['q', 'fstatus', 'fsort', 'hidedone'].forEach((id) => $(id).addEventListener('input', render));
 
+$('ver').textContent = 'v' + chrome.runtime.getManifest().version;
+
 // Refresh when the service worker changes anything.
 chrome.storage.onChanged.addListener(() => render());
 render();
