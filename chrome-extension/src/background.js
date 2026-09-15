@@ -18,6 +18,7 @@ import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
+import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
@@ -29,6 +30,7 @@ import {
 const FEED_ALARM = 'poll-feed';
 const APPROVAL_ALARM = 'poll-approvals';
 const UPDATE_ALARM = 'check-update';
+const PM_ALARM = 'sync-pms';
 
 // ---------------------------------------------------------------- sound
 
@@ -69,6 +71,38 @@ export async function playSound(cfg, which) {
   }
 }
 
+/**
+ * Reconcile against your actual BHW direct-message list.
+ *
+ * The local record only knows about PMs it watched you send. This reads the
+ * real list and marks anything already sent, including from your phone, from
+ * another machine, or before this extension existed. Read-only: it opens
+ * nothing and sends nothing.
+ */
+export async function syncSentPms({ pages = 2 } = {}) {
+  const conversations = await fetchConversations(pages);
+  const leads = await getLeads();
+  let marked = 0, known = 0;
+
+  for (const lead of leads) {
+    const hit = matchConversation(lead, conversations);
+    if (!hit) continue;
+    if (hit.sent) {
+      if (lead.pmSent) continue;                       // already known, nothing to do
+      await updateLead(lead.threadId, {
+        pmSent: true, pmSentAt: hit.at || new Date().toISOString(), pmFrom: 'your BHW message list'
+      });
+      await recordDm();
+      marked++;
+    } else if (!lead.priorContact) {
+      await updateLead(lead.threadId, { priorContact: hit.at ? hit.at.slice(0, 10) : 'earlier' });
+      known++;
+    }
+  }
+  await log(`checked ${conversations.length} conversation(s): ${marked} already sent, ${known} previously contacted`);
+  return { conversations: conversations.length, marked, known };
+}
+
 // ---------------------------------------------------------------- lifecycle
 
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -98,6 +132,9 @@ export async function scheduleAlarms(cfg) {
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: Math.max(1, cfg.pollMinutes), delayInMinutes: 0.1 });
   chrome.alarms.create(APPROVAL_ALARM, { periodInMinutes: Math.max(1, cfg.approvalPollMinutes) });
   chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
+  // Hourly is plenty: it is a safety net for PMs sent elsewhere, and the
+  // button on the dashboard covers wanting it now.
+  chrome.alarms.create(PM_ALARM, { periodInMinutes: 60, delayInMinutes: 2 });
 }
 
 /**
@@ -132,6 +169,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
+    if (alarm.name === PM_ALARM) await syncSentPms().catch((e) => log(`PM check: ${e.message}`, 'error'));
   } catch (e) {
     await log(`${alarm.name}: ${e.message}`, 'error');
   }
@@ -648,11 +686,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(r);
         break;
       }
-      case 'send-dm': {                              // ✉️ Send PM now, from the dashboard
+      case 'send-dm': {                              // ✉️ Send PM now, or just fill the page
         const cfg = await getConfig();
-        const gate = await checkDmLimit(cfg);
-        if (!gate.ok) { sendResponse({ ok: false, error: gate.reason }); break; }
-        sendResponse(await sendDm(msg.lead, cfg, { mode: msg.mode || 'send' }));
+        const mode = msg.mode || 'send';
+        // Only an actual send is rate limited. Opening the page with the text
+        // typed in sends nothing to the forum, so there is nothing to space
+        // out, and blocking it only stops you preparing the next one.
+        if (mode === 'send') {
+          const gate = await checkDmLimit(cfg);
+          if (!gate.ok) { sendResponse({ ok: false, error: gate.reason }); break; }
+        }
+        sendResponse(await sendDm(msg.lead, cfg, { mode }));
         break;
       }
       case 'mark-pm': {                              // ✅ sent, or copied to send by hand
@@ -733,6 +777,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await playSound({ ...cfg, soundEnabled: true }, msg.sound));
         break;
       }
+      case 'sync-pms':      sendResponse(await syncSentPms({ pages: msg.pages || 3 }).catch((e) => ({ error: e.message }))); break;
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }

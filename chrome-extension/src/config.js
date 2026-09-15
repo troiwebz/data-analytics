@@ -32,10 +32,10 @@ export const DEFAULT_CONFIG = {
   notifyScore: 0,              // send everything; Telegram decides what buzzes
   autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
-  minMinutesBetweenPosts: 3,   // spacing between two 🚀 posts
+  minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
   maxDmsPerDay: 8,             // hard cap on sent DMs — unsolicited PMs are what
                                // BHW moderators act on, so keep this low
-  minMinutesBetweenDms: 5,     // spacing between two DMs
+  minSecondsBetweenDms: 120,   // spacing between two sent PMs; 0 = none
 
   // Staging: for strong leads, open the thread in a background tab and type the
   // reply in WITHOUT submitting. A 🚀 tap then just clicks Submit — sub-second.
@@ -456,7 +456,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 21;
+export const CONFIG_VERSION = 22;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -493,9 +493,20 @@ export async function migrateConfig() {
     next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
   }
   if (v < 8) {
-    for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
+    for (const k of ['dmTitle', 'maxDmsPerDay']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 22) {
+    // Spacing moves from whole minutes to seconds, so it can be set below a
+    // minute. Carry over whatever was set, and bring the PM default down.
+    next.minSecondsBetweenPosts = next.minSecondsBetweenPosts
+      ?? (next.minMinutesBetweenPosts != null ? next.minMinutesBetweenPosts * 60 : DEFAULT_CONFIG.minSecondsBetweenPosts);
+    next.minSecondsBetweenDms = next.minSecondsBetweenDms
+      ?? (next.minMinutesBetweenDms === 5 ? DEFAULT_CONFIG.minSecondsBetweenDms
+          : next.minMinutesBetweenDms != null ? next.minMinutesBetweenDms * 60 : DEFAULT_CONFIG.minSecondsBetweenDms);
+    delete next.minMinutesBetweenPosts;
+    delete next.minMinutesBetweenDms;
   }
   if (v < 21) {
     // The sign-off asked for a reply instead of announcing availability.

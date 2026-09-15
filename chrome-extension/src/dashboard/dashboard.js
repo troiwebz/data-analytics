@@ -197,7 +197,8 @@ function doneTag(l) {
   const posted = l.status === 'POSTED';
   if (!posted && !l.pmSent) return '';
   const label = posted && l.pmSent ? 'replied + PM sent' : posted ? 'reply posted' : 'PM sent';
-  return ` <span class="done">✓ ${label}</span>`;
+  const from = l.pmFrom ? ` (found in ${l.pmFrom})` : '';
+  return ` <span class="done" title="${esc(l.pmSentAt || '')}${esc(from)}">✓ ${label}</span>`;
 }
 
 /**
@@ -258,6 +259,7 @@ function detail(l, staged, cfg) {
   return `<tr class="detail"><td colspan="${COLS.length}">
     ${l.snippet ? `<div class="snip">${esc(l.snippet)}</div>` : ''}
     ${who}
+    ${l.priorContact && !l.pmSent ? `<div class="sub" style="margin-bottom:8px;color:#b45309">You have messaged ${esc(l.author || 'them')} before (${esc(l.priorContact)}). Worth a look before pitching again.</div>` : ''}
     ${staged[l.threadId] ? '<div class="sub" style="margin-bottom:8px">⚡ armed in a background tab — Post now fires instantly</div>' : ''}
     <div class="cols">
       <div>
@@ -457,6 +459,14 @@ $('sync').addEventListener('click', () => busy('sync', 'Loading…', async () =>
   const r = await chrome.runtime.sendMessage({ cmd: 'sync' });
   if (r?.error) alert(r.error);
 }));
+$('pmcheck').addEventListener('click', () => busy('pmcheck', 'Reading…', async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'sync-pms' });
+  if (r?.error) return alert(`Could not read your message list: ${r.error}`);
+  alert(`Read ${r.conversations} conversation(s) from your BHW message list.\n\n` +
+    `${r.marked} thread(s) ticked off as already sent.\n` +
+    `${r.known} more are with people you have spoken to before.`);
+}));
+
 $('regen').addEventListener('click', () => busy('regen', 'Rebuilding…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
   alert(`Rebuilt ${r?.updated ?? 0} draft(s).` +

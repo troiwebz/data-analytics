@@ -95,23 +95,25 @@ export async function getRateState() {
  *
  * Returns { ok: true } or { ok: false, reason } without mutating state.
  */
-function gate(used, lastAt, cap, gapMinutes, what) {
+const wait = (ms) => (ms >= 60000 ? `${Math.ceil(ms / 60000)} min` : `${Math.ceil(ms / 1000)} sec`);
+
+function gate(used, lastAt, cap, gapSeconds, what) {
   if (cap > 0 && used >= cap) return { ok: false, reason: `your daily ${what} limit of ${cap} is used up` };
-  const waitMs = (gapMinutes || 0) * 60000 - (Date.now() - (lastAt || 0));
-  if (gapMinutes > 0 && lastAt && waitMs > 0) {
-    return { ok: false, reason: `your ${gapMinutes} min spacing: ${Math.ceil(waitMs / 60000)} min to go` };
+  const left = (gapSeconds || 0) * 1000 - (Date.now() - (lastAt || 0));
+  if (gapSeconds > 0 && lastAt && left > 0) {
+    return { ok: false, reason: `your ${wait(gapSeconds * 1000)} gap: ${wait(left)} to go` };
   }
   return { ok: true };
 }
 
 export async function checkRateLimit(cfg) {
   const r = await getRateState();
-  return gate(r.count, r.lastPostAt, Number(cfg.maxPostsPerDay) || 0, Number(cfg.minMinutesBetweenPosts) || 0, 'reply');
+  return gate(r.count, r.lastPostAt, Number(cfg.maxPostsPerDay) || 0, Number(cfg.minSecondsBetweenPosts) || 0, 'reply');
 }
 
 export async function checkDmLimit(cfg) {
   const r = await getRateState();
-  return gate(r.dmCount || 0, r.lastDmAt, Number(cfg.maxDmsPerDay) || 0, Number(cfg.minMinutesBetweenDms) || 0, 'PM');
+  return gate(r.dmCount || 0, r.lastDmAt, Number(cfg.maxDmsPerDay) || 0, Number(cfg.minSecondsBetweenDms) || 0, 'PM');
 }
 
 export async function recordDm() {
