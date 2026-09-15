@@ -628,3 +628,17 @@ console.log("public one-liner: ok");
   assert.strictEqual(H.huntSynopsis(p).country, "Bangalore, India");
 }
 console.log("location: ok");
+
+// a post that never names a product falls back to "what you're building", and
+// that phrase must not pick up an article: never "the what you're building"
+{
+  const p = { id: "nothing", sub: "cofounderhunt", title: "Technical founder and engineer looking to join a project", body: "I'm a technical founder with 4 years in AI and DevOps. The ecosystem in India is tough right now." };
+  assert.strictEqual(H.huntThing(p), "what you're building");
+  for (let i = 0; i < 40; i += 1) {
+    const b = H.huntSlotBuild({ ...p, id: "nothing" + i }, { city: "Bangkok", country: "Thailand" }, {}, {});
+    assert.ok(!/\bthe what you're building\b/i.test(b.text), "article on the fallback phrase: " + b.text);
+  }
+  const named = H.huntSlotBuild({ id: "gym", sub: "startups", title: "Looking for a technical co-founder for my gym scheduling app", body: "Building a gym scheduling app." }, {}, {}, {});
+  assert.ok(/the gym scheduling app/.test(named.text), "a named product keeps its article: " + named.text);
+}
+console.log("no article on the fallback: ok");

@@ -2060,7 +2060,10 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   const product = String(slots.product || HEAT.huntThing(p).replace(/^your /, "")).trim().replace(/^(?:the|a|an|your|my)\s+/i, "");
   // "the gym scheduling app", but "HeySakhi" keeps its own name
   const proper = /^[A-Z][A-Za-z0-9]*$/.test(product.split(" ")[0]) && product.split(" ").length <= 2;
-  const theProduct = proper ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
+  // "what you're building" is what we fall back to when the post never names a
+  // product; it is already a noun phrase, so "the what you're building" is wrong
+  const generic = /^(?:what|how|whatever)\b/i.test(product);
+  const theProduct = proper || generic ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
   const move = sentence(slots.move);
   const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8).slice(0, 2);
   const base = {
