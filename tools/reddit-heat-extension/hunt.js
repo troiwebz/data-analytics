@@ -976,6 +976,13 @@ $("undoBulk").onclick = async () => {
 };
 $("cFit").innerHTML = FIT_MODES.map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
 $("cFit").onchange = () => saveSetup(true);
+// the two content scripts read these straight from storage, not from the profile
+$("cAutoSend").onchange = () => chrome.storage.local.set({ autoSend: $("cAutoSend").checked });
+$("cSendSecs").oninput = () => chrome.storage.local.set({ autoSendSecs: Math.max(3, Math.min(60, Number($("cSendSecs").value) || 10)) });
+chrome.storage.local.get(["autoSend", "autoSendSecs"]).then((x) => {
+  $("cAutoSend").checked = x.autoSend !== false;
+  $("cSendSecs").value = x.autoSendSecs || 10;
+});
 $("sSkippedBtn").onclick = () => showTable("skipped");
 async function doReset(mode) {
   const all = mode === "all";

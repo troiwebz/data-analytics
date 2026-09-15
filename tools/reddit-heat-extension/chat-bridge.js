@@ -148,6 +148,61 @@
     return { ok, error: ok ? "" : "Chat would not take the text — it is on your clipboard, press ⌘V in the box" };
   }
 
+  // ---- sending, after a countdown you can stop ----------------------------
+  // Reddit Chat sends on Enter in the composer; the round button is the
+  // fallback when a build swallows the key.
+  function findSend() {
+    const btns = deepAll('button, [role="button"]').filter(visible).filter((b) => !b.closest("#rlt-chat, #rlt-mark, #rlt-new"));
+    return btns.find((b) => /send/i.test((b.getAttribute("aria-label") || "") + " " + (b.getAttribute("title") || "") + " " + text(b))) || null;
+  }
+  function pressSend(c) {
+    if (!c) return false;
+    c.focus();
+    const key = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    c.dispatchEvent(new KeyboardEvent("keydown", key));
+    c.dispatchEvent(new KeyboardEvent("keypress", key));
+    c.dispatchEvent(new KeyboardEvent("keyup", key));
+    return true;
+  }
+  const SEND = { timer: 0, left: 0, key: "" };
+  function sendCancel(why) {
+    if (!SEND.timer) return;
+    clearInterval(SEND.timer); SEND.timer = 0; SEND.key = "";
+    if (why) say(why, "#e6c76b");
+  }
+  // click anywhere, or press any key, and the countdown stops
+  document.addEventListener("click", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
+  document.addEventListener("keydown", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
+  function sendCountdown(name, id, seconds) {
+    const key = name + ":" + (id || "");
+    if (SEND.key === key) return;
+    sendCancel("");
+    SEND.key = key; SEND.left = seconds;
+    const tick = () => {
+      if (SEND.left <= 0) {
+        clearInterval(SEND.timer); SEND.timer = 0; SEND.key = "";
+        const c = findComposer();
+        if (!c) return say("Could not find the message box, so nothing was sent.", "#ff8a65");
+        const before = text(c);
+        pressSend(c);
+        setTimeout(() => {
+          const gone = text(findComposer() || c) !== before || !text(findComposer() || c);
+          if (!gone) { const b = findSend(); if (b) b.click(); }
+          setTimeout(() => {
+            const sent = !text(findComposer() || c);
+            say(sent ? `DM sent to ${name}.` : "The box would not send by itself — press Reddit's send button.", sent ? "#7ee29a" : "#ff8a65");
+            if (sent && id) chrome.runtime.sendMessage({ type: "hunt-act", id, action: "dm" });
+          }, 700);
+        }, 500);
+        return;
+      }
+      say(`Sending to ${name} in ${SEND.left}s. Click anywhere to stop.`, "#e6c76b");
+      SEND.left -= 1;
+    };
+    tick();
+    SEND.timer = setInterval(tick, 1000);
+  }
+
   // ---- a DM waiting to be placed (from the hunt card or the Inbox) --------
   // When that person's chat is on screen, put the text in the box. Nothing
   // else: no typing into Reddit's search, no clicking, no sending.
@@ -169,6 +224,11 @@
         const r = await fill(pendingDm.text);
         say(r.ok ? `DM for ${name} is in the box — press send` : r.error, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
+        if (r.ok) {
+          const { autoSend = true, autoSendSecs = 10 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
+          // only the hunt's own DMs send themselves; an Inbox reply is a conversation
+          if (autoSend && pendingDm.kind === "hunt") sendCountdown(name, pendingDm.id, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)));
+        }
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
         pendingSince = 0; pendingToldFor = ""; newChatHide();
         return;
@@ -189,7 +249,7 @@
   // ---- doing it for you on the new-chat page ------------------------------
   // Type the name, wait for Reddit's list, click the person, press Create.
   // One step per tick, each tried a few times, then it stops and hands over.
-  // Sending is never automatic: the message only lands in the box.
+  // Sending happens only after the visible countdown above, never here.
   const AUTO = { step: "", name: "", tries: 0, at: 0, stopped: false, picked: false };
   const autoSay = (t, color) => { if (newChat) { const m = newChat.querySelector("#rlt-new-msg"); m.textContent = t; m.style.color = color || "#98a0b3"; } };
   function autoReset(name) { AUTO.step = "type"; AUTO.name = name; AUTO.tries = 0; AUTO.at = 0; AUTO.picked = false; }

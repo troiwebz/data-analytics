@@ -3,7 +3,10 @@
 // New Reddit's composer is a Lexical editor inside shadow DOM, collapsed until
 // clicked, and the site navigates without reloading, so this keeps watching:
 // open the composer, type, show what happened, and hand over if it can't.
-// Nothing is submitted by this script.
+// Sending: off by default in spirit - the text is filled and a ten second
+// countdown runs, visible and cancellable, before Reddit's own button is
+// clicked. autoSend = false in storage turns the countdown off entirely and
+// nothing is ever submitted by this script.
 (function prefillNewReddit() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const idOf = (u) => ((u || "").match(/\/comments\/([a-z0-9]+)/i) || [])[1];
@@ -32,7 +35,7 @@
       </div>`;
     document.body.appendChild(card);
     cardMsg = card.querySelector("#rlt-r-msg");
-    card.querySelector("#rlt-r-x").onclick = () => { off = true; card.remove(); card = null; };
+    card.querySelector("#rlt-r-x").onclick = () => { sendCancel(""); off = true; card.remove(); card = null; };
     card.querySelector("#rlt-r-go").onclick = () => { STEP.tries = 0; STEP.done = false; run(true); };
     card.querySelector("#rlt-r-copy").onclick = async () => { try { await navigator.clipboard.writeText(STEP.text); say("copied — click Reddit's box and press ⌘V"); } catch (_) { /* focus rules */ } };
   }
@@ -80,6 +83,54 @@
     return textOf(editor).includes(text.slice(0, 20));
   }
 
+  // ---- Reddit's own Comment button ----------------------------------------
+  function findSubmit() {
+    const all = deepAll("button").filter(visible).filter((b) => !b.closest("#rlt-reply"));
+    const named = all.filter((b) => b.getAttribute("slot") === "submit-button" || b.type === "submit" || /^(comment|reply|post)$/i.test(textOf(b)));
+    // a disabled button means Reddit has not accepted the text yet
+    return named.find((b) => !b.disabled && b.getAttribute("aria-disabled") !== "true") || null;
+  }
+
+  // Ten seconds, counted down in the card, with a Stop button. Anything the
+  // user does - Stop, the X, a click in the page - cancels it.
+  const SEND = { timer: 0, left: 0, id: "" };
+  function sendCancel(why) {
+    if (!SEND.timer) return;
+    clearInterval(SEND.timer); SEND.timer = 0; SEND.id = "";
+    const b = card && card.querySelector("#rlt-r-stop");
+    if (b) b.remove();
+    if (why) say(why, "#e6c76b");
+  }
+  async function sendCountdown(pendingReply, seconds) {
+    if (SEND.id === pendingReply.id) return;
+    sendCancel("");
+    SEND.id = pendingReply.id; SEND.left = seconds;
+    ensureCard();
+    if (card && !card.querySelector("#rlt-r-stop")) {
+      const b = document.createElement("button");
+      b.id = "rlt-r-stop";
+      b.type = "button";            // a bare <button> is type=submit, and the submit watcher below counts it
+      b.style.cssText = "background:#e6c76b;border:0;color:#171a21;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer";
+      b.textContent = "Stop";
+      b.onclick = () => sendCancel("Stopped. The reply is in the box - press Reddit's Comment button when you want it to go.");
+      card.querySelector("div:last-child").prepend(b);
+    }
+    const tick = () => {
+      if (SEND.left <= 0) {
+        clearInterval(SEND.timer); SEND.timer = 0;
+        const btn = findSubmit();
+        if (!btn) { SEND.id = ""; return say("Could not find Reddit's Comment button, so nothing was sent. The reply is in the box - press it yourself.", "#ff8a65"); }
+        say("sending…", "#7ee29a");
+        btn.click();                       // the click marks it replied through watchSubmit
+        return;
+      }
+      say(`Sending in ${SEND.left}s. Press Stop to read it first.`, "#e6c76b");
+      SEND.left -= 1;
+    };
+    tick();
+    SEND.timer = setInterval(tick, 1000);
+  }
+
   // ---- the loop ------------------------------------------------------------
   const STEP = { id: "", text: "", tries: 0, done: false, watching: false, busy: false };
   async function run(force) {
@@ -109,9 +160,11 @@
       if (host && host.style) host.style.outline = "3px solid #ff5722";
       if (ok) {
         state("filled ✓", "#7ee29a");
-        say("Reply is in the box. Read it, then click Reddit's Comment button — the post is marked replied the moment you do.", "#7ee29a");
         STEP.done = true;
         await chrome.storage.local.set({ pendingReply: { ...pendingReply, filled: true } });
+        const { autoSend = true, autoSendSecs = 10 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
+        if (autoSend) sendCountdown(pendingReply, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)));
+        else say("Reply is in the box. Read it, then click Reddit's Comment button — the post is marked replied the moment you do.", "#7ee29a");
       } else {
         STEP.tries += 1;
         if (STEP.tries > 6) { state("paste it", "#e6c76b"); say("The box is open but Reddit would not take the text. It is on your clipboard — click in the box and press ⌘V.", "#e6c76b"); STEP.done = true; }
@@ -124,9 +177,12 @@
   function watchSubmit(pendingReply) {
     if (watched) return;
     watched = true;
-    const isSubmit = (path) => path.some((el) => el && el.tagName === "BUTTON" && (el.getAttribute("slot") === "submit-button" || el.type === "submit" || /^(comment|reply|post)$/i.test(textOf(el))));
+    // our own card's buttons are not Reddit's
+    const isSubmit = (path) => !path.some((el) => el && el.id === "rlt-reply")
+      && path.some((el) => el && el.tagName === "BUTTON" && (el.getAttribute("slot") === "submit-button" || el.type === "submit" || /^(comment|reply|post)$/i.test(textOf(el))));
     document.addEventListener("click", async (e) => {
       if (!isSubmit(e.composedPath())) return;
+      sendCancel("");
       chrome.runtime.sendMessage({ type: "hunt-act", id: pendingReply.id, action: "replied", variant: pendingReply.variant });
       await chrome.storage.local.remove("pendingReply");
       state("posted ✓", "#7ee29a");

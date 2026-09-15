@@ -212,6 +212,11 @@
           <div><label>DMs per day</label><input type="text" id="cDmCap" placeholder="25"></div>
           <div><span class="foot" id="dmGateNote" style="margin:0"></span></div>
         </div>
+        <div class="row" style="margin-top:10px;gap:10px;flex-wrap:wrap">
+          <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cAutoSend"> press Reddit's own Send for me, after</label>
+          <input type="text" id="cSendSecs" placeholder="10" style="width:52px">
+          <span class="foot" style="margin:0">seconds. The tab opens, the text goes in, a countdown runs where you can see it, and clicking anywhere stops it. Inbox replies are never sent this way, only the hunt's first messages.</span>
+        </div>
       </div>
       <div style="grid-column:1/-1">
         <label>The deal · what we ask for — every reply, DM and inbox step follows it; change it any time</label>
