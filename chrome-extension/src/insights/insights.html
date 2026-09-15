@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — When threads appear</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --surface:#fff; --line:#e2e8f0;
+    --ink:#0f172a; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --series:#2a78d6; --series-soft:#9ec5f4;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111110; --surface:#1a1a19; --line:#2c2c2a;
+      --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --series:#3987e5; --series-soft:#1c5cab;
+      color-scheme:dark;
+    }
+  }
+  body{font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0 10px 0 0}
+  header .sp{flex:1}
+  button{padding:8px 13px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#fff;
+    font:600 13px system-ui;cursor:pointer}
+  button.pri{background:#2563eb;border-color:#2563eb}
+  .w{max-width:1100px;margin:0 auto;padding:20px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .k{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .k b{display:block;font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums}
+  .k span{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px 12px;margin-bottom:18px}
+  .card h2{font-size:15px;margin:0 0 2px}
+  .card p.sub{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
+  svg{display:block;width:100%;overflow:visible}
+  .grid line{stroke:var(--grid);stroke-width:1}
+  .axis line{stroke:var(--axis);stroke-width:1}
+  .tick{fill:var(--muted);font-size:11px}
+  .val{fill:var(--ink2);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+  .bar{fill:var(--series)}
+  /* Today is incomplete, so it is hatched rather than recoloured: a second
+     shade reads as a different amount, and on a dark surface a "paler" step
+     is a darker one, which reads as more. */
+  .hatch-bg{fill:var(--surface)}
+  .hatch-line{stroke:var(--series);stroke-width:3}
+  .hit{fill:transparent;cursor:pointer}
+  .hit:hover + .bar,.bar.on{fill:#1c5cab}
+  .tip{position:fixed;pointer-events:none;background:#0f172a;color:#fff;font-size:12px;line-height:1.45;
+    padding:7px 10px;border-radius:8px;opacity:0;transition:opacity .12s;max-width:260px;z-index:9}
+  .tip b{font-variant-numeric:tabular-nums}
+  .empty{padding:34px 0;text-align:center;color:var(--muted)}
+  details{margin-top:6px}
+  summary{cursor:pointer;color:var(--ink2);font-size:12.5px;padding:6px 0}
+  table{border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  th,td{border-bottom:1px solid var(--line);padding:5px 14px 5px 0;text-align:left}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .note{color:var(--muted);font-size:12px;margin:0 0 18px}
+</style>
+<header>
+  <h1>When threads appear</h1>
+  <span id="range" style="opacity:.75;font-size:12.5px"></span>
+  <span class="sp"></span>
+  <button id="back" class="pri">Back to the leads</button>
+  <button id="more">Load older threads…</button>
+</header>
+<div class="w">
+  <div class="stats" id="stats"></div>
+  <p class="note" id="note"></p>
+  <div class="card">
+    <h2>Threads a day</h2>
+    <p class="sub">How busy the forum is. The striped bar is today, still filling up.</p>
+    <div id="daily"></div>
+  </div>
+  <div class="card">
+    <h2>Threads by hour</h2>
+    <p class="sub">Your local time. The tall bars are when it is worth being at the keyboard.</p>
+    <div id="hourly"></div>
+  </div>
+  <div class="card">
+    <h2>Threads by day of the week</h2>
+    <p class="sub">Averaged over the weeks in the database, so a short run does not read as a quiet Sunday.</p>
+    <div id="weekly"></div>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+<script type="module" src="insights.js"></script>

@@ -124,9 +124,17 @@ async function renderInner() {
   for (const id of ['approvals', 'sync']) $(id).hidden = !cfg.webhookUrl;
 
   const today = leads.filter((l) => time(l.foundAt) > Date.now() - 86400000);
+  // Launched today means the thread was started today, which is not the same
+  // as us noticing it today: a backfill finds old threads, and a thread found
+  // at 00:05 was launched yesterday.
+  const startedToday = (() => {
+    const key = new Date().toLocaleDateString('en-CA');
+    return leads.filter((l) => { const d = new Date(l.postedAt);
+      return !isNaN(d) && d.toLocaleDateString('en-CA') === key; }).length;
+  })();
   const n = (s) => leads.filter((l) => l.status === s).length;
   const tiles = [
-    [leads.length, 'in database'], [today.length, 'found today'],
+    [leads.length, 'in database'], [startedToday, 'launched today'], [today.length, 'found today'],
     [n('POSTED'), 'replies posted'],
     [leads.filter((l) => l.pmSent).length, 'PMs sent'],
     [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
@@ -489,6 +497,9 @@ $('deep').addEventListener('click', async () => {
     alert(r?.error ? r.error
       : `Scanned ${r.scanned}, recorded ${r.backfilled} new.\n\nListing rows carry no post body, so these are scored on the title alone.`);
   });
+});
+$('insights').addEventListener('click', () => {
+  location.href = chrome.runtime.getURL('src/insights/insights.html');
 });
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('cmd').addEventListener('click', async () => {
