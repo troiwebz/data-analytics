@@ -45,8 +45,14 @@
   .ext:hover{color:var(--blue);background:#eff6ff}
   /* Posted is done: strike the title so a glance down the table shows what is
      handled. Skipped and expired are dimmed but not struck — different meaning. */
-  tr.posted .t{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#16a34a;color:var(--mute)}
-  tr.pmdone .t{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#2563eb;color:var(--mute)}
+  /* Done means struck through AND labelled: a strike alone is missable. */
+  tr.posted .t,tr.pmdone .t{text-decoration:line-through;text-decoration-thickness:2px;color:var(--mute)}
+  tr.posted .t{text-decoration-color:#16a34a}
+  tr.pmdone .t{text-decoration-color:#2563eb}
+  .done{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;
+    font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
+    background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;vertical-align:1px}
+  tr.pmdone .done{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
   tr.pmdone td{background:#f8fbff}
   tr.pmdone:hover td{background:#eff6ff}
   tr.posted td{background:#f6fdf8}

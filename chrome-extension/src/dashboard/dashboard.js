@@ -65,7 +65,8 @@ const COLS = [
     // The title opens the draft, because that is what a click on a row is for.
     // Going to the thread on BHW is the arrow next to it, deliberately small.
     cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span>` +
-      `${l.status === 'POSTED' ? '✅ ' : ''}<span class="t">${esc(l.title || '(no title)')}</span>` +
+      `<span class="t">${esc(l.title || '(no title)')}</span>` +
+      doneTag(l) +
       ` <a class="ext" href="${esc(l.url)}" target="_blank" rel="noopener" title="Open this thread on BlackHatWorld">↗</a>` +
       `<div class="sub">${esc(l.author || '')}${l.categoryLabel ? ' · ' + esc(l.categoryLabel) : ''}` +
       `${tags(l.matched).length ? ' · ' + esc(tags(l.matched).slice(0, 4).join(', ')) : ''}</div>` },
@@ -185,6 +186,18 @@ async function renderInner() {
 
   $('log').innerHTML = log.slice(0, 12)
     .map((e) => `<div class="${e.level}">${when(e.t).split(', ')[1] || ''} ${esc(e.msg)}</div>`).join('');
+}
+
+/**
+ * What was actually done to a thread, said in words next to the title rather
+ * than only as a strike through it. A strike alone is easy to miss on a long
+ * list, and it does not distinguish a posted reply from a PM.
+ */
+function doneTag(l) {
+  const posted = l.status === 'POSTED';
+  if (!posted && !l.pmSent) return '';
+  const label = posted && l.pmSent ? 'replied + PM sent' : posted ? 'reply posted' : 'PM sent';
+  return ` <span class="done">✓ ${label}</span>`;
 }
 
 /**

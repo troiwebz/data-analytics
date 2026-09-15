@@ -131,6 +131,8 @@ const struck = (id) => {
   return { line: cs.textDecoration, colour: cs.textDecorationColor };
 };
 ok('posted rows are still marked', $('rows').querySelector('tr[data-row="9002"]').className.includes('posted'));
+const tagOf = (id) => $('rows').querySelector(`tr[data-row="${id}"] .done`)?.textContent.trim() || '';
+ok('a posted reply says so next to the title', tagOf('9002') === '✓ reply posted', tagOf('9002'));
 ok('a posted reply is struck through in green',
    /line-through/.test(struck('9002').line) && struck('9002').colour === 'rgb(22, 163, 74)', JSON.stringify(struck('9002')));
 
@@ -138,10 +140,17 @@ leads[0].pmSent = true; leads[0].status = 'SENT';
 await render();
 ok('a PM sent is struck through too', /line-through/.test(struck('9001').line), JSON.stringify(struck('9001')));
 ok('and in blue, so the two are distinguishable', struck('9001').colour === 'rgb(37, 99, 235)', struck('9001').colour);
+ok('a PM sent says so next to the title', tagOf('9001') === '✓ PM sent', tagOf('9001'));
+
+leads[0].status = 'POSTED';
+await render();
+ok('doing both says both', tagOf('9001') === '✓ replied + PM sent', tagOf('9001'));
+leads[0].status = 'SENT';
 
 leads[0].pmSent = false; leads[0].status = 'SENT';
 await render();
 ok('an untouched row is not struck', !/line-through/.test(struck('9001').line), struck('9001').line);
+ok('and carries no label', tagOf('9001') === '', tagOf('9001'));
 
 // Header buttons still wired.
 ok('Settings button is live', typeof $('opts').onclick !== 'undefined' && !!$('opts'));
