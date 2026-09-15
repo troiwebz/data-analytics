@@ -54,8 +54,10 @@ globalThis.fetch = async (url, opts) => {
     aiCalls++;
     const ids = JSON.parse(opts.body).messages[0].content.match(/id: (\d+)/g).map((s) => s.slice(4));
     return { ok: true, status: 200, json: async () => ({
-      content: [{ type: 'text', text: JSON.stringify(Object.fromEntries(
-        ids.map((id) => [id, ['Manual submissions to directories that index in the UAE', 'NAP audit across the existing profiles first']]))) }],
+      content: [{ type: 'text', text: JSON.stringify(Object.fromEntries(ids.map((id) => [id, {
+        tips: ['Manual submissions to directories that index in the UAE', 'NAP audit across the existing profiles first', 'GMB categories fixed before anything else'],
+        question: 'Audit-safe citations, or volume for a tier 2 layer?', offer: 'formula'
+      }]))) }],
       usage: { input_tokens: 800, cache_read_input_tokens: 300, output_tokens: 90 }
     }) };
   }
@@ -96,6 +98,8 @@ ok("Claude's lines are in the public reply", lead.draft.includes('Manual submiss
 ok("Claude's lines are in the PM", lead.dm.includes('Manual submissions to directories'));
 ok('PM opens with the thread link', /(saw|read|came across) your (HAF )?thread/i.test(lead.dm) && lead.dm.includes(lead.url));
 ok('public reply carries one tip, PM carries three', (lead.draft.match(/Manual submissions/g) || []).length === 1);
+ok('the public reply asks the question', /tier 2 layer\?/.test(lead.draft), lead.draft);
+ok('the PM closes with the offer Claude chose', /whole method|sequence|order/i.test(lead.dm.split('\n').pop()), lead.dm.split('\n').pop());
 ok('no em dash in the reply', !/[–—]/.test(lead.draft + lead.dm));
 ok('compliance ran', Array.isArray(lead.lint?.problems) || lead.lint != null);
 ok('DM url built', /direct-messages\/add\?to=/.test(lead.dmUrl), lead.dmUrl);
@@ -119,7 +123,7 @@ const rg = await globalThis.__msg({ cmd: 'regen' }, {}, () => {});
 await new Promise((r) => setTimeout(r, 50));
 const after = store.recentLeads;
 ok('rebuild asked Claude again', aiCalls > callsBefore, 'calls=' + aiCalls);
-ok('old leads now carry Claude lines', after.every((l) => l.aiSpecifics?.length), JSON.stringify(after.map((l) => !!l.aiSpecifics)));
+ok('old leads now carry Claude lines', after.every((l) => l.aiSpecifics?.tips?.length), JSON.stringify(after.map((l) => !!l.aiSpecifics)));
 ok('public reply rebuilt, not just the PM', after.every((l) => l.draft !== 'stale draft'));
 ok('PM rebuilt too', after.every((l) => l.dm !== 'stale dm'));
 ok("rebuilt reply carries Claude's lines", after[0].draft.includes('Manual submissions to directories'), after[0].draft.slice(0, 200));

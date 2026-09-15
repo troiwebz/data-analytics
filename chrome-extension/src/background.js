@@ -133,7 +133,8 @@ export async function specificsFor(leads, cfg) {
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
 export function enrich(m, cfg, status, aiSpecifics) {
-  if (aiSpecifics?.length) m = { ...m, aiSpecifics };
+  // Claude returns { tips, question, offer }; older rows hold a bare array.
+  if (aiSpecifics?.tips?.length || aiSpecifics?.length) m = { ...m, aiSpecifics };
   const draft = renderReply(m, cfg);
   const dm = renderDm(m, cfg);
   const dmTitle = renderDmTitle(m, cfg);
@@ -507,7 +508,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
         // Leads found before the key was added have no Claude lines. Fill those
         // in first, newest first, so a rebuild after adding a key is worth doing.
-        const missing = leads.filter((l) => !l.aiSpecifics?.length && !['POSTED', 'SKIPPED'].includes(l.status));
+        const has = (l) => l.aiSpecifics?.tips?.length || l.aiSpecifics?.length;
+        const missing = leads.filter((l) => !has(l) && !['POSTED', 'SKIPPED'].includes(l.status));
         let aiCount = 0;
         if (cfg.aiSpecifics && missing.length) {
           for (let i = 0; i < missing.length; i += 8) {

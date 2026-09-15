@@ -145,7 +145,12 @@ export const DEFAULT_CONFIG = {
   compliance: {
     mustInclude: [],                                   // e.g. { pattern: 'your-sales-thread', label: 'BST link' }
     mustAppearEarly: [],                               // e.g. { pattern: 'Telegram', within: 120, label: 'contact at top' }
-    banned: ['free trial'],
+    // Free work is banned outright: it is what attracts time wasters, and it
+    // was the rule from day one. Every shape of it, not just the phrase.
+    banned: [
+      'free trial', 'free sample', 'free test', 'for free', 'no charge',
+      'free of charge', 'at no cost', "won't cost you", 'free work'
+    ],
     warn: [
       'guaranteed', 'guarantee', '100%', 'cheapest',
       // Reads as AI-written on a forum. Keep replies in plain punctuation.
@@ -249,11 +254,15 @@ export const DEFAULT_CONFIG = {
 
 {{tip}} {We run SEO for agencies and direct clients|We do this work weekly|This is core work for us}.
 
+{{question}}
+
 {Sent you a PM with the detail|PM sent with the specifics|Dropped you a PM}.`,
 
     ads: `{Hi|Hey} @{{author}},
 
 {{tip}} {We manage paid campaigns end to end on Google, Meta and TikTok|Paid is what we run day to day|We handle the build and the ongoing management}.
+
+{{question}}
 
 {Sent you a PM|PM sent with how we would approach it|Dropped you a PM with the detail}.`,
 
@@ -261,11 +270,15 @@ export const DEFAULT_CONFIG = {
 
 {{tip}} {Our design team produces {{category}} in house|This is what our team turns out daily|In house team, no outsourcing}.
 
+{{question}}
+
 {PM sent|Sent you a PM with examples|Dropped you a PM}.`,
 
     social: `{Hi|Hey} @{{author}},
 
 {{tip}} {We run and post on accounts every day|Account management is what we do day to day|We handle accounts at volume}.
+
+{{question}}
 
 {Sent you a PM|PM sent with the specifics|Dropped you a PM with the detail}.`,
 
@@ -273,11 +286,15 @@ export const DEFAULT_CONFIG = {
 
 {{tip}} {Builds and landing pages are done in house|We do site work in house|Our developers handle this directly}.
 
+{{question}}
+
 {PM sent|Sent you a PM|Dropped you a PM with the detail}.`,
 
     content: `{Hi|Hey} @{{author}},
 
 {{tip}} {Written by people, briefed against real search intent|Human writers, briefed properly|Written to brief, not spun}.
+
+{{question}}
 
 {PM sent with samples|Sent you a PM|Dropped you a PM}.`,
 
@@ -285,6 +302,8 @@ export const DEFAULT_CONFIG = {
     generic: `{Hi|Hey} @{{author}},
 
 {{tip}} {We are a full service agency covering SEO, paid ads, design, web and content, all in house|We cover SEO, ads, design, web and content in house|Full service in house team}.
+
+{{question}}
 
 {Sent you a PM|PM sent with the detail|Dropped you a PM}.`
   },
@@ -298,12 +317,33 @@ export const DEFAULT_CONFIG = {
   // lines, laid out as a list, as numbers or as prose depending on the thread,
   // so a run of PMs never shares one skeleton.
 
-  // The close. Edit this and every PM changes.
-  dmOffer: `{Happy to share our portfolio and live samples|I can send over the portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
+  // ---- The five closes -------------------------------------------------
+  // Claude picks whichever fits the thread and never repeats the one it used
+  // last, so a buyer reading two of your PMs does not see the same pitch.
+  // None of them offers free work: that was the rule from the start, and on a
+  // board like this free work mostly buys time wasters.
+  //
+  //   pilot    small paid first order, so they risk little without you working free
+  //   ready    the asset or list already exists, so there is nothing to wait for
+  //   formula  the method, given away openly, which proves it better than claiming it
+  //   terms    money after delivery, not before
+  //   scope    two questions and a fixed price and date back the same day
+  //
+  // Each is spintax and is picked per thread, so the wording varies too.
+  offers: {
+    pilot: `{Easiest way in is a small first order|Simplest start is one small order|If it helps, start small}: {one page, one listing, one article, whatever the smallest useful unit is here|a single item at the normal rate}. {You see the actual work before committing to volume|Judge it on that, then scale or walk}.`,
 
-{We can get started immediately|We can start on this right away|Ready to start today}. {Just reply here or on the thread|Say the word and I'll get moving|Send the details over and I'll get going}.`,
+    ready: `{The list and the accounts are already built|We already have the list built and cleaned|The groundwork is already done our side}, so {day one is delivery, not research|there is nothing to wait for|we start on the actual work, not setup}. {Say the word and it moves today|Happy to start today}.`,
 
-  // {{tips}} is the three technical lines; {{url}} is the thread.
+    formula: `{That is the whole method, in that order|That is the entire approach, and the order matters|Those three, in that order, are the whole method}. {The sequence is the part most people get wrong|Most of the failures we see are that sequence run backwards|Run it out of order and the later work inherits the earlier errors}. {Take it and run it in house if you prefer, no hard feelings|Use it yourself if that suits you better|You are welcome to hand that to whoever you hire}.`,
+
+    terms: `{Happy to invoice after the first batch lands|We can do the first batch first and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}. {No deposit|Nothing up front}.`,
+
+    scope: `{Tell me two things and I will come back today with a fixed price and a date|Send me two details and you will have a fixed price and a date today}: {the target market and the volume you want|the geo and the monthly volume|the market and how much of it you need}. {No call needed|Nothing to book, just reply here}.`
+  },
+
+  // {{tips}} is the three technical lines, {{offer}} is the close Claude chose
+  // from the five above, {{url}} is the thread.
   dmTemplates: {
     generic: `{Hi|Hey} {{author}},
 
@@ -391,7 +431,7 @@ export const DEFAULT_CONFIG = {
   }
 };
 
-export const CONFIG_VERSION = 15;
+export const CONFIG_VERSION = 16;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -425,18 +465,22 @@ export async function migrateConfig() {
   if (v < 5) {
     // v4's PMs were standalone paragraphs; v5 mirrors the public reply and
     // closes with the shared offer. Replace them unless they were customised.
-    next.dmOffer = next.dmOffer ?? DEFAULT_CONFIG.dmOffer;
     next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
-  }
-  // Offers the user asked to retire: the discount/payment-terms one, and the
-  // one that promised bespoke sample work. Replaced unless they wrote their own.
-  if (v < 7 && /20% off|payment only after|sample first so you can judge|sample together first/i.test(next.dmOffer || '')) {
-    next.dmOffer = DEFAULT_CONFIG.dmOffer;
   }
   if (v < 8) {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 16) {
+    // One offer for every PM became five, chosen per thread, and the public
+    // reply gained a question. Both template sets change shape, and the ban on
+    // free work is widened from the single phrase to every form of it.
+    next.offers = next.offers ?? DEFAULT_CONFIG.offers;
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.compliance = { ...next.compliance, banned: DEFAULT_CONFIG.compliance.banned };
+    delete next.dmOffer;
   }
   if (v < 13 && next.aiSpecifics == null) next.aiSpecifics = DEFAULT_CONFIG.aiSpecifics;
   if (v < 15) {
@@ -451,7 +495,6 @@ export async function migrateConfig() {
     // and {{reply}}, which no longer exist, so they have to be replaced.
     next.templates = DEFAULT_CONFIG.templates;
     next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
-    next.dmOffer = DEFAULT_CONFIG.dmOffer;
   }
   if (v < 12) {
     next.specifics = next.specifics ?? DEFAULT_CONFIG.specifics;
@@ -460,7 +503,6 @@ export async function migrateConfig() {
   if (v < 11) {
     // Em dashes and "•" read as AI-written; templates rewritten without them.
     next.templates = DEFAULT_CONFIG.templates;
-    next.dmOffer = DEFAULT_CONFIG.dmOffer;
   }
   if (v < 10 && Array.isArray(next.excludes) && !next.excludes.some((e) => /for sale/.test(e))) {
     next.excludes = DEFAULT_CONFIG.excludes;   // seller-thread guards added

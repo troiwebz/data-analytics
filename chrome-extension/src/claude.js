@@ -181,29 +181,48 @@ function headers(key) {
   };
 }
 
+export const OFFERS = {
+  pilot:   'a small paid first order, when the buyer sounds cautious, burned before, or is buying at volume for the first time',
+  ready:   'the list or assets already exist, when the post is urgent, has a deadline, or complains about slow suppliers',
+  formula: 'give away the method, when the post is vague, technical, or written by someone who clearly knows the subject',
+  terms:   'invoice after the first batch, when the budget is large, or the post worries about being scammed',
+  scope:   'two questions then a fixed price and date today, when the brief is thin and the real job is unclear'
+};
+
 const SYSTEM = [
   'You write the technical middle of an outreach message about a job post on a freelancer forum.',
-  'The greeting, the thread link and the closing offer are already written; you write ONLY the technical lines.',
+  'The greeting, the thread link and the closing offer are already written; you write ONLY the parts below.',
   '',
-  'For each thread write exactly 3 lines, STRONGEST FIRST.',
-  'The first line is used on its own in a short public reply, so it must stand alone and be the single most',
-  'convincing thing you can say about this specific post. Lines 2 and 3 are used together with it in a private',
-  'message, so they must add something the first did not.',
-  'These prove the writer read that specific post.',
-  'Rules:',
+  'For each thread give three things.',
+  '',
+  '1. "tips": exactly 3 lines, STRONGEST FIRST.',
+  '   The first line is used on its own in a short public reply, so it must stand alone and be the single',
+  '   most convincing thing you can say about this specific post. Lines 2 and 3 are used with it in a',
+  '   private message, so they must add something the first did not.',
+  '   Each proves the writer read that specific post.',
+  '',
+  '2. "question": ONE short question, posted publicly under the reply.',
+  '   It must be answerable in a sentence, must split the job into two real routes that would be built or',
+  '   priced differently, and must make replying easier than ignoring. Never ask for the budget.',
+  '   Example: "Are you after citations that survive a manual audit, or volume for a tier 2 layer?"',
+  '',
+  '3. "offer": pick the ONE id below that best fits this buyer.',
+  ...Object.entries(OFFERS).map(([id, when]) => `   ${id} - ${when}`),
+  '',
+  'Rules for everything you write:',
   '- Name the actual deliverable, platform, market or constraint the poster asked for.',
   '- Concrete and checkable. "Manual submissions to directories that index in the UAE" beats "high quality citations".',
   '- No praise, no restating their request back to them, no filler.',
   '- Plain words. Never use an em dash, en dash or bullet glyph. Use ordinary hyphens and full stops.',
-  '- Never promise a specific price, a discount, free work, a guarantee, or a ranking result.',
+  '- Never promise a specific price, a discount, a guarantee, or a ranking result.',
+  '- NEVER offer free work of any kind: no free trial, sample, test, audit or "no charge".',
   '- Under 100 characters each. Short is better.',
   '- British or neutral English, lower-key than marketing copy.',
-  '',
   'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
   'they get laid out as a list, as numbers or as running prose depending on the thread.',
   '',
-  'Return ONLY a JSON object mapping each thread id to its array of 3 strings.',
-  'Example: {"1847904":["...","..."],"1847910":["..."]}'
+  'Return ONLY a JSON object mapping each thread id to {"tips":[3 strings],"question":"...","offer":"id"}.',
+  'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula"}}'
 ].join('\n');
 
 /**
@@ -233,7 +252,7 @@ export async function writeSpecifics(leads) {
 
   const body = {
     model: ai.model,
-    max_tokens: 90 * batch.length + 60,
+    max_tokens: 130 * batch.length + 60,
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
@@ -271,20 +290,39 @@ export function parseObject(text) {
 export function clean(obj) {
   const out = {};
   for (const id of Object.keys(obj || {})) {
-    const bullets = (Array.isArray(obj[id]) ? obj[id] : [])
-      .map((b) => String(b)
-        .replace(/[–—]/g, '-')     // en/em dash
-        .replace(/•/g, '-')             // bullet glyph
-        .replace(/^[\s\-*]+/, '')
-        .replace(/\s+/g, ' ')
-        .trim())
+    const v = obj[id];
+    // Tolerate the older bare-array shape as well as the current object.
+    const raw = Array.isArray(v) ? { tips: v } : (v && typeof v === 'object' ? v : {});
+    const tips = (Array.isArray(raw.tips) ? raw.tips : [])
+      .map(tidy)
       .filter((b) => b.length > 15 && b.length <= 160)
-      .filter((b) => !/\b(guarantee|guaranteed|free trial|discount|\d+% off)\b/i.test(b))
+      .filter(allowed)
       .slice(0, MAX_BULLETS);
-    if (bullets.length) out[String(id)] = bullets;
+    if (!tips.length) continue;
+
+    const question = (() => {
+      const q = tidy(raw.question);
+      if (!q || q.length < 15 || q.length > 180 || !allowed(q)) return '';
+      return /\?$/.test(q) ? q : q + '?';
+    })();
+
+    out[String(id)] = { tips, question, offer: raw.offer in OFFERS ? raw.offer : '' };
   }
   return out;
 }
+
+const tidy = (b) => String(b ?? '')
+  .replace(/[\u2013\u2014]/g, '-')     // en/em dash
+  .replace(/\u2022/g, '-')             // bullet glyph
+  .replace(/^[\s\-*]+/, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/** The prompt forbids these; the filter is what actually enforces it. */
+const allowed = (b) =>
+  !/\b(guarantee|guaranteed|discount|\d+% off)\b/i.test(b) &&
+  !/\bfree\s+(trial|sample|test|audit|work|of charge)\b/i.test(b) &&
+  !/\b(for free|no charge|at no cost)\b/i.test(b);
 
 async function recordUsage(usage, leadCount) {
   if (!usage) return;

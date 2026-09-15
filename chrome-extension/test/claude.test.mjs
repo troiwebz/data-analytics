@@ -15,7 +15,7 @@ let lastReq = null;
 let reply = {
   ok: true, status: 200,
   json: async () => ({
-    content: [{ type: 'text', text: 'Here you go:\n```json\n{"111":["Manual citations on UAE directories that actually index — no scraped lists","GMB category and service-area fixes before any citation work"],"222":["short"]}\n```' }],
+    content: [{ type: 'text', text: 'Here you go:\n```json\n{"111":{"tips":["Manual citations on UAE directories that actually index — no scraped lists","GMB category and service-area fixes before any citation work","NAP audit across the profiles you already have"],"question":"Audit-safe citations, or volume for a tier 2 layer?","offer":"formula"},"222":{"tips":["short"],"question":"x","offer":"nope"}}\n```' }],
     usage: { input_tokens: 900, cache_read_input_tokens: 400, output_tokens: 120 }
   })
 };
@@ -45,7 +45,9 @@ r = await C.writeSpecifics([
   { threadId: '111', title: 'Local Citation Services - Dubai & UK', snippet: 'need citations', category: 'seo' },
   { threadId: '222', title: 'x', snippet: 'y', category: 'seo' }
 ]);
-ok('parses JSON out of prose + fence', r.specifics['111']?.length === 2);
+ok('parses JSON out of prose + fence', r.specifics['111']?.tips?.length === 3, JSON.stringify(r.specifics['111']));
+ok('keeps the public question', /tier 2 layer\?$/.test(r.specifics['111'].question), r.specifics['111'].question);
+ok('keeps the chosen offer', r.specifics['111'].offer === 'formula');
 ok('drops bullets under 16 chars', !('222' in r.specifics));
 
 const body = JSON.parse(lastReq.opts.body);
@@ -53,7 +55,7 @@ ok('browser header sent', lastReq.opts.headers['anthropic-dangerous-direct-brows
 ok('api version sent', lastReq.opts.headers['anthropic-version'] === '2023-06-01');
 ok('system prefix is cached', body.system[0].cache_control.type === 'ephemeral');
 ok('effort low', body.output_config.effort === 'low');
-ok('max_tokens scales with batch', body.max_tokens === 90 * 2 + 60, body.max_tokens);
+ok('max_tokens scales with batch', body.max_tokens === 130 * 2 + 60, body.max_tokens);
 ok('snippet is capped', body.messages[0].content.length < 1500);
 
 // 5. Usage and cost.
@@ -86,15 +88,20 @@ r = await C.writeSpecifics([{ threadId: '9', title: 't', snippet: 's' }]);
 ok('network failure handled', /could not reach/.test(r.note));
 
 // 9. The prompt's rules are enforced on the way out.
-const cleaned = C.clean({ a: [
+const cleaned = C.clean({ a: { tips: [
   '— leading dash and an em—dash inside the line here',
   'We guarantee first page rankings within thirty days',
-  '• bullet glyph opener that is quite long indeed'
-] });
-ok('em/en dashes stripped', !/[–—]/.test(cleaned.a.join('')), JSON.stringify(cleaned.a));
-ok('bullet glyph stripped', !/•/.test(cleaned.a.join('')));
-ok('guarantees dropped', !cleaned.a.some((b) => /guarantee/i.test(b)));
-ok('cap of 3 bullets', C.clean({ a: Array(9).fill('a long enough bullet line to survive') }).a.length === 3);
+  '• bullet glyph opener that is quite long indeed',
+  'We will do the first one for free so you can judge it'
+], question: 'Which route do you want, audit-safe or volume', offer: 'terms' } }).a.tips;
+ok('em/en dashes stripped', !/[–—]/.test(cleaned.join('')), JSON.stringify(cleaned));
+ok('bullet glyph stripped', !/•/.test(cleaned.join('')));
+ok('guarantees dropped', !cleaned.some((b) => /guarantee/i.test(b)));
+ok('offers of free work dropped', !cleaned.some((b) => /\bfree\b/i.test(b)), JSON.stringify(cleaned));
+ok('a bogus offer id is discarded', C.clean({ a: { tips: ['a long enough line to survive the filter'], offer: 'nope' } }).a.offer === '');
+ok('a question is given its question mark', C.clean({ a: { tips: ['a long enough line to survive the filter'], question: 'Audit-safe or volume for a tier 2 layer' } }).a.question.endsWith('?'));
+ok('cap of 3 bullets', C.clean({ a: { tips: Array(9).fill('a long enough bullet line to survive') } }).a.tips.length === 3);
+ok('the old bare-array shape still parses', C.clean({ a: ['a long enough bullet line to survive'] }).a.tips.length === 1);
 
 // 10. Clearing forgets the key.
 await C.clearKey();

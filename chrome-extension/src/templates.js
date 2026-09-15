@@ -43,14 +43,25 @@ export function spin(text, seed) {
   return out;
 }
 
-/** The technical lines available for a lead, best first. */
-export function tipsFor(lead, cfg) {
-  if (lead.aiSpecifics?.length) return lead.aiSpecifics.slice();
-  return specificsBlock(lead, cfg)
-    .split('\n')
-    .map((l) => l.replace(/^[\s\-*]+/, '').trim())
-    .filter(Boolean);
+/**
+ * What Claude returned for a lead: three tips, a public question, and which of
+ * the five closes to use. Falls back to the built-in rules and an offer picked
+ * from the thread id, so a lead without Claude still reads like the others.
+ */
+export function partsFor(lead, cfg) {
+  const ai = lead.aiSpecifics;
+  const obj = Array.isArray(ai) ? { tips: ai } : (ai && typeof ai === 'object' ? ai : {});
+  const tips = obj.tips?.length ? obj.tips.slice() : specificsBlock(lead, cfg)
+    .split('\n').map((l) => l.replace(/^[\s\-*]+/, '').trim()).filter(Boolean);
+
+  const ids = Object.keys(cfg.offers || {});
+  const offer = ids.includes(obj.offer) ? obj.offer
+    : ids[Math.floor(seeded(`f${lead.threadId}`)() * ids.length)] || '';
+  return { tips, question: obj.question || '', offer };
 }
+
+/** Kept for callers that only want the technical lines. */
+export const tipsFor = (lead, cfg) => partsFor(lead, cfg).tips;
 
 /**
  * Lay tips out in one of several shapes. A list of three under a one-line
@@ -70,12 +81,21 @@ export function layTips(tips, rnd) {
   }).join(' ').replace(/\.\s+([a-z])/g, (m, c) => `. ${c.toUpperCase()}`);
 }
 
-/** The public forum reply: one technical line, then point at the PM. */
+/**
+ * The public forum reply: one technical line, one question, then the PM.
+ *
+ * The question is the whole point of posting publicly. An answer to it lands on
+ * the thread where everyone can see the buyer talking to you, and it is easier
+ * to answer than to ignore. The offer stays in the PM, out of sight of the
+ * other freelancers reading the same thread.
+ */
 export function renderReply(lead, cfg) {
-  const seed = `r${lead.threadId}`;
-  const tips = tipsFor(lead, cfg);
-  return render({ ...lead, tip: tips[0] ? tips[0].replace(/\.?$/, '.') : '', specifics: tips[0] || '' },
-    cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0], seed);
+  const { tips, question } = partsFor(lead, cfg);
+  return render({ ...lead,
+    tip: tips[0] ? tips[0].replace(/\.?$/, '.') : '',
+    question, specifics: tips[0] || '' },
+    cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0],
+    `r${lead.threadId}`);
 }
 
 /**
@@ -88,10 +108,14 @@ export function renderDm(lead, cfg) {
   const seed = `d${lead.threadId}`;
   const rnd = seeded(seed);
   const t = cfg.dmTemplates || {};
-  const tips = tipsFor(lead, cfg).slice(0, 3);
-  return render({ ...lead, tips: layTips(tips, rnd), offer: spin(cfg.dmOffer || '', `o${lead.threadId}`) },
+  const { tips, offer } = partsFor(lead, cfg);
+  const offerText = spin(cfg.offers?.[offer] || '', `o${lead.threadId}`);
+  return render({ ...lead, tips: layTips(tips.slice(0, 3), rnd), offer: offerText },
     t[lead.category] || t.generic || Object.values(t)[0], seed);
 }
+
+/** Which of the five closes a lead uses, for the dashboard. */
+export const offerOf = (lead, cfg) => partsFor(lead, cfg).offer;
 
 /** Subject line for the DM. */
 export function renderDmTitle(lead, cfg) {
@@ -113,6 +137,7 @@ function render(lead, tpl, seed) {
     link: lead.url || '',
     tip: lead.tip || '',
     tips: lead.tips || '',
+    question: lead.question || '',
     offer: lead.offer || '',
     specifics: lead.specifics || ''
   };

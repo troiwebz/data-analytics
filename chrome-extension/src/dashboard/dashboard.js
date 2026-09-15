@@ -2,7 +2,7 @@
 // click again to reverse. Click a row to open the reply, the PM and the
 // actions for that lead.
 import { getConfig } from '../config.js';
-import { renderDm } from '../templates.js';
+import { renderDm, partsFor, offerOf } from '../templates.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -191,10 +191,15 @@ function detail(l, staged, cfg) {
   if (dm == null) { try { dm = renderDm(l, cfg); } catch { dm = ''; } }
   // Say plainly who wrote the technical lines, so the drafts can be trusted
   // or challenged without opening the log.
-  const byClaude = Array.isArray(l.aiSpecifics) && l.aiSpecifics.length;
+  let parts = { tips: [], offer: '' };
+  try { parts = partsFor(l, cfg); } catch { /* shown as built-in below */ }
+  const byClaude = !!(l.aiSpecifics?.tips?.length || l.aiSpecifics?.length);
+  const OFFER_LABEL = { pilot: 'small first order', ready: 'already built', formula: 'the method, given away',
+                        terms: 'pay after the first batch', scope: 'fixed price today' };
   const who = byClaude
-    ? `<div class="sub" style="margin-bottom:8px;color:#16a34a">Claude wrote the ${l.aiSpecifics.length} technical line(s) in this draft:
-        ${l.aiSpecifics.map((b) => `<span style="opacity:.85">"${esc(b)}"</span>`).join(' ')}</div>`
+    ? `<div class="sub" style="margin-bottom:8px;color:#16a34a">Claude wrote the ${parts.tips.length} technical line(s):
+        ${parts.tips.map((b) => `<span style="opacity:.85">"${esc(b)}"</span>`).join(' ')}
+        ${parts.offer ? `<br>Close chosen: <b>${esc(OFFER_LABEL[parts.offer] || parts.offer)}</b>` : ''}</div>`
     : `<div class="sub" style="margin-bottom:8px;color:#b45309">Built-in rules wrote this one, not Claude.
         Add a key in Settings, then press "Rebuild drafts" to have Claude redo it.</div>`;
   return `<tr class="detail"><td colspan="${COLS.length}">
