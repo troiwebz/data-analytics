@@ -30,6 +30,45 @@ const FEED_ALARM = 'poll-feed';
 const APPROVAL_ALARM = 'poll-approvals';
 const UPDATE_ALARM = 'check-update';
 
+// ---------------------------------------------------------------- sound
+
+/**
+ * A short sound when new threads land, so the machine can sit in the
+ * background. The worker cannot play audio itself - no Audio, no DOM - so an
+ * offscreen document does it. One is enough; it is created on the first alert
+ * and reused, and creating a second throws, which is why the race is caught.
+ */
+let offscreenReady = null;
+async function ensureOffscreen() {
+  if (!chrome.offscreen) throw new Error('This Chrome is too old for extension audio.');
+  if (await chrome.offscreen.hasDocument()) return;
+  if (!offscreenReady) {
+    offscreenReady = chrome.offscreen.createDocument({
+      url: 'src/offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Play a short sound when a new freelancer thread is found.'
+    }).catch((e) => { if (!/single offscreen/i.test(e.message)) throw e; })
+      .finally(() => { offscreenReady = null; });
+  }
+  await offscreenReady;
+}
+
+/** Never throws: a missing sound must not cost a lead. */
+export async function playSound(cfg, which) {
+  if (!cfg.soundEnabled) return { skipped: 'off' };
+  const sound = which || cfg.sound || 'chime';
+  if (sound === 'none') return { skipped: 'silent' };
+  try {
+    await ensureOffscreen();
+    const r = await chrome.runtime.sendMessage({ target: 'offscreen-audio', sound, volume: cfg.soundVolume });
+    if (r && r.ok === false) await log(`sound failed: ${r.error}`, 'error');
+    return r || { ok: true };
+  } catch (e) {
+    await log(`sound failed: ${e.message}`, 'error');
+    return { ok: false, error: e.message };
+  }
+}
+
 // ---------------------------------------------------------------- lifecycle
 
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -224,6 +263,11 @@ export async function pollFeed() {
   }
 
   const hot = leads.filter((l) => l.score >= cfg.stageScore).sort((a, b) => b.score - a.score);
+
+  // One sound per check, not one per thread: five at once is a single alert.
+  // A hot lead gets the louder one so it is distinguishable without looking.
+  await playSound(cfg, hot.length ? cfg.soundHot : cfg.sound);
+
   if (hot.length) {
     notify(hot.length === 1 ? `HAF lead · ${hot[0].score} pts` : `${hot.length} hot HAF leads`, hot[0].title);
     await stageLeads(hot, cfg);
@@ -607,6 +651,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         if (!lead) { sendResponse({ error: 'lead not found' }); break; }
         sendResponse(await telegram.sendLead(lead, cfg).then(() => ({ ok: true })).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'play-sound': {                           // the Play button in Settings
+        const cfg = await getConfig();
+        sendResponse(await playSound({ ...cfg, soundEnabled: true }, msg.sound));
         break;
       }
       case 'check-update':  sendResponse(await checkForUpdate()); break;

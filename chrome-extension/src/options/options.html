@@ -73,6 +73,33 @@
   </div>
 
   <div class="c">
+    <h2>Sound <span class="hint">so the machine can sit in the background</span></h2>
+    <label class="sw"><input type="checkbox" id="soundEnabled"> Play a sound when new threads are found</label>
+    <p class="hint" style="margin:0 0 10px">One sound per check, not one per thread. A check that finds five
+      threads makes one noise.</p>
+    <div class="row">
+      <div style="flex:1">
+        <label>New threads</label>
+        <select id="sound"></select>
+      </div>
+      <div style="flex:1">
+        <label>Hot lead <span class="hint">score 10+</span></label>
+        <select id="soundHot"></select>
+      </div>
+      <div style="flex:1">
+        <label>Volume <span class="hint" id="volLabel"></span></label>
+        <input type="range" id="soundVolume" min="0" max="1" step="0.05" style="width:100%">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="playSound" class="sec" style="flex:0 0 auto">Play the new-thread sound</button>
+      <button id="playHot" class="sec" style="flex:0 0 auto">Play the hot-lead sound</button>
+      <span style="flex:1"></span>
+    </div>
+    <div id="soundMsg" class="hint" style="margin-top:8px"></div>
+  </div>
+
+  <div class="c">
     <h2>Telegram <span class="hint">every new thread arrives on your phone automatically</span></h2>
     <label class="sw"><input type="checkbox" id="telegramEnabled"> Send new threads to Telegram</label>
     <p class="hint" style="margin:0 0 10px">Two messages per thread: the public reply, then the PM.
@@ -130,10 +157,11 @@
 
   <div class="c">
     <h2>Reply templates <span class="hint">{{var}} substitution, {a|b} spintax</span></h2>
+    <label>Public reply <span class="hint">vars: {{author}} {{tip}} {{question}}</span></label>
     <textarea id="templates" style="min-height:280px"></textarea>
-    <label>PM offer <span class="hint">the closing offer in every PM — {{offer}} in the templates below</span></label>
-    <textarea id="dmOffer" style="min-height:90px"></textarea>
-    <label>Private message templates <span class="hint">vars: {{author}} {{url}} {{reply}} {{offer}} {{threadTitle}} {{budgetLine}}</span></label>
+    <label>The five closes <span class="hint">Claude picks one per thread; {{offer}} in the PM templates below. Put the same text in all five to always use one.</span></label>
+    <textarea id="offers" style="min-height:160px"></textarea>
+    <label>Private message templates <span class="hint">vars: {{author}} {{url}} {{tips}} {{offer}} {{threadTitle}} — **text** becomes bold</span></label>
     <textarea id="dmTemplates" style="min-height:240px"></textarea>
   </div>
 

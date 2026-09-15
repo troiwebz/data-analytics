@@ -16,6 +16,12 @@ export const DEFAULT_CONFIG = {
                                // in Apps Script Script Properties); falls back to rules
 
 
+  // A sound when new threads land, so the machine can sit in the background.
+  soundEnabled: true,
+  sound: 'chime',              // new threads
+  soundHot: 'alert',           // at least one lead at or above stageScore
+  soundVolume: 0.5,
+
   // Telegram, straight from this extension. The bot token lives in the vault.
   telegramEnabled: true,       // send every new lead to Telegram automatically
   telegramChatId: '',          // from @userinfobot
@@ -450,7 +456,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 18;
+export const CONFIG_VERSION = 19;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -488,6 +494,11 @@ export async function migrateConfig() {
   }
   if (v < 8) {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+  }
+  if (v < 19) {
+    for (const k of ['soundEnabled', 'sound', 'soundHot', 'soundVolume']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
   }

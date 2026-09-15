@@ -9,12 +9,17 @@ globalThis.chrome = {
     onMessage:   { addListener: (f) => { globalThis.__msg = f; } },
     getManifest: () => ({ version: '0.21.0' }),
     getURL: (p) => 'chrome-extension://x/' + p,
-    reload: () => {}
+    reload: () => {},
+    sendMessage: async (m) => {
+      if (m?.target === 'offscreen-audio') { globalThis.__sounds.push(m); return { ok: true }; }
+      return {};
+    }
   },
   action: { onClicked: { addListener: () => {} } },
   tabs: { onRemoved: { addListener: () => {} }, query: async () => [], create: async () => ({ id: 1 }) },
   alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
   notifications: { create: () => {} },
+  offscreen: { hasDocument: async () => false, createDocument: async () => {} },
   scripting: { executeScript: async () => [{ result: { ok: true } }] },
   storage: { local: {
     get: async (k) => {
@@ -47,6 +52,7 @@ const LISTING = `<html>${Array.from({ length: 3 }, (_, i) => `
 
 let aiCalls = 0;
 let tg = [];
+globalThis.__sounds = [];
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes('api.anthropic.com/v1/models')) return { ok: true, status: 200, json: async () => ({ data: [] }) };
@@ -110,6 +116,8 @@ const st = await C.aiStatus();
 ok('spend recorded', st.spentToday > 0 && st.leadsToday === 3, JSON.stringify(st));
 
 // Telegram fires by itself on a new thread, with no Apps Script involved.
+ok('a sound played for the check', globalThis.__sounds.length === 1, JSON.stringify(globalThis.__sounds));
+ok('one sound for three threads, not three', globalThis.__sounds.filter((s) => s.target === 'offscreen-audio').length === 1);
 ok('Telegram got two messages per new thread', tg.length === 6, String(tg.length));
 ok('the public reply went to Telegram', tg.some((m) => /We have built citations manually/.test(m.text) && /Public reply/.test(m.text)));
 ok('Telegram gets the words, not the bold markers', !tg.some((m) => m.text.includes('**')));

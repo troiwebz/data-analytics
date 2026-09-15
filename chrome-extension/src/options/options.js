@@ -2,11 +2,11 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES } from '../claude.js';
 
-const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer', 'telegramChatId'];
+const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
-            'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
-const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled'];
-const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'dmTemplates', 'compliance', 'specifics'];
+            'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume'];
+const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled'];
+const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'offers', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 
 function fill(cfg) {
@@ -235,4 +235,33 @@ $('testTg').addEventListener('click', async () => {
   $('testTg').disabled = false; $('testTg').textContent = 'Send a test message';
 });
 
-getConfig().then(fill).then(refreshAi).then(refreshTg);
+// ---- Sound -------------------------------------------------------------
+const SOUNDS = {
+  chime: 'Chime - two rising notes',
+  ping:  'Ping - one short note',
+  knock: 'Knock - two low taps',
+  alert: 'Alert - three rising notes',
+  none:  'Silent'
+};
+for (const id of ['sound', 'soundHot']) {
+  for (const [v, label] of Object.entries(SOUNDS)) {
+    $(id).insertAdjacentHTML('beforeend', `<option value="${v}">${label}</option>`);
+  }
+}
+
+const showVol = () => { $('volLabel').textContent = Math.round($('soundVolume').value * 100) + '%'; };
+$('soundVolume').addEventListener('input', showVol);
+
+async function preview(which) {
+  $('soundMsg').textContent = '';
+  const sound = $(which).value;
+  if (sound === 'none') { $('soundMsg').textContent = 'That one is set to silent.'; return; }
+  // Preview what is on screen, not what was last saved.
+  const r = await chrome.runtime.sendMessage({ cmd: 'play-sound', sound });
+  if (r?.error) { $('soundMsg').style.color = '#dc2626'; $('soundMsg').textContent = r.error; }
+  else { $('soundMsg').style.color = '#64748b'; $('soundMsg').textContent = 'Played. Press Save at the bottom to keep these settings.'; }
+}
+$('playSound').addEventListener('click', () => preview('sound'));
+$('playHot').addEventListener('click', () => preview('soundHot'));
+
+getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg);
