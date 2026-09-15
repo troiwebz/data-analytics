@@ -689,3 +689,35 @@ console.log("openings: ok");
   assert.deepStrictEqual(H.FIT_MODES.map((m) => m.key), ["strict", "loose", "off"]);
 }
 console.log("how strict the veto is: ok");
+
+// The offer you pick has to reach the DM. Every shape used to produce the same
+// sentence - "split both the expenses and the profit" - whatever was chosen.
+{
+  const p = { id: "of", sub: "microsaas", author: "Jeet", title: "Left my job to build an AI research agent", body: "no paying user yet" };
+  const slots = { fit: "yes", product: "AI research agent", observation: "No paying user yet is a marketing problem", points: ["one thing here", "two thing here"], move: "pick ten teams", question: "who buys?", phrase: "" };
+  const custom = { id: "va1", name: "VA team", dm: "my VA team runs your back office and we split what it earns", terms: "50/50 on the income", question: "" };
+  const deals = [{ mode: "split" }, { mode: "upfront_share" }, { mode: "share" }, { mode: "upfront" }, { mode: "custom:va1", custom: [custom] }];
+  const second = [];
+  for (const deal of deals) {
+    const out = H.huntSlotAssemble(p, { name: "Noah", deal }, slots, {});
+    assert.deepStrictEqual(out.checks, [], deal.mode + " failed its own checks: " + out.checks.join("; "));
+    assert.ok(out.dm_short && out.dm_long && out.dm_short !== out.dm_long, deal.mode + ": both lengths, and different");
+    const para = out.dm_long.split("\n").filter(Boolean)[2];
+    second.push(para);
+    const sh = H.dealShape(deal);
+    // no shape may promise a split it was not asked for
+    if (deal.mode !== "split" && !deal.mode.startsWith("custom")) {
+      assert.ok(!/split both the expenses and the profit|shared expenses, shared profit/i.test(para), deal.mode + " promises a 50/50 split: " + para);
+    }
+    if (deal.mode === "upfront") {
+      assert.ok(/paid work|paid in fixed blocks/i.test(para), "paid-only work is not sold as a co-founder seat: " + para);
+      assert.ok(!/co-found/i.test(para.split(".")[0]), "the stance for paid work does not say co-founder: " + para);
+    }
+    assert.ok(para.toLowerCase().includes(String(sh.tail || "").toLowerCase().split(" ")[0].toLowerCase()), deal.mode + ": the offer is in the DM");
+  }
+  assert.strictEqual(new Set(second).size, deals.length, "every offer reads differently");
+  // the checker catches a broken pair
+  const bad = H.dmChecks("Hi\n\nsee https://x.com", "", {});
+  assert.ok(bad.some((x) => /link/.test(x)) && bad.some((x) => /empty/.test(x)), "the checks catch a link and an empty DM: " + bad.join("; "));
+}
+console.log("the offer drives the DM: ok");

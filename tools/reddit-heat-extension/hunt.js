@@ -197,6 +197,10 @@ function aiStatus(p) {
     el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `Claude into your blueprint · ${p.ai.style} shape${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + usd(p.ai.cents) : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
     el.style.color = p.ai.generic ? "#e6c76b" : "#7ee29a";
     if (p.ai.generic) el.textContent += " · none of their words quoted — read it before sending";
+    // both lengths are checked when they are written; say so, and say what failed
+    const ck = Array.isArray(p.ai.checks) ? p.ai.checks : null;
+    if (ck && ck.length) { el.textContent += " · CHECK: " + ck.join("; "); el.style.color = "#ff8a65"; }
+    else if (ck) el.textContent += " · short and long both checked";
     return;
   }
   if (aiBusy === p.id) { const s = Math.round((Date.now() - aiStart) / 1000); el.textContent = (eng === "chrome" ? `Chrome is writing for this post… ${s}s (on-device is slow, usually 1–2 min)` : `Claude is writing for this post… ${s}s`); el.style.color = "#e6c76b"; return; }
@@ -229,9 +233,14 @@ async function aiWrite(force) {
   }
   aiBusy = "";
   if (r && r.cancelled) {
-    // Claude judged this person not a fit: drop the card, say why, move on
+    // Claude judged this person not a fit. The card moves on, so say so where
+    // it cannot be missed: pressing the button and watching the post change is
+    // indistinguishable from nothing happening.
     queue = queue.filter((q) => q.id !== id);
-    if (cur && cur.id === id) { cur = queue[0] || null; variant = 0; render(); $("sPoll").textContent = `AI cancelled ${post.author}: ${r.reason}`; }
+    dropped = { id, author: post.author, title: post.title, reason: r.reason };
+    $("drop").hidden = false;
+    $("dropWhy").textContent = ` u/${post.author || "?"} — “${r.reason}”. The post is in Set aside, with that reason.`;
+    if (cur && cur.id === id) { cur = queue[0] || null; variant = 0; render(); }
     refresh(); aiWriteAhead();
     return;
   }
@@ -1056,6 +1065,26 @@ $("planGo").onclick = async () => {
   $("planMsg").style.color = "#7ee29a";
   await refresh(false);
   showTable("schedule");
+};
+let dropped = null;
+$("dropHide").onclick = () => { $("drop").hidden = true; dropped = null; };
+$("dropBack").onclick = async () => {
+  if (!dropped) return;
+  $("dropBack").disabled = true;
+  await send({ type: "hunt-act", id: dropped.id, action: "undo" });
+  const back = dropped.id;
+  $("drop").hidden = true; dropped = null; $("dropBack").disabled = false;
+  await refresh(false);
+  const p = queue.find((q) => q.id === back);
+  if (p) { cur = p; variant = 0; render(); aiWrite(true); }
+};
+$("dropLoose").onclick = async () => {
+  profile.fitStrict = "loose";
+  $("cFit").value = "loose";
+  await saveSetup(true);
+  $("dropWhy").textContent = " Changed: from now on only job ads, people offering themselves and students are dropped.";
+  $("dropBack").hidden = false;
+  $("dropLoose").hidden = true;
 };
 $("sSkippedBtn").onclick = () => showTable("skipped");
 async function doReset(mode) {

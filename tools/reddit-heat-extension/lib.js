@@ -1192,7 +1192,8 @@ HEAT.dealShape = function (deal) {
       shape: nums ? `we share the income and the expenses with you — ${sh} of income to our team, expenses split ${ex} — agreed in writing before anything is spent` : `we share the income and the expenses with you${equal ? ", equally" : ""}, agreed in writing before anything is spent`,
       shapeShort: nums ? `share income and expenses with you (${sh} of income, expenses ${ex})` : `share the income and expenses with you${equal ? " equally" : ""}`,
       clause: nums ? `share the income and the expenses with you, ${sh} of income to us and expenses split ${ex}` : `share the income and the expenses with you${equal ? ", equally" : ""}`,
-      tail: nums ? `${sh} of income to us, expenses split ${ex}, all agreed in writing before anything is spent.` : `Everything split${equal ? " equally" : ""}, agreed in writing before anything is spent.`,
+      // name what is split: "everything split equally" left the reader guessing
+      tail: nums ? `${sh} of income to us, expenses split ${ex}, all agreed in writing before anything is spent.` : `The income and the expenses are both split${equal ? " equally" : ""}, agreed in writing before anything is spent.`,
       question: `is a co-founder on a split of income and expenses, rather than equity, a shape you're open to?`,
       terms: `No upfront. ${sh} of income to our team for as long as we run it; expenses split ${ex} (us/you), agreed in writing before anything is spent. You keep the company and the IP.`,
       qualify: `can you carry your side of the expenses to start, yes or no? And are you open to a co-founder on a split of income and expenses rather than equity?`,
@@ -2031,15 +2032,19 @@ const S_OPEN = [
   (m) => (m.named ? `Your post about ${m.the} is why I'm writing.` : `"${m.title}" is why I'm writing.`),
 ];
 // yes to co-founder, a team comes with me, expenses and profit both shared
+// The stance: who we are and that a team comes with us. It says NOTHING about
+// money - the sentence after it (m.offer) carries the offer you chose, and
+// these used to contradict it, promising a 50/50 split whatever was selected.
+// Paid-only work is not a co-founder seat, so that shape gets its own wording.
 const S_STAND = [
-  () => `I can co-found this with you: my team joins the work, and the expenses and the profit are both split.`,
-  () => `I can be your co-founder here. My team works alongside you, and we share the expenses and the profit.`,
-  () => `Happy to co-found this with you: shared team, shared expenses, shared profit.`,
-  () => `I'd come in as your co-founder with my own team, sharing what it costs to run and what it earns.`,
-  () => `Yes to the co-founder seat, on a shared footing: my team, shared costs, shared profit.`,
-  () => `I'm offering to co-found this, bring my team, and split both the expenses and the profit with you.`,
-  () => `Co-founder works for me: a team comes along, and we carry the costs together and split the profit.`,
-  () => `I can take the co-founder seat with my team behind me, expenses shared and profit shared.`,
+  (m) => (m.paid ? `My team can do this as paid work, with no equity and no claim on the company.` : `I can co-found this with you, and my team comes with me.`),
+  (m) => (m.paid ? `My team can take this on as paid work rather than as a partnership.` : `I can be your co-founder here, with my own team behind me.`),
+  (m) => (m.paid ? `We can do this as straight paid work, my team on it, nothing else asked for.` : `Happy to co-found this with you, and to bring my team into it.`),
+  (m) => (m.paid ? `My team is available for this as paid work, no equity involved.` : `I'd come in as your co-founder, with my own team doing the work.`),
+  (m) => (m.paid ? `Paid work suits us here: my team does it and you owe nothing beyond that.` : `Yes to the co-founder seat, and my team comes with it.`),
+  (m) => (m.paid ? `I'd put my team on this as paid work, not as a partner.` : `I'm offering to co-found this and to bring my team with me.`),
+  (m) => (m.paid ? `My team can run this for you as paid work.` : `Co-founder works for me, and a team comes along.`),
+  (m) => (m.paid ? `We would take this on as paid work, with my team doing it.` : `I can take the co-founder seat, with my team behind me.`),
 ];
 // the plan and the portfolio, offered together, as the last sentence
 const S_PROOF = [
@@ -2087,7 +2092,8 @@ const STYLES = [
   ] },
   { key: "brief", build: (m, pick) => [
     [pick(S_OPEN)(m), m.observation].filter(Boolean).join(" "), "",
-    [pick(S_STAND)(m), "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    // the offer belongs here too: the stance no longer carries the money
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
 ];
 function lower(s) { return /^I\b|^I'/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
@@ -2172,6 +2178,7 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
       const m = {
         ...base,
+        paid: sh.mode === "upfront",       // paid blocks, no share: not a co-founder seat
         where: HEAT.huntLocationLine(p, profile),
         long: !!opts.long,
         pts: !!(base.p1 && base.p2),
@@ -2215,12 +2222,40 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
 };
 
 // The whole answer for one post, built from the slots: public reply + both DMs.
+// Both lengths are built, so both are checked: neither is ever shown or sent
+// without going through this. It returns the problems, so an empty list is a
+// pass. The offer test is the one that matters most - the DM has to say the
+// arrangement you picked in the dropdown, in both lengths.
+HEAT.dmChecks = function (short, long, profile = {}) {
+  const bad = [];
+  const sh = HEAT.dealShape(profile.deal || {});
+  const pair = [["the short DM", String(short || "")], ["the long DM", String(long || "")]];
+  for (const [what, t] of pair) {
+    if (!t.trim()) { bad.push(`${what} came out empty`); continue; }
+    if (t.length < 200) bad.push(`${what} is only ${t.length} characters`);
+    if (!/^Hi /.test(t)) bad.push(`${what} does not open with a greeting`);
+    if (t.split(/\n\s*\n/).filter(Boolean).length < 2) bad.push(`${what} is not two paragraphs`);
+    if (!profile.dmLinks && /https?:\/\//.test(t)) bad.push(`${what} has a link in it`);
+    if (!(profile.deal || {}).numbersInDm && /[$€£]\s?\d|\d+\s?%/.test(t)) bad.push(`${what} has a price or a percentage in it`);
+    if (/[—–]/.test(t)) bad.push(`${what} has a long dash in it`);
+    if (/what you're building/i.test(t)) bad.push(`${what} still has the placeholder in it`);
+    // the chosen offer has to be in there: match on the distinctive words of its tail
+    const words = String(sh.tail || sh.clause || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3);
+    const key = words.slice(0, 6);
+    if (key.length && !key.some((w) => t.toLowerCase().includes(w))) bad.push(`${what} does not mention the offer you chose (${sh.label})`);
+  }
+  if (short && long && short === long) bad.push("the short and the long DM came out identical");
+  return bad;
+};
+
 HEAT.huntSlotAssemble = function (p, profile = {}, slots = {}, opts = {}) {
   const built = HEAT.huntSlotBuild(p, profile, slots, opts);
   const v = HEAT.huntVars(p, profile);
   const line = HEAT.huntPublicLine(p, profile, { avoid: opts.avoidLines || [] });
   const long = HEAT.huntSlotBuild(p, profile, slots, { ...opts, long: true }).text;
+  const checks = HEAT.dmChecks(built.text, long, profile);
   return {
+    checks,
     concept: { product: String(slots.product || ""), customer: "", problem: "", stage_now: "", missing: "", type: "other", phrases: [], biggest_unknown: String(slots.question || "") },
     public_reply: line,
     dm_short: built.text,
