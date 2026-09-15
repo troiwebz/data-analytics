@@ -29,6 +29,7 @@ global.chrome = {
       // The dashboard asks the worker for Claude status on every render; the
       // worker answers out of the same storage. This is where the loop lived.
       if (msg?.cmd === 'ai-status') { const C = await import('../src/claude.js'); return C.aiStatus(); }
+      if (msg?.cmd === 'next-check') return global.__nextCheck;
       if (msg?.cmd === 'fill-thread' || msg?.cmd === 'send-dm') {
         global.__sent.push(msg);
         return fillFails ? { ok: false, error: 'no reply box on that page' } : { ok: true, tabId: 7 };
@@ -70,6 +71,8 @@ global.chrome = {
 
 global.__writes = 0;
 global.__sent = [];
+global.__nextCheck = { enabled: true, at: Date.now() + 125000, lastAt: Date.now() - 55000,
+                       everyMinutes: 3, jitterSeconds: 40 };
 let fillFails = false;
 let consoleErr = null;
 window.addEventListener('error', (e) => { consoleErr = e.error || e.message; });
@@ -244,12 +247,37 @@ ok('and does not mark the thread posted', !global.__sent.some((m) => m.cmd === '
 chrome.storage.__bags.sync.aiSettings = { key: 'sk-ant-api03-FROMVERSION022X', model: 'claude-sonnet-5', budget: 0.5, enabled: true };
 global.__writes = 0;
 global.__sent = [];
+global.__nextCheck = { enabled: true, at: Date.now() + 125000, lastAt: Date.now() - 55000,
+                       everyMinutes: 3, jitterSeconds: 40 };
 click($('rows').querySelector('tr[data-row="9002"] .t')); await new Promise((r) => setTimeout(r, 700));
 ok('no runaway writes after a click', global.__writes < 12, `${global.__writes} writes in 700ms`);
 ok('the page still responds to a click', !!$('rows').querySelector('tr.detail'));
 const settled = global.__writes;
 await new Promise((r) => setTimeout(r, 500));
 ok('and settles instead of spinning', global.__writes === settled, `${global.__writes - settled} more writes while idle`);
+
+// The countdown to the next check, read off the alarm rather than guessed.
+const cdEl = $('countdown');
+await new Promise((r) => setTimeout(r, 1100));
+ok('the countdown is showing', !cdEl.hidden, cdEl.outerHTML.slice(0, 80));
+ok('it counts down in minutes and seconds', /Next check in/.test(cdEl.textContent) && /\d:\d\d/.test(cdEl.textContent), cdEl.textContent);
+ok('it says how often and when it last ran', /Every 3 min/.test(cdEl.title) && /Last check/.test(cdEl.title), cdEl.title);
+ok('it does not warn while there is time', !cdEl.className.includes('soon'), cdEl.className);
+
+// The page caches the schedule; focus makes it re-read, as it does in Chrome.
+const resync = async () => { window.dispatchEvent(new window.Event('focus')); await new Promise((r) => setTimeout(r, 1100)); };
+global.__nextCheck = { ...global.__nextCheck, at: Date.now() + 9000 };
+await resync();
+ok('it warns when the check is close', cdEl.className.includes('soon'), cdEl.className);
+
+global.__nextCheck = { ...global.__nextCheck, at: Date.now() - 2000 };
+await resync();
+ok('past zero it says it is running, not a negative number',
+   /Checking the forum now/.test(cdEl.textContent) && !/-/.test(cdEl.textContent), cdEl.textContent);
+
+global.__nextCheck = { enabled: false, at: 0, lastAt: 0, everyMinutes: 3, jitterSeconds: 0 };
+await resync();
+ok('switched off, it says so instead of counting', /Not watching/.test(cdEl.textContent), cdEl.textContent);
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

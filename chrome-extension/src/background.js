@@ -308,6 +308,7 @@ export function enrich(m, cfg, status, aiSpecifics) {
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
+  await chrome.storage.local.set({ lastPollAt: Date.now() });
 
   const items = await fetchFeed(cfg.feedUrl);
   const seen = await getSeen();
@@ -854,6 +855,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'sync-pms':      sendResponse(await syncSentPms({ pages: msg.pages || 3 }).catch((e) => ({ error: e.message }))); break;
+      case 'next-check': {
+        // chrome.alarms holds the real schedule, so ask it rather than adding
+        // an interval to a remembered time and drifting away from the truth.
+        const cfg = await getConfig();
+        const alarm = await chrome.alarms.get(FEED_ALARM).catch(() => null);
+        const { lastPollAt } = await chrome.storage.local.get('lastPollAt');
+        sendResponse({
+          enabled: !!cfg.enabled,
+          at: alarm?.scheduledTime || 0,
+          lastAt: lastPollAt || 0,
+          everyMinutes: cfg.pollMinutes,
+          jitterSeconds: cfg.jitterSeconds || 0
+        });
+        break;
+      }
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }

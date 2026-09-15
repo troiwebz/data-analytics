@@ -115,7 +115,7 @@ async function renderInner() {
   tz = cfg;                                  // every when() below uses this zone
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
-  $('state').textContent = cfg.enabled ? `Watching the forum · checking every ${cfg.pollMinutes} min` : 'Not watching · turn it on in Settings';
+  $('state').textContent = cfg.enabled ? `Watching the forum` : 'Not watching · turn it on in Settings';
   // Two separate caps, so show two. A reply posted and a PM sent are different
   // things, and counting them together is what made the number look wrong.
   $('rate').innerHTML =
@@ -453,7 +453,9 @@ async function rowAction(btn) {
 const busy = async (id, label, fn) => {
   const b = $(id), old = b.textContent;
   b.textContent = label; b.disabled = true;
-  try { return await fn(); } finally { b.textContent = old; b.disabled = false; render(); }
+  // A manual check resets the alarm, so re-read the schedule rather than
+  // letting the countdown run on toward a time that has moved.
+  try { return await fn(); } finally { b.textContent = old; b.disabled = false; render(); refreshCountdown(); }
 };
 
 $('poll').addEventListener('click', () => busy('poll', 'Checking…', async () => {
@@ -522,6 +524,56 @@ $('hidedone').addEventListener('input', render);
 //   - renders are coalesced, and one never starts while another is running
 const WATCHED = ['recentLeads', 'config', 'rateState', 'staged', 'log'];
 let pending = null;
+// ---- the countdown to the next check ------------------------------------
+//
+// Ticks every second off chrome.alarms' own schedule, so it cannot drift from
+// when the check will actually run. The alarm is the truth; this only reads it.
+
+const cd = $('countdown');
+let nextCheck = null;
+
+const mmss = (ms) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+function paintCountdown() {
+  if (!nextCheck) { cd.hidden = true; return; }
+  if (!nextCheck.enabled) {
+    cd.hidden = false; cd.className = 'cd';
+    cd.innerHTML = 'Not watching';
+    return;
+  }
+  const left = nextCheck.at - Date.now();
+  cd.hidden = false;
+  // A check can take a few seconds, and the poll adds up to jitterSeconds on
+  // top, so past zero say it is running rather than counting into the negative.
+  if (left <= 0) {
+    cd.className = 'cd now';
+    cd.innerHTML = '<span class="pulse"></span>Checking the forum now…';
+    return;
+  }
+  cd.className = 'cd' + (left < 30000 ? ' soon' : '');
+  cd.innerHTML = `<span class="pulse"></span>Next check in <b>${mmss(left)}</b>`;
+  cd.title = `Every ${nextCheck.everyMinutes} min` +
+    (nextCheck.jitterSeconds ? `, plus up to ${nextCheck.jitterSeconds}s of jitter so it is not clockwork` : '') +
+    (nextCheck.lastAt ? `\nLast check: ${when(new Date(nextCheck.lastAt).toISOString())}` : '');
+}
+
+async function refreshCountdown() {
+  nextCheck = await chrome.runtime.sendMessage({ cmd: 'next-check' }).catch(() => null);
+  paintCountdown();
+}
+
+setInterval(paintCountdown, 1000);        // the display
+setInterval(refreshCountdown, 15000);     // re-read the real schedule
+// A backgrounded tab is throttled, so the cached schedule is stale the moment
+// it comes back. Re-read on focus rather than showing a number that is wrong
+// for up to fifteen seconds.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshCountdown(); });
+window.addEventListener('focus', refreshCountdown);
+refreshCountdown();
+
 // Any choice from the menu closes it, and so does a click anywhere else.
 $('menu').addEventListener('click', (e) => {
   if (e.target.closest('.panel button')) $('menu').open = false;

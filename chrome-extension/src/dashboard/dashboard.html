@@ -44,6 +44,15 @@
   th .ar{opacity:.35;font-size:10px}
   th.on{color:var(--blue)} th.on .ar{opacity:1}
   td{border-bottom:1px solid #f1f5f9;padding:9px 10px;vertical-align:top}
+  .cd{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:99px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);font-size:12.5px;white-space:nowrap}
+  .cd b{font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .cd .pulse{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);
+    animation:pulse 2s infinite}
+  .cd.soon .pulse{background:#f59e0b;box-shadow:0 0 0 0 rgba(245,158,11,.6);animation-duration:1s}
+  .cd.now{border-color:rgba(34,197,94,.45)}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+  @media (prefers-reduced-motion: reduce){ .cd .pulse{animation:none} }
   .meter{display:inline-flex;flex-direction:column;gap:6px;min-width:132px;padding:7px 11px 8px;
     border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.05)}
   .mtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
@@ -101,6 +110,7 @@
 <header>
   <h1>HAF Watcher <small id="ver"></small></h1>
   <span><span class="dot" id="dot"></span><span id="state">…</span></span>
+  <span id="countdown" class="cd" hidden></span>
   <span id="rate" style="display:inline-flex;align-items:center;gap:10px"></span>
   <span class="sp"></span>
   <button id="poll" class="pri" title="Read the forum right now instead of waiting for the next automatic check">Check for new threads</button>
