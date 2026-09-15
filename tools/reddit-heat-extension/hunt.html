@@ -429,9 +429,23 @@
 
       <section class="card">
         <p class="step"><b>Step 1</b> · public reply — one line, then "Check your DM." <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
-        <div id="genRow" class="row" style="margin:0 0 8px" hidden>
-          <button id="genAi" class="primary">Write this one with Claude</button>
+        <div id="genRow" class="row" style="margin:0 0 8px;flex-wrap:wrap" hidden>
+          <button id="genAi" class="primary">Write the DM</button>
+          <button id="genGuide" class="ghost">Write a detailed public reply</button>
           <span class="foot" id="genNote" style="margin:0"></span>
+        </div>
+        <div class="row" style="margin:0 0 8px;flex-wrap:wrap">
+          <span class="foot" id="costNote" style="margin:0"></span>
+        </div>
+        <div id="guideRow" hidden style="margin:0 0 10px">
+          <div class="row" style="margin:0 0 4px"><b style="color:#7ee29a">Detailed public reply</b><span class="foot" id="guideNote" style="margin:0"></span>
+            <button id="guideRedo" class="ghost" style="margin-left:auto">rewrite</button>
+            <button id="guideDrop" class="ghost">use the one-liner instead</button></div>
+          <textarea id="guideText" style="height:180px"></textarea>
+          <div class="row" style="margin:6px 0 0">
+            <button id="guideOpen" class="primary">Open the post, this reply filled in ↗</button>
+            <button id="guideCopy" class="ghost">Copy only</button>
+          </div>
         </div>
         <div id="pasteTools" class="row" style="margin:0 0 8px" hidden>
           <button id="copyBrief" class="ghost">1 · Copy the brief</button>

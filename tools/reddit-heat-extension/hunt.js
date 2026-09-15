@@ -78,6 +78,7 @@ $("deadReload").onclick = () => {
   setTimeout(() => location.reload(), 1200);
 };
 
+let daySpend = { cents: 0, budget: 100 };   // what today has cost, for the line under the buttons
 let openRow = "";         // the row showing its synopsis
 let picked = new Set();   // rows ticked in the table
 let queue = [];        // what is in front of you: filtered and sorted
@@ -144,8 +145,16 @@ function render() {
   $("dmMark").hidden = !p.dmAt;
   const eng2 = engine();
   const paid = eng2 === "slots" || eng2 === "claude";
-  $("genRow").hidden = !(paid && !p.ai);
-  $("genNote").textContent = paid && !p.ai ? (profile.apiKey ? "about $0.005 · the template below is free" : "paste your API key under AI writing first") : "";
+  $("genRow").hidden = !paid;
+  $("genAi").hidden = !!p.ai;
+  $("genAi").textContent = "Write the DM";
+  $("genGuide").hidden = !!p.guide;
+  $("genGuide").textContent = "Write a detailed public reply";
+  $("genNote").textContent = paid
+    ? (profile.apiKey ? (p.ai ? "" : "the DM costs about $0.005 · a detailed public reply about $0.004 · the template below is free") : "paste your API key under AI writing first")
+    : "";
+  guideShow(p);
+  costShow(p);
   if (profile.autoWrite && paid) aiWrite(false);            // only if you asked for that
   else if (eng2 === "chrome" && profile.autoWrite) aiWrite(false);
 }
@@ -384,7 +393,7 @@ async function refresh(keepCurrent = true) {
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
   if (days >= 7 && (r.contactedTotal || 0) > 0) { $("backupWarn").hidden = false; $("backupWarn").textContent = r.lastBackupAt ? `No backup for ${days} days` : "Never backed up"; }
   else $("backupWarn").hidden = true;
-  if (r.spend) { $("sSpend").textContent = `${usd(r.spend.cents)} / ${usd(r.spend.budget)}`; $("sSpendWrap").style.color = r.spend.cents >= r.spend.budget ? "#ff8a65" : ""; }
+  if (r.spend) { daySpend = r.spend; if (cur) costShow(cur); $("sSpend").textContent = `${usd(r.spend.cents)} / ${usd(r.spend.budget)}`; $("sSpendWrap").style.color = r.spend.cents >= r.spend.budget ? "#ff8a65" : ""; }
   if (r.lastReport && !r.lastError) $("scan").textContent = "Last check: " + r.lastReport; else if (!r.lastReport) $("scan").textContent = "";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
   $("hint").hidden = !r.lastError;
@@ -478,6 +487,57 @@ async function copyText(text, btn) {
   const was = btn.textContent;
   btn.textContent = "Copied ✓";
   setTimeout(() => { btn.textContent = was; }, 1200);
+}
+
+// What this one post has cost, next to what the whole day has cost: the two
+// numbers that decide whether a habit is worth keeping.
+function costShow(p) {
+  const mine = (p.ai && p.ai.cents ? p.ai.cents : 0) + (p.guide && p.guide.cents ? p.guide.cents : 0);
+  const parts = [];
+  if (p.ai && p.ai.cents) parts.push(`the DM ${usd(p.ai.cents)}`);
+  if (p.guide && p.guide.cents) parts.push(`the public reply ${usd(p.guide.cents)}`);
+  $("costNote").textContent = mine
+    ? `This post has cost ${usd(mine)} (${parts.join(" · ")}) · today ${usd(daySpend.cents)} of ${usd(daySpend.budget)}`
+    : (daySpend.cents ? `Nothing spent on this post yet · today ${usd(daySpend.cents)} of ${usd(daySpend.budget)}` : "");
+  $("costNote").style.color = daySpend.cents >= daySpend.budget ? "#ff8a65" : "#98a0b3";
+}
+// The detailed public comment: shown only when one exists for this post.
+function guideShow(p) {
+  const g = p && p.guide;
+  $("guideRow").hidden = !g;
+  if (!g) return;
+  $("guideText").value = g.text;
+  const bad = Array.isArray(g.checks) && g.checks.length;
+  $("guideNote").textContent = bad ? " CHECK: " + g.checks.join("; ") : ` written by Claude · ${usd(g.cents || 0)} · checked`;
+  $("guideNote").style.color = bad ? "#ff8a65" : "#98a0b3";
+}
+$("genGuide").onclick = () => guideWrite(false);
+$("guideRedo").onclick = () => guideWrite(true);
+$("guideDrop").onclick = () => { if (cur) { delete cur.guide; render(); } };
+$("guideCopy").onclick = () => copyText($("guideText").value, $("guideCopy"));
+$("guideOpen").onclick = async () => {
+  if (!cur) return;
+  const text = $("guideText").value;
+  await copyText(text);
+  await chrome.storage.local.set({ pendingReply: { id: cur.id, permalink: cur.permalink, text, variant: 0, at: Date.now() } });
+  window.open("https://www.reddit.com" + cur.permalink.replace(/^https?:\/\/[^/]+/, ""), "_blank");
+};
+async function guideWrite(force) {
+  if (!cur) return;
+  const id = cur.id;
+  $("genGuide").disabled = true; $("genGuide").textContent = "writing…";
+  $("guideRedo").disabled = true;
+  const r = await send({ type: "hunt-guide", id, force: !!force });
+  $("genGuide").disabled = false; $("guideRedo").disabled = false;
+  $("genGuide").textContent = "Write a detailed public reply";
+  if (!r || !r.ok) {
+    $("genNote").textContent = "the public reply failed: " + ((r && r.error) || "no answer");
+    $("genNote").style.color = "#ff8a65";
+    return;
+  }
+  for (const q of queue) if (q.id === id) q.guide = r.guide;
+  if (cur && cur.id === id) { cur.guide = r.guide; render(); }
+  refresh(false);
 }
 
 // One click: the text is on the clipboard and the page is open. Paste and go.

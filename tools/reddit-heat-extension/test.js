@@ -232,7 +232,12 @@ assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a
 assert.ok(dm.startsWith("Hi Jane,"), dm);
 assert.ok(!/—|–/.test(dm), "no long dashes anywhere: " + dm);
 assert.ok(!/^—/m.test(dm) && !/\n— \w+$/.test(dm.trim()), "no sign-off: " + dm);
-assert.strictEqual(dm.split("\n\n").length, 3, "a greeting and exactly two paragraphs: " + dm);
+// the long DM is numbered points with the offer on a line of its own; the
+// short one is still the two-paragraph note
+// the template has no market points or steps to number, but the offer still
+// gets its own line; the numbered shape is checked on a written one below
+assert.ok(/^The offer: /m.test(dm), "the offer sits on a line of its own: " + dm);
+assert.strictEqual(H.huntDM(hp, { name: "Troi" }, "short").split("\n\n").length, 3, "the short DM is a greeting and two paragraphs");
 assert.ok(/portfolio/i.test(dm), "the portfolio is offered: " + dm);
 assert.ok(!/\?\s*$/.test(dm.trim()), "no question at the end: " + dm);
 assert.ok(/co-founder/i.test(dm), "we answer as the co-founder: " + dm);
@@ -280,11 +285,13 @@ assert.strictEqual(H.huntName(""), "there");
 
 // three lengths of the same letter, same offer and close in each
 const sizes = ["short", "long", "long"].map((s) => H.huntDM(hp, { name: "Noah", whatsapp: "+919000000000" }, s));
-// without a model-written step for this post there is nothing extra to add,
-// so the template's short and long are the same three paragraphs on purpose
-assert.strictEqual(sizes[0].length, sizes[2].length, "template sizes match when there is no post-specific step");
+// the two lengths are shaped differently now: short is the two-paragraph note,
+// long puts the offer on a line of its own even when there is nothing to number
+assert.ok(!/^The offer: /m.test(sizes[0]), "the short DM has no offer heading: " + sizes[0]);
+assert.ok(/^The offer: /m.test(sizes[2]), "the long DM does: " + sizes[2]);
+assert.strictEqual(sizes[1].length, sizes[2].length, "the same size asked for twice is the same text");
 {
-  // short and long are both two paragraphs; long adds the two market points
+  // short is two paragraphs; long is the numbered version with the market points
   const withPts = H.huntSlotAssemble({ ...hp, id: "sz" }, { name: "Noah" }, { product: "fitness app", observation: "Four hundred on the waitlist answers the demand question", points: ["gyms churn every January and nobody budgets for it", "the front desk decides adoption, not the owner"], move: "pre-sell ten gyms a month of the beta", question: "q?", phrase: "", fit: "yes" });
   assert.ok(withPts.dm_long.length > withPts.dm_short.length, "long carries the two points");
   assert.ok(withPts.dm_long.includes("front desk decides adoption") && !withPts.dm_short.includes("front desk decides adoption"));
@@ -292,8 +299,9 @@ assert.strictEqual(sizes[0].length, sizes[2].length, "template sizes match when 
   for (const d of [withPts.dm_short, withPts.dm_long]) {
     assert.ok(/pre-sell ten gyms/.test(d), "the plan is in both: " + d);
     assert.ok(/portfolio/i.test(d), "the portfolio is in both: " + d);
-    assert.strictEqual(d.split("\n\n").length, 3, "two paragraphs: " + d);
   }
+  assert.strictEqual(withPts.dm_short.split("\n\n").length, 3, "the short one is two paragraphs: " + withPts.dm_short);
+  assert.ok(/^1\. /m.test(withPts.dm_long) && /^The offer: /m.test(withPts.dm_long), "the long one is a numbered list: " + withPts.dm_long);
 }
 assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
 sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(!/https?:\/\//.test(d), "no links"); assert.ok(!/\$\d/.test(d), "no price in the DM"); });
@@ -556,12 +564,16 @@ console.log("template + ai slots: ok");
     question: "q?", reply_line: "l", phrase: "", fit: "yes",
   };
   const a = H.huntSlotAssemble(p, prof, slots);
-  const paras = a.dm_long.split("\n\n");   // [0] is the greeting
-  assert.strictEqual(paras.length, 3, "greeting and two paragraphs: " + a.dm_long);
-  assert.ok(/no-shows/.test(paras[1]) && /stylists decide/.test(paras[1]), "the points sit with their post: " + a.dm_long);
-  assert.ok(/co-found/i.test(paras[2]) && /interview five/.test(paras[2]) && /portfolio/i.test(paras[2]), "the offer, the plan and the portfolio are one paragraph: " + a.dm_long);
-  // one point, or none, means the sentence is left out rather than half-written
-  assert.ok(!/no-shows/.test(H.huntSlotAssemble(p, prof, { ...slots, points: ["only one point here"] }).dm_long));
+  // the long DM is a numbered list now: the points, then the plan, then the offer
+  assert.ok(/^1\. No-shows/mi.test(a.dm_long) && /^2\. Stylists decide/mi.test(a.dm_long), "the points are numbered: " + a.dm_long);
+  const offerLine = a.dm_long.split("\n").find((x) => /^The offer: /.test(x)) || "";
+  assert.ok(/co-found/i.test(offerLine), "the offer line carries the stance: " + offerLine);
+  assert.ok(/interview five/.test(a.dm_long) && /portfolio/i.test(a.dm_long), "the plan and the portfolio are still there: " + a.dm_long);
+  assert.ok(a.dm_long.indexOf("1. No-shows") < a.dm_long.indexOf(offerLine), "the offer comes last");
+  // the short one keeps the two-paragraph shape
+  assert.strictEqual(a.dm_short.split("\n\n").length, 3, "the short one is a greeting and two paragraphs: " + a.dm_short);
+  // one point, or none, means the section is left out rather than half-written
+  assert.ok(!/no-shows/i.test(H.huntSlotAssemble(p, prof, { ...slots, points: ["only one point here"] }).dm_long));
   assert.ok(!H.huntSlotAssemble(p, prof, { ...slots, points: [] }).dm_long.includes("that decide"));
   // templates never invent them
   assert.deepStrictEqual(H.huntLocalSlots(p).points, undefined);
@@ -572,7 +584,8 @@ console.log("template + ai slots: ok");
   assert.ok(!badArray(pr.schema) && !badArray(H.AI_SCHEMA), "no array constraint the API refuses");
   // more than two come back: the first two are used, the rest dropped
   const three = H.huntSlotAssemble(p, prof, { ...slots, points: [...slots.points, "a third the model threw in"] });
-  assert.ok(three.dm_long.includes("no-shows") && !three.dm_long.includes("a third the model"), three.dm_long);
+  // numbered lines start with a capital now, so match without case
+  assert.ok(/no-shows/i.test(three.dm_long) && !/a third the model/i.test(three.dm_long), three.dm_long);
   assert.ok(pr.system.includes("no-shows, rebooking rates, stylist adoption"), "the prompt shows what a real market point looks like");
   assert.ok(H.AI_SCHEMA.required.includes("points"), "the full writer supplies them too");
 }
@@ -702,7 +715,8 @@ console.log("how strict the veto is: ok");
     const out = H.huntSlotAssemble(p, { name: "Noah", deal }, slots, {});
     assert.deepStrictEqual(out.checks, [], deal.mode + " failed its own checks: " + out.checks.join("; "));
     assert.ok(out.dm_short && out.dm_long && out.dm_short !== out.dm_long, deal.mode + ": both lengths, and different");
-    const para = out.dm_long.split("\n").filter(Boolean)[2];
+    // the long DM's offer now sits on its own line, wherever the list ends
+    const para = out.dm_long.split("\n").find((x) => /^The offer: /.test(x)) || "";
     second.push(para);
     const sh = H.dealShape(deal);
     // no shape may promise a split it was not asked for
@@ -721,3 +735,59 @@ console.log("how strict the veto is: ok");
   assert.ok(bad.some((x) => /link/.test(x)) && bad.some((x) => /empty/.test(x)), "the checks catch a link and an empty DM: " + bad.join("; "));
 }
 console.log("the offer drives the DM: ok");
+
+// The long DM: their post, the two market points and the first two weeks as
+// numbered lines, then the offer alone where it cannot be skimmed past.
+{
+  const p = { id: "lg", sub: "startups", author: "Jane", title: "Looking for a technical co-founder for my gym scheduling app", body: "400 on the waitlist, equity only" };
+  const slots = { fit: "yes", product: "gym scheduling app", observation: "Four hundred on a waitlist answers the demand question",
+    points: ["gyms churn in January and nobody budgets for it", "the front desk decides adoption, not the owner"],
+    steps: ["call ten gyms that already pay for software", "put a one page booking mock in front of them", "measure how many book without being helped"],
+    move: "pre-sell ten gyms", question: "who pays first?", phrase: "" };
+  const out = H.huntSlotAssemble(p, { name: "Noah" }, slots, {});
+  const L = out.dm_long;
+  assert.deepStrictEqual(out.checks, [], "the long DM passes its own checks: " + out.checks.join("; "));
+  assert.ok(/^Two things that decide it in your market:$/m.test(L), "the market points have a heading: " + L);
+  assert.ok(/^1\. Gyms churn in January/m.test(L) && /^2\. The front desk decides/m.test(L), "the points are numbered: " + L);
+  assert.ok(/^What I would do in the first two weeks:$/m.test(L), "the steps have a heading: " + L);
+  assert.ok(/^3\. Measure how many book/m.test(L), "three numbered steps: " + L);
+  const offer = L.split("\n").filter((x) => /^The offer: /.test(x));
+  assert.strictEqual(offer.length, 1, "exactly one offer line: " + L);
+  assert.ok(/split equally/.test(offer[0]), "the offer line carries the deal: " + offer[0]);
+  assert.ok(L.indexOf(offer[0]) > L.indexOf("1. Gyms churn"), "the offer comes after the points");
+  // the short one is unchanged: two paragraphs, no numbering
+  assert.strictEqual(out.dm_short.split("\n\n").length, 3, "the short DM stays two paragraphs: " + out.dm_short);
+  assert.ok(!/^\d\. /m.test(out.dm_short), "the short DM is not a list: " + out.dm_short);
+  // no steps from the model is not a broken DM, just a shorter one
+  const bare = H.huntSlotAssemble(p, { name: "Noah" }, { ...slots, steps: [], points: [] }, {});
+  assert.deepStrictEqual(bare.checks, [], "a long DM with nothing to number still passes: " + bare.checks.join("; "));
+  assert.ok(/^The offer: /m.test(bare.dm_long));
+}
+console.log("the long DM is a list, not a wall: ok");
+
+// The detailed public comment: a real answer, numbered, and never a pitch.
+{
+  const p = { id: "gd", sub: "microsaas", author: "Jeet", title: "Left my SDE job to build an AI research agent", body: "could not market it, no paying user" };
+  const pr = H.huntGuidePrompt(p, { name: "Noah" });
+  assert.deepStrictEqual(Object.keys(pr.schema.properties), ["opener", "points", "close"]);
+  assert.ok(/never mention yourself, a team/i.test(pr.system), "the prompt forbids the pitch");
+  assert.ok(!/minItems|maxItems/.test(JSON.stringify(pr.schema)), "no array constraint the API refuses");
+  const out = { opener: "Four years as an SDE and no paying user says the problem was never the building",
+    points: ["Pick the ten companies that already pay for research reports and email each one offering a free week",
+             "Write down what they ask for in the first call, because that is the product",
+             "Charge the third one, even badly, before you write another feature"],
+    close: "The first person who pays decides what you build next" };
+  const txt = H.huntGuideBuild(out, { name: "Noah" }, { pointAtDm: true });
+  assert.ok(/^1\. Pick the ten/m.test(txt) && /^3\. Charge the third/m.test(txt), "numbered points: " + txt);
+  assert.ok(txt.startsWith("Four years as an SDE"), "the opener leads: " + txt);
+  assert.ok(/Sent you a DM as well\.$/.test(txt), "the DM pointer is last: " + txt);
+  assert.deepStrictEqual(H.huntGuideChecks(txt), [], "a good comment passes");
+  // and the checks catch a pitch, a link and a price
+  assert.ok(H.huntGuideChecks("1. My team can build this for you").some((x) => /pitch/.test(x)));
+  assert.ok(H.huntGuideChecks("1. See https://example.com").some((x) => /link/.test(x)));
+  assert.ok(H.huntGuideChecks("1. It costs $200 a month").some((x) => /price/.test(x)));
+  assert.ok(H.huntGuideChecks("just a sentence").some((x) => /numbered/.test(x)));
+  // without points there is nothing worth posting
+  assert.strictEqual(H.huntGuideBuild({ opener: "x", points: [], close: "y" }, {}), "");
+}
+console.log("the detailed public reply: ok");

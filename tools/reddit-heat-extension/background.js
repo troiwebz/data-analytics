@@ -139,6 +139,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-schedule-clear") { scheduleClear(msg.id, msg.kind).then(reply); return true; }
   if (msg.type === "hunt-export") { huntExport().then(reply); return true; }
   if (msg.type === "hunt-import") { huntImport(msg.data, msg.mode).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "hunt-guide") { huntGuideWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -1523,6 +1524,39 @@ async function dmSent() {
   const gap = Math.round(min + Math.random() * (max - min));
   await huntSet({ nextDmAt: Date.now() + gap * 1000 });
   return gap;
+}
+// The detailed public comment, written on demand and priced like any other
+// call. It is kept on the post as ai.guide so it is never paid for twice.
+async function huntGuideWrite(id, force) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false, error: "post not found" };
+  if (p.guide && !force) return { ok: true, guide: p.guide, cached: true };
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no api key", noKey: true };
+  const spent = await spendGet();
+  if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢) — raise it under AI writing` };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = { ...(config.profile || {}) };
+  const { system, user, schema } = huntGuidePrompt(p, profile);
+  const model = await aiModel();          // async, and it defaults to Sonnet
+  let j;
+  try {
+    const r = await fetch(AI_URL, { method: "POST", headers: aiHeaders(key, model), body: JSON.stringify(aiBody(model, system, user, schema, 900)) });
+    j = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: (j.error && j.error.message) || ("HTTP " + r.status) };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  let out; try { out = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
+  const body = huntGuideBuild(out, profile, { pointAtDm: true });
+  const checks = huntGuideChecks(body);
+  if (!body) return { ok: false, error: "the model gave no usable points" };
+  const u = j.usage || {};
+  const cents = aiCents(model, u);
+  p.guide = { text: body, at: Date.now(), model: j.model || model, cents, checks };
+  await huntSet({ posts: st.posts });
+  await spendAdd(cents, { kind: "public comment", who: p.author || "", what: (p.title || "").slice(0, 70), model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
+  return { ok: true, guide: p.guide };
 }
 async function huntSlotWrite(id, force) {
   const st = await huntGet();

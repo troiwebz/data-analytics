@@ -1974,10 +1974,78 @@ HEAT.SLOT_SCHEMA = {
     question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
     points: { type: "array", items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
     phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
+    steps: { type: "array", items: { type: "string" }, description: "THREE short steps, each under 16 words, that you would take in the first two weeks on THIS product, in order. Concrete and checkable: who you would talk to, what you would put in front of them, what you would measure. Lower case start, no full stop, no numbering, no 'find a co-founder', no generic startup advice." },
   },
-  required: ["fit", "fit_reason", "product", "observation", "move", "question", "phrase", "points"],
+  required: ["fit", "fit_reason", "product", "observation", "move", "question", "phrase", "points", "steps"],
   additionalProperties: false,
 };
+// ---- the long public reply ------------------------------------------------
+// Most of the time the public comment is one line pointing at the DM. Now and
+// then a thread is worth answering properly in the open: it is the cheapest
+// advertising there is, and it is read by everyone who lands on that post.
+// This is that comment. No pitch, no link, no offer - just the answer.
+HEAT.GUIDE_SCHEMA = {
+  type: "object",
+  properties: {
+    opener: { type: "string", description: "ONE sentence, under 25 words, that shows you read THIS post: the number they gave, the stage they are at, the constraint they named. No greeting, no compliment, no 'great question'." },
+    points: { type: "array", items: { type: "string" }, description: "THREE to FIVE pieces of real, specific help for this exact post, in order of what matters. Each is one or two sentences, under 40 words, and must be usable this week by someone with no budget. Concrete: name the thing to do, to whom, and what to look at afterwards. No generic startup advice, no 'it depends', no mention of yourself, your team or any offer." },
+    close: { type: "string", description: "ONE short sentence, under 20 words: the one thing that decides it, or the question they should answer next. No offer, no pitch, no call to action about DMs." },
+  },
+  required: ["opener", "points", "close"],
+  additionalProperties: false,
+};
+HEAT.huntGuidePrompt = function (p, profile = {}) {
+  const s = HEAT.huntSynopsis(p);
+  const system = `You are writing a public comment on a Reddit post, under ${profile.name || "a"} name, in a subreddit where people can smell an advert instantly.
+
+The comment's only job is to be the most useful reply on the thread. It is not a pitch. Someone reading it should be able to act on it today without hiring anyone.
+
+RULES
+- No greeting, no sign-off, no "hope this helps", no emoji, no exclamation marks.
+- Never mention yourself, a team, an agency, a service, availability, or a DM. Not once.
+- No links, no prices, no percentages.
+- No marketing words (leverage, unlock, seamless, game-changer), no compliments.
+- Specific to THIS post. If a sentence would fit any other startup, delete it.
+- Plain words. Short sentences. No dashes of any kind.`;
+  const user = `THE POST
+Subreddit: r/${p.sub || "?"}
+Title: ${p.title || ""}
+Body:
+${(p.body || "(no body)").slice(0, 4000)}
+
+WHAT WE READ FROM IT (may be wrong; trust the post)
+Wants: ${s.wants}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. Where: ${HEAT.huntPlace(p).city || HEAT.huntPlace(p).country || "not stated"}.
+
+Write the opener, the points and the close.`;
+  return { system, user, schema: HEAT.GUIDE_SCHEMA };
+};
+// The comment, assembled here: numbered, so it reads as an answer and not a wall.
+HEAT.huntGuideBuild = function (out, profile = {}, opts = {}) {
+  const clean = (x) => String(x || "").replace(/\s+/g, " ").trim().replace(/\s*[\u2014\u2013]\s*/g, ", ").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/!+/g, ".");
+  const opener = clean(out.opener);
+  const pts = (Array.isArray(out.points) ? out.points : []).map(clean).filter((x) => x.length > 15).slice(0, 5);
+  const close = clean(out.close);
+  if (!pts.length) return "";
+  const lines = [opener, ""];
+  pts.forEach((x, i) => lines.push(`${i + 1}. ${x.charAt(0).toUpperCase() + x.slice(1)}${/[.?]$/.test(x) ? "" : "."}`));
+  if (close) lines.push("", close);
+  // the DM pointer is the only thing about us, and only if asked for
+  if (opts.pointAtDm) lines.push("", "Sent you a DM as well.");
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
+HEAT.huntGuideChecks = function (text) {
+  const bad = [];
+  const t = String(text || "");
+  if (!t.trim()) return ["the comment came out empty"];
+  if (!/^\s*1\. /m.test(t)) bad.push("it has no numbered points");
+  if (/https?:\/\//.test(t)) bad.push("it has a link in it");
+  if (/[$€£]\s?\d|\d+\s?%/.test(t)) bad.push("it has a price or a percentage in it");
+  if (/[\u2014\u2013]/.test(t)) bad.push("it has a long dash in it");
+  if (/\b(my team|our team|we can|I can build|agency|portfolio|hire us|DM me)\b/i.test(t)) bad.push("it pitches, and a public comment must not");
+  if (t.length > 1800) bad.push("it is too long to be read on a phone");
+  return bad;
+};
+
 HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
   const compact = !!opts.compact;
   const recent = (opts.recent || []).filter(Boolean).slice(0, 5);
@@ -2073,6 +2141,40 @@ const S_POINTS = [
 ];
 // Two paragraphs. One about them, one about the offer, the plan and the
 // portfolio. No sign-off, no dashes.
+// The long DM is not a wall of prose. It is the post read back to them, the
+// two things their market decides on, the first two weeks as numbered steps,
+// and then the offer alone on its own line where it cannot be skimmed past.
+function longLines(m, pick) {
+  const out = [];
+  out.push([pick(S_OPEN)(m), m.observation].filter(Boolean).join(" "));
+  if (m.p1 && m.p2) {
+    out.push("", "Two things that decide it in your market:", `1. ${sentenceUp(m.p1)}`, `2. ${sentenceUp(m.p2)}`);
+  }
+  if (m.steps && m.steps.length) {
+    out.push("", "What I would do in the first two weeks:");
+    m.steps.forEach((x, i) => out.push(`${i + 1}. ${sentenceUp(x)}`));
+  } else if (m.plan) {
+    out.push("", "What I would do first:", `1. ${m.plan.replace(/^[^:]*:\s*/, "")}`);
+  }
+  out.push("", `The offer: ${pick(S_OFFER_STANCE)(m)}. ${m.offer} You keep the company and the IP.`);
+  const close = [m.where, pick(S_PROOF)(m)].filter(Boolean).join(" ");
+  if (close) out.push("", close);
+  return out;
+}
+// The stance again, but worded to sit after the words "The offer:" - the
+// sentences in S_STAND are openers and read twice behind that label.
+const S_OFFER_STANCE = [
+  (m) => (m.paid ? `my team does the work, paid, with no equity and no claim on the company` : `I come in as your co-founder and my team comes with me`),
+  (m) => (m.paid ? `my team takes this on as paid work rather than as a partnership` : `I co-found this with you, with my own team behind me`),
+  // never "a team already built": on an idea-stage post it reads as if THEIR
+  // product is the thing already built
+  (m) => (m.paid ? `paid work, my team on it, nothing else asked for` : `a co-founder who comes with a team, not one you have to go and find`),
+  (m) => (m.paid ? `my team runs this for you as paid work` : `me as your co-founder, my team doing the work alongside you`),
+];
+function sentenceUp(x) {
+  const t = String(x || "").trim().replace(/[.;,]+$/, "");
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) + "." : "";
+}
 const STYLES = [
   { key: "plain", build: (m, pick) => [
     [pick(S_OPEN)(m), m.observation, m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
@@ -2141,10 +2243,12 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   const named = !generic || !titleLine;
   const move = sentence(slots.move);
   const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8).slice(0, 2);
+  const steps = (Array.isArray(slots.steps) ? slots.steps : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/^\d+[.)]\s*/, "").replace(/[.;,]+$/, "")).filter((x) => x.length > 8).slice(0, 3);
   const base = {
     p1: pts[0] ? pts[0].charAt(0).toLowerCase() + pts[0].slice(1) : "",
     p2: pts[1] ? pts[1].charAt(0).toLowerCase() + pts[1].slice(1) : "",
     product,
+    steps,
     the: theProduct,
     named,
     title: titleLine,
@@ -2185,7 +2289,7 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
         plan: base.move ? pick(S_PLAN)(base) : "",
         offer: /[.!?]$/.test(offer) ? offer : offer + ".",
       };
-      const lines = style.build(m, pick);
+      const lines = opts.long ? longLines(m, pick) : style.build(m, pick);
       // the channel line only appears if you switched the links on
       const all = profile.dmLinks && HEAT.huntContactLine(profile, true) ? [...lines, "", HEAT.huntContactLine(profile, true)] : lines;
       const body = all.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -2234,7 +2338,10 @@ HEAT.dmChecks = function (short, long, profile = {}) {
     if (!t.trim()) { bad.push(`${what} came out empty`); continue; }
     if (t.length < 200) bad.push(`${what} is only ${t.length} characters`);
     if (!/^Hi /.test(t)) bad.push(`${what} does not open with a greeting`);
-    if (t.split(/\n\s*\n/).filter(Boolean).length < 2) bad.push(`${what} is not two paragraphs`);
+    if (what === "the long DM") {
+      if (!/^\s*1\. /m.test(t)) bad.push("the long DM has no numbered points");
+      if (!/^The offer: /m.test(t)) bad.push("the long DM has no offer line of its own");
+    } else if (t.split(/\n\s*\n/).filter(Boolean).length < 2) bad.push(`${what} is not two paragraphs`);
     if (!profile.dmLinks && /https?:\/\//.test(t)) bad.push(`${what} has a link in it`);
     if (!(profile.deal || {}).numbersInDm && /[$€£]\s?\d|\d+\s?%/.test(t)) bad.push(`${what} has a price or a percentage in it`);
     if (/[—–]/.test(t)) bad.push(`${what} has a long dash in it`);
