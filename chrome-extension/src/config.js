@@ -16,6 +16,10 @@ export const DEFAULT_CONFIG = {
                                // in Apps Script Script Properties); falls back to rules
 
 
+  // Every time shown to you is rendered in this zone, on a 12 hour clock.
+  // '' means "use this computer's own zone".
+  timezone: 'Asia/Kolkata',
+
   // Your own words about the business, handed to Claude with every thread.
   // Optional, and empty by default: what goes in here is what Claude knows
   // about you that the thread cannot tell it.
@@ -462,7 +466,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 24;
+export const CONFIG_VERSION = 25;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -503,6 +507,7 @@ export async function migrateConfig() {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
   }
+  if (v < 25 && next.timezone == null) next.timezone = DEFAULT_CONFIG.timezone;
   if (v < 24 && next.telegramSend == null) next.telegramSend = DEFAULT_CONFIG.telegramSend;
   if (v < 23 && next.brief == null) next.brief = DEFAULT_CONFIG.brief;
   if (v < 22) {

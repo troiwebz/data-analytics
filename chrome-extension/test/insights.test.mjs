@@ -9,7 +9,15 @@ const dom = new JSDOM(readFileSync(DIR + 'insights.html', 'utf8'),
 global.window = dom.window; global.document = dom.window.document;
 Object.defineProperty(global, 'navigator', { value: dom.window.navigator, configurable: true });
 
-const at = (daysBack, hour) => { const d = new Date(); d.setDate(d.getDate() - daysBack); d.setHours(hour, 0, 0, 0); return d.toISOString(); };
+// The page groups in IST, so the fixture has to be built in IST or the counts
+// drift by a day whenever the machine is not in India. IST is UTC+5:30 all
+// year, so the hour maps straight across.
+const IST = { timezone: 'Asia/Kolkata' };
+const { partsIn } = await import('../src/timefmt.js');
+const at = (daysBack, istHour) => {
+  const [y, m, d] = partsIn(new Date(Date.now() - daysBack * 86400000), IST).key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, istHour - 5, -30)).toISOString();
+};
 const leads = [
   // today: 3 threads
   { threadId: '1', postedAt: at(0, 9), title: 'a' }, { threadId: '2', postedAt: at(0, 14), title: 'b' },
@@ -24,7 +32,9 @@ const leads = [
 
 global.chrome = {
   runtime: { getURL: (p) => 'x/' + p, sendMessage: async () => ({}) },
-  storage: { local: { get: async (k) => (k === 'recentLeads' ? { recentLeads: leads } : {}), set: async () => {} },
+  storage: { local: { get: async (k) => (k === 'recentLeads' ? { recentLeads: leads }
+                                       : k === 'config' ? { config: { timezone: 'Asia/Kolkata' } } : {}),
+                      set: async () => {} },
              onChanged: { addListener: () => {} } }
 };
 await import(pathToFileURL(DIR + 'insights.js').href);
@@ -47,16 +57,23 @@ ok('today is last', dailyRows.at(-1).querySelector('td.n').textContent === '3');
 
 // Today must not drag the average down; it is incomplete.
 // Complete days are yesterday 2, gap 0, three-back 1 -> 1.0
+// Three complete days is the floor for calling anything an average; this
+// fixture has three (yesterday, the gap, and three days back).
 ok('today is left out of the average', tile('average a day') === '1.0', tile('average a day'));
 ok('and is hatched rather than recoloured',
    /url\(#part-daily\)/.test($('daily').querySelector('.bar[style]')?.getAttribute('style') || ''),
    $('daily').querySelector('.bar[style]')?.getAttribute('style'));
 ok('only today is hatched', $('daily').querySelectorAll('.bar[style]').length === 1);
 
-// Hours are local and every hour of the day is present, even the empty ones.
+// Hours read as am/pm, never as 20 or 21.
+const hourLabels = [...$('hourly').querySelectorAll('svg text.tick')].map((t) => t.textContent);
+ok('the hour axis is am/pm', hourLabels.filter((l) => /(am|pm)/.test(l)).length >= 6, hourLabels.join(','));
+ok('no 24 hour numbers on the hour axis', !hourLabels.some((l) => /^(1[3-9]|2[0-3])$/.test(l)), hourLabels.join(','));
+
+// Hours are in the configured zone and every hour of the day is present.
 const hourRows = [...$('hourly').querySelectorAll('table tbody tr')];
 ok('all 24 hours are drawn', hourRows.length === 24);
-ok('14:00 holds the three threads posted then', hourRows[14].querySelector('td.n').textContent === '3', hourRows[14].textContent);
+ok('2 pm holds the three threads posted then', hourRows[14].querySelector('td.n').textContent === '3', hourRows[14].textContent);
 ok('an hour with nothing is still drawn', hourRows[0].querySelector('td.n').textContent === '0');
 
 // Weekdays are averaged over how many of each we have, not summed.

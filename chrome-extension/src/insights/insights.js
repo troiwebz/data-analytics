@@ -12,13 +12,13 @@
 // honest way to make these charts mean more.
 
 import { getLeads } from '../store.js';
+import { getConfig } from '../config.js';
+import { partsIn, todayKey, hourLabel, dayLabel, longDay } from '../timefmt.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/** Local calendar day, not UTC: the question is about the user's own clock. */
-const dayKey = (d) => d.toLocaleDateString('en-CA');
 const when = (l) => { const t = new Date(l.postedAt); return isNaN(t) ? null : t; };
 
 // ----------------------------------------------------------------- the chart
@@ -102,9 +102,12 @@ function barChart(host, bars, { height = 190, everyNthLabel = 1, unit = 'threads
 
 // ------------------------------------------------------------------ the data
 
-function build(leads) {
+function build(leads, cfg) {
+  // Grouped in the configured zone, not the machine's: a thread posted at
+  // 1am IST belongs to that IST day wherever the laptop happens to be.
   const dated = leads.map(when).filter(Boolean).sort((a, b) => a - b);
-  const today = dayKey(new Date());
+  const dayKey = (d) => partsIn(d, cfg).key;
+  const today = todayKey(cfg);
 
   const stats = $('stats');
   if (!dated.length) {
@@ -127,48 +130,54 @@ function build(leads) {
   const shown = days.slice(-30);
 
   const complete = days.filter((d) => d.key !== today);
+  // Three whole days is the least that can honestly be called an average. Below
+  // that the number is one day's count wearing a decimal point.
+  const enough = complete.length >= 3;
   const avg = complete.length ? complete.reduce((a, d) => a + d.value, 0) / complete.length : 0;
   const busiest = complete.reduce((a, d) => (d.value > (a?.value ?? -1) ? d : a), null);
 
   $('range').textContent = `${days.length} day(s) recorded · ${dated.length} threads`;
-  $('note').innerHTML = complete.length
-    ? `Counted from when each thread was started, in your own time zone. Today is still filling up, so it is drawn striped and left out of the averages.`
-    : `Only today is recorded so far, so there is no pattern to see yet. Press <b>Load older threads…</b> to walk back through the forum.`;
+  const zone = cfg.timezone || 'this computer';
+  $('hourSub').innerHTML = `Times in <b>${esc(zone)}</b>. The tall bars are when it is worth being at the keyboard.`;
+  $('note').innerHTML = enough
+    ? `Counted from when each thread was started, shown in <b>${esc(zone)}</b>. Today is striped and left out of the averages.`
+    : `<b>Not enough history yet.</b> ${complete.length} complete day(s) recorded, which is too few to average or to read a weekday pattern from. ` +
+      `Press <b>Fill the last 7 days</b> above and the charts fill themselves in.`;
 
   stats.innerHTML = [
     [counts.get(today) || 0, 'launched today'],
-    [avg ? avg.toFixed(1) : '—', 'average a day'],
+    [enough ? avg.toFixed(1) : '—',
+     enough ? `average a day · over ${complete.length} days` : 'average a day · need 3 days'],
     [busiest && busiest.value ? busiest.value : '—', busiest && busiest.value
-      ? `busiest day · ${busiest.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'busiest day'],
+      ? `busiest day · ${dayLabel(busiest.date, cfg)}` : 'busiest day'],
     [dated.length, 'threads recorded']
   ].map(([v, k]) => `<div class="k"><b>${esc(String(v))}</b><span>${esc(k)}</span></div>`).join('');
 
   $('daily').dataset.col = 'Day';
   barChart($('daily'), shown.map((d) => ({
-    label: d.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
-    full: d.date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
+    label: dayLabel(d.date, cfg),
+    full: longDay(d.date, cfg),
     value: d.value,
     soft: d.key === today,
-    tip: `<b>${d.value}</b> thread${d.value === 1 ? '' : 's'}<br>${esc(d.date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}${d.key === today ? '<br>today, still filling up' : ''}`
+    tip: `<b>${d.value}</b> thread${d.value === 1 ? '' : 's'}<br>${esc(longDay(d.date, cfg))}${d.key === today ? '<br>today, still filling up' : ''}`
   })), { everyNthLabel: shown.length > 16 ? 3 : 1 });
 
   // --- per hour of the day
   const byHour = Array.from({ length: 24 }, () => 0);
-  for (const d of dated) byHour[d.getHours()]++;
+  for (const d of dated) byHour[partsIn(d, cfg).hour]++;
   const hourPeak = byHour.indexOf(Math.max(...byHour));
   $('hourly').dataset.col = 'Hour';
   barChart($('hourly'), byHour.map((v, h) => ({
-    label: String(h).padStart(2, '0'),
-    full: `${String(h).padStart(2, '0')}:00 to ${String(h).padStart(2, '0')}:59`,
+    label: hourLabel(h, cfg),
+    full: `${hourLabel(h, cfg)} to ${hourLabel((h + 1) % 24, cfg)}`,
     value: v,
-    tip: `<b>${v}</b> thread${v === 1 ? '' : 's'} started between<br>${String(h).padStart(2, '0')}:00 and ${String(h).padStart(2, '0')}:59`
-  })), { everyNthLabel: 2 });
+    tip: `<b>${v}</b> thread${v === 1 ? '' : 's'} started between<br>${esc(hourLabel(h, cfg))} and ${esc(hourLabel((h + 1) % 24, cfg))}`
+  })), { everyNthLabel: 3 });
 
   // --- per weekday, averaged over how many of each weekday we actually have
   const seen = Array.from({ length: 7 }, () => 0);
-  for (const d of complete) seen[d.date.getDay()]++;
   const sum = Array.from({ length: 7 }, () => 0);
-  for (const d of complete) sum[d.date.getDay()] += d.value;
+  for (const d of complete) { const wd = partsIn(d.date, cfg).weekday; seen[wd]++; sum[wd] += d.value; }
   $('weekly').dataset.col = 'Day of the week';
   barChart($('weekly'), DAYS.map((name, i) => {
     const v = seen[i] ? +(sum[i] / seen[i]).toFixed(1) : 0;
@@ -182,25 +191,33 @@ function build(leads) {
 
   if (byHour[hourPeak] > 0 && complete.length) {
     $('hourly').insertAdjacentHTML('afterbegin',
-      `<p class="sub" style="margin:-8px 0 10px">Busiest hour so far: <b>${String(hourPeak).padStart(2, '0')}:00</b>.</p>`);
+      `<p class="sub" style="margin:-8px 0 10px">Busiest hour so far: <b>${esc(hourLabel(hourPeak, cfg))}</b>.</p>`);
   }
 }
 
 // ------------------------------------------------------------------- the page
 
-async function render() { build(await getLeads()); }
+async function render() { build(await getLeads(), await getConfig()); }
 
 $('back').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/dashboard/dashboard.html');
 });
-$('more').addEventListener('click', async () => {
-  const pages = Number(prompt('How many forum pages back should I walk?\n\nEach page is about 20 threads. 10 pages is roughly the last few days.', '10'));
-  if (!isFinite(pages) || pages < 1) return;
-  $('more').disabled = true; $('more').textContent = 'Reading…';
-  const r = await chrome.runtime.sendMessage({ cmd: 'deep-backfill', opts: { pages } });
-  $('more').disabled = false; $('more').textContent = 'Load older threads…';
-  if (r?.error) alert(r.error); else await render();
-});
+$('more').addEventListener('click', () => fill(7));
+$('more30').addEventListener('click', () => fill(30));
+
+/** Cover whole days rather than a page count nobody can translate into time. */
+async function fill(days) {
+  for (const b of ['more', 'more30']) { $(b).disabled = true; }
+  const label = $('more').textContent;
+  $('more').textContent = 'Reading the forum…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'fill-days', days });
+  for (const b of ['more', 'more30']) { $(b).disabled = false; }
+  $('more').textContent = label;
+  if (r?.error) return alert(`Could not read the forum: ${r.error}`);
+  await render();
+  alert(`Read ${r.pages} page(s) and reached back ${r.days} day(s).\n\n` +
+        `${r.backfilled} thread(s) added to the database.`);
+}
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.recentLeads) render();

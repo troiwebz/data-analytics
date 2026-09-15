@@ -24,6 +24,16 @@
   <div class="c">
     <h2>Connection</h2>
     <label class="sw"><input type="checkbox" id="enabled"> Watcher enabled</label>
+    <label>Time zone <span class="hint">every time on every page is shown in this zone, on a 12 hour clock</span></label>
+    <select id="timezone" style="max-width:320px">
+      <option value="Asia/Kolkata">India (IST)</option>
+      <option value="">This computer's own zone</option>
+      <option value="Asia/Dubai">Dubai (GST)</option>
+      <option value="Europe/London">London</option>
+      <option value="America/New_York">New York</option>
+      <option value="America/Los_Angeles">Los Angeles</option>
+      <option value="UTC">UTC</option>
+    </select>
     <label>Feed URL</label>
     <input type="text" id="feedUrl">
     <div class="row">

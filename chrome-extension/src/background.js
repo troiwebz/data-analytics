@@ -15,7 +15,7 @@ import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from '
 import { matchLead } from './matcher.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
-import { buildCard } from './telegram-card.js';
+import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
@@ -289,6 +289,7 @@ export async function rebuildDrafts({ withAi = false } = {}) {
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
 export function enrich(m, cfg, status, aiSpecifics) {
+  setCardZone(cfg);                    // the card's times use the same zone
   // Claude returns { tips, question, offer }; older rows hold a bare array.
   if (aiSpecifics?.tips?.length || aiSpecifics?.length) m = { ...m, aiSpecifics };
   const draft = renderReply(m, cfg);
@@ -401,6 +402,40 @@ export async function pollFeed() {
  * no post body, so these are matched on the title alone and marked
  * bodyless — the score is a floor, not a verdict. Nothing is sent to Telegram.
  */
+/**
+ * Read back far enough to cover whole days, rather than a page count nobody
+ * can translate into time. A busy day is 40 threads and a quiet one is 10, so
+ * guessing "10 pages" gives an average computed over a day and a half - which
+ * is the number that cannot mean anything.
+ *
+ * Pages are walked in widening steps until the oldest thread seen is older
+ * than the window, or the forum runs out.
+ */
+export async function fillDays(days = 7) {
+  const cfg = await getConfig();
+  const from = Date.now() - days * 86400000;
+  const url = forumUrlFromFeed(cfg.feedUrl);
+
+  let pages = 0, oldest = Date.now(), listing = {};
+  for (const step of [8, 8, 12, 12, 20, 20]) {
+    pages += step;
+    listing = await fetchListingPages(url, pages, {
+      onPage: (page, found, total) => log(`  page ${page}: ${found} thread(s), ${total} so far`)
+    });
+    const times = Object.values(listing)
+      .map((r) => (r.startedAt ? new Date(r.startedAt).getTime() : NaN)).filter(isFinite);
+    if (!times.length) break;
+    oldest = Math.min(...times);
+    if (oldest <= from) break;                     // the window is covered
+    if (Object.keys(listing).length < pages * 5) break;   // the forum ran out
+  }
+
+  const r = await deepBackfill({ pages, sinceDays: days });
+  const covered = Math.max(1, Math.round((Date.now() - Math.max(oldest, from)) / 86400000));
+  await log(`filled ${covered} day(s) from ${pages} page(s): ${r.backfilled} thread(s) recorded`);
+  return { ...r, pages, days: covered, reachedBack: new Date(oldest).toISOString() };
+}
+
 export async function deepBackfill({ pages = 5, sinceDays = 0, fromDate = '', toDate = '' } = {}) {
   const cfg = await getConfig();
   const from = fromDate ? new Date(fromDate).getTime()
@@ -704,6 +739,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'deep-backfill': {                        // walk N listing pages into the database
         sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'fill-days': {                            // cover N whole days, however many pages that takes
+        sendResponse(await fillDays(msg.days || 7).catch((e) => ({ error: e.message })));
         break;
       }
       case 'regen': sendResponse(await rebuildDrafts({ withAi: true })); break;

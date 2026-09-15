@@ -2,17 +2,17 @@
 // click again to reverse. Click a row to open the reply, the PM and the
 // actions for that lead.
 import { getConfig } from '../config.js';
+import { stamp, partsIn, todayKey } from '../timefmt.js';
 import { renderDm, partsFor, offerOf, plain } from '../templates.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// Times are always shown in the viewer's own zone.
-const when = (iso) => {
-  const d = new Date(iso);
-  return isNaN(d) ? '—' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-};
+// Times are rendered in the zone set in Settings, on a 12 hour clock. The
+// config arrives before the first render; until then fall back to the default.
+let tz = {};
+const when = (iso) => stamp(iso, tz);
 const ago = (iso) => {
   const t = new Date(iso).getTime();
   if (!isFinite(t)) return '';
@@ -112,6 +112,7 @@ async function renderInner() {
   // Cheap and cached by the service worker; never blocks the table.
   const ai = await chrome.runtime.sendMessage({ cmd: 'ai-status' }).catch(() => ({}));
 
+  tz = cfg;                                  // every when() below uses this zone
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
   $('state').textContent = cfg.enabled ? `Watching the forum · checking every ${cfg.pollMinutes} min` : 'Not watching · turn it on in Settings';
@@ -128,9 +129,9 @@ async function renderInner() {
   // as us noticing it today: a backfill finds old threads, and a thread found
   // at 00:05 was launched yesterday.
   const startedToday = (() => {
-    const key = new Date().toLocaleDateString('en-CA');
+    const key = todayKey(cfg);
     return leads.filter((l) => { const d = new Date(l.postedAt);
-      return !isNaN(d) && d.toLocaleDateString('en-CA') === key; }).length;
+      return !isNaN(d) && partsIn(d, cfg).key === key; }).length;
   })();
   const n = (s) => leads.filter((l) => l.status === s).length;
   const tiles = [
@@ -518,6 +519,14 @@ $('hidedone').addEventListener('input', render);
 //   - renders are coalesced, and one never starts while another is running
 const WATCHED = ['recentLeads', 'config', 'rateState', 'staged', 'log'];
 let pending = null;
+// Any choice from the menu closes it, and so does a click anywhere else.
+$('menu').addEventListener('click', (e) => {
+  if (e.target.closest('.panel button')) $('menu').open = false;
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#menu')) $('menu').open = false;
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !Object.keys(changes).some((k) => WATCHED.includes(k))) return;
   clearTimeout(pending);

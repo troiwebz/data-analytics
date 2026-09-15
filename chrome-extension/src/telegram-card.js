@@ -4,6 +4,7 @@
 // clean <pre> block that one tap copies and neither can be truncated by
 // Telegram's 4096-character limit.
 import { lintSummary } from './compliance.js';
+import { stamp } from './timefmt.js';
 
 /** `matched` is an array locally, comma-joined when it comes from the Sheet. */
 const tagsOf = (v) => Array.isArray(v) ? v.map(String)
@@ -19,7 +20,9 @@ function ago(iso) {
   const h = Math.round(m / 60);
   return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
 }
-const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+let cardTz = {};
+export const setCardZone = (cfg) => { cardTz = cfg; };
+const when = (iso) => (iso ? stamp(iso, cardTz) : '');
 
 export function suggestedOffer(lead) {
   if (lead.budgetAmount > 0) {
