@@ -87,10 +87,11 @@ async function reclassifyAll() {
   if (changed) await chrome.storage.local.set({ posts });
   return changed;
 }
-chrome.runtime.onInstalled.addListener(() => { huntReclassify(); arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
-chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onInstalled.addListener(() => { huntReclassify(); arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
 const REMOTE_ALARM = "remote-version";
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === REMOTE_ALARM) checkRemoteVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
+const SCHED_ALARM = "schedule-tick";
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === SCHED_ALARM) scheduleTick(); if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === REMOTE_ALARM) checkRemoteVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (!msg) return;
   if (msg.type === "refresh") { refresh().then(() => reply({ ok: true })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -122,6 +123,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
+  if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
+  if (msg.type === "hunt-schedule-list") { scheduleList().then(reply); return true; }
+  if (msg.type === "hunt-schedule-clear") { scheduleClear(msg.id).then(reply); return true; }
   if (msg.type === "hunt-export") { huntExport().then(reply); return true; }
   if (msg.type === "hunt-import") { huntImport(msg.data, msg.mode).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
@@ -561,6 +566,7 @@ async function huntGet() {
     me: hunt.me || "",
     found: hunt.found || 0,
     nextDmAt: hunt.nextDmAt || 0,
+    schedule: Array.isArray(hunt.schedule) ? hunt.schedule : [],
     sent: Array.isArray(hunt.sent) ? hunt.sent : [],   // fingerprints of the last DMs built, so none repeats
     lastReport: hunt.lastReport || "",
   };
@@ -823,6 +829,8 @@ async function huntQueue(limit = 40) {
     lastReport: st.lastReport || "",
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
+    schedule: (st.schedule || []).filter((x) => !x.state).length,
+    scheduleNext: Math.min(...[Infinity, ...(st.schedule || []).filter((x) => !x.state).map((x) => x.at)]),
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -907,6 +915,89 @@ async function spendAdd(c, entry) {
   await chrome.storage.local.set({ spend: { day, cents, days, log } });
 }
 // What the day cost, split by what it was spent on.
+// ---- bulk actions and the schedule ----------------------------------------
+// Skip a pile of posts in one go.
+async function huntBulk(ids, action) {
+  let n = 0;
+  for (const id of ids) { const r = await huntAct(id, action); if (r && r.ok !== false) n += 1; }
+  return { ok: true, n };
+}
+// A schedule is a list of things to open, spaced out. Opening is all it does:
+// the reply and the DM are filled in and you press Reddit's own button.
+async function scheduleAdd(ids, gapMin, dmAfterSec) {
+  const st = await huntGet();
+  const gap = Math.max(1, Number(gapMin) || 5) * 60000;
+  const dmAfter = Math.max(15, Number(dmAfterSec) || 60) * 1000;
+  const list = (st.schedule || []).filter((x) => !x.state);
+  let base = Math.max(Date.now() + 5000, ...list.map((x) => x.at + gap));
+  const added = [];
+  for (const id of ids) {
+    if (!st.posts[id] || st.posts[id].act || st.posts[id].dmAt) continue;
+    if (list.some((x) => x.id === id)) continue;
+    added.push({ id, at: base, kind: "reply" }, { id, at: base + dmAfter, kind: "dm" });
+    base += gap;
+  }
+  const schedule = [...(st.schedule || []), ...added].sort((a, b) => a.at - b.at).slice(-400);
+  await huntSet({ schedule });
+  return { ok: true, added: added.length / 2, next: added.length ? added[0].at : 0 };
+}
+async function scheduleList() {
+  const st = await huntGet();
+  const now = Date.now();
+  const rows = (st.schedule || []).map((x) => ({ ...x, title: (st.posts[x.id] || {}).title || "(gone)", author: (st.posts[x.id] || {}).author || "" }));
+  const waiting = rows.filter((x) => !x.state);
+  return { rows: rows.sort((a, b) => a.at - b.at), waiting: waiting.length, next: waiting.length ? Math.max(0, waiting[0].at - now) : 0 };
+}
+async function scheduleClear(id) {
+  const st = await huntGet();
+  const schedule = id ? (st.schedule || []).filter((x) => !(x.id === id && !x.state)) : (st.schedule || []).filter((x) => !!x.state);
+  await huntSet({ schedule });
+  return { ok: true, left: schedule.filter((x) => !x.state).length };
+}
+// One item per minute at most, and never while the DM pacing says wait.
+async function scheduleTick() {
+  const st = await huntGet();
+  const list = st.schedule || [];
+  const now = Date.now();
+  const due = list.filter((x) => !x.state && x.at <= now).sort((a, b) => a.at - b.at)[0];
+  if (!due) return;
+  const save = async () => { await huntSet({ schedule: list }); };
+  const p = st.posts[due.id];
+  if (!p || p.act) { due.state = "gone"; due.reason = p ? "you skipped it" : "the post is no longer in the database"; return save(); }
+  if (due.kind === "reply" && p.repliedAt) { due.state = "done"; return save(); }
+  if (due.kind === "dm" && p.dmAt) { due.state = "done"; return save(); }
+  if (due.kind === "dm") {
+    const g = await dmGate();
+    if (!g.ok) { due.at = now + Math.max(30000, g.waitMs || 60000); return save(); }
+  }
+  const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
+  const profile = { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
+  // before anything is opened, the writer decides whether this one is worth it
+  if (!p.ai && profile.apiKey && (profile.aiEngine === "slots" || !profile.aiEngine)) {
+    const r = await huntSlotWrite(due.id);
+    if (r && r.cancelled) {
+      due.state = "cancelled"; due.reason = r.reason || "not a fit";
+      for (const o of list) if (o.id === due.id && !o.state) { o.state = "cancelled"; o.reason = due.reason; }
+      return save();
+    }
+    if (!r || !r.ok) { due.at = now + 120000; due.reason = (r && r.error) || "could not write it"; return save(); }
+  }
+  const fresh = await huntGet();
+  const post = fresh.posts[due.id] || p;
+  if (due.kind === "reply") {
+    const text = post.ai ? post.ai.public_reply : huntPublicLine(post, profile, { avoid: (fresh.sent || []).map((x) => x.pl).filter(Boolean) });
+    await chrome.storage.local.set({ pendingReply: { id: due.id, permalink: post.permalink, text, variant: 0, at: Date.now() } });
+    await chrome.tabs.create({ url: "https://www.reddit.com" + String(post.permalink || "").replace(/^https?:\/\/[^/]+/, ""), active: false });
+  } else {
+    const text = post.ai ? (post.ai.dm_long || post.ai.dm_short) : huntDM(post, profile, "long");
+    await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: due.id, author: post.author, text, at: Date.now() } });
+    await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: false });
+  }
+  due.state = "opened"; due.openedAt = now;
+  await save();
+  try { await chrome.action.setBadgeText({ text: String((list.filter((x) => !x.state)).length || "") }); } catch (_) { /* no badge, fine */ }
+}
+
 // ---- backup and restore ---------------------------------------------------
 // Chrome deletes an extension's storage when the extension is removed, so the
 // whole database can be written to a file and read back.

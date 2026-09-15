@@ -111,6 +111,7 @@
   <span class="stat" id="sSince" hidden></span>
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
+  <button class="stat" id="schedChip" hidden title="click to see the schedule"></button>
   <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
   <button class="stat" id="sSpendWrap" title="click to see every call today: what it was for, who it was about, and what it cost">AI today <b id="sSpend">0¢</b></button>
   <span class="stat" id="sPoll">never checked</span>
@@ -258,6 +259,18 @@
 
   <!-- any table view: queue, contacted -->
   <div id="table" hidden>
+    <div id="bulkBar" class="row" style="margin:0 0 10px;flex-wrap:wrap" hidden>
+      <b id="bulkCount" style="margin-right:4px">0 selected</b>
+      <button id="bulkSkip" class="ghost">Skip</button>
+      <button id="bulkBad" class="ghost">Not relevant</button>
+      <button id="bulkLater" class="ghost">Later</button>
+      <span style="width:12px"></span>
+      <label class="foot" style="margin:0">every</label>
+      <input type="text" id="bulkGap" value="5" style="width:48px">
+      <label class="foot" style="margin:0">minutes</label>
+      <button id="bulkSched" class="primary">Schedule these</button>
+      <button id="bulkNone" class="ghost">Clear selection</button>
+    </div>
     <div class="row" style="margin-bottom:10px">
       <b id="tableTitle">Queue</b>
       <input type="text" id="tableFind" placeholder="find">

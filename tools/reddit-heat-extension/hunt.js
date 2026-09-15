@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
 
+let picked = new Set();   // rows ticked in the table
 let queue = [];        // what is in front of you: filtered and sorted
 let allQueue = [];     // everything the worker sent, before the view
 let cur = null;        // the post on screen
@@ -267,6 +268,11 @@ async function refresh(keepCurrent = true) {
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").title = r.lastReport || "";
+  if (r.schedule) {
+    const mins = Math.max(0, Math.round((r.scheduleNext - Date.now()) / 60000));
+    $("schedChip").hidden = false;
+    $("schedChip").textContent = `Scheduled ${r.schedule} · next in ${mins}m`;
+  } else $("schedChip").hidden = true;
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
   if (days >= 7 && (r.contactedTotal || 0) > 0) { $("backupWarn").hidden = false; $("backupWarn").textContent = r.lastBackupAt ? `No backup for ${days} days` : "Never backed up"; }
   else $("backupWarn").hidden = true;
@@ -574,6 +580,22 @@ function showTable(kind) {
   $("main").hidden = true;
   $("setup").hidden = true;
   $("tableFind").value = "";
+  if (kind === "schedule") {
+    $("tableTitle").textContent = "Schedule";
+    $("tableNote").textContent = "Each one opens at its time with the reply or the DM already filled in. Nothing is sent by the extension: you read it and press Reddit's button. A post the writer judges not a fit is dropped before anything opens.";
+    $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th></th></tr>";
+    $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">reading…</td></tr>`;
+    tableText = () => "";
+    send({ type: "hunt-schedule-list" }).then((r) => {
+      if (!r) return;
+      const when = (t) => { const d = Math.round((t - Date.now()) / 60000); return d > 0 ? `in ${d}m` : new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
+      const rows = r.rows.map((x) => `<tr${x.state ? ' class="done"' : ""}><td>${esc(when(x.at))}</td><td>${x.kind === "reply" ? "public reply" : "the DM"}</td><td>${esc((x.author ? "u/" + x.author + " · " : "") + x.title)}</td><td style="color:${x.state === "cancelled" ? "#ff8a65" : "#98a0b3"}">${esc(x.state || "waiting")}${x.reason ? " · " + esc(x.reason) : ""}</td><td>${x.state ? "" : `<button class="ghost unsched" data-id="${x.id}">remove</button>`}</td></tr>`).join("");
+      $("tableTitle").textContent = `Schedule · ${r.waiting} waiting${r.waiting ? ` · next ${when(Date.now() + r.next)}` : ""}`;
+      $("tableRows").innerHTML = rows || `<tr><td colspan="5" style="color:#98a0b3">Nothing scheduled. Tick some rows in the queue and press "Schedule these".</td></tr>`;
+      for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id }); showTable("schedule"); refresh(false); };
+    });
+    return;
+  }
   if (kind === "spend") {
     $("tableTitle").textContent = "AI spending";
     $("tableNote").textContent = "Every call your API key paid for today, newest first. Nothing here is charged twice: a reply written once is cached on the post.";
@@ -592,15 +614,16 @@ function showTable(kind) {
     });
     return;
   }
+  $("bulkBar").hidden = kind !== "queue" || picked.size === 0;
   if (kind === "queue") {
     $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
     $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row to work on that one.";
-    $("tableHead").innerHTML = "<tr><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>";
+    $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>`;
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     $("tableRows").innerHTML = (queue.map((p) => {
       const s = huntSynopsis(p);
-      return `<tr class="pick" data-id="${p.id}"><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
-    }).join("") || `<tr><td colspan="6" style="color:#98a0b3">Nobody waiting yet.</td></tr>`) + `<tr id="doneRowsAnchor"></tr>`;
+      return `<tr class="pick" data-id="${p.id}"><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+    }).join("") || `<tr><td colspan="7" style="color:#98a0b3">Nobody waiting yet.</td></tr>`) + `<tr id="doneRowsAnchor"></tr>`;
     // today's finished ones stay in the list, struck through, so the day's work is visible
     send({ type: "hunt-done" }).then((r) => {
       const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
@@ -609,8 +632,17 @@ function showTable(kind) {
       anchor.outerHTML = done.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Done today — ${done.length}</td></tr>` + done.map((d) => `<tr class="done"><td><b>${esc(d.title)}</b><br><span style="color:#98a0b3">r/${esc(d.sub)} · ${esc(d.author)}</span></td><td class="mark">${d.repliedAt ? "reply ✓" : ""}</td><td class="mark">${d.dmAt ? "DM ✓" : ""}</td><td></td><td class="when">${new Date(d.at).toLocaleTimeString()}</td><td></td></tr>`).join("") : "";
       $("tableTitle").textContent = (queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`) + ` · done today ${done.length}`;
     });
+    for (const cb of $("tableRows").querySelectorAll("input.rowpick")) {
+      cb.onclick = (e) => { e.stopPropagation(); if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); paintBulk(); };
+    }
+    $("pickAll").onclick = () => {
+      for (const cb of $("tableRows").querySelectorAll("input.rowpick")) { cb.checked = $("pickAll").checked; if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); }
+      paintBulk();
+    };
+    paintBulk();
     for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
-      tr.onclick = () => {
+      tr.onclick = (e) => {
+        if (e.target && e.target.classList && e.target.classList.contains("rowpick")) return;
         const i = queue.findIndex((x) => x.id === tr.dataset.id);
         if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
         $("table").hidden = true; $("main").hidden = false; render();
@@ -652,6 +684,39 @@ function showTable(kind) {
 }
 $("sQueueBtn").onclick = () => showTable("queue");
 $("sSpendWrap").onclick = () => showTable("spend");
+$("schedChip").onclick = () => showTable("schedule");
+
+// ---- selecting rows, then skipping or scheduling them ----------------------
+function paintBulk() {
+  const n = picked.size;
+  $("bulkBar").hidden = n === 0;
+  $("bulkCount").textContent = `${n} selected`;
+}
+async function bulk(action) {
+  const ids = [...picked];
+  if (!ids.length) return;
+  const r = await send({ type: "hunt-bulk", ids, action });
+  picked.clear();
+  queue = queue.filter((q) => !ids.includes(q.id));
+  if (cur && ids.includes(cur.id)) { cur = queue[0] || null; variant = 0; }
+  await refresh(false);
+  showTable("queue");
+  $("sPoll").textContent = `${(r && r.n) || 0} posts ${action === "skip" ? "skipped" : action === "later" ? "put off until tomorrow" : "marked not relevant"}`;
+}
+$("bulkSkip").onclick = () => bulk("skip");
+$("bulkBad").onclick = () => bulk("not_relevant");
+$("bulkLater").onclick = () => bulk("later");
+$("bulkNone").onclick = () => { picked.clear(); showTable("queue"); };
+$("bulkSched").onclick = async () => {
+  const ids = [...picked];
+  if (!ids.length) return;
+  const gapMin = Math.max(1, Number($("bulkGap").value) || 5);
+  const r = await send({ type: "hunt-schedule", ids, gapMin, dmAfterSec: 60 });
+  picked.clear();
+  await refresh(false);
+  showTable("schedule");
+  $("sPoll").textContent = `${(r && r.added) || 0} posts scheduled, one every ${gapMin} minutes`;
+};
 $("backupWarn").onclick = () => { $("setup").hidden = false; $("aiPanel").hidden = true; $("doBackup").scrollIntoView({ behavior: "smooth", block: "center" }); };
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
