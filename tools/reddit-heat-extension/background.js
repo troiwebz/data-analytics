@@ -838,6 +838,8 @@ async function huntQueue(limit = 40) {
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     schedule: (st.schedule || []).filter((x) => !x.state).length,
+    scheduleAll: (st.schedule || []).length,
+    scheduleSent: (st.schedule || []).filter((x) => x.state === "sent" || x.state === "done").length,
     scheduleNext: Math.min(...[Infinity, ...(st.schedule || []).filter((x) => !x.state).map((x) => x.at)]),
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,

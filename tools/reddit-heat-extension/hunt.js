@@ -346,11 +346,20 @@ async function refresh(keepCurrent = true) {
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").title = r.lastReport || "";
+  // always reachable: the schedule is also the record of what was sent, and a
+  // chip that disappears when nothing is waiting is a chip nobody can find
+  $("schedChip").hidden = false;
   if (r.schedule) {
     const mins = Math.max(0, Math.round((r.scheduleNext - Date.now()) / 60000));
-    $("schedChip").hidden = false;
     $("schedChip").textContent = `Scheduled ${r.schedule} · next in ${mins}m`;
-  } else $("schedChip").hidden = true;
+    $("schedChip").style.color = "";
+  } else if (r.scheduleAll) {
+    $("schedChip").textContent = `Schedule · ${r.scheduleSent} sent`;
+    $("schedChip").style.color = "#7ee29a";
+  } else {
+    $("schedChip").textContent = "Schedule · nothing yet";
+    $("schedChip").style.color = "#98a0b3";
+  }
   // a bulk skip is undoable for an hour, by the batch, from the header
   const lb = r.lastBulk;
   const fresh30 = lb && lb.ids && lb.ids.length && Date.now() - lb.at < 3600000;
@@ -706,7 +715,7 @@ async function drawSchedule() {
       + `<td>${esc(x.author ? "u/" + x.author : "")}${x.sub ? ` <span style="color:#98a0b3">r/${esc(x.sub)}</span>` : ""} ${link}<br><span style="color:#98a0b3">${esc(String(x.title).slice(0, 70))}</span></td>`
       + `<td style="color:${colour}"><b>${esc(word)}</b>${detail ? `<br><span style="color:#98a0b3">${esc(detail)}</span>` : ""}</td>`
       + `<td>${act}</td></tr>`;
-  }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled. Tick some rows in the queue and press "Schedule these".'}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled yet. Tick the boxes on the left of the queue rows, then use the bar that appears at the top of the list: set the minutes apart and press "Schedule these".'}</td></tr>`;
   for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id, kind: b.dataset.kind }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.schedNow")) b.onclick = async () => {
     b.textContent = "opening…"; b.disabled = true;
