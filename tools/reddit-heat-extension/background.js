@@ -925,6 +925,10 @@ function aiCents(model, u) {
 // (a prefix hit costs a tenth), fallbacks only where the model supports them.
 function aiBody(model, system, user, schema, maxTokens) {
   const body = { model, max_tokens: maxTokens, output_config: { effort: "low", format: { type: "json_schema", schema } }, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] };
+  // Thinking is ON by default on these models and every thinking token is
+  // billed as output. Filling six short slots does not need it, and on Sonnet
+  // turning it off is supported, so these calls cost what they look like.
+  if (model === "claude-sonnet-5") body.thinking = { type: "disabled" };
   if (model === "claude-opus-5") body.fallbacks = "default";
   return body;
 }
