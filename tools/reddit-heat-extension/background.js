@@ -131,6 +131,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-campaign-get") { campaignSettings().then(reply); return true; }
   if (msg.type === "hunt-reset") { huntReset(msg.mode).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-reset-undo") { huntResetUndo().then(reply); return true; }
+  if (msg.type === "hunt-rejects") { huntRejects(msg.limit || 200).then(reply); return true; }
+  if (msg.type === "hunt-rescue") { huntRescue(msg.id).then(reply); return true; }
   if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
   if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
   if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
@@ -583,6 +585,7 @@ async function huntGet() {
     sent: Array.isArray(hunt.sent) ? hunt.sent : [],   // fingerprints of the last DMs built, so none repeats
     lastReport: hunt.lastReport || "",
     lastBulk: hunt.lastBulk || null,   // the last batch you skipped, so it can be put back
+    rejects: Array.isArray(hunt.rejects) ? hunt.rejects : [],
   };
 }
 async function huntSet(patch) {
@@ -642,14 +645,21 @@ async function huntFetch(url) {
 }
 
 // Turn a Reddit JSON child into a hunt candidate, or null if it isn't one.
-function huntCandidate(child) {
+function huntCandidate(child, why) {
   const d = child && child.data;
   if (!d || d.stickied || d.over_18) return null;
   const author = (d.author || "").trim();
   if (!author || author === "[deleted]" || /^automoderator$/i.test(author)) return null;
   const title = d.title || "", body = d.selftext || "";
   const c = classifyCofounder(title, body);
-  if (!c.keep) return null;
+  if (!c.keep) {
+    // Kept, in short, so the 88 posts a scan throws away are not invisible.
+    if (why) why.push({ id: d.name || ("t3_" + d.id), author, sub: d.subreddit || "", title,
+      body: body.slice(0, 1500), permalink: "https://www.reddit.com" + (d.permalink || ""),
+      created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0, ups: d.score || 0,
+      why: c.why || "not a co-founder ask", at: Date.now() });
+    return null;
+  }
   return {
     id: d.name || ("t3_" + d.id),
     author,
@@ -717,13 +727,14 @@ async function huntPoll(force) {
 
   const posts = st.posts;
   let added = 0, seen = 0, error = "", ok = 0, known = 0, dropped = 0;
+  const rejects = [];
   for (const url of urls) {
     try {
       const j = await huntFetch(url);
       ok += 1;
       for (const child of (j.data && j.data.children) || []) {
         seen += 1;
-        const cand = huntCandidate(child);
+        const cand = huntCandidate(child, rejects);
         if (!cand) { dropped += 1; continue; }
         if (cand.created && Date.now() - cand.created > (st.maxAgeH + 12) * 3600000) continue;
         const prev = posts[cand.id];
@@ -740,7 +751,13 @@ async function huntPoll(force) {
     if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
   }
   const report = `scanned ${seen} posts in ${picks.map((x) => "r/" + x).join(", ")} + search · ${added} new co-founder ask${added === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a co-founder ask${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
-  await huntSet({ posts, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
+  // the last few hundred it said no to, newest first, so you can check its work
+  const seenReject = new Set();
+  const keptRejects = [...rejects, ...(Array.isArray(st.rejects) ? st.rejects : [])]
+    .filter((r) => (seenReject.has(r.id) ? false : seenReject.add(r.id)))
+    .filter((r) => Date.now() - (r.created || r.at || 0) < 7 * 86400000)
+    .slice(0, 400);
+  await huntSet({ posts, rejects: keptRejects, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
   return { ok: true, added, seen, known, dropped, checked: ok, error: ok ? "" : error, report };
 }
 
@@ -844,6 +861,7 @@ async function huntQueue(limit = 40) {
     lastBulk: st.lastBulk || null,
     undoReset: ((await chrome.storage.local.get(["undoReset"])).undoReset || {}).at || 0,
     skippedTotal: all.filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now())).length,
+    rejectTotal: (st.rejects || []).filter((r) => !st.posts[r.id]).length,
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     schedule: (st.schedule || []).filter((x) => !x.state).length,
@@ -1164,6 +1182,29 @@ async function huntResetUndo() {
   await chrome.storage.local.set(patch);
   await chrome.storage.local.remove("undoReset");
   return { ok: true, posts: Object.keys(undoReset.hunt.posts || {}).length, contacted: Object.keys(undoReset.hunt.contacted || {}).length };
+}
+// What the scan threw away, and why. The classifier is a guess, so it has to
+// be checkable: 88 posts dropped in one sweep is 88 chances it was wrong.
+async function huntRejects(limit = 200) {
+  const st = await huntGet();
+  const have = st.posts || {};
+  return { rows: (st.rejects || []).filter((r) => !have[r.id]).slice(0, limit) };
+}
+// Put one back into the queue by hand, whatever the classifier thought.
+async function huntRescue(id) {
+  const st = await huntGet();
+  const r = (st.rejects || []).find((x) => x.id === id);
+  if (!r) return { ok: false, error: "that one is no longer held" };
+  if (st.posts[id]) return { ok: true, already: true };
+  const c = classifyCofounder(r.title || "", r.body || "");
+  st.posts[id] = {
+    id, author: r.author, sub: r.sub, title: r.title, body: r.body || "", permalink: r.permalink,
+    created: r.created || r.at || Date.now(), comments: r.comments || 0, ups: r.ups || 0, flair: "",
+    role: c.role || "unclear", stage: c.stage, equityOnly: !!c.equityOnly, hasBudget: !!c.hasBudget,
+    firstSeen: Date.now(), rescued: true,
+  };
+  await huntSet({ posts: st.posts, rejects: (st.rejects || []).filter((x) => x.id !== id) });
+  return { ok: true };
 }
 // Everything you have put aside: skipped, not relevant, or parked until tomorrow.
 async function huntSkipped() {

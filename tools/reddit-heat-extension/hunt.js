@@ -388,6 +388,8 @@ async function refresh(keepCurrent = true) {
   $("undoReset").hidden = !(r.undoReset && Date.now() - r.undoReset < 86400000);
   if (!$("undoReset").hidden) $("undoReset").textContent = `Undo the reset · ${ago(r.undoReset)}`;
   $("sSkippedBtn").hidden = !r.skippedTotal;
+  $("sRejectBtn").hidden = !r.rejectTotal;
+  $("sReject").textContent = r.rejectTotal || 0;
   campChip();
   $("sSkipped").textContent = r.skippedTotal || 0;
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
@@ -411,6 +413,20 @@ async function refresh(keepCurrent = true) {
   cur = queue[0] || null;
   if (!cur || cur.id !== prevId) variant = 0;
   render();
+  // The table is the same data as the chips. When the window, a skip or a send
+  // changes what is in the queue, redraw it too: otherwise it sits there
+  // saying "Queue (3)" while the header says 16, and posts already done are
+  // still listed as waiting.
+  if (!$("table").hidden && tableKind && !tableDrawing) {
+    tableDrawing = true;
+    const find = $("tableFind").value;
+    const y = window.scrollY;
+    try {
+      showTable(tableKind);
+      if (find) { $("tableFind").value = find; $("tableFind").oninput(); }
+      window.scrollTo(0, y);
+    } finally { tableDrawing = false; }
+  }
 }
 
 // ---- sort and filter: by age, country, wants, who, stage, money, a word ----
@@ -836,7 +852,10 @@ async function drawSchedule() {
   clearTimeout(schedTimer);
   schedTimer = setTimeout(() => { if (!$("table").hidden && $("tableHead").textContent.includes("When")) drawSchedule(); }, 15000);
 }
+let tableKind = "";
+let tableDrawing = false;
 function showTable(kind) {
+  tableKind = kind;
   $("table").hidden = false;
   if ($("skBar")) $("skBar").hidden = kind !== "skipped";
   if ($("schedTabs")) { $("schedTabs").hidden = kind !== "schedule"; $("schedGate").textContent = ""; }
@@ -878,6 +897,31 @@ function showTable(kind) {
       + `</td></tr>`;
     $("tableRows").innerHTML = (rows + left + foot) || `<tr><td colspan="5" style="color:#98a0b3">Nothing in the queue to plan.</td></tr>`;
     tableText = () => r.rows.map((x) => `${clock(x.replyAt || x.dmAt)} u/${x.author} ${x.reply ? "comment + DM" : "DM"} — ${x.title}`).join("\n");
+    return;
+  }
+  if (kind === "rejects") {
+    $("tableTitle").textContent = "Filtered out";
+    $("tableNote").textContent = "Posts the scan read and decided were not co-founder asks, newest first, with the reason it gave. It is a guess and it is often wrong, so this is where you check it. Put any of them in the queue and it behaves like any other post. Held for seven days.";
+    $("tableHead").innerHTML = "<tr><th>Post</th><th>Who</th><th>Why it was dropped</th><th>Age</th><th></th></tr>";
+    $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">reading…</td></tr>`;
+    tableText = () => "";
+    send({ type: "hunt-rejects" }).then((r) => {
+      if (!r) return;
+      $("tableTitle").textContent = `Filtered out · ${r.rows.length}`;
+      $("tableRows").innerHTML = r.rows.map((x) => `<tr>`
+        + `<td><a href="${esc(x.permalink || "#")}" target="_blank" rel="noopener">${esc(String(x.title || "(no title)").slice(0, 90))}</a>`
+        + `<br><span style="color:#98a0b3">r/${esc(x.sub || "")}</span></td>`
+        + `<td>${esc(x.author ? "u/" + x.author : "")}</td>`
+        + `<td style="color:#e6c76b">${esc(x.why || "not a co-founder ask")}</td>`
+        + `<td style="color:#98a0b3">${esc(ago(x.created || x.at || 0))}</td>`
+        + `<td><button class="ghost rescue" data-id="${esc(x.id)}">Put in the queue</button></td></tr>`).join("")
+        || `<tr><td colspan="5" style="color:#98a0b3">Nothing has been filtered out in the last seven days.</td></tr>`;
+      for (const b of $("tableRows").querySelectorAll("button.rescue")) b.onclick = async () => {
+        b.disabled = true; b.textContent = "adding…";
+        await send({ type: "hunt-rescue", id: b.dataset.id });
+        showTable("rejects"); refresh(false);
+      };
+    });
     return;
   }
   if (kind === "skipped") {
@@ -1248,6 +1292,7 @@ $("dropLoose").onclick = async () => {
   $("dropLoose").hidden = true;
 };
 $("sSkippedBtn").onclick = () => showTable("skipped");
+$("sRejectBtn").onclick = () => showTable("rejects");
 async function doReset(mode) {
   const all = mode === "all";
   const msg = all
