@@ -77,10 +77,13 @@ function barChart(host, bars, { height = 190, everyNthLabel = 1, unit = 'threads
     const x = padL + i * step + off;
     const h = Math.max(b.value > 0 ? 2 : 0, plotH - (y(b.value) - padT));
     const r = Math.min(4, bw / 2, h);
-    return `<rect class="hit" x="${padL + i * step}" y="${padT}" width="${step}" height="${plotH}"
-              data-i="${i}"></rect>` +
-           `<rect class="bar" ${b.soft ? `style="fill:url(#part-${host.id})"` : ''} x="${x}" y="${y(b.value)}"
-              width="${bw}" height="${h}" rx="${r}" ry="${r}"></rect>`;
+    // The hit target goes AFTER the bar, so it sits on top of it. With the bar
+    // painted last, the pointer kept crossing from the target onto the bar and
+    // back, and the tooltip blinked in and out instead of following the cursor.
+    return `<rect class="bar" ${b.soft ? `style="fill:url(#part-${host.id})"` : ''} x="${x}" y="${y(b.value)}"
+              width="${bw}" height="${h}" rx="${r}" ry="${r}"></rect>` +
+           `<rect class="hit" x="${padL + i * step}" y="${padT}" width="${step}" height="${plotH}"
+              data-i="${i}"></rect>`;
   }).join('');
 
   const labels = bars.map((b, i) => (i % everyNthLabel === 0
@@ -106,10 +109,26 @@ function barChart(host, bars, { height = 190, everyNthLabel = 1, unit = 'threads
     bars.map((b) => `<tr><td>${esc(b.full || b.label)}</td><td class="n">${b.value}</td></tr>`).join('') +
     `</tbody></table></details>`;
 
-  host.querySelectorAll('.hit').forEach((el) => {
-    const b = bars[Number(el.dataset.i)];
-    el.addEventListener('mousemove', (e) => showTip(e, b.tip));
-    el.addEventListener('mouseleave', hideTip);
+  // One listener on the chart rather than one per bar, so moving between bars
+  // is a single event and never a leave followed by an enter.
+  const svg = host.querySelector('svg');
+  const rects = [...host.querySelectorAll('rect.bar')];
+  let onIndex = -1;
+  svg.addEventListener('mousemove', (e) => {
+    const hit = e.target.closest('rect.hit');
+    if (!hit) return;
+    const i = Number(hit.dataset.i);
+    if (i !== onIndex) {
+      rects[onIndex]?.classList.remove('on');
+      rects[i]?.classList.add('on');
+      onIndex = i;
+    }
+    showTip(e, bars[i].tip);
+  });
+  svg.addEventListener('mouseleave', () => {
+    rects[onIndex]?.classList.remove('on');
+    onIndex = -1;
+    hideTip();
   });
 }
 

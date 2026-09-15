@@ -37,14 +37,16 @@
   .axis line{stroke:var(--axis);stroke-width:1}
   .tick{fill:var(--muted);font-size:11px}
   .val{fill:var(--ink2);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
-  .bar{fill:var(--series)}
+  /* The bar never takes the pointer; the transparent target above it does.
+     Two elements both reacting is what made the tooltip flicker. */
+  .bar{fill:var(--series);pointer-events:none}
+  .bar.on{fill:#1c5cab}
   /* Today is incomplete, so it is hatched rather than recoloured: a second
      shade reads as a different amount, and on a dark surface a "paler" step
      is a darker one, which reads as more. */
   .hatch-bg{fill:var(--surface)}
   .hatch-line{stroke:var(--series);stroke-width:3}
   .hit{fill:transparent;cursor:pointer}
-  .hit:hover + .bar,.bar.on{fill:#1c5cab}
   .tip{position:fixed;pointer-events:none;background:#0f172a;color:#fff;font-size:12px;line-height:1.45;
     padding:7px 10px;border-radius:8px;opacity:0;transition:opacity .12s;max-width:260px;z-index:9}
   .tip b{font-variant-numeric:tabular-nums}

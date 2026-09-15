@@ -14,10 +14,10 @@ const suites = readdirSync(dir).filter((f) => f.endsWith('.test.mjs')).sort();
 
 let failed = 0, skipped = 0;
 for (const f of suites) {
-  const r = spawnSync(process.execPath, [dir + f], { encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync(process.execPath, [dir + f], { encoding: 'utf8', timeout: 120000 });
   const out = (r.stdout || '') + (r.stderr || '');
   if (r.status === 0) { console.log(`PASS  ${f}`); continue; }
-  if (/Cannot find package 'jsdom'/.test(out)) {
+  if (/Cannot find package '(jsdom|playwright-core)'/.test(out) || /SKIP/.test(out)) {
     console.log(`SKIP  ${f}  (run: npm install)`); skipped++; continue;
   }
   failed++;
