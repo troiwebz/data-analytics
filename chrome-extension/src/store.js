@@ -88,30 +88,30 @@ export async function getRateState() {
   return r;
 }
 
-/** Returns { ok: true } or { ok: false, reason } without mutating state. */
-export async function checkRateLimit(cfg) {
-  const r = await getRateState();
-  if (r.count >= cfg.maxPostsPerDay) {
-    return { ok: false, reason: `daily cap reached (${cfg.maxPostsPerDay})` };
-  }
-  const waitMs = cfg.minMinutesBetweenPosts * 60000 - (Date.now() - r.lastPostAt);
-  if (r.lastPostAt && waitMs > 0) {
-    return { ok: false, reason: `spacing: ${Math.ceil(waitMs / 60000)} min to go` };
+/**
+ * Both limits are yours. Every one of the four numbers is editable in
+ * Settings, and **0 means no limit**: 0 a day is unlimited, 0 minutes apart is
+ * back to back. Nothing here is a floor the extension insists on.
+ *
+ * Returns { ok: true } or { ok: false, reason } without mutating state.
+ */
+function gate(used, lastAt, cap, gapMinutes, what) {
+  if (cap > 0 && used >= cap) return { ok: false, reason: `your daily ${what} limit of ${cap} is used up` };
+  const waitMs = (gapMinutes || 0) * 60000 - (Date.now() - (lastAt || 0));
+  if (gapMinutes > 0 && lastAt && waitMs > 0) {
+    return { ok: false, reason: `your ${gapMinutes} min spacing: ${Math.ceil(waitMs / 60000)} min to go` };
   }
   return { ok: true };
 }
 
-/** Same shape as checkRateLimit, for DMs. */
+export async function checkRateLimit(cfg) {
+  const r = await getRateState();
+  return gate(r.count, r.lastPostAt, Number(cfg.maxPostsPerDay) || 0, Number(cfg.minMinutesBetweenPosts) || 0, 'reply');
+}
+
 export async function checkDmLimit(cfg) {
   const r = await getRateState();
-  if ((r.dmCount || 0) >= cfg.maxDmsPerDay) {
-    return { ok: false, reason: `daily DM cap reached (${cfg.maxDmsPerDay})` };
-  }
-  const waitMs = cfg.minMinutesBetweenDms * 60000 - (Date.now() - (r.lastDmAt || 0));
-  if (r.lastDmAt && waitMs > 0) {
-    return { ok: false, reason: `DM spacing: ${Math.ceil(waitMs / 60000)} min to go` };
-  }
-  return { ok: true };
+  return gate(r.dmCount || 0, r.lastDmAt, Number(cfg.maxDmsPerDay) || 0, Number(cfg.minMinutesBetweenDms) || 0, 'PM');
 }
 
 export async function recordDm() {

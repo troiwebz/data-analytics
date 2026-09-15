@@ -205,8 +205,14 @@ function doneTag(l) {
  * closes, red at the cap, so the state is readable without doing the sum.
  */
 function meter(label, used, cap) {
-  const max = Math.max(1, Number(cap) || 1);
-  const pct = Math.min(100, Math.round((used / max) * 100));
+  // 0 means the limit is off, so there is nothing to fill: show the count and
+  // leave the track empty rather than pretending the cap is 1 and sitting red.
+  if (!(Number(cap) > 0)) {
+    return `<span class="meter" title="${esc(label)}: no limit set">` +
+           `<span class="mtop">${esc(label)} <b>${used}</b></span>` +
+           `<span class="mbar"></span></span>`;
+  }
+  const pct = Math.min(100, Math.round((used / cap) * 100));
   const colour = pct >= 100 ? '#dc2626' : pct >= 80 ? '#f59e0b' : '#22c55e';
   return `<span class="meter" title="${esc(label)}: ${used} of ${cap} used today">` +
          `<span class="mtop">${esc(label)} <b>${used}/${cap}</b></span>` +

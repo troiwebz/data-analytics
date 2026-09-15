@@ -137,12 +137,18 @@
   </div>
 
   <div class="c">
-    <h2>Posting</h2>
+    <h2>Your limits <span class="hint">all four are yours — 0 means no limit</span></h2>
+    <p class="hint" style="margin:0 0 10px">Set any of these to <b>0</b> and that limit is off: 0 a day is
+      unlimited, 0 minutes apart lets you go back to back. Nothing is enforced beyond what you type here.
+      They exist because volume and speed are what forum moderators notice, not because the extension
+      insists on them.</p>
     <label class="sw"><input type="checkbox" id="autoPost"> Act on 🚀 taps from Telegram <span class="hint">(nothing posts without a tap)</span></label>
     <div class="row">
       <div><label>Min score to send <span class="hint">0 = everything</span></label><input type="number" id="notifyScore" min="0"></div>
-      <div><label>Max posts per day</label><input type="number" id="maxPostsPerDay" min="1"></div>
-      <div><label>Min minutes between posts</label><input type="number" id="minMinutesBetweenPosts" min="0"></div>
+      <div><label>Max replies per day</label><input type="number" id="maxPostsPerDay" min="0"></div>
+      <div><label>Min minutes between replies</label><input type="number" id="minMinutesBetweenPosts" min="0"></div>
+      <div><label>Max PMs per day</label><input type="number" id="maxDmsPerDay" min="0"></div>
+      <div><label>Min minutes between PMs</label><input type="number" id="minMinutesBetweenDms" min="0"></div>
     </div>
   </div>
 

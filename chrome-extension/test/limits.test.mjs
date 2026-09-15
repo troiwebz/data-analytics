@@ -73,5 +73,29 @@ ok('undoing a reply returns its slot', (await getRateState()).count === 0);
 await send({ cmd: 'mark', threadId: 'c', status: 'SKIPPED' });
 ok('skipping costs no slot', (await getRateState()).count === 0);
 
+// Every limit is the user's. 0 must mean off, not "blocked forever".
+const { checkRateLimit, checkDmLimit } = await import('../src/store.js');
+const unlimited = { maxPostsPerDay: 0, minMinutesBetweenPosts: 0, maxDmsPerDay: 0, minMinutesBetweenDms: 0 };
+
+bags.local.rateState = { day: new Date().toLocaleDateString('en-CA'),
+                         count: 99, lastPostAt: Date.now(), dmCount: 99, lastDmAt: Date.now() };
+ok('0 a day means no daily limit (replies)', (await checkRateLimit(unlimited)).ok, JSON.stringify(await checkRateLimit(unlimited)));
+ok('0 a day means no daily limit (PMs)', (await checkDmLimit(unlimited)).ok, JSON.stringify(await checkDmLimit(unlimited)));
+ok('0 minutes means back to back', (await checkDmLimit({ ...unlimited, maxDmsPerDay: 500 })).ok);
+
+// A spacing the user chose is still honoured, and says whose it is.
+const spaced = await checkDmLimit({ maxDmsPerDay: 0, minMinutesBetweenDms: 5 });
+ok('a spacing you set is still applied', !spaced.ok && /5 min spacing/.test(spaced.reason), JSON.stringify(spaced));
+const capped = await checkDmLimit({ maxDmsPerDay: 8, minMinutesBetweenDms: 0 });
+ok('a cap you set is still applied', !capped.ok && /your daily PM limit of 8/.test(capped.reason), JSON.stringify(capped));
+
+// Nothing left over from before: the old code blocked at 5 minutes by default
+// whatever the config said, which is what this is here to stop coming back.
+bags.local.rateState = { day: new Date().toLocaleDateString('en-CA'), count: 0, lastPostAt: Date.now() - 1000,
+                         dmCount: 0, lastDmAt: Date.now() - 1000 };
+ok('a PM one second after the last one is fine when you allow it',
+   (await checkDmLimit({ maxDmsPerDay: 0, minMinutesBetweenDms: 0 })).ok);
+ok('and a reply too', (await checkRateLimit({ maxPostsPerDay: 0, minMinutesBetweenPosts: 0 })).ok);
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
