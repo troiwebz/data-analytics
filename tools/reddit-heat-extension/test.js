@@ -888,3 +888,46 @@ console.log("a first message has nothing to click: ok");
   assert.strictEqual(H.titleForRow("SaaS for clinics"), "SaaS for clinics", "a short title with caps in it is not shouted at");
 }
 console.log("titles fit their row: ok");
+
+// The project hunt: people with a budget asking who to hire.
+{
+  assert.deepStrictEqual(H.HUNTS.map((h) => h.key), ["cofounder", "project"]);
+  assert.strictEqual(H.huntDef("project").label, "Project hunt");
+  assert.strictEqual(H.huntDef("nonsense").key, "cofounder", "an unknown hunt falls back to the first");
+  assert.ok(H.PROJECT_SUBS.length > 15 && H.PROJECT_SUBS.includes("smallbusiness") && H.PROJECT_SUBS.includes("PPC"));
+  assert.notStrictEqual(H.subsFor("project"), H.subsFor("cofounder"), "each hunt has its own list");
+  const keep = [
+    ["Looking for an agency to run our Google Ads, budget $4k a month", "Dental group.", "Google Ads"],
+    ["Who do you hire for local SEO these days", "Restaurant, willing to pay a retainer.", "local SEO"],
+    ["Anyone know a good Meta ads freelancer? We spend 10k a month", "Ecommerce brand.", "Meta ads"],
+    ["Need a developer to build our booking website, we have budget", "Small gym.", "a website"],
+    ["Hiring a VA for back office work, paid monthly", "20 hours a week.", "a VA team"],
+  ];
+  for (const [t, b, kind] of keep) {
+    const r = H.classifyProject(t, b);
+    assert.strictEqual(r.keep, true, "should keep: " + t + " (" + r.why + ")");
+    assert.strictEqual(r.kind, kind, t + " → " + r.kind);
+    assert.strictEqual(r.role, "project");
+  }
+  const drop = [
+    ["[For Hire] I build websites for $500", "portfolio inside", /selling|offering/],
+    ["My agency is taking on new clients", "we do SEO", /offering/],
+    ["DM for rates, we run Meta ads", "5 years experience", /offering/],
+    ["Looking for a technical co-founder for my app", "equity only", /budget|co-founder/],
+    ["Need help growing, no budget at all", "bootstrapped", /budget/],
+    ["How do I get more customers?", "just asking", /hired/],
+    ["Looking for a job as a marketer", "5 years experience", /job/],
+  ];
+  for (const [t, b, why] of drop) {
+    const r = H.classifyProject(t, b);
+    assert.strictEqual(r.keep, false, "should drop: " + t);
+    assert.ok(why.test(r.why), t + " → " + r.why);
+  }
+  // the two classifiers disagree on purpose: a paid brief is not a co-founder ask
+  assert.strictEqual(H.classifyFor("project", keep[0][0], keep[0][1]).keep, true);
+  assert.strictEqual(H.classifyFor("cofounder", keep[0][0], keep[0][1]).keep, false);
+  const co = "Looking for a technical co-founder for my clinic booking app";
+  assert.strictEqual(H.classifyFor("cofounder", co, "We have 30 paying clinics.").keep, true);
+  assert.strictEqual(H.classifyFor("project", co, "We have 30 paying clinics.").keep, false);
+}
+console.log("the project hunt: ok");

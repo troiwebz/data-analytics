@@ -114,7 +114,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
   if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
-  if (msg.type === "hunt-done") { huntGet().then((st) => { const rows = Object.values(st.posts).filter((p) => p.repliedAt || p.dmAt).map((p) => ({ id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink, created: p.created || p.firstSeen || 0, score: p.score || 0, repliedAt: p.repliedAt || 0, dmAt: p.dmAt || 0, at: Math.max(p.repliedAt || 0, p.dmAt || 0) })).sort((a, b) => b.at - a.at); reply({ rows }); }); return true; }
+  if (msg.type === "hunt-done") { huntGet().then((st) => { const rows = Object.values(st.posts).filter((p) => (p.hunt === "project" ? "project" : "cofounder") === st.target).filter((p) => p.repliedAt || p.dmAt).map((p) => ({ id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink, created: p.created || p.firstSeen || 0, score: p.score || 0, repliedAt: p.repliedAt || 0, dmAt: p.dmAt || 0, at: Math.max(p.repliedAt || 0, p.dmAt || 0) })).sort((a, b) => b.at - a.at); reply({ rows }); }); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "version-state") { versionState().then(reply); return true; }
@@ -131,6 +131,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-campaign-get") { campaignSettings().then(reply); return true; }
   if (msg.type === "hunt-reset") { huntReset(msg.mode).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-reset-undo") { huntResetUndo().then(reply); return true; }
+  if (msg.type === "hunt-target") { huntSet({ target: msg.target === "project" ? "project" : "cofounder" }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-rejects") { huntRejects(msg.limit || 200).then(reply); return true; }
   if (msg.type === "hunt-rescue") { huntRescue(msg.id).then(reply); return true; }
   if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
@@ -586,6 +587,8 @@ async function huntGet() {
     lastReport: hunt.lastReport || "",
     lastBulk: hunt.lastBulk || null,   // the last batch you skipped, so it can be put back
     rejects: Array.isArray(hunt.rejects) ? hunt.rejects : [],
+    target: hunt.target === "project" ? "project" : "cofounder",
+    projectSubs: hunt.projectSubs && hunt.projectSubs.length ? hunt.projectSubs : PROJECT_SUBS,
   };
 }
 async function huntSet(patch) {
@@ -645,19 +648,21 @@ async function huntFetch(url) {
 }
 
 // Turn a Reddit JSON child into a hunt candidate, or null if it isn't one.
-function huntCandidate(child, why) {
+function huntCandidate(child, why, target) {
   const d = child && child.data;
   if (!d || d.stickied || d.over_18) return null;
   const author = (d.author || "").trim();
   if (!author || author === "[deleted]" || /^automoderator$/i.test(author)) return null;
   const title = d.title || "", body = d.selftext || "";
-  const c = classifyCofounder(title, body);
+  // which hunt this post is being judged for: the list it came from decides
+  const hunt = target === "project" ? "project" : "cofounder";
+  const c = classifyFor(hunt, title, body);
   if (!c.keep) {
     // Kept, in short, so the 88 posts a scan throws away are not invisible.
-    if (why) why.push({ id: d.name || ("t3_" + d.id), author, sub: d.subreddit || "", title,
+    if (why) why.push({ id: d.name || ("t3_" + d.id), author, sub: d.subreddit || "", title, hunt,
       body: body.slice(0, 1500), permalink: "https://www.reddit.com" + (d.permalink || ""),
       created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0, ups: d.score || 0,
-      why: c.why || "not a co-founder ask", at: Date.now() });
+      why: c.why || "not a match", at: Date.now() });
     return null;
   }
   return {
@@ -672,6 +677,7 @@ function huntCandidate(child, why) {
     ups: d.score || 0,
     flair: d.link_flair_text || "",
     role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget,
+    hunt, kind: c.kind || "", budget: c.budget || "",
     firstSeen: Date.now(),
   };
 }
@@ -717,30 +723,39 @@ async function huntPoll(force) {
     return { ok: true, added: fromServer.added, seen: fromServer.seen, via: "server", error: fromServer.error || "" };
   }
   if (fromServer && fromServer.failed) await huntSet({ lastError: "server: " + fromServer.error });
+  // Both hunts are swept in the same pass, each over its own subreddits, and
+  // every post is judged by the hunt whose list it came from.
   const subs = st.subs;
   const n = force ? subs.length : Math.max(1, Math.min(8, st.perTick));   // Check now sweeps every subreddit
   const picks = [];
   for (let i = 0; i < n; i += 1) picks.push(subs[(st.cursor + i) % subs.length]);
+  const psubs = st.projectSubs && st.projectSubs.length ? st.projectSubs : PROJECT_SUBS;
+  const pn = force ? psubs.length : Math.max(1, Math.min(6, st.perTick));
+  const ppicks = [];
+  for (let i = 0; i < pn; i += 1) ppicks.push(psubs[(st.cursor + i) % psubs.length]);
   const query = HUNT_QUERIES[st.cursor % HUNT_QUERIES.length];
-  const urls = picks.map((s) => `https://old.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=25&raw_json=1`);
-  urls.push(`https://old.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`);
+  const urls = picks.map((x) => ({ url: `https://old.reddit.com/r/${encodeURIComponent(x)}/new.json?limit=25&raw_json=1`, hunt: "cofounder" }));
+  urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`, hunt: "cofounder" });
+  for (const sub of ppicks) urls.push({ url: `https://old.reddit.com/r/${encodeURIComponent(sub)}/new.json?limit=25&raw_json=1`, hunt: "project" });
 
   const posts = st.posts;
   let added = 0, seen = 0, error = "", ok = 0, known = 0, dropped = 0;
   const rejects = [];
-  for (const url of urls) {
+  let addedCo = 0, addedPr = 0;
+  for (const { url, hunt: target } of urls) {
     try {
       const j = await huntFetch(url);
       ok += 1;
       for (const child of (j.data && j.data.children) || []) {
         seen += 1;
-        const cand = huntCandidate(child, rejects);
+        const cand = huntCandidate(child, rejects, target);
         if (!cand) { dropped += 1; continue; }
         if (cand.created && Date.now() - cand.created > (st.maxAgeH + 12) * 3600000) continue;
         const prev = posts[cand.id];
         if (prev) { known += 1; prev.comments = cand.comments; prev.ups = cand.ups; continue; }
         posts[cand.id] = cand;
         added += 1;
+        if (cand.hunt === "project") addedPr += 1; else addedCo += 1;
       }
     } catch (e) { error = String(e.message || e); }
     await sleep(force ? 700 : 1200);           // stay well under Reddit's public pace
@@ -750,7 +765,7 @@ async function huntPoll(force) {
   for (const [id, p] of Object.entries(posts)) {
     if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
   }
-  const report = `scanned ${seen} posts in ${picks.map((x) => "r/" + x).join(", ")} + search · ${added} new co-founder ask${added === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a co-founder ask${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
+  const report = `scanned ${seen} posts in ${picks.length + ppicks.length} subreddits + search · ${addedCo} new co-founder ask${addedCo === 1 ? "" : "s"} · ${addedPr} new project${addedPr === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a match${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
   // the last few hundred it said no to, newest first, so you can check its work
   const seenReject = new Set();
   const keptRejects = [...rejects, ...(Array.isArray(st.rejects) ? st.rejects : [])]
@@ -820,7 +835,10 @@ async function huntQueue(limit = 40) {
   let blocked = 0;
   const maxAge = st.maxAgeH * 3600000;
   let stale = 0, later = 0;
+  const target = st.target;
+  const mine = (p) => (p.hunt === "project" ? "project" : "cofounder") === target;
   for (const p of Object.values(st.posts)) {
+    if (!mine(p)) continue;                       // the other hunt has its own queue
     if (p.act === "skip" || p.act === "not_relevant" || p.dmAt) continue;
     if (p.laterUntil && p.laterUntil > now) { later += 1; continue; }   // snoozed till tomorrow
     if (p.mine) { blocked += 1; continue; }              // you already commented there
@@ -847,7 +865,7 @@ async function huntQueue(limit = 40) {
   const yday = today.getTime() - 86400000;
   const contacted = Object.values(st.contacted);
   const doneAt = (p) => Math.max(p.repliedAt || 0, p.dmAt || 0);
-  const all = Object.values(st.posts);
+  const all = Object.values(st.posts).filter(mine);
   const doneToday = all.filter((p) => doneAt(p) >= today.getTime()).length;
   const doneYesterday = all.filter((p) => doneAt(p) >= yday && doneAt(p) < today.getTime()).length;
   const lastDone = Math.max(0, ...all.map(doneAt));
@@ -861,7 +879,8 @@ async function huntQueue(limit = 40) {
     lastBulk: st.lastBulk || null,
     undoReset: ((await chrome.storage.local.get(["undoReset"])).undoReset || {}).at || 0,
     skippedTotal: all.filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now())).length,
-    rejectTotal: (st.rejects || []).filter((r) => !st.posts[r.id]).length,
+    rejectTotal: (st.rejects || []).filter((r) => !st.posts[r.id] && (r.hunt === "project" ? "project" : "cofounder") === target).length,
+    target,
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     schedule: (st.schedule || []).filter((x) => !x.state).length,
@@ -1188,7 +1207,7 @@ async function huntResetUndo() {
 async function huntRejects(limit = 200) {
   const st = await huntGet();
   const have = st.posts || {};
-  return { rows: (st.rejects || []).filter((r) => !have[r.id]).slice(0, limit) };
+  return { rows: (st.rejects || []).filter((r) => !have[r.id] && (r.hunt === "project" ? "project" : "cofounder") === st.target).slice(0, limit) };
 }
 // Put one back into the queue by hand, whatever the classifier thought.
 async function huntRescue(id) {
@@ -1210,6 +1229,7 @@ async function huntRescue(id) {
 async function huntSkipped() {
   const st = await huntGet();
   const rows = Object.values(st.posts || {})
+    .filter((p) => (p.hunt === "project" ? "project" : "cofounder") === st.target)
     .filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now()))
     .map((p) => ({ id: p.id, title: p.title, author: p.author, sub: p.sub, permalink: p.permalink, created: p.created,
       why: p.cancelledBy === "ai" ? "AI: " + (p.cancelReason || "not a fit") : p.act === "not_relevant" ? "not relevant" : p.act === "skip" ? "skipped" : "later",

@@ -386,6 +386,7 @@ async function refresh(keepCurrent = true) {
   $("undoReset").hidden = !(r.undoReset && Date.now() - r.undoReset < 86400000);
   if (!$("undoReset").hidden) $("undoReset").textContent = `Undo the reset · ${ago(r.undoReset)}`;
   $("sSkippedBtn").hidden = !r.skippedTotal;
+  if (r.target && r.target !== target) { target = r.target; paintTarget(); }
   $("sRejectBtn").hidden = !r.rejectTotal;
   $("sReject").textContent = r.rejectTotal || 0;
   campChip();
@@ -1356,6 +1357,25 @@ $("dropLoose").onclick = async () => {
 };
 $("sSkippedBtn").onclick = () => showTable("skipped");
 $("sRejectBtn").onclick = () => showTable("rejects");
+// ---- two hunts, one machine -------------------------------------------
+// Switching swaps the queue, the counts and what the writer offers. The
+// contacted list is shared, so nobody is messaged from both.
+let target = "cofounder";
+function paintTarget() {
+  const def = huntDef(target);
+  $("huntTitle").textContent = def.label;
+  document.documentElement.style.setProperty("--or", def.colour);
+  for (const b of $("huntPick").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === target);
+}
+for (const b of $("huntPick").querySelectorAll("button")) b.onclick = async () => {
+  if (target === b.dataset.t) return;
+  target = b.dataset.t;
+  paintTarget();
+  await send({ type: "hunt-target", target });
+  cur = null; queue = []; allQueue = []; picked.clear(); openRow = "";
+  await refresh(false);
+  showTable("queue");
+};
 async function doReset(mode) {
   const all = mode === "all";
   const msg = all

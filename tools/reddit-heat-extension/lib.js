@@ -940,6 +940,71 @@ const HUNT_JOBSEEKER = /looking for (a |an )?(new |remote |full[- ]time |part[- 
 // Recruiters, agencies and people selling services are not prospects.
 const HUNT_SELLER = /\bfor hire\b|\bi(?:'m| am) (?:a|an) (?:agency|freelancer|dev shop|development (?:agency|company))|\bwe (?:are|build) (?:a|an) (?:agency|dev shop|software (?:house|agency))|\bhire us\b|\bour agency\b|\bdm me (?:for|if) (?:rates|pricing|a quote)|\bportfolio:|\bcheck out my (?:agency|studio|service)|\bstarting (?:at|from) (?:\$|€|£)/i;
 
+// ===========================================================================
+// THE PROJECT HUNT
+// A second target, hunted the same way: somebody with a budget looking to
+// hire a team for a defined piece of work. Not gig work, not equity, not
+// "co-founder wanted" - a company or a founder who has decided to pay
+// somebody and is asking who. The whole point is that money is already on
+// the table, so the message is a quote and a date, never a partnership.
+HEAT.PROJECT_SUBS = [
+  "smallbusiness", "Entrepreneur", "advancedentrepreneur", "sweatystartup", "consulting",
+  "marketing", "DigitalMarketing", "PPC", "FacebookAds", "googleads", "SEO", "bigseo",
+  "SaaS", "startups", "ecommerce", "shopify", "webdev", "web_design", "Emailmarketing",
+  "agency", "msp", "EntrepreneurRideAlong", "BusinessIntelligence", "analytics",
+];
+// The thing that makes a post worth a message: they are hiring, or looking
+// for who to hire, for something specific.
+const PROJECT_HIRE = /\b(?:looking (?:for|to hire)|need(?:ed|ing)? (?:an? )?(?:agency|team|freelancer|contractor|partner|vendor|developer|marketer|consultant)|hiring|want to hire|who (?:should|do) (?:i|we) hire|recommend(?:ations?)? (?:for|on)? ?(?:an? )?(?:agency|freelancer|developer|marketer|consultant)|any(?:one|body) (?:good )?(?:who can|that can|to|know|knows|used|tried|recommend|worked with)\b|know (?:of )?(?:a |an )?(?:good |great |reliable )?(?:agency|freelancer|developer|marketer|consultant|team|va\b)|who (?:do|did|does) (?:you|i|we) (?:hire|use|recommend)|request for proposal|\brfp\b|looking for quotes?|get(?:ting)? quotes?|scope of work|\bsow\b|outsourc\w+)\b/i;
+// Money on the table, said out loud.
+const PROJECT_BUDGET = /(?:[$£€]\s?\d[\d,.]*\s?(?:k\b|per month|\/mo|a month|monthly)?|\b\d+\s?k\s?(?:budget|per month|\/mo|a month)|\bbudget\b|\bretainer\b|\bpaid\b|\bpay(?:ing)?\b|\bper month\b|\bmonthly\b|\bquote\b|\binvoice\b|\bcontract\b)/i;
+// The things we can actually take on.
+const PROJECT_WORK = /\b(?:seo|local seo|google business|gbp|map pack|ppc|google ads|adwords|meta ads|facebook ads|instagram ads|tiktok ads|paid (?:ads|social|search)|marketing|lead gen\w*|email marketing|website|web ?site|landing page|shopify|wordpress|webflow|app|mobile app|saas|automation|crm|integration|data|dashboard|analytics|content|social media|video edit\w*|va\b|virtual assistant|back ?office|support|operations)\b/i;
+// What it is not: people selling, people looking for a job, unpaid, gigs.
+const PROJECT_NO_MONEY = /\b(?:no budget|zero budget|can'?t (?:afford|pay)|unpaid|for free|free of charge|equity only|revenue share only|commission only|exposure|portfolio piece|student project|\$?[0-5]\b ?(?:usd|dollars)? ?(?:per|an|\/) ?hour)\b/i;
+
+// The two hunts, side by side. Same machine: one poller, one writer, one
+// schedule, one contacted list. A hunt is a target - where to look, what
+// counts, and what the message offers.
+HEAT.HUNTS = [
+  { key: "cofounder", label: "Co-founder hunt", short: "Co-founder", colour: "#ff5722",
+    note: "Founders looking for a partner. The message offers a co-founder seat with a team behind it.",
+    deal: "split" },
+  { key: "project", label: "Project hunt", short: "Project", colour: "#2f80ed",
+    note: "People with a budget asking who to hire. The message is a quote and a date, never a partnership.",
+    deal: "upfront" },
+];
+HEAT.huntDef = function (key) { return HEAT.HUNTS.find((h) => h.key === key) || HEAT.HUNTS[0]; };
+HEAT.classifyFor = function (key, title, body) {
+  return key === "project" ? HEAT.classifyProject(title, body) : HEAT.classifyCofounder(title, body);
+};
+HEAT.subsFor = function (key) { return key === "project" ? HEAT.PROJECT_SUBS : HEAT.HUNT_SUBS; };
+
+HEAT.classifyProject = function (title, body) {
+  const t = (title || "").toLowerCase();
+  const all = (t + "\n" + String(body || "").slice(0, 1500)).toLowerCase();
+  if (HUNT_SELLER.test(t) || HUNT_SELLER.test(all.slice(0, 400))) return { keep: false, why: "an agency selling, not buying" };
+  if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "looking for a job" };
+  if (/\b(?:for hire|available for|open to work|my portfolio|dm me for|i offer|we offer|our agency|my agency|we build|i build|i can build|i will|taking on (?:new )?clients|accepting clients|slots? (?:are )?open|dm for (?:rates|pricing))\b/i.test(t + " " + all.slice(0, 300))) return { keep: false, why: "offering, not hiring" };
+  if (PROJECT_NO_MONEY.test(all)) return { keep: false, why: "no budget, or unpaid" };
+  // "30 paying clinics" is their customers paying, not them paying us, so a
+  // budget word nearby proves nothing: a co-founder ask belongs to that hunt.
+  if (/\bco[- ]?founder\b|\bcofounder\b|\bequity\b/i.test(t)) return { keep: false, why: "a co-founder ask, not a paid project" };
+  if (!PROJECT_HIRE.test(all)) return { keep: false, why: "nobody is being hired here" };
+  if (!PROJECT_WORK.test(all)) return { keep: false, why: "not work we take on" };
+  const paid = PROJECT_BUDGET.test(all);
+  const budget = (all.match(/[$£€]\s?\d[\d,.]*\s?k?(?:\s?(?:per month|\/mo|a month|monthly))?/) || [""])[0].trim();
+  const kind = /\b(?:local seo|google business|gbp|map pack)\b/.test(all) ? "local SEO"
+    : /\b(?:seo|bigseo)\b/.test(all) ? "SEO"
+    : /\b(?:ppc|google ads|adwords|paid search)\b/.test(all) ? "Google Ads"
+    : /\b(?:meta ads|facebook ads|instagram ads|tiktok ads|paid social)\b/.test(all) ? "Meta ads"
+    : /\b(?:website|landing page|shopify|wordpress|webflow|web ?site)\b/.test(all) ? "a website"
+    : /\b(?:app|mobile app|saas|automation|crm|integration|dashboard)\b/.test(all) ? "a build"
+    : /\b(?:va\b|virtual assistant|back ?office|support|operations)\b/.test(all) ? "a VA team"
+    : "marketing";
+  return { keep: true, why: "", role: "project", kind, budget, paid, stage: paid ? "has budget" : "", hasBudget: paid, equityOnly: false };
+};
+
 HEAT.classifyCofounder = function (title, body) {
   const t = (title || "").toLowerCase();
   const all = (t + "\n" + (body || "").slice(0, 1500)).toLowerCase();
