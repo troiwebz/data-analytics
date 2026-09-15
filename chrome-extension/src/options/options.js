@@ -70,10 +70,10 @@ $('poll').addEventListener('click', async () => {
 });
 
 $('reset').addEventListener('click', async () => {
-  if (!confirm('Reset all settings to defaults?')) return;
+  if (!confirm('Reset all settings to defaults?\n\nYour Claude key is kept.')) return;
   const cfg = await getConfig();
   fill({ ...DEFAULT_CONFIG, webhookUrl: cfg.webhookUrl, sharedSecret: cfg.sharedSecret });
-  status('Defaults loaded — press Save to apply.');
+  status('Defaults loaded — press Save to apply. Your Claude key was not touched.');
 });
 
 // ---- Anthropic key: entered here, kept on this machine, used by the worker
@@ -90,8 +90,12 @@ function showAi(r, err) {
   if (r.budget != null) $('aiBudget').value = r.budget;
   const money = (n) => '$' + Number(n || 0).toFixed(4);
   el.innerHTML =
-    `<span style="color:#16a34a">✓ Key stored</span> (<b>${esc(r.hint)}</b>) · kept in this Chrome profile, so it survives updates` +
-    (r.restored ? ' <span class="hint">· restored from your Chrome profile after the extension was reloaded</span>' : '') + '<br>' +
+    `<span style="color:#16a34a">✓ Key stored</span> (<b>${esc(r.hint)}</b>)` +
+    (r.savedAt ? ` <span class="hint">saved ${new Date(r.savedAt).toLocaleDateString()}</span>` : '') + '<br>' +
+    '<span class="hint">Held on its own, away from the settings. A reset, a reload, an update or reinstalling ' +
+    'the folder will not remove it' + (r.mirrored ? ', and it is backed up to your Chrome profile' : '') +
+    '. Only the Remove button deletes it.</span>' +
+    (r.restored ? '<br><span style="color:#16a34a">Restored from your Chrome profile just now.</span>' : '') + '<br>' +
     `Model <b>${esc(r.model)}</b> · ` +
     (r.enabled ? '<span style="color:#16a34a">active</span>' : '<span style="color:#dc2626">switched off</span>') + '<br>' +
     `Today: <b>${r.leadsToday || 0}</b> leads in ${r.callsToday || 0} call(s) · spent <b>${money(r.spentToday)}</b>` +
@@ -137,8 +141,15 @@ $('saveBudget').addEventListener('click', async () => {
   showAi(r, r?.error);
 });
 
+$('copyKey').addEventListener('click', async () => {
+  const { key } = await ai('ai-reveal');
+  if (!key) return showAi(null, 'Nothing stored to copy.');
+  await navigator.clipboard.writeText(key);
+  status('Key copied. Paste it somewhere safe, such as your password manager.');
+});
+
 $('clearKey').addEventListener('click', async () => {
-  if (!confirm('Remove the stored Anthropic key? Replies fall back to the built-in rules.')) return;
+  if (!confirm('Remove the stored Anthropic key?\n\nThis is the only thing that deletes it. Replies fall back to the built-in rules, and you would need the key again from console.anthropic.com or your password manager.')) return;
   showAi(await ai('ai-clear-key'));
 });
 

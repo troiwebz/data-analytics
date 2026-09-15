@@ -1,14 +1,43 @@
 # Claude writes the technical lines
 
-Every reply and PM has the same shape:
+Claude returns three lines per thread, strongest first. They are used twice,
+differently:
 
-    greeting          <- template
-    2-3 technical     <- Claude, from the actual thread
-    offer + sign-off  <- template
+**Public reply** - short on purpose.
 
-Only the middle is written by Claude. That is the part that has to prove you
-read the post; the rest never changes, so paying a model to rewrite it would be
-waste.
+    Hey @buyer,
+    <line 1>  Core work for us.
+    PM sent with the specifics.
+
+One line proves you read the thread. The detail goes in the PM, where the other
+freelancers reading the thread cannot see it and copy it.
+
+**Private message** - common top, common bottom, this thread's middle.
+
+    Hey buyer,
+    Saw your thread on HAF: <link>      <- common
+    How we would run it:
+    <line 1> <line 2> <line 3>          <- Claude
+    Your stated budget of $400 works.
+    Portfolio and live samples...       <- common
+
+Only the middle is written by Claude. The rest never changes in substance, so
+paying a model to rewrite it would be waste.
+
+## Why they do not look machine-written
+
+Vocabulary is not what gives outreach away. Sameness is: the same skeleton every
+time, the same three bullets under the same one-line intro, the same opener on
+every message. So the shape moves, not just the words:
+
+- the three lines are laid out as a dash list, as a numbered list, or as running
+  prose, chosen per thread
+- opener, lead-in and close each pick from several phrasings
+- em dashes, en dashes and bullet glyphs are stripped from every render
+
+All of it is seeded from the thread id, which means two things at once. Across
+threads the output varies. Within one thread it is **stable**: pressing Rebuild
+does not quietly reword a reply you already read and approved.
 
 ## Setting it up
 

@@ -236,139 +236,158 @@ export const DEFAULT_CONFIG = {
   // {{var}} is substituted. {a|b|c} picks one at random (spintax), so no two
   // replies are byte-identical.
   // Available vars: author, title, budget, category, link
+  // ---- Public forum reply ------------------------------------------------
+  // Short on purpose. One technical line proves you read the thread; the rest
+  // goes in the PM, where the other freelancers reading the thread cannot see
+  // it. Openers, orderings and closers all vary per thread.
   templates: {
     seo: `{Hi|Hey} @{{author}},
 
-{We can handle this|Happy to help with this|We do this every week}. We run SEO for agencies and direct clients.
+{{tip}} {We run SEO for agencies and direct clients|We do this work weekly|This is core work for us}.
 
-{{specifics}}
-{{budgetLine}}
-{Samples and past results on request|Happy to share live case studies|Can send anonymised client results}. {Dropping you a PM with details|PMing you now}.`,
+{Sent you a PM with the detail|PM sent with the specifics|Dropped you a PM}.`,
 
     ads: `{Hi|Hey} @{{author}},
 
-{We handle exactly this|Can definitely help|This is what we do daily}. We manage paid campaigns end to end on Google, Meta and TikTok.
+{{tip}} {We manage paid campaigns end to end on Google, Meta and TikTok|Paid is what we run day to day|We handle the build and the ongoing management}.
 
-{{specifics}}
-{{budgetLine}}
-{Happy to walk through past accounts|Can share anonymised campaign data}. {Sending a PM|PMing you the details}.`,
+{Sent you a PM|PM sent with how we would approach it|Dropped you a PM with the detail}.`,
 
     design: `{Hi|Hey} @{{author}},
 
-{We can do this|Happy to handle this|This is what our team does daily}. We are a design team and {{category}} is what we produce.
+{{tip}} {Our design team produces {{category}} in house|This is what our team turns out daily|In house team, no outsourcing}.
 
-{{specifics}}
-{{budgetLine}}
-{Portfolio available on request|Can send the portfolio over}. {PMing you now|Sending you a PM}.`,
+{PM sent|Sent you a PM with examples|Dropped you a PM}.`,
 
     social: `{Hi|Hey} @{{author}},
 
-{We can cover this|Happy to handle this|This is exactly what our team does}. We run and post on social accounts every day.
+{{tip}} {We run and post on accounts every day|Account management is what we do day to day|We handle accounts at volume}.
 
-{{specifics}}
-{{budgetLine}}
-{Tell us the platform, geo and volume and we'll scope it today|Send the platform, geo and daily volume and we'll come back with a price}. {Happy to show accounts we already run|Can show current accounts on request}.`,
+{Sent you a PM|PM sent with the specifics|Dropped you a PM with the detail}.`,
 
     web: `{Hi|Hey} @{{author}},
 
-{We can build this|Happy to handle this|This is straightforward for us}. We do site builds and landing pages in house.
+{{tip}} {Builds and landing pages are done in house|We do site work in house|Our developers handle this directly}.
 
-{{specifics}}
-{{budgetLine}}
-{Live examples on request|Can send live examples}. {Sending a PM|PMing you}.`,
+{PM sent|Sent you a PM|Dropped you a PM with the detail}.`,
+
+    content: `{Hi|Hey} @{{author}},
+
+{{tip}} {Written by people, briefed against real search intent|Human writers, briefed properly|Written to brief, not spun}.
+
+{PM sent with samples|Sent you a PM|Dropped you a PM}.`,
 
     // Used when no category matched. Kept deliberately open-ended.
     generic: `{Hi|Hey} @{{author}},
 
-{Interested in this|We can help with this|Happy to handle this}. We are a full service agency covering SEO, paid ads, design, web and content, all in house.
+{{tip}} {We are a full service agency covering SEO, paid ads, design, web and content, all in house|We cover SEO, ads, design, web and content in house|Full service in house team}.
 
-{{specifics}}
-{{budgetLine}}
-{Happy to share relevant past work|Examples on request}. {PMing you now|Sending a PM}.`,
-
-    content: `{Hi|Hey} @{{author}},
-
-{We can cover this|Happy to handle this|This is something we do a lot of}. Written by people, briefed against real search intent.
-
-{{specifics}}
-{{budgetLine}}
-{Samples on request|Can send samples}. {PMing you now|Sending a PM}.`
+{Sent you a PM|PM sent with the detail|Dropped you a PM}.`
   },
 
-  // Subject line of the DM. XenForo requires one. Same {{vars}} as the body.
   dmTitle: `{Re: |}{{threadTitle}}`,
 
   // ---- Private message ---------------------------------------------------
-  // The offer that closes every PM. Edit this one line and every PM changes.
-  dmOffer: `{Happy to share our portfolio and live samples|I can send over our portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
+  // Every PM has the same top and the same bottom; only the middle is the
+  // thread's own. The top says where you found them and links the thread; the
+  // bottom offers samples and the portfolio. In between go the three technical
+  // lines, laid out as a list, as numbers or as prose depending on the thread,
+  // so a run of PMs never shares one skeleton.
 
-{We can get started immediately|We can start on this right away|Ready to start today}. {Just reply here or on the thread|Say the word and I'll get moving|Send over the details and I'll get going}.`,
+  // The close. Edit this and every PM changes.
+  dmOffer: `{Happy to share our portfolio and live samples|I can send over the portfolio and live samples|Happy to send the portfolio and live examples of recent work} so you can see the standard before you decide anything.
 
-  // ---- Private message templates ---------------------------------------
-  // The PM to the thread author. Same {{vars}} and spintax; extra var {{threadTitle}}.
+{We can get started immediately|We can start on this right away|Ready to start today}. {Just reply here or on the thread|Say the word and I'll get moving|Send the details over and I'll get going}.`,
+
+  // {{tips}} is the three technical lines; {{url}} is the thread.
   dmTemplates: {
-    // Structure for all of them:
-    //   Hi <author>  →  "I just saw your HAF thread: <url>"  →  the public
-    //   reply verbatim  →  {{offer}}. Keep {{reply}} and {{offer}} in place.
-    generic: `Hi {{author}},
+    generic: `{Hi|Hey} {{author}},
 
-I just saw your HAF thread: {{url}}
+{Saw your thread on HAF|Just read your HAF thread|Came across your thread on HAF}: {{url}}
 
-{{reply}}
+{Here is how we would approach it|How we would handle it|What we would do}:
 
-{{offer}}`,
+{{tips}}
 
-    seo: `Hi {{author}},
-
-I just saw your HAF thread: {{url}}
-
-{{reply}}
+{{budgetLine}}
 
 {{offer}}`,
 
-    ads: `Hi {{author}},
+    seo: `{Hi|Hey} {{author}},
 
-I just saw your HAF thread: {{url}}
+{Saw your thread on HAF|Just read your HAF thread|Came across your HAF thread}: {{url}}
 
-{{reply}}
+{Here is how we would approach it|How we would run it|What we would do first}:
 
-{{offer}}`,
+{{tips}}
 
-    design: `Hi {{author}},
-
-I just saw your HAF thread: {{url}}
-
-{{reply}}
+{{budgetLine}}
 
 {{offer}}`,
 
-    social: `Hi {{author}},
+    ads: `{Hi|Hey} {{author}},
 
-I just saw your HAF thread: {{url}}
+{Saw your HAF thread|Just read your thread on HAF|Came across your HAF thread}: {{url}}
 
-{{reply}}
+{Here is how we would run it|How we would approach the account|What we would set up}:
 
-{{offer}}`,
+{{tips}}
 
-    web: `Hi {{author}},
-
-I just saw your HAF thread: {{url}}
-
-{{reply}}
+{{budgetLine}}
 
 {{offer}}`,
 
-    content: `Hi {{author}},
+    design: `{Hi|Hey} {{author}},
 
-I just saw your HAF thread: {{url}}
+{Saw your thread on HAF|Just read your HAF thread|Came across your thread}: {{url}}
 
-{{reply}}
+{Here is how we would handle it|How we would approach it|What we would produce}:
+
+{{tips}}
+
+{{budgetLine}}
+
+{{offer}}`,
+
+    social: `{Hi|Hey} {{author}},
+
+{Saw your HAF thread|Just read your thread on HAF|Came across your HAF thread}: {{url}}
+
+{Here is how we would run it|How we would handle the accounts|What we would do}:
+
+{{tips}}
+
+{{budgetLine}}
+
+{{offer}}`,
+
+    web: `{Hi|Hey} {{author}},
+
+{Saw your thread on HAF|Just read your HAF thread|Came across your HAF thread}: {{url}}
+
+{Here is how we would build it|How we would approach the build|What we would do}:
+
+{{tips}}
+
+{{budgetLine}}
+
+{{offer}}`,
+
+    content: `{Hi|Hey} {{author}},
+
+{Saw your HAF thread|Just read your thread on HAF|Came across your thread on HAF}: {{url}}
+
+{Here is how we would approach it|How we would handle it|What we would produce}:
+
+{{tips}}
+
+{{budgetLine}}
 
 {{offer}}`
   }
 };
 
-export const CONFIG_VERSION = 13;
+export const CONFIG_VERSION = 14;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -416,6 +435,15 @@ export async function migrateConfig() {
     }
   }
   if (v < 13 && next.aiSpecifics == null) next.aiSpecifics = DEFAULT_CONFIG.aiSpecifics;
+  if (v < 14) {
+    // v13 put the same three bullets in the public reply and the PM, and the
+    // PM quoted the reply back. v14 splits them: one line in public, three in
+    // the PM, and the PM stands on its own. The old templates use {{specifics}}
+    // and {{reply}}, which no longer exist, so they have to be replaced.
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.dmOffer = DEFAULT_CONFIG.dmOffer;
+  }
   if (v < 12) {
     next.specifics = next.specifics ?? DEFAULT_CONFIG.specifics;
     next.templates = DEFAULT_CONFIG.templates;   // now carry a {{specifics}} slot

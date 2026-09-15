@@ -4,13 +4,10 @@
 // never sent anywhere except api.anthropic.com. Nothing else is needed: no
 // server, no Apps Script.
 //
-// It is kept in two places at once. chrome.storage.local is the working copy.
-// chrome.storage.sync holds a mirror, which belongs to the Chrome profile
-// rather than to this copy of the extension, so the key survives a reload, a
-// `git pull`, removing and re-adding the folder, loading it from a new path
-// (which gives the extension a new id and an empty local store), and a fresh
-// machine signed into the same Chrome. getAi() re-fills local from the mirror
-// whenever local has come up empty.
+// The key itself is not kept here. It lives in vault.js, on its own, so that
+// nothing that resets settings or clears the database can take it with it.
+// This module holds only what is cheap to recreate: model, spend limit, and
+// today's usage counters.
 //
 // Cost is the whole design here:
 //   - Claude writes ONLY the technical bullets. Greeting, offer and sign-off
@@ -23,12 +20,14 @@
 //   - Results are stored on the lead, so a thread is never paid for twice.
 //   - A daily spend limit stands Claude down rather than running up a bill.
 
+import * as vault from './vault.js';
+
 const API = 'https://api.anthropic.com/v1/messages';
 const MODELS_API = 'https://api.anthropic.com/v1/models?limit=1';
 
 export const MAX_LEADS = 8;        // per request
 export const SNIPPET_CHARS = 400;  // enough to see the ask, not the whole post
-export const MAX_BULLETS = 3;      // two or three lines, never more
+export const MAX_BULLETS = 3;      // one for the public reply, three for the PM
 
 /** Dollars per million tokens. */
 export const RATES = {
@@ -38,32 +37,39 @@ export const RATES = {
 };
 
 export const AI_DEFAULTS = {
-  key: '',
   model: 'claude-sonnet-5',
   budget: 0.5,        // dollars a day; 0 means no limit
   enabled: true,
   usage: {}           // { day, calls, leads, in, cached, out }
 };
 
-/** Fields worth mirroring: settings, not per-machine counters. */
-const MIRRORED = ['key', 'model', 'budget', 'enabled'];
+/** Settings worth carrying to another machine; usage counters are per-machine. */
+const MIRRORED = ['model', 'budget', 'enabled'];
 const pick = (o) => Object.fromEntries(MIRRORED.filter((k) => k in o).map((k) => [k, o[k]]));
 
 export async function getAi() {
   const { ai } = await chrome.storage.local.get('ai');
   const local = { ...AI_DEFAULTS, ...(ai || {}) };
-  if (local.key) return local;
 
-  // Local came up empty: a new extension id, a cleared profile, a fresh
-  // machine. Restore from the profile mirror rather than asking again.
+  // A key saved by v0.21 lived in this object. Move it to the vault and take
+  // it out of here, so there is exactly one home for it.
+  if (local.key) {
+    await vault.setKey(local.key);
+    delete local.key;
+    await chrome.storage.local.set({ ai: local });
+  }
+
   let mirror = {};
   try { ({ aiSettings: mirror = {} } = await chrome.storage.sync.get('aiSettings')); }
-  catch { return local; }                       // sync off or unavailable
-  if (!mirror.key) return local;
-  const restored = { ...local, ...pick(mirror) };
-  await chrome.storage.local.set({ ai: restored });
-  // The flag is for this reply only — it says "just now", not "at some point".
-  return { ...restored, restored: true };
+  catch { return local; }
+  if (mirror.key) { await vault.setKey(mirror.key); delete mirror.key; }
+  // Only fill from the mirror where this machine has nothing of its own saved.
+  if (!ai) {
+    const restored = { ...local, ...pick(mirror) };
+    await chrome.storage.local.set({ ai: restored });
+    return restored;
+  }
+  return local;
 }
 
 async function setAi(patch) {
@@ -97,14 +103,16 @@ const round = (n, dp = 4) => Math.round(n * 10 ** dp) / 10 ** dp;
 
 /** Everything the Settings page and the dashboard show. */
 export async function aiStatus() {
-  const ai = await getAi();
+  const [ai, key] = await Promise.all([getAi(), vault.info()]);
   const u = usageToday(ai);
   const spent = spendOf(u, ai.model);
   return {
-    configured: !!ai.key,
-    hint: ai.key ? ai.key.slice(0, 11) + '…' + ai.key.slice(-4) : '',
+    configured: key.stored,
+    hint: key.hint,
+    savedAt: key.savedAt,
+    mirrored: key.mirrored,
     model: ai.model,
-    enabled: !!ai.key && ai.enabled !== false,
+    enabled: key.stored && ai.enabled !== false,
     budget: Number(ai.budget) || 0,
     spentToday: round(spent),
     remaining: Math.max(0, round((Number(ai.budget) || 0) - spent)),
@@ -112,7 +120,7 @@ export async function aiStatus() {
     callsToday: u.calls || 0,
     perLead: u.leads ? round(spent / u.leads, 5) : 0,
     overBudget: (Number(ai.budget) || 0) > 0 && spent >= (Number(ai.budget) || 0),
-    restored: !!ai.restored,
+    restored: key.restored,
     local: true
   };
 }
@@ -127,13 +135,12 @@ export async function saveKey(key) {
   });
   if (res.status === 401) throw new Error('Anthropic rejected that key. Check you copied all of it.');
   if (!res.ok) throw new Error(`Anthropic returned ${res.status}. Try again in a moment.`);
-  await setAi({ key: k });
+  await vault.setKey(k);
   return aiStatus();
 }
 
 export async function clearKey() {
-  await setAi({ key: '' });
-  try { await chrome.storage.sync.remove('aiSettings'); } catch { /* nothing mirrored */ }
+  await vault.removeKey();
   return aiStatus();
 }
 export async function setBudget(v) {
@@ -160,10 +167,13 @@ function headers(key) {
 }
 
 const SYSTEM = [
-  'You write the middle of a reply to a job post on a freelancer forum.',
-  'The rest of the reply (greeting, pricing offer, sign-off) is already written; you write ONLY the bullet points.',
+  'You write the technical middle of an outreach message about a job post on a freelancer forum.',
+  'The greeting, the thread link and the closing offer are already written; you write ONLY the technical lines.',
   '',
-  'For each thread write exactly 2 bullets, or 3 only if the post genuinely needs a third.',
+  'For each thread write exactly 3 lines, STRONGEST FIRST.',
+  'The first line is used on its own in a short public reply, so it must stand alone and be the single most',
+  'convincing thing you can say about this specific post. Lines 2 and 3 are used together with it in a private',
+  'message, so they must add something the first did not.',
   'These prove the writer read that specific post.',
   'Rules:',
   '- Name the actual deliverable, platform, market or constraint the poster asked for.',
@@ -174,7 +184,10 @@ const SYSTEM = [
   '- Under 100 characters each. Short is better.',
   '- British or neutral English, lower-key than marketing copy.',
   '',
-  'Return ONLY a JSON object mapping each thread id to its array of bullet strings.',
+  'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
+  'they get laid out as a list, as numbers or as running prose depending on the thread.',
+  '',
+  'Return ONLY a JSON object mapping each thread id to its array of 3 strings.',
   'Example: {"1847904":["...","..."],"1847910":["..."]}'
 ].join('\n');
 
@@ -184,8 +197,8 @@ const SYSTEM = [
  * Never throws: on any failure the caller falls back to the built-in rules.
  */
 export async function writeSpecifics(leads) {
-  const ai = await getAi();
-  if (!ai.key) return { specifics: {}, note: 'no Claude key set' };
+  const [ai, key] = await Promise.all([getAi(), vault.getKey()]);
+  if (!key) return { specifics: {}, note: 'no Claude key set' };
   if (ai.enabled === false) return { specifics: {}, note: 'Claude switched off' };
   if (!leads || !leads.length) return { specifics: {} };
 
@@ -204,7 +217,7 @@ export async function writeSpecifics(leads) {
 
   const body = {
     model: ai.model,
-    max_tokens: 70 * batch.length + 60,
+    max_tokens: 90 * batch.length + 60,
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
@@ -212,7 +225,7 @@ export async function writeSpecifics(leads) {
 
   let res, data;
   try {
-    res = await fetch(API, { method: 'POST', headers: headers(ai.key), body: JSON.stringify(body) });
+    res = await fetch(API, { method: 'POST', headers: headers(key), body: JSON.stringify(body) });
     data = await res.json().catch(() => ({}));
   } catch (e) {
     return { specifics: {}, note: `could not reach Anthropic: ${e.message}` };
@@ -297,3 +310,9 @@ export async function testCall() {
     cost: Math.round((after.spentToday - before.spentToday) * 1e6) / 1e6
   };
 }
+
+/** The stored key, for copying into a password manager. Never logged. */
+export const revealKey = () => vault.getKey();
+
+/** Wipe settings and the local database; the Claude key is kept. */
+export const factoryReset = () => vault.resetKeepingVault();

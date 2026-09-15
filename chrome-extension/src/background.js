@@ -17,7 +17,8 @@ import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
-import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall } from './claude.js';
+import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
+         revealKey, factoryReset } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -564,6 +565,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'ai-model':    sendResponse(await setModel(msg.model).catch((e) => ({ error: e.message }))); break;
       case 'ai-enabled':  sendResponse(await setEnabled(msg.on)); break;
       case 'ai-test':     sendResponse(await testCall().catch((e) => ({ ok: false, error: e.message }))); break;
+      case 'ai-reveal':   sendResponse({ key: await revealKey() }); break;
+      case 'factory-reset': {
+        const r = await factoryReset();
+        await scheduleAlarms(await getConfig());
+        await log(`settings and database cleared; Claude key ${r.keyKept ? 'kept' : 'not found'}`);
+        sendResponse(r);
+        break;
+      }
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }
