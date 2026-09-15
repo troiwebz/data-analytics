@@ -1366,11 +1366,19 @@ async function updBackground() {
 // worker reloads the extension within a minute of that, and this pill just
 // narrates it. If GitHub stays ahead for too long, the updater is not running.
 let remoteAheadSince = 0;
+function updHot(on, why) {
+  const b = $("updNow");
+  b.classList.toggle("updhot", !!on);
+  b.title = on ? why : "check for a new version";
+}
 async function showVersion() {
   const v = await send({ type: "version-state" });
   if (!v) return;
   const el = $("ver");
   el.className = "stat";
+  // red and blinking only when there is a newer version to move to
+  updHot(v.diskAhead || v.remoteAhead,
+    v.diskAhead ? `v${v.onDisk} is in the folder and ready — click to reload` : `v${v.remote} is out and you are on v${v.onDisk}`);
   if (v.diskAhead) {
     el.textContent = `v${v.onDisk} downloaded · reloading…`;
     el.className = "stat go";

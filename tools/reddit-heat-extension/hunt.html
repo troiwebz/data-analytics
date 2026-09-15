@@ -49,6 +49,11 @@
   .winbar button, .sizes button { border:0; border-radius:0; background:#1a1e26; color:var(--dim); padding:5px 12px; font-size:12px; }
   .winbar button.on, .sizes button.on { background:var(--or); color:#fff; font-weight:600; }
   button.schedTab.on { background:var(--or); color:#fff; border-color:var(--or); font-weight:600; }
+  /* Update now, when there is actually something to update to */
+  @keyframes rltPulse { 0%,100% { box-shadow:0 0 0 0 rgba(214,45,32,.75); } 50% { box-shadow:0 0 0 7px rgba(214,45,32,0); } }
+  button.updhot { background:#d62d20; border-color:#d62d20; color:#fff; font-weight:700; animation:rltPulse 1.25s ease-in-out infinite; }
+  button.updhot:hover { background:#ef3b2d; border-color:#ef3b2d; }
+  @media (prefers-reduced-motion: reduce) { button.updhot { animation:none; } }
   #opts { display:grid; gap:6px; margin-bottom:8px; }
   .opt { text-align:left; border:1px solid var(--line); background:#12151c; border-radius:8px; padding:8px 10px; color:#c8cede; font-size:12.5px; line-height:1.45; cursor:pointer; }
   .opt:hover { border-color:#3b4252; }
