@@ -62,6 +62,22 @@
     if (holders[0]) { holders[0].scrollIntoView({ block: "center" }); holders[0].click(); }
     return hosts.length || holders.length;
   }
+  // Lexical applies an insert asynchronously, so execCommand returning true
+  // means only that the command was allowed. Checking the box straight after
+  // it finds nothing, the paste fallback fires as well, and the comment goes
+  // in twice: "Sent you a DM.Sent you a DM." So: look before writing, empty
+  // the box first, and wait for the DOM before deciding it failed.
+  const has = (editor, text) => textOf(editor).includes(text.slice(0, Math.min(24, text.length)));
+  async function clearEditor(editor) {
+    if (!textOf(editor)) return;
+    editor.focus();
+    try {
+      const r = document.createRange(); r.selectNodeContents(editor);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      document.execCommand("delete");
+    } catch (_) { /* best effort */ }
+    await sleep(80);
+  }
   async function typeInto(editor, text) {
     editor.scrollIntoView({ block: "center" });
     editor.focus();
@@ -71,16 +87,23 @@
       editor.dispatchEvent(new Event("input", { bubbles: true }));
       return editor.value === text;
     }
-    let ok = false;
-    try { ok = document.execCommand("insertText", false, text); } catch (_) { /* try paste */ }
-    if (!ok || !textOf(editor).includes(text.slice(0, 20))) {
-      try {
-        const dt = new DataTransfer(); dt.setData("text/plain", text);
-        editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-        await sleep(200);
-      } catch (_) { /* clipboard fallback below */ }
+    if (has(editor, text)) return true;             // already there: never write it again
+    await clearEditor(editor);                       // a half-written retry replaces, never appends
+    try { document.execCommand("insertText", false, text); } catch (_) { /* try paste */ }
+    await sleep(180);                                // let Lexical commit it before judging
+    if (has(editor, text)) return true;
+    try {
+      const dt = new DataTransfer(); dt.setData("text/plain", text);
+      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      await sleep(250);
+    } catch (_) { /* clipboard fallback below */ }
+    // if both landed, take the doubling back out rather than posting it
+    if (textOf(editor).includes(text + text) || textOf(editor).includes(text + " " + text)) {
+      await clearEditor(editor);
+      try { document.execCommand("insertText", false, text); } catch (_) { /* nothing more to try */ }
+      await sleep(180);
     }
-    return textOf(editor).includes(text.slice(0, 20));
+    return has(editor, text);
   }
 
   // ---- Reddit's own Comment button ----------------------------------------
@@ -120,6 +143,18 @@
         clearInterval(SEND.timer); SEND.timer = 0;
         const btn = findSubmit();
         if (!btn) { SEND.id = ""; return say("Could not find Reddit's Comment button, so nothing was sent. The reply is in the box - press it yourself.", "#ff8a65"); }
+        // last look before it goes out: the box must hold exactly what we put
+        // there. Anything else - a doubling, your own edit, Reddit rearranging
+        // it - stops the send and hands it back to you.
+        const ed = findEditor();
+        const inBox = ed ? textOf(ed).replace(/\s+/g, " ").trim() : "";
+        const want = String(pendingReply.text || "").replace(/\s+/g, " ").trim();
+        if (!ed || inBox !== want) {
+          SEND.id = "";
+          return say(inBox.includes(want) && inBox.length > want.length
+            ? "The box holds more than the reply, so nothing was sent. Clear it and press Fill the box."
+            : "What is in the box is not what I put there, so nothing was sent. Read it and press Reddit's button yourself.", "#ff8a65");
+        }
         say("sending…", "#7ee29a");
         btn.click();                       // the click marks it replied through watchSubmit
         return;

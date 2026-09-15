@@ -137,9 +137,25 @@
       const proto = c.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(proto, "value").set.call(c, txt); c.dispatchEvent(new Event("input", { bubbles: true })); ok = c.value === txt;
     } else {
-      try { ok = document.execCommand("insertText", false, txt); } catch (_) { /* below */ }
-      if (!ok || !text(c).includes(txt.slice(0, 20))) {
-        try { const dt = new DataTransfer(); dt.setData("text/plain", txt); c.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); await sleep(150); ok = text(c).includes(txt.slice(0, 20)); } catch (_) { ok = false; }
+      // execCommand returning true says the command was allowed, not that the
+      // text landed: the editor commits it a tick later. Checking immediately
+      // finds nothing, the paste fires too, and the DM goes in twice.
+      const there = () => text(c).includes(txt.slice(0, Math.min(24, txt.length)));
+      if (there()) return { ok: true, error: "" };            // already in the box
+      if (text(c).trim()) {                                    // clear a half-written retry
+        try { const r = document.createRange(); r.selectNodeContents(c); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("delete"); } catch (_) { /* best effort */ }
+        await sleep(80);
+      }
+      try { document.execCommand("insertText", false, txt); } catch (_) { /* below */ }
+      await sleep(180);
+      ok = there();
+      if (!ok) {
+        try { const dt = new DataTransfer(); dt.setData("text/plain", txt); c.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); await sleep(220); ok = there(); } catch (_) { ok = false; }
+      }
+      if (text(c).includes(txt + txt) || text(c).includes(txt + " " + txt)) {
+        try { const r = document.createRange(); r.selectNodeContents(c); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("delete"); await sleep(80); document.execCommand("insertText", false, txt); } catch (_) { /* nothing more to try */ }
+        await sleep(180);
+        ok = there();
       }
     }
     c.style.outline = "3px solid #ff5722";
@@ -164,7 +180,7 @@
     c.dispatchEvent(new KeyboardEvent("keyup", key));
     return true;
   }
-  const SEND = { timer: 0, left: 0, key: "" };
+  const SEND = { timer: 0, left: 0, key: "", text: "" };
   function sendCancel(why) {
     if (!SEND.timer) return;
     clearInterval(SEND.timer); SEND.timer = 0; SEND.key = "";
@@ -173,16 +189,20 @@
   // click anywhere, or press any key, and the countdown stops
   document.addEventListener("click", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
   document.addEventListener("keydown", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
-  function sendCountdown(name, id, seconds) {
+  function sendCountdown(name, id, seconds, wanted) {
     const key = name + ":" + (id || "");
     if (SEND.key === key) return;
     sendCancel("");
-    SEND.key = key; SEND.left = seconds;
+    SEND.key = key; SEND.left = seconds; SEND.text = wanted || "";
     const tick = () => {
       if (SEND.left <= 0) {
         clearInterval(SEND.timer); SEND.timer = 0; SEND.key = "";
         const c = findComposer();
         if (!c) return say("Could not find the message box, so nothing was sent.", "#ff8a65");
+        // the box must hold exactly the DM we wrote, or it does not go
+        const inBox = text(c).replace(/\s+/g, " ").trim();
+        const want = String(SEND.text || "").replace(/\s+/g, " ").trim();
+        if (want && inBox !== want) return say("What is in the chat box is not the DM I wrote, so nothing was sent. Read it and press send yourself.", "#ff8a65");
         const before = text(c);
         pressSend(c);
         setTimeout(() => {
@@ -227,7 +247,7 @@
         if (r.ok) {
           const { autoSend = true, autoSendSecs = 10 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
           // only the hunt's own DMs send themselves; an Inbox reply is a conversation
-          if (autoSend && pendingDm.kind === "hunt") sendCountdown(name, pendingDm.id, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)));
+          if (autoSend && pendingDm.kind === "hunt") sendCountdown(name, pendingDm.id, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)), pendingDm.text);
         }
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
         pendingSince = 0; pendingToldFor = ""; newChatHide();
