@@ -30,7 +30,9 @@ function theirs(t) { return (t.messages || []).filter((m) => !m.mine).length; }
 function visibleThreads() {
   let list = inboxThreads.slice();
   const st = (t) => (t.deal && t.deal.status) || "qualifying";
-  if (ibFilter === "needs") list = list.filter((t) => t.needsReply);
+  // one you just answered stays on the list, struck out, so the reply is
+  // visible as done instead of the row simply disappearing
+  if (ibFilter === "needs") list = list.filter((t) => t.needsReply || (t.handled && t.repliedAt && Date.now() - t.repliedAt < 30 * 60000));
   else if (ibFilter === "handled") list = list.filter((t) => t.handled && st(t) !== "cut");
   else if (ibFilter) list = list.filter((t) => st(t) === ibFilter);
   if (ibFind) { const q = ibFind.toLowerCase(); list = list.filter((t) => (t.with + " " + ((t.post && t.post.title) || "") + " " + t.messages.map((m) => m.body).join(" ")).toLowerCase().includes(q)); }
@@ -131,12 +133,22 @@ $("goReply").onclick = async () => {
     $("draftState").textContent = r && r.ok ? "filled in Chat — read it there and press send" : r && r.pending ? r.error : "could not fill: " + ((r && r.error) || "no answer") + " (it is on your clipboard)";
     $("draftState").style.color = r && r.ok ? "#7ee29a" : r && r.pending ? "#e6c76b" : "#ff8a65";
     if (r && r.ok && $("assumeSent").checked) { await send({ type: "inbox-mine", id: t.id, body: text }); curThread = null; inboxRefresh(); renderThread(); }
+    else if (r && r.pending && $("assumeSent").checked) { /* still opening their chat: leave it waiting */ }
     return;
   }
-  if (t.manual) { window.open("https://chat.reddit.com/user/" + encodeURIComponent(t.with), "_blank"); return; }   // chat: paste with ⌘V
+  // Opening the reply IS the work here: the text is in the box or on the
+  // clipboard and the tab is up. Waiting for a second click on "Mark handled"
+  // only leaves the list looking like nothing was done.
+  const done = async () => {
+    if (!$("assumeSent").checked) return;
+    await send({ type: "inbox-mine", id: t.id, body: text });
+    curThread = null; inboxRefresh(); renderThread();
+  };
+  if (t.manual) { window.open("https://chat.reddit.com/user/" + encodeURIComponent(t.with), "_blank"); await done(); return; }   // chat: paste with ⌘V
   const last = [...t.messages].reverse().find((m) => !m.mine) || t.messages[t.messages.length - 1];
   await chrome.storage.local.set({ pendingMessage: { threadId: t.id, replyTo: last && last.id, text, at: Date.now() } });
   window.open("https://old.reddit.com/message/messages/" + t.id.replace(/^t4_/, ""), "_blank");
+  await done();
 };
 $("copyReply").onclick = () => copyText($("draft").value, $("copyReply"));
 $("sentByHand").onclick = async () => { if (!curThread) return; await send({ type: "inbox-mine", id: curThread.id, body: $("draft").value }); curThread = null; inboxRefresh(); renderThread(); };

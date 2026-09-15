@@ -238,7 +238,10 @@ assert.ok(!/^—/m.test(dm) && !/\n— \w+$/.test(dm.trim()), "no sign-off: " + 
 // gets its own line; the numbered shape is checked on a written one below
 assert.ok(/^The offer: /m.test(dm), "the offer sits on a line of its own: " + dm);
 assert.strictEqual(H.huntDM(hp, { name: "Troi" }, "short").split("\n\n").length, 3, "the short DM is a greeting and two paragraphs");
-assert.ok(/portfolio/i.test(dm), "the portfolio is offered: " + dm);
+// a first message has nothing to click and nothing to look up, and it ends
+// on a question to them and a thank you
+assert.ok(!/portfolio|case study|check out|https?:\/\//i.test(dm), "nothing to look at in a first DM: " + dm);
+assert.ok(/\?/.test(dm) && /\bthank/i.test(dm), "it ends on a question and thanks: " + dm);
 assert.ok(!/\?\s*$/.test(dm.trim()), "no question at the end: " + dm);
 assert.ok(/co-founder/i.test(dm), "we answer as the co-founder: " + dm);
 assert.ok(/team/i.test(dm) && /(costs?|expenses)/i.test(dm) && /profit|income|earns/i.test(dm), "the one sentence carries team, costs and profit: " + dm);
@@ -295,10 +298,11 @@ assert.strictEqual(sizes[1].length, sizes[2].length, "the same size asked for tw
   const withPts = H.huntSlotAssemble({ ...hp, id: "sz" }, { name: "Noah" }, { product: "fitness app", observation: "Four hundred on the waitlist answers the demand question", points: ["gyms churn every January and nobody budgets for it", "the front desk decides adoption, not the owner"], move: "pre-sell ten gyms a month of the beta", question: "q?", phrase: "", fit: "yes" });
   assert.ok(withPts.dm_long.length > withPts.dm_short.length, "long carries the two points");
   assert.ok(withPts.dm_long.includes("front desk decides adoption") && !withPts.dm_short.includes("front desk decides adoption"));
-  // the plan and the portfolio are in both sizes
+  // the plan is in both sizes, and both end on a question and thanks
   for (const d of [withPts.dm_short, withPts.dm_long]) {
     assert.ok(/pre-sell ten gyms/.test(d), "the plan is in both: " + d);
-    assert.ok(/portfolio/i.test(d), "the portfolio is in both: " + d);
+    assert.ok(/\?/.test(d) && /\bthank/i.test(d), "question and thanks in both: " + d);
+    assert.ok(!/portfolio|case study/i.test(d), "nothing to look at in either: " + d);
   }
   assert.strictEqual(withPts.dm_short.split("\n\n").length, 3, "the short one is two paragraphs: " + withPts.dm_short);
   assert.ok(/^1\. /m.test(withPts.dm_long) && /^The offer: /m.test(withPts.dm_long), "the long one is a numbered list: " + withPts.dm_long);
@@ -568,7 +572,8 @@ console.log("template + ai slots: ok");
   assert.ok(/^1\. No-shows/mi.test(a.dm_long) && /^2\. Stylists decide/mi.test(a.dm_long), "the points are numbered: " + a.dm_long);
   const offerLine = a.dm_long.split("\n").find((x) => /^The offer: /.test(x)) || "";
   assert.ok(/co-found/i.test(offerLine), "the offer line carries the stance: " + offerLine);
-  assert.ok(/interview five/.test(a.dm_long) && /portfolio/i.test(a.dm_long), "the plan and the portfolio are still there: " + a.dm_long);
+  assert.ok(/interview five/.test(a.dm_long), "the plan is still there: " + a.dm_long);
+  assert.ok(!/portfolio/i.test(a.dm_long), "and the portfolio is not: " + a.dm_long);
   assert.ok(a.dm_long.indexOf("1. No-shows") < a.dm_long.indexOf(offerLine), "the offer comes last");
   // the short one keeps the two-paragraph shape
   assert.strictEqual(a.dm_short.split("\n\n").length, 3, "the short one is a greeting and two paragraphs: " + a.dm_short);
@@ -835,3 +840,35 @@ console.log("the detailed public reply: ok");
   assert.strictEqual(H.huntSlotAssemble(p, { name: "Noah" }, { ...slots, channel: "billboards" }, {}).channel, "");
 }
 console.log("every plan leads to a channel: ok");
+
+// A first message has nothing to click and nothing to look up, and it ends on
+// a question to them and a thank you.
+{
+  const p = { id: "fm", sub: "startups", author: "Jane", title: "Looking for a technical co-founder for my gym scheduling app", body: "400 on the waitlist" };
+  const slots = { fit: "yes", product: "gym scheduling app", observation: "Four hundred on a waitlist answers the demand question",
+    points: ["gyms churn in January and nobody budgets for it", "the front desk decides adoption, not the owner"],
+    steps: ["call ten gyms that already pay for software", "put a booking mock in front of them", "measure who books without help"],
+    move: "pre-sell ten gyms", question: "which of those two is costing you more right now", phrase: "",
+    channel: "local_seo", channel_reason: "gyms are found on the map" };
+  for (const profile of [{ name: "Noah" }, { name: "Noah", portfolio: "https://example.com", credit: "I run a team." }]) {
+    const out = H.huntSlotAssemble(p, profile, slots, {});
+    for (const d of [out.dm_short, out.dm_long]) {
+      assert.ok(!/https?:\/\//.test(d), "no link: " + d);
+      assert.ok(!/\b[a-z0-9-]+\.(com|net|io|co|ai|app|dev|org)\b/i.test(d), "no domain name: " + d);
+      assert.ok(!/portfolio|case study|check out|our website/i.test(d), "nothing to look at: " + d);
+      assert.ok(/\?/.test(d), "it asks them something: " + d);
+      assert.ok(/\bthank/i.test(d.split("\n").pop()), "and thanks them at the end: " + d);
+    }
+    assert.deepStrictEqual(out.checks, [], "and it passes its own checks: " + out.checks.join("; "));
+  }
+  // the checks refuse anything that breaks those rules
+  const ok = H.huntSlotAssemble(p, { name: "Noah" }, slots, {});
+  assert.ok(H.dmChecks(ok.dm_short + " See mysite.com", ok.dm_long, {}).some((x) => /domain name/.test(x)));
+  assert.ok(H.dmChecks(ok.dm_short + " I can send the portfolio.", ok.dm_long, {}).some((x) => /look at/.test(x)));
+  assert.ok(H.dmChecks(ok.dm_short.replace(/\?/g, "."), ok.dm_long, {}).some((x) => /end on a question/.test(x)));
+  assert.ok(H.dmChecks(ok.dm_short.replace(/Thanks[^.]*\./i, ""), ok.dm_long, {}).some((x) => /thank you/.test(x)));
+  // and both writers are told
+  assert.ok(/no link, no domain name, no website, no portfolio/i.test(H.huntSlotPrompt(p, {}, {}).system), "the writer is told");
+  assert.ok(/no link, no domain, no website, no portfolio/i.test(H.huntAiPrompt(p, {}).system), "the full letter is told");
+}
+console.log("a first message has nothing to click: ok");

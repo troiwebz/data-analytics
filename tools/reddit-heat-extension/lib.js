@@ -1629,7 +1629,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - The first line of the DM after the greeting names their product in THEIR words (the card's product), never "your app" or "your startup".
 - Quote at least two of the card's phrases verbatim inside the DMs, in quotation marks, where they fit naturally.
 - Both DMs carry the TWO POINTS as one short paragraph, straight after the line about their post: two specifics from their market that an outsider could not name. They are the reason the message gets read; never replace them with compliments or with advice that would fit any startup.
-- End every DM with the CLOSING LINE (below, verbatim). No question at the end, no "let me know", no link, nothing after it but the sign-off.
+- End every DM with their question answered back to them and a thank you. Nothing to click or look up: no link, no domain, no website, no portfolio, no case study, not even offered.
 - If COMMENTS ON THE THREAD are given, do not offer what others already offered there, and address any pushback the founder wrote in them.
 - If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in another post that…"), only when it truly fits. Never name the subreddit, here or anywhere else: it reads like a scraper found them.
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
@@ -2099,6 +2099,7 @@ Then fill the slots. Rules for every slot:
 - Never promise free work, a free prototype, or a timeline you were not told.
 - No links, no prices, no percentages, anywhere.
 - Never name the subreddit. "Your post came up in r/cofounderhunt" reads like a scraper found them.
+- NOTHING to click or look up in a first message: no link, no domain name, no website, no portfolio, no case study, no company name of ours, no "check out". Not even offered. It is a first message; it earns the right to send those later.
 
 ${HEAT.channelBlock()}
 - Name the channel the way a person would, never as a service being sold: "a Google Business Profile and the map pack", "search ads on the terms they would type", "one Meta ad to a cold audience", "a short video of the before and after". Never "we offer", never "our SEO services", never a package or a price.
@@ -2152,13 +2153,17 @@ const S_STAND = [
   (m) => (m.paid ? `We would take this on as paid work, with my team doing it.` : `I can take the co-founder seat, with my team behind me.`),
 ];
 // the plan and the portfolio, offered together, as the last sentence
+// How a first message ends: their question back to them, then thanks. No
+// portfolio, no site, no domain, nothing to click - a first DM that asks for
+// a look at your work is asking for something before it has given anything,
+// and a link in a first message is what gets the account filtered.
 const S_PROOF = [
-  (m) => `I'll send the portfolio and that plan in writing if you want it.`,
-  (m) => `Portfolio and the written plan are yours whenever you want them.`,
-  (m) => `Say the word and the portfolio plus that plan come straight over.`,
-  (m) => `If you're ready I'll send the portfolio and the plan in writing.`,
-  (m) => `Tell me and I'll send our portfolio together with that plan.`,
-  (m) => `The portfolio and a written version of that plan are ready to send.`,
+  (m) => `${m.question ? m.question + " " : ""}Happy to answer anything else. Thanks for reading.`,
+  (m) => `${m.question ? m.question + " " : ""}Ask me anything you want to know. Thanks for the post.`,
+  (m) => `${m.question ? m.question + " " : ""}Any questions, just ask. Thanks either way.`,
+  (m) => `${m.question ? m.question + " " : ""}Tell me if anything there needs explaining. Thanks for reading.`,
+  (m) => `${m.question ? m.question + " " : ""}Anything else you want to know, ask away. Thanks.`,
+  (m) => `${m.question ? m.question + " " : ""}Glad to go into any of it. Thanks for putting the post up.`,
 ];
 // what we would actually do, from the step the model wrote for this post
 const S_PLAN = [
@@ -2380,6 +2385,11 @@ HEAT.dmChecks = function (short, long, profile = {}) {
       if (!/^The offer: /m.test(t)) bad.push("the long DM has no offer line of its own");
     } else if (t.split(/\n\s*\n/).filter(Boolean).length < 2) bad.push(`${what} is not two paragraphs`);
     if (!profile.dmLinks && /https?:\/\//.test(t)) bad.push(`${what} has a link in it`);
+    // a first message has nothing to click and nothing to look up
+    if (!profile.dmLinks && /\b[a-z0-9-]+\.(?:com|net|io|co|ai|app|dev|org|in|me|xyz|site|shop)\b/i.test(t)) bad.push(`${what} has a domain name in it`);
+    if (/\b(portfolio|case study|our website|our site|check out)\b/i.test(t)) bad.push(`${what} offers something to look at, and a first message should not`);
+    if (!/[?]/.test(t)) bad.push(`${what} does not end on a question`);
+    if (!/\bthank/i.test(t)) bad.push(`${what} has no thank you at the end`);
     if (!(profile.deal || {}).numbersInDm && /[$€£]\s?\d|\d+\s?%/.test(t)) bad.push(`${what} has a price or a percentage in it`);
     if (/[—–]/.test(t)) bad.push(`${what} has a long dash in it`);
     if (/what you're building/i.test(t)) bad.push(`${what} still has the placeholder in it`);
