@@ -647,3 +647,26 @@ console.log("location: ok");
   assert.ok(/the gym scheduling app/.test(named.text), "a named product keeps its article: " + named.text);
 }
 console.log("no article on the fallback: ok");
+
+// The opening: their own title when the post names no product, and the
+// subreddit never appears - "came up in r/cofounderhunt" reads like a scraper.
+{
+  const named = { id: "np", sub: "startups", title: "Looking for a technical co-founder for my live logistics SaaS", body: "Real time fleet tracking for small carriers." };
+  const bare = { id: "bp", sub: "cofounderhunt", title: "Marketing Co-founder wanted! 1600+ users", body: "I am building Konnekt, a language social application." };
+  const long = { id: "lp", sub: "cofounderhunt", title: "[Seeking CTO] " + "Anyone here interested in solving the hardest problem in Indian healthcare logistics right now, and willing to talk this week".repeat(1), body: "we move samples between labs" };
+  assert.strictEqual(H.huntTitleLine(long).length <= 101, true, "a long title is cut: " + H.huntTitleLine(long));
+  assert.ok(!/^\[/.test(H.huntTitleLine(long)), "tags are dropped: " + H.huntTitleLine(long));
+  assert.strictEqual(H.huntTitleLine(bare), "Marketing Co-founder wanted! 1600+ users");
+  const texts = [];
+  for (let i = 0; i < 40; i += 1) for (const p of [named, bare, long]) texts.push(H.huntSlotBuild({ ...p, id: p.id + i }, { name: "Noah" }, {}, {}).text);
+  assert.ok(!texts.some((t) => /\br\/[A-Za-z]/.test(t)), "no subreddit in any DM: " + texts.find((t) => /\br\/[A-Za-z]/.test(t)));
+  assert.ok(!texts.some((t) => /what you're building/i.test(t)), "never the placeholder: " + texts.find((t) => /what you're building/i.test(t)));
+  const bareOpens = texts.filter((t) => t.includes("Konnekt") || t.includes("1600+ users"));
+  assert.ok(bareOpens.length && bareOpens.every((t) => t.includes('"Marketing Co-founder wanted! 1600+ users"')), "a post with no product quotes its own title");
+  const namedOpens = texts.filter((t) => /live logistics SaaS/.test(t));
+  assert.ok(namedOpens.length && namedOpens.every((t) => /the live logistics SaaS/.test(t) && !/"Looking for a technical/.test(t)), "a post that names a product still names it");
+  // the model is told the same thing
+  assert.ok(/Never name the subreddit/.test(H.huntSlotPrompt(named, { name: "Noah" }, {}).system), "the slot prompt forbids it");
+  assert.ok(/Never name the subreddit/.test(H.huntAiPrompt(named, { name: "Noah" }).system), "the full letter forbids it");
+}
+console.log("openings: ok");

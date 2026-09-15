@@ -1454,6 +1454,27 @@ HEAT.huntThing = function (p) {
   return app ? "your " + app[0].toLowerCase() : "what you're building";
 };
 
+// Their own title, tidied enough to sit inside quotation marks in a DM:
+// tags dropped, one line, no trailing punctuation except a question mark, and
+// cut at a word before it gets long enough to read as a paste.
+HEAT.huntTitleLine = function (p, max = 100) {
+  let t = String((p && p.title) || "")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/\s*[\u2014\u2013]\s*/g, ", ")
+    .replace(/["\u201c\u201d]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.!,;:]+$/, "");
+  if (t.length > max) {
+    const cut = t.slice(0, max);
+    // an ellipsis, so a long title reads as a quote broken off, not as a typo
+    t = cut.slice(0, cut.lastIndexOf(" ") > 20 ? cut.lastIndexOf(" ") : max).replace(/[,;:]+$/, "") + "\u2026";
+  }
+  return t;
+};
+
 HEAT.huntVars = function (p, profile = {}) {
   const stage = p.stage;
   const stageLine = p.stage === "revenue" ? "Since you already have revenue, you're in a much stronger position than most people posting this, and you can almost certainly pay for execution instead of trading equity for it."
@@ -1590,7 +1611,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Both DMs carry the TWO POINTS as one short paragraph, straight after the line about their post: two specifics from their market that an outsider could not name. They are the reason the message gets read; never replace them with compliments or with advice that would fit any startup.
 - End every DM with the CLOSING LINE (below, verbatim). No question at the end, no "let me know", no link, nothing after it but the sign-off.
 - If COMMENTS ON THE THREAD are given, do not offer what others already offered there, and address any pushback the founder wrote in them.
-- If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in r/SaaS that…"), only when it truly fits.
+- If THE AUTHOR ELSEWHERE is given, you may use one detail from it, named as such ("you mentioned in another post that…"), only when it truly fits. Never name the subreddit, here or anywhere else: it reads like a scraper found them.
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
@@ -1955,6 +1976,7 @@ Then fill the slots. Rules for every slot:
 - No marketing words (leverage, unlock, elevate, seamless, game-changer), no compliments, no "great post", no exclamation marks, no emoji.
 - Never promise free work, a free prototype, or a timeline you were not told.
 - No links, no prices, no percentages, anywhere.
+- Never name the subreddit. "Your post came up in r/cofounderhunt" reads like a scraper found them.
 - Plain words a busy person reads in one pass.`;
   const s = HEAT.huntSynopsis(p);
   const user = `THE POST
@@ -1978,13 +2000,16 @@ Fill every slot. Be concrete and quick.`;
 // --- sentence pools -------------------------------------------------------
 // Each line is a whole sentence. The builder picks one per slot, per style,
 // so the same two DMs never read alike.
+// Two shapes for each opening: one when the post names a product, one when it
+// does not. Never "what you're building" - their own title goes in instead.
+// The subreddit is never mentioned; it reads like a scraper.
 const S_OPEN = [
-  (m) => `Came across your post about ${m.the}.`,
-  (m) => `Saw your post about ${m.the}.`,
-  (m) => `Read your post on ${m.the} this morning.`,
-  (m) => `Your post about ${m.the} came up in r/${m.sub}.`,
-  (m) => `Just read what you wrote about ${m.the}.`,
-  (m) => `Your post about ${m.the} is the reason I'm writing.`,
+  (m) => (m.named ? `Came across your post about ${m.the}.` : `Came across your post, "${m.title}".`),
+  (m) => (m.named ? `Saw your post about ${m.the}.` : `Saw your post, "${m.title}".`),
+  (m) => (m.named ? `Read your post on ${m.the} this morning.` : `Read your post this morning, "${m.title}".`),
+  (m) => (m.named ? `Just read what you wrote about ${m.the}.` : `Just read what you wrote, "${m.title}".`),
+  (m) => (m.named ? `Your post about ${m.the} is the reason I'm writing.` : `Your post, "${m.title}", is the reason I'm writing.`),
+  (m) => (m.named ? `Your post about ${m.the} is why I'm writing.` : `"${m.title}" is why I'm writing.`),
 ];
 // yes to co-founder, a team comes with me, expenses and profit both shared
 const S_STAND = [
@@ -2086,6 +2111,9 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   // product; it is already a noun phrase, so "the what you're building" is wrong
   const generic = /^(?:what|how|whatever)\b/i.test(product);
   const theProduct = proper || generic ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
+  // when the post names nothing, the opening quotes their own title instead
+  const titleLine = HEAT.huntTitleLine(p);
+  const named = !generic || !titleLine;
   const move = sentence(slots.move);
   const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8).slice(0, 2);
   const base = {
@@ -2093,6 +2121,8 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
     p2: pts[1] ? pts[1].charAt(0).toLowerCase() + pts[1].slice(1) : "",
     product,
     the: theProduct,
+    named,
+    title: titleLine,
     observation: sentence(slots.observation),
     move,
     moveLower: move.charAt(0).toLowerCase() + move.slice(1),
