@@ -1020,20 +1020,30 @@ async function scheduleList() {
     const p = st.posts[x.id] || {};
     const sentAlready = x.kind === "reply" ? p.repliedAt : p.dmAt;
     // an entry opened in a tab you then sent from is done, even if nothing told us
-    const state = x.state === "opened" && sentAlready ? "sent" : (x.state || "waiting");
+    let state = x.state === "opened" && sentAlready ? "sent" : (x.state || "waiting");
+    // a line still waiting on a post that has since been dropped will never run:
+    // say so now instead of counting it as work still to come
+    let doomed = "";
+    if (state === "waiting" && (p.act || !p.id)) {
+      state = "doomed";
+      doomed = !p.id ? "the post is no longer in the database"
+        : p.cancelledBy === "ai" ? (p.cancelReason || "Claude judged it not a fit")
+        : p.act === "not_relevant" ? "you marked it not relevant" : "you skipped it";
+    }
     return {
-      id: x.id, kind: x.kind, at: x.at, state, reason: x.reason || "",
+      id: x.id, kind: x.kind, at: x.at, state, reason: doomed || x.reason || "",
       openedAt: x.openedAt || 0, sentAt: x.sentAt || sentAlready || 0,
       title: p.title || "(no longer in the database)", author: p.author || "", sub: p.sub || "",
       permalink: p.permalink || "", written: !!p.ai, gone: !p.id,
     };
   }).sort((a, b) => a.at - b.at);
   const count = (s2) => rows.filter((x) => x.state === s2).length;
+  const doomedN = count("doomed");
   const waiting = rows.filter((x) => x.state === "waiting");
   const g = await dmGate();
   return {
     rows,
-    counts: { waiting: waiting.length, opened: count("opened"), sent: count("sent"), cancelled: count("cancelled"), gone: count("gone"), done: count("done") },
+    counts: { waiting: waiting.length, opened: count("opened"), sent: count("sent"), cancelled: count("cancelled") + doomedN, gone: count("gone"), done: count("done") },
     waiting: waiting.length,
     next: waiting.length ? Math.max(0, waiting[0].at - now) : 0,
     nextAt: waiting.length ? waiting[0].at : 0,
