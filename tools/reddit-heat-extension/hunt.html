@@ -48,6 +48,7 @@
   .winbar, .sizes { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
   .winbar button, .sizes button { border:0; border-radius:0; background:#1a1e26; color:var(--dim); padding:5px 12px; font-size:12px; }
   .winbar button.on, .sizes button.on { background:var(--or); color:#fff; font-weight:600; }
+  button.schedTab.on { background:var(--or); color:#fff; border-color:var(--or); font-weight:600; }
   #opts { display:grid; gap:6px; margin-bottom:8px; }
   .opt { text-align:left; border:1px solid var(--line); background:#12151c; border-radius:8px; padding:8px 10px; color:#c8cede; font-size:12.5px; line-height:1.45; cursor:pointer; }
   .opt:hover { border-color:#3b4252; }
@@ -295,6 +296,8 @@
 
   <!-- any table view: queue, contacted -->
   <div id="table" hidden>
+    <div id="schedTabs" class="row" style="margin:0 0 8px;flex-wrap:wrap" hidden></div>
+    <div class="foot" id="schedGate" style="margin:0 0 10px"></div>
     <div id="skBar" class="row" style="margin:0 0 10px;flex-wrap:wrap" hidden>
       <button id="skBack" class="primary" disabled>Put back in the queue</button>
       <span class="foot" style="margin:0">nothing here was deleted, it was only set aside</span>

@@ -129,7 +129,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
   if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
   if (msg.type === "hunt-schedule-list") { scheduleList().then(reply); return true; }
-  if (msg.type === "hunt-schedule-clear") { scheduleClear(msg.id).then(reply); return true; }
+  if (msg.type === "hunt-schedule-run") { scheduleRunNow(msg.id, msg.kind).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-schedule-clear") { scheduleClear(msg.id, msg.kind).then(reply); return true; }
   if (msg.type === "hunt-export") { huntExport().then(reply); return true; }
   if (msg.type === "hunt-import") { huntImport(msg.data, msg.mode).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
@@ -882,6 +883,15 @@ async function huntAct(id, action, variant) {
     st.contacted[p.author.toLowerCase()] = { at: now, id, how: prev && prev.how === "reply" ? "reply+dm" : "dm", sub: p.sub };
     await dmSent();                      // start the gap before the next one
   }
+  // the schedule is the record of what happened, so close its row too
+  if (action === "replied" || action === "dm") {
+    const sched = Array.isArray(st.schedule) ? st.schedule : [];
+    for (const x of sched) {
+      if (x.id !== id) continue;
+      if (x.kind === (action === "replied" ? "reply" : "dm")) { x.state = "sent"; x.sentAt = now; }
+    }
+    st.schedule = sched;
+  }
   if (action === "undo") {
     // a skip also hid this person's other posts, so undo has to reach those too
     delete p.act; delete p.laterUntil; delete p.repliedAt; delete p.dmAt;
@@ -889,7 +899,7 @@ async function huntAct(id, action, variant) {
     if ((st.contacted[p.author.toLowerCase()] || {}).id === id) delete st.contacted[p.author.toLowerCase()];
   }
   p.actAt = now;
-  await huntSet({ posts: st.posts, contacted: st.contacted });
+  await huntSet({ posts: st.posts, contacted: st.contacted, schedule: st.schedule || [] });
   return { ok: true };
 }
 
@@ -999,16 +1009,56 @@ async function scheduleAdd(ids, gapMin, dmAfterSec) {
   await huntSet({ schedule });
   return { ok: true, added: added.length / 2, next: added.length ? added[0].at : 0 };
 }
+// Every line of the schedule with what became of it: still to come, opened and
+// waiting for your click, sent, or dropped and why.
 async function scheduleList() {
   const st = await huntGet();
   const now = Date.now();
-  const rows = (st.schedule || []).map((x) => ({ ...x, title: (st.posts[x.id] || {}).title || "(gone)", author: (st.posts[x.id] || {}).author || "" }));
-  const waiting = rows.filter((x) => !x.state);
-  return { rows: rows.sort((a, b) => a.at - b.at), waiting: waiting.length, next: waiting.length ? Math.max(0, waiting[0].at - now) : 0 };
+  const rows = (st.schedule || []).map((x) => {
+    const p = st.posts[x.id] || {};
+    const sentAlready = x.kind === "reply" ? p.repliedAt : p.dmAt;
+    // an entry opened in a tab you then sent from is done, even if nothing told us
+    const state = x.state === "opened" && sentAlready ? "sent" : (x.state || "waiting");
+    return {
+      id: x.id, kind: x.kind, at: x.at, state, reason: x.reason || "",
+      openedAt: x.openedAt || 0, sentAt: x.sentAt || sentAlready || 0,
+      title: p.title || "(no longer in the database)", author: p.author || "", sub: p.sub || "",
+      permalink: p.permalink || "", written: !!p.ai, gone: !p.id,
+    };
+  }).sort((a, b) => a.at - b.at);
+  const count = (s2) => rows.filter((x) => x.state === s2).length;
+  const waiting = rows.filter((x) => x.state === "waiting");
+  const g = await dmGate();
+  return {
+    rows,
+    counts: { waiting: waiting.length, opened: count("opened"), sent: count("sent"), cancelled: count("cancelled"), gone: count("gone"), done: count("done") },
+    waiting: waiting.length,
+    next: waiting.length ? Math.max(0, waiting[0].at - now) : 0,
+    nextAt: waiting.length ? waiting[0].at : 0,
+    gateWaitMs: g && g.ok ? 0 : (g && g.waitMs) || 0,
+    gateReason: g && g.ok ? "" : (g && g.error) || "",
+  };
 }
-async function scheduleClear(id) {
+// "Open this one now": jump the queue, and skip the pacing gap on purpose.
+async function scheduleRunNow(id, kind) {
   const st = await huntGet();
-  const schedule = id ? (st.schedule || []).filter((x) => !(x.id === id && !x.state)) : (st.schedule || []).filter((x) => !!x.state);
+  const list = st.schedule || [];
+  const row = list.find((x) => x.id === id && x.kind === kind && (!x.state || x.state === "waiting"));
+  if (!row) return { ok: false, error: "that line is not waiting any more" };
+  row.at = Date.now() - 1000;
+  row.now = true;                       // scheduleTick lets this one past the gap
+  await huntSet({ schedule: list });
+  await scheduleTick();
+  const after = (await huntGet()).schedule.find((x) => x.id === id && x.kind === kind);
+  return { ok: true, state: (after && after.state) || "waiting", reason: (after && after.reason) || "" };
+}
+// No id: clear the finished lines out of the way. With one: drop that line.
+// With kind too: drop only that half of the post, reply or DM.
+async function scheduleClear(id, kind) {
+  const st = await huntGet();
+  const schedule = id
+    ? (st.schedule || []).filter((x) => !(x.id === id && !x.state && (!kind || x.kind === kind)))
+    : (st.schedule || []).filter((x) => !x.state);
   await huntSet({ schedule });
   return { ok: true, left: schedule.filter((x) => !x.state).length };
 }
@@ -1024,7 +1074,7 @@ async function scheduleTick() {
   if (!p || p.act) { due.state = "gone"; due.reason = p ? "you skipped it" : "the post is no longer in the database"; return save(); }
   if (due.kind === "reply" && p.repliedAt) { due.state = "done"; return save(); }
   if (due.kind === "dm" && p.dmAt) { due.state = "done"; return save(); }
-  if (due.kind === "dm") {
+  if (due.kind === "dm" && !due.now) {
     const g = await dmGate();
     if (!g.ok) { due.at = now + Math.max(30000, g.waitMs || 60000); return save(); }
   }

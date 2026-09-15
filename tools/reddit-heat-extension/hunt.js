@@ -663,26 +663,76 @@ for (const id of ["cUp", "cShare", "cExp"]) {
 }
 
 // ---- tables: click any counter to see exactly what is behind it ----------
+let schedFilter = "all";
+let schedTimer = 0;
+const STATE_LOOK = {
+  waiting: ["#8fb8ff", "still to come"],
+  opened: ["#e6c76b", "open in a tab, waiting for you to press send"],
+  sent: ["#7ee29a", "sent"],
+  cancelled: ["#ff8a65", "dropped"],
+  gone: ["#98a0b3", "dropped"],
+  done: ["#7ee29a", "already done"],
+};
+async function drawSchedule() {
+  const r = await send({ type: "hunt-schedule-list" });
+  if (!r || $("table").hidden) return;
+  const now = Date.now();
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const inMins = (t) => { const m = Math.round((t - now) / 60000); return m <= 0 ? "any moment" : m < 60 ? `in ${m}m` : `in ${Math.floor(m / 60)}h ${m % 60}m`; };
+  const c = r.counts;
+  $("tableTitle").textContent = `Schedule · ${c.waiting} waiting · ${c.opened} open · ${c.sent} sent`
+    + (c.cancelled + c.gone ? ` · ${c.cancelled + c.gone} dropped` : "");
+  const tabs = [["all", "Everything", r.rows.length], ["waiting", "Waiting", c.waiting], ["opened", "Open now", c.opened], ["sent", "Sent", c.sent], ["dropped", "Dropped", c.cancelled + c.gone]];
+  $("schedTabs").innerHTML = tabs.map(([k, label, n]) => `<button class="ghost schedTab${schedFilter === k ? " on" : ""}" data-k="${k}">${label} ${n}</button>`).join("");
+  for (const b of $("schedTabs").querySelectorAll(".schedTab")) b.onclick = () => { schedFilter = b.dataset.k; drawSchedule(); };
+  $("schedTabs").hidden = false;
+  $("schedGate").textContent = r.waiting
+    ? `Next line opens ${inMins(r.nextAt)} at ${clock(r.nextAt)}.` + (r.gateWaitMs ? ` The pacing gap is holding DMs for another ${Math.ceil(r.gateWaitMs / 1000)}s${r.gateReason ? " · " + r.gateReason : ""}.` : "")
+    : r.rows.length ? "Nothing left to open." : "";
+  const shown = r.rows.filter((x) => schedFilter === "all" || (schedFilter === "dropped" ? (x.state === "cancelled" || x.state === "gone") : x.state === schedFilter));
+  $("tableRows").innerHTML = shown.map((x) => {
+    const [colour, word] = STATE_LOOK[x.state] || ["#98a0b3", x.state];
+    const detail = x.state === "waiting" ? inMins(x.at)
+      : x.state === "opened" ? `opened ${ago(x.openedAt || x.at)}`
+      : x.state === "sent" ? `${ago(x.sentAt || x.at)}`
+      : x.reason || "";
+    const link = x.permalink ? `<a href="${esc(x.permalink)}" target="_blank" rel="noopener" title="open the thread on Reddit">↗</a>` : "";
+    const act = x.state === "waiting"
+      ? `<button class="ghost schedNow" data-id="${esc(x.id)}" data-kind="${x.kind}">Open now</button><button class="ghost unsched" data-id="${esc(x.id)}" data-kind="${x.kind}">remove</button>`
+      : x.state === "opened" ? `<button class="ghost schedNow" data-id="${esc(x.id)}" data-kind="${x.kind}">reopen</button>` : "";
+    return `<tr${x.state === "sent" ? ' class="done"' : ""}>`
+      + `<td>${esc(clock(x.at))}</td>`
+      + `<td>${x.kind === "reply" ? "public reply" : "the DM"}${x.written ? "" : ` <span class="foot" style="margin:0" title="Claude has not written this one yet; it is written just before the line opens">· not written yet</span>`}</td>`
+      + `<td>${esc(x.author ? "u/" + x.author : "")}${x.sub ? ` <span style="color:#98a0b3">r/${esc(x.sub)}</span>` : ""} ${link}<br><span style="color:#98a0b3">${esc(String(x.title).slice(0, 70))}</span></td>`
+      + `<td style="color:${colour}"><b>${esc(word)}</b>${detail ? `<br><span style="color:#98a0b3">${esc(detail)}</span>` : ""}</td>`
+      + `<td>${act}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled. Tick some rows in the queue and press "Schedule these".'}</td></tr>`;
+  for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id, kind: b.dataset.kind }); drawSchedule(); refresh(false); };
+  for (const b of $("tableRows").querySelectorAll("button.schedNow")) b.onclick = async () => {
+    b.textContent = "opening…"; b.disabled = true;
+    const out = await send({ type: "hunt-schedule-run", id: b.dataset.id, kind: b.dataset.kind });
+    if (out && !out.ok) $("schedGate").textContent = "could not open it: " + (out.error || "unknown");
+    drawSchedule(); refresh(false);
+  };
+  clearTimeout(schedTimer);
+  schedTimer = setTimeout(() => { if (!$("table").hidden && $("tableHead").textContent.includes("When")) drawSchedule(); }, 15000);
+}
 function showTable(kind) {
   $("table").hidden = false;
   if ($("skBar")) $("skBar").hidden = kind !== "skipped";
+  if ($("schedTabs")) { $("schedTabs").hidden = kind !== "schedule"; $("schedGate").textContent = ""; }
+  clearTimeout(schedTimer);
   $("main").hidden = true;
   $("setup").hidden = true;
   $("tableFind").value = "";
   if (kind === "schedule") {
+    schedFilter = schedFilter || "all";
     $("tableTitle").textContent = "Schedule";
-    $("tableNote").textContent = "Each one opens at its time with the reply or the DM already filled in. Nothing is sent by the extension: you read it and press Reddit's button. A post the writer judges not a fit is dropped before anything opens.";
-    $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th></th></tr>";
+    $("tableNote").textContent = "Every line, and what became of it. Nothing is sent by the extension: a line opens the tab with the text already in it and you press Reddit's own button. Press Open now to jump the queue on any line that is still waiting.";
+    $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th>Now</th></tr>";
     $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">reading…</td></tr>`;
     tableText = () => "";
-    send({ type: "hunt-schedule-list" }).then((r) => {
-      if (!r) return;
-      const when = (t) => { const d = Math.round((t - Date.now()) / 60000); return d > 0 ? `in ${d}m` : new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
-      const rows = r.rows.map((x) => `<tr${x.state ? ' class="done"' : ""}><td>${esc(when(x.at))}</td><td>${x.kind === "reply" ? "public reply" : "the DM"}</td><td>${esc((x.author ? "u/" + x.author + " · " : "") + x.title)}</td><td style="color:${x.state === "cancelled" ? "#ff8a65" : "#98a0b3"}">${esc(x.state || "waiting")}${x.reason ? " · " + esc(x.reason) : ""}</td><td>${x.state ? "" : `<button class="ghost unsched" data-id="${x.id}">remove</button>`}</td></tr>`).join("");
-      $("tableTitle").textContent = `Schedule · ${r.waiting} waiting${r.waiting ? ` · next ${when(Date.now() + r.next)}` : ""}`;
-      $("tableRows").innerHTML = rows || `<tr><td colspan="5" style="color:#98a0b3">Nothing scheduled. Tick some rows in the queue and press "Schedule these".</td></tr>`;
-      for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id }); showTable("schedule"); refresh(false); };
-    });
+    drawSchedule();
     return;
   }
   if (kind === "skipped") {
