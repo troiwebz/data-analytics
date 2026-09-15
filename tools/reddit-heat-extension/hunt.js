@@ -931,7 +931,7 @@ function drawQueueRows() {
     if (done) {
       const marks = [done.repliedAt ? "reply ✓" : "", done.dmAt ? "DM ✓" : ""].filter(Boolean).join(" · ");
       return `<tr class="struck"><td></td>`
-        + `<td><b>${esc(p.title || "")}</b><br><span>r/${esc(p.sub || "")} · ${esc(p.author || "")}</span></td>`
+        + `<td><b title="${esc(p.title || "")}">${esc(titleForRow(p.title))}</b><br><span>r/${esc(p.sub || "")} · ${esc(p.author || "")}</span></td>`
         + `<td class="mark">${esc(marks)}</td><td></td><td></td>`
         + `<td class="when" style="color:#98a0b3">${esc(clock(done.at))}</td><td></td></tr>`;
     }
@@ -939,7 +939,7 @@ function drawQueueRows() {
     const open = openRow === p.id;
     const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
     const row = `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td>`
-      + `<td><b>${esc(p.title)}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td>`
+      + `<td><b title="${esc(p.title)}">${esc(titleForRow(p.title))}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td>`
       + `<td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
     if (!open) return row;
     const bits = [["Who", s.who], ["Wants", s.wants], ["Where", s.country], ["Stage", s.stage], ["Money", s.money], ["Traction", s.traction || s.revenue], ["Time", s.commit], ["Equity", s.equity]].filter(([, v]) => v);

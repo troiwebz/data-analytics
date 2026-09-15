@@ -61,9 +61,18 @@
   .opt.ai b { color:#7ee29a; }
   .opt.ai { border-color:#1f4d2e; }
   .opt b { color:var(--or); font-size:11px; display:block; margin-bottom:2px; letter-spacing:.05em; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  td { padding:8px 12px; border-top:1px solid var(--line); vertical-align:top; }
-  th { padding:8px 12px; font-weight:500; font-size:12px; color:var(--dim); text-align:left; }
+  table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+  td { padding:9px 12px; border-top:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+  th { padding:8px 12px; font-weight:500; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--dim); text-align:left; }
+  /* one row, one line each: the title column takes the room, the rest stay narrow */
+  #tableHead th:nth-child(2) { width:auto; }
+  #tableHead th:nth-child(3), #tableHead th:nth-child(4) { width:13%; }
+  #tableHead th:nth-child(5) { width:12%; }
+  #tableHead th:nth-child(6) { width:9%; }
+  #tableHead th:nth-child(7) { width:6%; text-align:right; }
+  #tableRows td:nth-child(7) { text-align:right; color:var(--dim); }
+  #tableRows tr.pick td { border-top:1px solid var(--line); }
+  #tableRows tr.pick b { font-weight:600; font-size:13.5px; line-height:1.4; }
   tr.pick:hover td { background:#1d2129; cursor:pointer; }
   .setup { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
   .setup label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }

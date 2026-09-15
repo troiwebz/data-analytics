@@ -872,3 +872,19 @@ console.log("every plan leads to a channel: ok");
   assert.ok(/no link, no domain, no website, no portfolio/i.test(H.huntAiPrompt(p, {}).system), "the full letter is told");
 }
 console.log("a first message has nothing to click: ok");
+
+// Titles in a table cell: one line, not somebody's whole first paragraph.
+{
+  const long = "I am seeking a co-founder with extensive experience in the clinical trials sector, a deep understanding of clinical operations software, and an established professional network among sponsors.";
+  const out = H.titleForRow(long);
+  assert.ok(out.length <= 85, "cut to fit a row: " + out.length);
+  assert.ok(out.endsWith("\u2026"), "and says it was cut: " + out);
+  assert.ok(!/\s\u2026$/.test(out), "no space before the ellipsis: " + out);
+  assert.strictEqual(H.titleForRow("LOOKING FOR A TECHNICAL CO-FOUNDER!! SERIOUS PEOPLE ONLY"), "Looking for a technical co-founder!! Serious people only");
+  assert.strictEqual(H.titleForRow("I think LinkedIn is dead. So I built an alternative."), "I think LinkedIn is dead. So I built an alternative.");
+  assert.strictEqual(H.titleForRow("[COFOUNDER] Building a WhatsApp community"), "[COFOUNDER] Building a WhatsApp community", "tags are left alone");
+  assert.strictEqual(H.titleForRow("need help"), "Need help");
+  assert.strictEqual(H.titleForRow(""), "(no title)");
+  assert.strictEqual(H.titleForRow("SaaS for clinics"), "SaaS for clinics", "a short title with caps in it is not shouted at");
+}
+console.log("titles fit their row: ok");

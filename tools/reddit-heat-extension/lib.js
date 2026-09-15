@@ -1458,6 +1458,24 @@ HEAT.huntThing = function (p) {
 // Their own title, tidied enough to sit inside quotation marks in a DM:
 // tags dropped, one line, no trailing punctuation except a question mark, and
 // cut at a word before it gets long enough to read as a paste.
+// A Reddit title in a table cell: three lines of somebody's whole first
+// paragraph, or SHOUTING, both of which wreck the row. This tidies it for
+// display only - the real title is untouched everywhere it matters.
+HEAT.titleForRow = function (title, max = 84) {
+  let t = String(title || "").replace(/\s+/g, " ").trim();
+  if (!t) return "(no title)";
+  // all caps, or nearly: put it back into sentence case rather than shout
+  const letters = t.replace(/[^A-Za-z]/g, "");
+  if (letters.length > 6 && letters === letters.toUpperCase()) {
+    t = t.toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  }
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const at = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf(", "));
+  return (at > max * 0.5 ? cut.slice(0, at) : cut).replace(/[,;:.\s]+$/, "") + "\u2026";
+};
+
 HEAT.huntTitleLine = function (p, max = 100) {
   let t = String((p && p.title) || "")
     .replace(/\[[^\]]*\]/g, " ")
