@@ -114,7 +114,11 @@ async function renderInner() {
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
   $('state').textContent = cfg.enabled ? `Watching the forum · checking every ${cfg.pollMinutes} min` : 'Not watching · turn it on in Settings';
-  $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} posts today`;
+  // Two separate caps, so show two. A reply posted and a PM sent are different
+  // things, and counting them together is what made the number look wrong.
+  $('rate').innerHTML =
+    meter('Replies', rate.count || 0, cfg.maxPostsPerDay) +
+    meter('PMs', rate.dmCount || 0, cfg.maxDmsPerDay);
   // Apps Script is optional; hide what needs it rather than failing on a click.
   for (const id of ['approvals', 'sync']) $(id).hidden = !cfg.webhookUrl;
 
@@ -122,7 +126,9 @@ async function renderInner() {
   const n = (s) => leads.filter((l) => l.status === s).length;
   const tiles = [
     [leads.length, 'in database'], [today.length, 'found today'],
-    [n('POSTED'), 'posted'], [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
+    [n('POSTED'), 'replies posted'],
+    [leads.filter((l) => l.pmSent).length, 'PMs sent'],
+    [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
   ];
   if (ai?.configured) {
     // Spend is exact. Balance is our own count-down from the top-up figure you
@@ -179,6 +185,19 @@ async function renderInner() {
 
   $('log').innerHTML = log.slice(0, 12)
     .map((e) => `<div class="${e.level}">${when(e.t).split(', ')[1] || ''} ${esc(e.msg)}</div>`).join('');
+}
+
+/**
+ * How much of a daily cap is used. Green while there is room, amber as it
+ * closes, red at the cap, so the state is readable without doing the sum.
+ */
+function meter(label, used, cap) {
+  const max = Math.max(1, Number(cap) || 1);
+  const pct = Math.min(100, Math.round((used / max) * 100));
+  const colour = pct >= 100 ? '#dc2626' : pct >= 80 ? '#f59e0b' : '#22c55e';
+  return `<span class="meter" title="${esc(label)}: ${used} of ${cap} today">` +
+         `<span class="mlab">${esc(label)} ${used}/${cap}</span>` +
+         `<span class="mbar"><i style="width:${pct}%;background:${colour}"></i></span></span>`;
 }
 
 function row(l, staged, cfg) {

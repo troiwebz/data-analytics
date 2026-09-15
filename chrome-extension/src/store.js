@@ -121,6 +121,17 @@ export async function recordDm() {
   });
 }
 
+/** Undo counts against the cap too, or an undone post still costs you a slot. */
+export async function unrecordDm() {
+  const r = await getRateState();
+  await chrome.storage.local.set({ [RATE_KEY]: { ...r, dmCount: Math.max(0, (r.dmCount || 0) - 1) } });
+}
+
+export async function unrecordPost() {
+  const r = await getRateState();
+  await chrome.storage.local.set({ [RATE_KEY]: { ...r, count: Math.max(0, (r.count || 0) - 1) } });
+}
+
 export async function recordPost() {
   const r = await getRateState();
   await chrome.storage.local.set({

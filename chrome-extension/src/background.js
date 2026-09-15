@@ -22,7 +22,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
-  checkRateLimit, recordPost, checkDmLimit, recordDm, log,
+  checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, log,
   getStaged, setStaged, removeStagedByTab
 } from './store.js';
 
@@ -140,14 +140,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // ------------------------------------------------------------------- feed
 
 /**
- * BHW's new direct-message page with the recipient filled in.
- * The `to` parameter is form-encoded, so spaces are '+', not %20:
+ * BHW's direct-message page with the recipient filled in.
+ *
+ * `?to=` and nothing else, because that is the exact URL a person gets from
+ * clicking "Start conversation" on a member's profile. A `&title=` on the end
+ * is not something a human ever produces, so it stands out in the address bar
+ * and in whatever the forum logs. The subject is typed into the form by the
+ * content script instead, which leaves no trace in the URL.
+ *
+ * Form-encoded, so spaces are '+', not %20:
  *   https://www.blackhatworld.com/direct-messages/add?to=digital+value
  */
-export function dmUrl(author, title) {
+export function dmUrl(author) {
   const form = (v) => encodeURIComponent(v || '').replace(/%20/g, '+');
-  return 'https://www.blackhatworld.com/direct-messages/add?to=' + form(author) +
-         (title ? '&title=' + form(title) : '');
+  return 'https://www.blackhatworld.com/direct-messages/add?to=' + form(author);
 }
 
 /**
@@ -178,7 +184,7 @@ export function enrich(m, cfg, status, aiSpecifics) {
   const dm = renderDm(m, cfg);
   const dmTitle = renderDmTitle(m, cfg);
   const lead = {
-    ...m, draft, dm, dmTitle, dmUrl: dmUrl(m.author, dmTitle),
+    ...m, draft, dm, dmTitle, dmUrl: dmUrl(m.author),
     lint: lintDraft(draft, cfg.compliance),
     dmLint: lintDraft(dm, cfg.compliance),
     status, foundAt: new Date().toISOString()
@@ -547,6 +553,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'mark': {                                 // ✅ posted by hand / ⏭ skip, from the dashboard
         const cfg = await getConfig();
+        const was = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
+        if (msg.status === 'POSTED' && was?.status !== 'POSTED') await recordPost();
         const staged = (await getStaged())[msg.threadId];
         if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.threadId, null); }
         await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
@@ -587,7 +595,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           if (draft === l.draft && dm === l.dm) continue;
           const dmTitle = renderDmTitle(l, cfg);
           const patch = {
-            draft, dm, dmTitle, dmUrl: dmUrl(l.author, dmTitle),
+            draft, dm, dmTitle, dmUrl: dmUrl(l.author),
             lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
           };
           patch.card = buildCard({ ...l, ...patch });
@@ -618,18 +626,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await sendDm(msg.lead, cfg, { mode: msg.mode || 'send' }));
         break;
       }
-      case 'mark-pm': {                              // ✅ "I sent the PM" from the dashboard
+      case 'mark-pm': {                              // ✅ sent, or copied to send by hand
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         await updateLead(msg.threadId, { pmSent: true, pmSentAt: new Date().toISOString() });
+        // However it left, it counts against the daily cap. Marking one that
+        // was already marked must not count it twice.
+        if (!lead?.pmSent) await recordDm();
         sendResponse({ ok: true });
         break;
       }
       case 'unmark': {                               // ↩︎ a copy that was not meant as a post
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         await updateLead(msg.threadId, { status: 'SENT', error: '', postUrl: '' });
+        if (lead?.status === 'POSTED') await unrecordPost();
         sendResponse({ ok: true });
         break;
       }
       case 'unmark-pm': {
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         await updateLead(msg.threadId, { pmSent: false, pmSentAt: '', pmError: '' });
+        if (lead?.pmSent) await unrecordDm();
         sendResponse({ ok: true });
         break;
       }

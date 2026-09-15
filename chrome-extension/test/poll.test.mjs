@@ -111,6 +111,9 @@ ok('the PM carries the close Claude chose', /whole method|sequence|order/i.test(
 ok('no em dash in the reply', !/[–—]/.test(lead.draft + lead.dm));
 ok('compliance ran', Array.isArray(lead.lint?.problems) || lead.lint != null);
 ok('DM url built', /direct-messages\/add\?to=/.test(lead.dmUrl), lead.dmUrl);
+// A &title= on the end is not something a person ever produces, so it stands out.
+ok('the DM url is exactly what a human gets from a profile', !/[?&]title=/.test(lead.dmUrl), lead.dmUrl);
+ok('the subject is still generated, just not in the url', !!lead.dmTitle, lead.dmTitle);
 
 const st = await C.aiStatus();
 ok('spend recorded', st.spentToday > 0 && st.leadsToday === 3, JSON.stringify(st));

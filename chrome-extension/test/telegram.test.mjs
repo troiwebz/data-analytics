@@ -27,7 +27,7 @@ const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; c
 const cfg = { telegramEnabled: true, telegramChatId: '8812664414' };
 const lead = (id) => ({
   threadId: id, title: 'Looking for Bulk GMB Listings', author: 'Yeon', url: 'https://bhw/threads/x.' + id + '/',
-  card: '<b>6 pts</b> · SEO', dmUrl: 'https://bhw/direct-messages/add?to=Yeon',
+  card: '<b>6 pts</b> · SEO', dmUrl: 'https://bhw/direct-messages/add?to=Yeon', dmTitle: 'Re: Bulk GMB Listings',
   draft: 'Hey @Yeon,\n\nVerification handled per listing. Core work for us.\n\nPM sent.',
   dm: 'Hey Yeon,\n\nSaw your thread: https://bhw/threads/x.' + id + '/\n\ntip one. tip two. tip three.\n\nPortfolio and samples.'
 });
@@ -52,6 +52,8 @@ ok('first does NOT carry the PM', !first.body.text.includes('Portfolio and sampl
 ok('second carries the PM', second.body.text.includes('Portfolio and samples'));
 ok('PM is tap-to-copy', /<pre>[\s\S]*Portfolio and samples[\s\S]*<\/pre>/.test(second.body.text));
 ok('PM message links the PM page', second.body.text.includes('direct-messages/add'));
+ok('the PM link carries no title parameter', !/[?&]title=/.test(second.body.text), second.body.text.slice(0, 200));
+ok('the subject is readable, since the URL no longer carries it', second.body.text.includes('Re: Bulk GMB Listings'));
 ok('both are HTML', sent.every((m) => m.body.parse_mode === 'HTML'));
 
 // Telegram's 4096 limit must never reject a message.

@@ -60,8 +60,11 @@ export async function sendLead(lead, cfg) {
                               disable_web_page_preview: true });
 
   if (lead.dm) {
+    // The subject used to ride in the URL; it does not any more, so it has to
+    // be readable here or it cannot be typed in on a phone.
     const title = `✉️ <b>PM to ${esc(lead.author || 'the poster')}</b>` +
-      (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">open the PM page</a>` : '');
+      (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">open the PM page</a>` : '') +
+      (lead.dmTitle ? `\nSubject: <code>${esc(lead.dmTitle)}</code>` : '');
     await call('sendMessage', { chat_id: chatId,
       text: title + preBlock('(tap to copy)', plain(lead.dm), LIMIT - title.length),
       parse_mode: 'HTML', disable_web_page_preview: true });
