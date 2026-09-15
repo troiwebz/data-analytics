@@ -245,9 +245,19 @@ const SYSTEM = [
   '- No praise, no restating their request back to them, no filler.',
   '- Plain words. Never use an em dash, en dash or bullet glyph. Use ordinary hyphens and full stops.',
   '- Never promise a specific price, a discount, a guarantee, or a ranking result.',
-  '- NEVER offer free work of any kind: no free trial, sample, test, audit or "no charge".',
+  '- NEVER offer free work of any kind: no free trial, sample, demo, test, audit or "no charge".',
   '- Under 100 characters each. Short is better.',
   '- British or neutral English, lower-key than marketing copy.',
+  '',
+  'TONE. This is a quote to a buyer who has already decided what they want. You are not their adviser.',
+  '- Never warn them, caution them, or tell them their plan is risky, difficult or a bad idea.',
+  '- Never mention terms of service, policies, rules, bans, legality or what a platform allows.',
+  '  A line like "bulk creation breaches Google\'s ToS" loses the job and reads as a lecture.',
+  '- Never ask them to justify or clarify why they want it. What they do with it is their business.',
+  '- Never hedge: no "usually", "typically", "can be tricky", "it depends", "worth noting", "bear in mind".',
+  '- State capability, not difficulty. "We create these in batches that hold" beats',
+  '  "these usually get flagged".',
+  '- Where a job is genuinely hard, say what you do about it, never that it is hard.',
   'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
   'they are numbered 1. 2. 3. when they are laid out.',
   '',
@@ -324,6 +334,10 @@ export function clean(obj) {
     // Tolerate the older bare-array shape as well as the current object.
     const raw = Array.isArray(v) ? { tips: v } : (v && typeof v === 'object' ? v : {});
     const tips = (Array.isArray(raw.tips) ? raw.tips : [])
+      // Filter before rewriting as well as after: asClaim turns "Happy to send
+      // you a demo" into "We handle happy to send you a demo", which reads as
+      // nonsense and hides the thing that should have dropped it.
+      .filter(allowed)
       .map(asClaim)
       .filter((b) => b.length > 15 && b.length <= 170)
       .filter(allowed)
@@ -364,11 +378,36 @@ const tidy = (b) => String(b ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
-/** The prompt forbids these; the filter is what actually enforces it. */
+/**
+ * The prompt forbids these; the filter is what actually enforces it. A prompt
+ * is a request, and the lecturing ones in particular slip through: a model
+ * asked about bulk account creation reaches for a caveat by reflex, and a
+ * caveat aimed at the buyer loses the job.
+ */
 const allowed = (b) =>
   !/\b(guarantee|guaranteed|discount|\d+% off)\b/i.test(b) &&
-  !/\bfree\s+(trial|sample|test|audit|work|of charge)\b/i.test(b) &&
-  !/\b(for free|no charge|at no cost)\b/i.test(b);
+  !/\bfree\s+(trial|sample|test|audit|demo|work|of charge)\b/i.test(b) &&
+  !/\b(for free|no charge|at no cost)\b/i.test(b) &&
+  // An offer of any kind belongs in the close, not in a capability line.
+  !/\b(demos?|trials?)\b/i.test(b) &&
+  !/\b(send|share|give|offer|provide)\w*\s+(you\s+)?(a\s+|some\s+)?(sample|example|preview)/i.test(b) &&
+  !LECTURE.test(b);
+
+/**
+ * Policy commentary, warnings and hedges. All three lose the job: a buyer who
+ * has decided what they want is not asking whether they should want it.
+ */
+const LECTURE = new RegExp([
+  // policy and legality, never ours to raise in a sales message
+  'terms of service', 'tos\\b', 'policies?\\b', 'against (google|facebook|meta|tiktok)',
+  'not allowed', 'prohibited', 'breach\\w*', 'violat\\w*', 'illegal', 'legality', 'compliance risk',
+  'suspension', 'banned\\b', 'get(s|ting)? flagged',
+  // warnings aimed at the buyer
+  'be aware', 'bear in mind', 'worth (noting|clarifying|checking|considering)', 'keep in mind',
+  'caution', 'risky', 'a bad idea', 'advise against', 'make sure you', 'you should (be|know|consider)',
+  // hedges
+  'usually', 'typically', 'tends? to', 'can be tricky', 'it depends', 'no guarantees'
+].map((w) => `\\b${w}\\b`).join('|'), 'i');
 
 async function recordUsage(usage, leadCount) {
   if (!usage) return;

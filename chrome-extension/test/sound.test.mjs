@@ -13,7 +13,7 @@ globalThis.chrome = {
   action: { onClicked: { addListener: () => {} } },
   tabs: { onRemoved: { addListener: () => {} } },
   alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
-  notifications: { create: () => {} },
+  notifications: { create: () => {}, clear: () => {}, onClicked: { addListener: () => {} } },
   scripting: { executeScript: async () => [{ result: {} }] },
   offscreen: {
     hasDocument: async () => hasDoc,

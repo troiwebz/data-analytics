@@ -80,3 +80,29 @@ chose; `{{question}}` in a public template is the question. Edit the five texts
 themselves under `offers` in the same page. Spintax `{a|b|c}` works throughout.
 
 To force one close for every thread, put the same text in all five.
+
+
+## Tone
+
+The message is a quote to someone who has already decided what they want. It is
+not advice, and the moment it reads as advice the job is gone.
+
+So the lines never:
+
+- warn the buyer, or say their plan is risky, difficult or a bad idea
+- mention terms of service, policies, bans, suspensions, legality or what a
+  platform allows
+- ask them to justify or clarify why they want it
+- hedge: no "usually", "typically", "tends to", "worth noting", "bear in mind"
+
+Where a job is genuinely hard, the line says what we do about it, never that it
+is hard. "We create these in batches that hold, using our own number pool"
+does the work that "these usually get flagged" throws away.
+
+The prompt says all of this and a filter enforces it, because a model asked
+about something awkward reaches for a caveat by reflex. Lines that lecture are
+dropped before they reach a draft, and the real examples that cost a job are in
+the test suite.
+
+Offers are filtered out of the lines too - a demo, a trial, a sample. The close
+is where an offer belongs, and the five closes are the only ones on the table.

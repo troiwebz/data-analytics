@@ -264,14 +264,17 @@ export async function pollFeed() {
 
   const hot = leads.filter((l) => l.score >= cfg.stageScore).sort((a, b) => b.score - a.score);
 
-  // One sound per check, not one per thread: five at once is a single alert.
-  // A hot lead gets the louder one so it is distinguishable without looking.
+  // One banner and one sound per check, not one per thread: five at once is a
+  // single alert. A hot lead gets the louder sound and says so, so it is
+  // distinguishable without looking at the screen.
   await playSound(cfg, hot.length ? cfg.soundHot : cfg.sound);
 
-  if (hot.length) {
-    notify(hot.length === 1 ? `HAF lead · ${hot[0].score} pts` : `${hot.length} hot HAF leads`, hot[0].title);
-    await stageLeads(hot, cfg);
-  }
+  const best = hot[0] || [...leads].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+  const what = leads.length === 1 ? '1 new thread' : `${leads.length} new threads`;
+  notify(hot.length ? `🔥 ${what} · ${hot[0].score} pts` : what,
+         `${best.title}\nClick to open the drafts.`);
+
+  if (hot.length) await stageLeads(hot, cfg);
   return { new: fresh.length, matched: leads.length, staged: hot.length };
 }
 
@@ -511,11 +514,20 @@ export async function runInThread(lead, mode, opts = {}) {
 // ---------------------------------------------------------------- helpers
 
 function notify(title, message) {
-  chrome.notifications.create({
+  chrome.notifications.create('haf-leads', {
     type: 'basic', iconUrl: chrome.runtime.getURL('src/icons/icon128.png'),
     title, message: String(message || '').slice(0, 180)
   });
 }
+
+// Clicking the banner is the fastest route to the drafts, so open them.
+chrome.notifications.onClicked.addListener(async (id) => {
+  chrome.notifications.clear(id);
+  const url = chrome.runtime.getURL('src/dashboard/dashboard.html');
+  const [tab] = await chrome.tabs.query({ url });
+  if (tab) { chrome.tabs.update(tab.id, { active: true }); chrome.windows.update(tab.windowId, { focused: true }); }
+  else chrome.tabs.create({ url });
+});
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg?.cmd) return;
@@ -608,6 +620,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'mark-pm': {                              // ✅ "I sent the PM" from the dashboard
         await updateLead(msg.threadId, { pmSent: true, pmSentAt: new Date().toISOString() });
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'unmark': {                               // ↩︎ a copy that was not meant as a post
+        await updateLead(msg.threadId, { status: 'SENT', error: '', postUrl: '' });
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'unmark-pm': {
+        await updateLead(msg.threadId, { pmSent: false, pmSentAt: '', pmError: '' });
         sendResponse({ ok: true });
         break;
       }

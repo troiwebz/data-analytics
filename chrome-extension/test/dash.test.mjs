@@ -29,7 +29,15 @@ global.chrome = {
       // The dashboard asks the worker for Claude status on every render; the
       // worker answers out of the same storage. This is where the loop lived.
       if (msg?.cmd === 'ai-status') { const C = await import('../src/claude.js'); return C.aiStatus(); }
-      return {};
+      global.__sent.push(msg);
+      const lead = leads.find((x) => String(x.threadId) === String(msg?.threadId));
+      if (lead) {
+        if (msg.cmd === 'mark') lead.status = msg.status;
+        if (msg.cmd === 'unmark') lead.status = 'SENT';
+        if (msg.cmd === 'mark-pm') lead.pmSent = true;
+        if (msg.cmd === 'unmark-pm') lead.pmSent = false;
+      }
+      return { ok: true };
     } },
   tabs: { create: () => {} },
   storage: (() => {
@@ -57,6 +65,7 @@ global.chrome = {
 };
 
 global.__writes = 0;
+global.__sent = [];
 let consoleErr = null;
 window.addEventListener('error', (e) => { consoleErr = e.error || e.message; });
 
@@ -116,11 +125,44 @@ ok('posted rows are still marked', $('rows').querySelector('tr[data-row="9002"]'
 ok('Settings button is live', typeof $('opts').onclick !== 'undefined' && !!$('opts'));
 ok('Sheet buttons visible when a webhook is set', !$('sync').hidden && !$('approvals').hidden);
 
+// Open a row only if it is shut, so one test's state cannot break the next.
+const openLead = async (id) => {
+  if (!$('rows').querySelector(`tr[data-row="${id}"] + tr.detail`)) {
+    click($('rows').querySelector(`tr[data-row="${id}"] .t`)); await wait();
+  }
+};
+
+// Copying is how the reply usually gets posted, so it marks the row done.
+global.__sent = [];
+await openLead('9001');
+click($('rows').querySelector('button[data-act="copy"]')); await wait();
+ok('Copy marks the thread posted',
+   global.__sent.some((m) => m.cmd === 'mark' && m.threadId === '9001' && m.status === 'POSTED'),
+   JSON.stringify(global.__sent));
+ok('and says so', /marked as posted/i.test($('rows').querySelector('#msg-9001')?.textContent || ''),
+   $('rows').querySelector('#msg-9001')?.textContent);
+
+// A stray copy must be reversible.
+await openLead('9001');
+const undo = $('rows').querySelector('button[data-act="undo"]');
+ok('a posted row offers Undo', !!undo);
+global.__sent = [];
+click(undo); await wait();
+ok('Undo puts it back on the to-do list', global.__sent.some((m) => m.cmd === 'unmark' && m.threadId === '9001'));
+
+// The PM copy marks the PM, not the thread.
+global.__sent = [];
+await openLead('9001');
+click($('rows').querySelector('button[data-act="copydm"]')); await wait();
+ok('Copy PM marks the PM sent', global.__sent.some((m) => m.cmd === 'mark-pm' && m.threadId === '9001'));
+ok('and does not mark the thread posted', !global.__sent.some((m) => m.cmd === 'mark'));
+
 // The state the user actually upgraded from: a v0.22 key in profile storage.
 // Reading it used to rewrite storage, which fired onChanged, which re-rendered,
 // which read it again. The page looked alive but ignored every click.
 chrome.storage.__bags.sync.aiSettings = { key: 'sk-ant-api03-FROMVERSION022X', model: 'claude-sonnet-5', budget: 0.5, enabled: true };
 global.__writes = 0;
+global.__sent = [];
 click($('rows').querySelector('tr[data-row="9002"] .t')); await new Promise((r) => setTimeout(r, 700));
 ok('no runaway writes after a click', global.__writes < 12, `${global.__writes} writes in 700ms`);
 ok('the page still responds to a click', !!$('rows').querySelector('tr.detail'));

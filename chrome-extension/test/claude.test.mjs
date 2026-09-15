@@ -107,5 +107,29 @@ ok('the old bare-array shape still parses', C.clean({ a: ['a long enough bullet 
 await C.clearKey();
 ok('key cleared', !(await C.aiStatus()).configured);
 
+// Tone. A quote to someone who has already decided what they want must not
+// lecture them: these are the real lines that lost a job.
+const tone = (l) => C.clean({ a: { tips: [l] } }).a?.tips?.[0];
+for (const bad of [
+  "Bulk Gmail creation tools usually get flagged by Google's phone verification checks.",
+  "Worth clarifying your intended use case, since bulk creation breaches Google's ToS.",
+  "You should be aware this is against Google's policy.",
+  "Bear in mind the accounts can be banned without warning.",
+  "This is risky and we would advise against it at that volume.",
+  "Typically these tend to get suspended within a week.",
+  "Happy to send you a demo version so you can see the standard.",
+  "We can share a sample first so you can judge it."
+]) ok(`tone: drops "${bad.slice(0, 42)}..."`, !tone(bad), tone(bad));
+
+for (const good of [
+  "We create these in batches that hold, using our own number pool.",
+  "We have run this at 500 a week without the accounts dropping.",
+  "We can hand them over aged and warmed rather than fresh.",
+  "We handle the phone verification in house rather than buying it in."
+]) ok(`tone: keeps "${good.slice(0, 42)}..."`, !!tone(good), good);
+
+ok('a bare noun phrase still becomes a claim',
+   tone('manual creation on residential IPs with our own numbers') === 'We handle manual creation on residential IPs with our own numbers');
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

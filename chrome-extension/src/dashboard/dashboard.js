@@ -223,7 +223,8 @@ function detail(l, staged, cfg) {
         <textarea data-draft="${id}" ${done ? 'readonly' : ''}>${esc(plain(edited[l.threadId] ?? l.draft ?? ''))}</textarea>
         <div class="acts">
           <button data-act="copy" data-id="${id}">📋 Copy</button>
-          ${done ? `<button data-act="open" data-id="${id}">🔗 Thread</button>`
+          ${done ? `<button data-act="open" data-id="${id}">🔗 Thread</button>
+                    <button data-act="undo" data-id="${id}" title="Put it back on the to-do list">↩︎ Undo</button>`
                  : `<button data-act="fill" data-id="${id}">📝 Open filled</button>`}
           ${done ? '' : `<button class="go" data-act="post" data-id="${id}">🚀 Post now</button>
           <button data-act="done" data-id="${id}">✅ I posted it</button>
@@ -234,7 +235,8 @@ function detail(l, staged, cfg) {
         <div class="lbl">✉️ Private message to ${esc(l.author || '')}</div>
         <textarea class="dm" data-dm="${id}">${esc(plain(dm))}</textarea>
         <div class="acts">
-          ${l.pmSent ? '<span class="st POSTED">PM sent</span>' : `
+          ${l.pmSent ? `<span class="st POSTED">PM sent</span>
+                        <button data-act="undopm" data-id="${id}" title="Mark the PM as not sent">↩︎ Undo</button>` : `
           <button class="go" data-act="senddm" data-id="${id}">✉️ Send PM now</button>
           `}
           <button data-act="copydm" data-id="${id}">📋 Copy</button>
@@ -246,11 +248,23 @@ function detail(l, staged, cfg) {
     </div>
     ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
     ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank" rel="noopener">view your reply</a></div>` : ''}
-    <div class="msg" id="msg-${id}"></div>
+    <div class="msg${flash[id]?.ok === false ? ' err' : flash[id] ? ' ok' : ''}" id="msg-${id}">${esc(flash[id]?.text || '')}</div>
   </td></tr>`;
 }
 
+/**
+ * A row's message has to survive the re-render that usually follows the action
+ * that produced it, or the confirmation flashes away before it can be read.
+ * It is held here and re-rendered with the row until it is cleared.
+ */
+const flash = {};
 function say(id, text, ok) {
+  clearTimeout(flash[id]?.t);          // before replacing it, or the old timer leaks
+  flash[id] = { text, ok, t: setTimeout(() => { delete flash[id]; render(); }, 6000) };
+  paint(id, text, ok);
+}
+
+function paint(id, text, ok) {
   const el = $(`msg-${id}`);
   if (el) { el.textContent = text; el.className = `msg ${ok ? 'ok' : 'err'}`; }
 }
@@ -301,7 +315,15 @@ async function rowAction(btn) {
   let dm = editedDm[id] ?? lead.dm;
   if (dm == null) { try { dm = renderDm(lead, cfg); } catch { dm = ''; } }
 
-  if (act === 'copy')  { await navigator.clipboard.writeText(plain(draft)); return say(id, 'Copied — paste into the thread.', true); }
+  // Copying is how the reply actually gets posted most of the time, so it
+  // counts as posting. Wrong copy? The row gets an Undo while it is open.
+  if (act === 'copy') {
+    await navigator.clipboard.writeText(plain(draft));
+    await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id, status: 'POSTED', detail: 'copied from the dashboard' });
+    delete edited[id];
+    say(id, 'Copied and marked as posted. Paste it into the thread.', true);
+    return render();
+  }
   if (act === 'open')  { chrome.tabs.create({ url: lead.url }); return; }
   if (act === 'fill') {
     btn.disabled = true;
@@ -311,7 +333,12 @@ async function rowAction(btn) {
     return say(id, r?.ok ? 'Filled in — check the tab and press Post reply. 🚀 also fires instantly now.'
                          : `Could not fill it: ${r?.error || 'unknown'}`, !!r?.ok);
   }
-  if (act === 'copydm') { await navigator.clipboard.writeText(plain(dm)); return say(id, 'PM copied.', true); }
+  if (act === 'copydm') {
+    await navigator.clipboard.writeText(plain(dm));
+    await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id });
+    say(id, 'PM copied and marked as sent. Paste it on the PM page.', true);
+    return render();
+  }
   if (act === 'opendm') {
     // Open it filled in, not blank — the body cannot ride in the URL.
     await navigator.clipboard.writeText(plain(dm)).catch(() => {});
@@ -321,6 +348,8 @@ async function rowAction(btn) {
                          : `Opened, but could not fill it: ${r?.error || 'unknown'} — the text is on your clipboard.`, !!r?.ok);
   }
   if (act === 'pmsent') { await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id }); delete editedDm[id]; return render(); }
+  if (act === 'undo')   { await chrome.runtime.sendMessage({ cmd: 'unmark', threadId: id }); return render(); }
+  if (act === 'undopm') { await chrome.runtime.sendMessage({ cmd: 'unmark-pm', threadId: id }); return render(); }
   if (act === 'senddm') {
     if (!confirm(`Send this DM to ${lead.author} now?\n\nUnsolicited PMs are what BHW moderators act on — keep the volume low.`)) return;
     btn.disabled = true;

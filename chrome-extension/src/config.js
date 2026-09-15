@@ -456,7 +456,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 19;
+export const CONFIG_VERSION = 20;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -496,6 +496,11 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 20) {
+    // Checking every 3 minutes is the point of the thing; a config still on
+    // the old 10-minute default is lifted. A figure you chose is left alone.
+    if (next.pollMinutes === 10) next.pollMinutes = DEFAULT_CONFIG.pollMinutes;
   }
   if (v < 19) {
     for (const k of ['soundEnabled', 'sound', 'soundHot', 'soundVolume']) {
