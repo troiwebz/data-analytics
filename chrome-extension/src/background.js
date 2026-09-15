@@ -19,7 +19,7 @@ import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
-         revealKey, factoryReset } from './claude.js';
+         revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -583,6 +583,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'ai-enabled':  sendResponse(await setEnabled(msg.on)); break;
       case 'ai-test':     sendResponse(await testCall().catch((e) => ({ ok: false, error: e.message }))); break;
       case 'ai-reveal':   sendResponse({ key: await revealKey() }); break;
+      case 'ai-credits':  sendResponse(await addCredits(msg.amount).catch((e) => ({ error: e.message }))); break;
+      case 'ai-reset-spend': sendResponse(await resetSpend()); break;
       case 'factory-reset': {
         const r = await factoryReset();
         await scheduleAlarms(await getConfig());

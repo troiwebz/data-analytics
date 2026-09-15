@@ -38,18 +38,30 @@ export const RATES = {
 
 export const AI_DEFAULTS = {
   model: 'claude-sonnet-5',
-  budget: 0.5,        // dollars a day; 0 means no limit
+  budget: 1,          // dollars a day; 0 means no limit
   enabled: true,
-  usage: {}           // { day, calls, leads, in, cached, out }
+  usage: {},          // today only: { day, calls, leads, in, cached, out }
+  spentTotal: 0,      // dollars since the counter was last reset
+  leadsTotal: 0,
+  since: 0,           // when that count started (epoch ms)
+  credits: 0          // what you told us you topped up, for the countdown below
 };
 
 /** Settings worth carrying to another machine; usage counters are per-machine. */
-const MIRRORED = ['model', 'budget', 'enabled'];
+const MIRRORED = ['model', 'budget', 'enabled', 'credits'];
 const pick = (o) => Object.fromEntries(MIRRORED.filter((k) => k in o).map((k) => [k, o[k]]));
 
 export async function getAi() {
   const { ai } = await chrome.storage.local.get('ai');
   const local = { ...AI_DEFAULTS, ...(ai || {}) };
+
+  // The daily limit's default rose from $0.50 to $1.00. Lift it once for
+  // anyone still sitting on the old default; a figure they chose stays theirs.
+  if (ai && ai.budget === 0.5 && !ai.budgetBumped) {
+    local.budget = AI_DEFAULTS.budget;
+    local.budgetBumped = true;
+    await chrome.storage.local.set({ ai: local });
+  }
 
   // Older versions kept the key in here, or in the settings mirror. Move it to
   // the vault. This has to be idempotent: getAi() runs on every dashboard
@@ -135,6 +147,17 @@ export async function aiStatus() {
     callsToday: u.calls || 0,
     perLead: u.leads ? round(spent / u.leads, 5) : 0,
     overBudget: (Number(ai.budget) || 0) > 0 && spent >= (Number(ai.budget) || 0),
+
+    // Anthropic has no endpoint that reports your remaining credit, and the
+    // usage/cost reports need a separate Admin key. So this is our own running
+    // total, counted down from the top-up figure you entered - an estimate,
+    // and labelled as one everywhere it is shown.
+    spentTotal: round(Number(ai.spentTotal) || 0),
+    leadsTotal: Number(ai.leadsTotal) || 0,
+    credits: Number(ai.credits) || 0,
+    balance: round((Number(ai.credits) || 0) - (Number(ai.spentTotal) || 0), 2),
+    since: Number(ai.since) || 0,
+
     restored: key.restored,
     local: true
   };
@@ -329,14 +352,43 @@ async function recordUsage(usage, leadCount) {
   const ai = await getAi();
   const day = today();
   const prev = ai.usage && ai.usage.day === day ? ai.usage : { day, calls: 0, leads: 0, in: 0, cached: 0, out: 0 };
-  await setAi({ usage: {
-    day,
-    calls: prev.calls + 1,
-    leads: prev.leads + leadCount,
-    in: prev.in + (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
-    cached: prev.cached + (usage.cache_read_input_tokens || 0),
-    out: prev.out + (usage.output_tokens || 0)
-  } });
+
+  // This call's own cost, priced at the model that just ran, so switching
+  // models later cannot retroactively change what has already been spent.
+  const cost = spendOf({
+    in: (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+    cached: usage.cache_read_input_tokens || 0,
+    out: usage.output_tokens || 0
+  }, ai.model);
+
+  await setAi({
+    usage: {
+      day,
+      calls: prev.calls + 1,
+      leads: prev.leads + leadCount,
+      in: prev.in + (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+      cached: prev.cached + (usage.cache_read_input_tokens || 0),
+      out: prev.out + (usage.output_tokens || 0)
+    },
+    spentTotal: (Number(ai.spentTotal) || 0) + cost,
+    leadsTotal: (Number(ai.leadsTotal) || 0) + leadCount,
+    since: ai.since || Date.now()
+  });
+}
+
+/** Record a top-up, so the balance estimate counts down from the right number. */
+export async function addCredits(amount) {
+  const n = Number(amount);
+  if (!isFinite(n) || n <= 0) throw new Error('Enter the amount you added, for example 5.');
+  const ai = await getAi();
+  await setAi({ credits: (Number(ai.credits) || 0) + n });
+  return aiStatus();
+}
+
+/** Start the running total again, e.g. after reconciling with the real bill. */
+export async function resetSpend() {
+  await setAi({ spentTotal: 0, leadsTotal: 0, credits: 0, since: Date.now() });
+  return aiStatus();
 }
 
 /**

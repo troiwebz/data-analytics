@@ -115,16 +115,39 @@ Models, per million tokens:
 
 In practice a check that finds 3 threads costs a fraction of a cent on Sonnet.
 
+## What you can see, and what is an estimate
+
+Three numbers sit at the top of the dashboard:
+
+| tile | what it is |
+|---|---|
+| **claude today** | exact - counted from the token usage Anthropic returns on every call |
+| **left today** | exact - the daily limit minus the above |
+| **balance left (estimate)** | **our own count**, not Anthropic's |
+
+There is no Anthropic endpoint that reports your remaining credit. The usage and
+cost reports that do exist need a separate **Admin** API key and report for the
+whole organisation, not for one key. So the balance works the only way it can:
+you tell Settings what you topped up, and it counts down as calls are made.
+
+It will drift from the real figure if you use the same key elsewhere. Treat it
+as a fuel gauge and check console.anthropic.com for the true number.
+**Start the count again** in Settings resets our count to zero; it changes
+nothing at Anthropic and does not touch your key.
+
 ## The spend limit
 
-Settings -> Claude -> **Spend limit per day**. Default $0.50.
+Settings -> Claude -> **Spend limit per day**. Default **$1.00**.
 
 When the day's spend reaches it, Claude stands down and replies fall back to the
 built-in rules in `src/specifics.js`. It resets at local midnight. Set it to 0
 for no limit.
 
-Today's spend is on the dashboard as a tile, and in Settings in full: leads,
-calls, total, and cost per lead.
+The limit applies to **today only**, never to the all-time total, so a long
+history can never stop tomorrow's checks.
+
+Each call is priced at the model that actually ran it, so switching models later
+cannot retroactively change what has already been spent.
 
 ## When Claude is not available
 

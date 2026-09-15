@@ -431,7 +431,7 @@ export const DEFAULT_CONFIG = {
   }
 };
 
-export const CONFIG_VERSION = 16;
+export const CONFIG_VERSION = 17;
 
 /**
  * Upgrade settings saved by an older version of the extension without

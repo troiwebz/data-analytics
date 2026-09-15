@@ -58,6 +58,12 @@
       <button id="saveBudget" class="sec" style="flex:0 0 auto">Set limit</button>
       <span style="flex:1"></span>
     </div>
+    <label>Credit you have topped up <span class="hint">Anthropic has no way for this extension to read your real balance, so tell it what you added and it counts down</span></label>
+    <div class="row">
+      <input type="number" id="aiCredits" step="1" min="0" placeholder="5" style="max-width:140px">
+      <button id="addCredits" class="sec" style="flex:0 0 auto">I added this much</button>
+      <button id="resetSpend" class="sec" style="flex:0 0 auto">Start the count again</button>
+    </div>
     <div id="aiStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
     <div class="row" style="margin-top:10px">
       <button id="testAi" class="sec" style="flex:0 0 auto">Test Claude now</button>

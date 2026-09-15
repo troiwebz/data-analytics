@@ -53,8 +53,9 @@ ok('no empty {{vars}} left behind', !all.some((t) => /\{\{|\}\}|\{[^}]*\|/.test(
 const openers = all.map((t) => t.split('\n')[0] + '|' + t.split('\n')[2]);
 ok('openers vary across threads', new Set(openers).size > 4, String(new Set(openers).size));
 const dmBodies = [...Array(60)].map((_, i) => renderDm(lead('2' + i), cfg));
-const shapes = new Set(dmBodies.map((t) => (/^\d\./m.test(t) ? 'numbered' : /^- /m.test(t) ? 'bulleted' : 'prose')));
-ok('PM layout varies: list, numbers and prose all appear', shapes.size === 3, [...shapes].join(','));
+// Numbered always, by request: the lines are steps in an order, not a feature list.
+ok('every PM numbers its lines 1. 2. 3.', dmBodies.every((t) => /^1\. /m.test(t) && /^2\. /m.test(t) && /^3\. /m.test(t)));
+ok('no dash bullets anywhere', !dmBodies.some((t) => /^- /m.test(t)));
 const firstLines = new Set(dmBodies.map((t) => t.split('\n').slice(0, 5).join(' ')));
 ok('no two PMs in 60 share their whole opening', firstLines.size > 10, String(firstLines.size));
 
@@ -92,8 +93,9 @@ ok('and still has the common top and a real close', /blackhatworld.com/.test(noA
 const one = renderReply({ ...lead('4001'), aiSpecifics: { tips: ['Manual submissions to UAE directories'], question: 'Audit-safe or volume?' } }, cfg);
 ok('single-tip reply reads whole', one.includes('Manual submissions to UAE directories.') && /PM/.test(one), one);
 
-ok('layTips handles an empty list', layTips([], Math.random) === '');
-ok('layTips of one is a sentence, not a list', !layTips(['Just the one thing here'], () => 0).startsWith('-'));
+ok('layTips handles an empty list', layTips([]) === '');
+ok('layTips of one is a sentence, not a numbered item', layTips(['Just the one thing here']) === 'Just the one thing here.');
+ok('layTips numbers three', layTips(['one thing', 'two thing', 'three thing']) === '1. one thing\n2. two thing\n3. three thing');
 
 // The ban on free work is enforced by the linter, not just asked for in a prompt.
 for (const t of ['We can do a free trial first', 'First one is free of charge', 'Happy to send a free sample',

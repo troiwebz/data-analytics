@@ -125,13 +125,24 @@ async function renderInner() {
     [n('POSTED'), 'posted'], [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
   ];
   if (ai?.configured) {
-    const spent = '$' + Number(ai.spentToday || 0).toFixed(3);
-    tiles.push([spent, ai.budget > 0 ? `claude · ${'$' + Number(ai.remaining).toFixed(2)} left` : 'claude today']);
+    // Spend is exact. Balance is our own count-down from the top-up figure you
+    // entered: Anthropic has no endpoint that reports remaining credit.
+    tiles.push([`$${Number(ai.spentToday || 0).toFixed(3)}`,
+                ai.budget > 0 ? `claude today · of $${Number(ai.budget).toFixed(2)}` : 'claude today']);
+    if (ai.budget > 0) tiles.push([`$${Number(ai.remaining).toFixed(3)}`, 'left today']);
+    tiles.push(ai.credits > 0
+      ? [`$${Number(ai.balance).toFixed(2)}`, 'balance left (estimate)']
+      : [`$${Number(ai.spentTotal || 0).toFixed(2)}`, 'claude, all time']);
   } else if (cfg.aiSpecifics) {
     tiles.push(['off', 'claude · add a key']);
   }
   $('stats').innerHTML = tiles
-    .map(([v, k]) => `<div class="k"${String(k).startsWith('claude') && ai.overBudget ? ' style="border-color:#fecaca"' : ''}><b>${v}</b><span>${k}</span></div>`)
+    .map(([v, k]) => {
+      const warn = (String(k).startsWith('claude') && ai.overBudget)
+                || (k === 'left today' && ai.overBudget)
+                || (k.startsWith('balance') && Number(ai.balance) <= 1);
+      return `<div class="k"${warn ? ' style="border-color:#fecaca"' : ''}><b>${v}</b><span>${k}</span></div>`;
+    })
     .join('');
 
   // header

@@ -64,21 +64,17 @@ export function partsFor(lead, cfg) {
 export const tipsFor = (lead, cfg) => partsFor(lead, cfg).tips;
 
 /**
- * Lay tips out in one of several shapes. A list of three under a one-line
- * intro is the single most recognisable shape in machine-written outreach, so
- * it is one option among several rather than the only one.
+ * Numbered, always: 1. 2. 3.
+ *
+ * This used to rotate between dashes, numbers and prose to avoid every message
+ * sharing a skeleton. Numbers were chosen instead because they read as steps in
+ * an order rather than as a feature list, which is what the lines actually are.
+ * Variation now lives entirely in the wording, the openers and the five closes.
  */
-export function layTips(tips, rnd) {
+export function layTips(tips) {
   if (!tips.length) return '';
   if (tips.length === 1) return tips[0].replace(/\.?$/, '.');
-  const shape = rnd();
-  if (shape < 0.34) return tips.map((t) => `- ${t}`).join('\n');
-  if (shape < 0.62) return tips.map((t, i) => `${i + 1}. ${t}`).join('\n');
-  // Prose: the same substance with no list at all.
-  return tips.map((t, i) => {
-    const s = t.replace(/\.?$/, '.');
-    return i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1);
-  }).join(' ').replace(/\.\s+([a-z])/g, (m, c) => `. ${c.toUpperCase()}`);
+  return tips.map((t, i) => `${i + 1}. ${t.replace(/\.$/, '')}`).join('\n');
 }
 
 /**
@@ -106,11 +102,10 @@ export function renderReply(lead, cfg) {
  */
 export function renderDm(lead, cfg) {
   const seed = `d${lead.threadId}`;
-  const rnd = seeded(seed);
   const t = cfg.dmTemplates || {};
   const { tips, offer } = partsFor(lead, cfg);
   const offerText = spin(cfg.offers?.[offer] || '', `o${lead.threadId}`);
-  return render({ ...lead, tips: layTips(tips.slice(0, 3), rnd), offer: offerText },
+  return render({ ...lead, tips: layTips(tips.slice(0, 3)), offer: offerText },
     t[lead.category] || t.generic || Object.values(t)[0], seed);
 }
 

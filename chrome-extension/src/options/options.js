@@ -103,7 +103,14 @@ function showAi(r, err) {
     (r.budget > 0
       ? `Limit <b>$${Number(r.budget).toFixed(2)}/day</b> · <b>${money(r.remaining)}</b> left` +
         (r.overBudget ? ' · <span style="color:#dc2626">limit reached, using built-in rules until tomorrow</span>' : '')
-      : 'No daily limit set.');
+      : 'No daily limit set.') + '<br>' +
+    `All time: <b>$${Number(r.spentTotal || 0).toFixed(2)}</b> over ${r.leadsTotal || 0} lead(s)` +
+    (r.since ? ` since ${new Date(r.since).toLocaleDateString()}` : '') +
+    (r.credits > 0
+      ? `<br>Topped up <b>$${Number(r.credits).toFixed(2)}</b>, so roughly <b>$${Number(r.balance).toFixed(2)}</b> left. ` +
+        '<span class="hint">Our own count, not Anthropic\'s: there is no API that reports your real balance. ' +
+        'Check console.anthropic.com for the true figure.</span>'
+      : '<br><span class="hint">Enter what you topped up below and this becomes a balance countdown.</span>');
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -146,6 +153,19 @@ $('copyKey').addEventListener('click', async () => {
   if (!key) return showAi(null, 'Nothing stored to copy.');
   await navigator.clipboard.writeText(key);
   status('Key copied. Paste it somewhere safe, such as your password manager.');
+});
+
+$('addCredits').addEventListener('click', async () => {
+  const r = await ai('ai-credits', { amount: Number($('aiCredits').value) });
+  if (r?.error) return showAi(null, r.error);
+  $('aiCredits').value = '';
+  showAi(r);
+  status(`Recorded. Counting down from $${Number(r.credits).toFixed(2)}.`);
+});
+
+$('resetSpend').addEventListener('click', async () => {
+  if (!confirm('Start the spend count again from zero?\n\nThis only resets what this extension counts. It does not change anything at Anthropic, and your key is untouched.')) return;
+  showAi(await ai('ai-reset-spend'));
 });
 
 $('clearKey').addEventListener('click', async () => {
