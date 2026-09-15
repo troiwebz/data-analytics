@@ -33,7 +33,13 @@ This registers a user launchd job that runs `tools/update.sh` (a fast-forward
 `git pull`) every 5 minutes. Load the extension from `~/haf-watcher/chrome-extension`.
 Private repo: git will ask for a username and a token the first time.
 
-## Apps Script — kept stable on purpose
+## Apps Script — pushed by CLI
+
+`bash tools/update-all.sh` pulls the code and pushes Apps Script to Google in
+one command, with no copying or pasting. Five-minute one-time setup in
+`docs/NO_MORE_PASTING.md`.
+
+## Apps Script — the manual fallback
 
 The Apps Script side is a relay: Sheet + Telegram + button callbacks. The
 extension can send it a pre-rendered card (`lead.card`) and its own lint
