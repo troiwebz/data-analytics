@@ -267,6 +267,9 @@ async function refresh(keepCurrent = true) {
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").title = r.lastReport || "";
+  const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
+  if (days >= 7 && (r.contactedTotal || 0) > 0) { $("backupWarn").hidden = false; $("backupWarn").textContent = r.lastBackupAt ? `No backup for ${days} days` : "Never backed up"; }
+  else $("backupWarn").hidden = true;
   if (r.spend) { $("sSpend").textContent = `${usd(r.spend.cents)} / ${usd(r.spend.budget)}`; $("sSpendWrap").style.color = r.spend.cents >= r.spend.budget ? "#ff8a65" : ""; }
   if (r.lastReport && !r.lastError) $("scan").textContent = "Last check: " + r.lastReport; else if (!r.lastReport) $("scan").textContent = "";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
@@ -460,6 +463,34 @@ for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBo
   $(id).addEventListener("blur", () => saveSetup(true));
 }
 $("showAdv").onclick = () => { $("adv").hidden = !$("adv").hidden; };
+
+// ---- backup and restore ---------------------------------------------------
+$("doBackup").onclick = async () => {
+  const data = await send({ type: "hunt-export" });
+  if (!data) { $("backupMsg").textContent = "could not read the database"; return; }
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));
+  a.download = `cofounder-hunt-backup-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  $("backupMsg").textContent = `saved ${data.counts.posts} posts, ${data.counts.contacted} people contacted, ${data.counts.threads} chat threads. Your API key is not in the file.`;
+  $("backupMsg").style.color = "#7ee29a";
+};
+$("doRestore").onclick = () => $("restoreFile").click();
+$("restoreFile").onchange = async () => {
+  const f = $("restoreFile").files[0];
+  if (!f) return;
+  let data;
+  try { data = JSON.parse(await f.text()); } catch (_) { $("backupMsg").textContent = "that file is not readable JSON"; $("backupMsg").style.color = "#ff8a65"; return; }
+  const mode = confirm("Add anything missing and keep what is here?\n\nOK = merge (safe)\nCancel = replace what is here with the file") ? "merge" : "replace";
+  const r = await send({ type: "hunt-import", data, mode });
+  $("restoreFile").value = "";
+  if (!r || !r.ok) { $("backupMsg").textContent = (r && r.error) || "restore failed"; $("backupMsg").style.color = "#ff8a65"; return; }
+  $("backupMsg").textContent = `restored: ${r.counts.posts} posts, ${r.counts.contacted} contacted, ${r.counts.threads} threads`;
+  $("backupMsg").style.color = "#7ee29a";
+  refresh();
+};
 const AI_PRICES_UI = { "claude-opus-5": "Claude Opus 5 · best writing · about 2–4¢ a post", "claude-sonnet-5": "Claude Sonnet 5 · very good · about 1–1.5¢ a post (60% cheaper)" };
 $("cModel").onchange = async () => { await saveSetup(true); aiErr = {}; for (const q of queue) delete q.ai; if (cur) { delete cur.ai; render(); } };
 
@@ -621,6 +652,7 @@ function showTable(kind) {
 }
 $("sQueueBtn").onclick = () => showTable("queue");
 $("sSpendWrap").onclick = () => showTable("spend");
+$("backupWarn").onclick = () => { $("setup").hidden = false; $("aiPanel").hidden = true; $("doBackup").scrollIntoView({ behavior: "smooth", block: "center" }); };
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
 $("sDoneBtn").onclick = () => showTable("done");

@@ -122,6 +122,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-export") { huntExport().then(reply); return true; }
+  if (msg.type === "hunt-import") { huntImport(msg.data, msg.mode).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -820,6 +822,7 @@ async function huntQueue(limit = 40) {
     blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
     lastReport: st.lastReport || "",
     spend: await spendGet(),
+    lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     contactedTotal: contacted.length,
     contactedToday: contacted.filter((c) => c.at >= today.getTime()).length,
     on: st.on,
@@ -904,6 +907,53 @@ async function spendAdd(c, entry) {
   await chrome.storage.local.set({ spend: { day, cents, days, log } });
 }
 // What the day cost, split by what it was spent on.
+// ---- backup and restore ---------------------------------------------------
+// Chrome deletes an extension's storage when the extension is removed, so the
+// whole database can be written to a file and read back.
+const BACKUP_VERSION = 1;
+async function huntExport() {
+  const { hunt = {}, inbox = {}, config = {}, spend = {} } = await chrome.storage.local.get(["hunt", "inbox", "config", "spend"]);
+  const profile = { ...(config.profile || {}) };
+  delete profile.apiKey;                       // the key stays out of the file
+  await chrome.storage.local.set({ lastBackupAt: Date.now() });
+  return {
+    v: BACKUP_VERSION, at: Date.now(),
+    counts: { posts: Object.keys(hunt.posts || {}).length, contacted: Object.keys(hunt.contacted || {}).length, threads: Object.keys(inbox.threads || {}).length },
+    hunt: { posts: hunt.posts || {}, contacted: hunt.contacted || {}, found: hunt.found || 0, me: hunt.me || "", subs: hunt.subs, maxAgeH: hunt.maxAgeH, sent: hunt.sent || [] },
+    inbox: { threads: inbox.threads || {}, plan: inbox.plan || "", deal: inbox.deal || null, me: inbox.me || "" },
+    profile,
+    spendDays: spend.days || {},
+  };
+}
+// "merge" keeps whatever is already here and adds what is missing; "replace"
+// puts the file back as it was.
+async function huntImport(data, mode = "merge") {
+  if (!data || data.v !== BACKUP_VERSION) return { ok: false, error: "that file is not a backup from this extension" };
+  const { hunt = {}, inbox = {}, config = {} } = await chrome.storage.local.get(["hunt", "inbox", "config"]);
+  const pick = (mine, theirs) => (mode === "replace" ? { ...mine, ...theirs } : { ...theirs, ...mine });
+  const nextHunt = {
+    ...hunt,
+    posts: pick(hunt.posts || {}, (data.hunt || {}).posts || {}),
+    contacted: pick(hunt.contacted || {}, (data.hunt || {}).contacted || {}),
+    found: Math.max(hunt.found || 0, (data.hunt || {}).found || 0),
+    me: hunt.me || (data.hunt || {}).me || "",
+    sent: (hunt.sent || []).concat((data.hunt || {}).sent || []).slice(0, 40),
+  };
+  if ((data.hunt || {}).subs) nextHunt.subs = mode === "replace" ? data.hunt.subs : (hunt.subs || data.hunt.subs);
+  if ((data.hunt || {}).maxAgeH) nextHunt.maxAgeH = hunt.maxAgeH || data.hunt.maxAgeH;
+  const nextInbox = {
+    ...inbox,
+    threads: pick(inbox.threads || {}, (data.inbox || {}).threads || {}),
+    plan: (mode === "replace" ? (data.inbox || {}).plan : inbox.plan) || (data.inbox || {}).plan || inbox.plan || "",
+    deal: (mode === "replace" ? (data.inbox || {}).deal : inbox.deal) || (data.inbox || {}).deal || inbox.deal || null,
+    me: inbox.me || (data.inbox || {}).me || "",
+  };
+  const key = (config.profile || {}).apiKey;    // never overwritten by a file
+  const nextProfile = mode === "replace" ? { ...(config.profile || {}), ...(data.profile || {}) } : { ...(data.profile || {}), ...(config.profile || {}) };
+  if (key) nextProfile.apiKey = key;
+  await chrome.storage.local.set({ hunt: nextHunt, inbox: nextInbox, config: { ...config, profile: nextProfile } });
+  return { ok: true, counts: { posts: Object.keys(nextHunt.posts).length, contacted: Object.keys(nextHunt.contacted).length, threads: Object.keys(nextInbox.threads).length } };
+}
 async function spendReport() {
   const { spend = {} } = await chrome.storage.local.get(["spend"]);
   const s = await spendGet();

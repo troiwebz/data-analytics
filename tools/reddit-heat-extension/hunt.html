@@ -111,6 +111,7 @@
   <span class="stat" id="sSince" hidden></span>
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
+  <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
   <button class="stat" id="sSpendWrap" title="click to see every call today: what it was for, who it was about, and what it cost">AI today <b id="sSpend">0¢</b></button>
   <span class="stat" id="sPoll">never checked</span>
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
@@ -218,6 +219,12 @@
         <div><label>Server token</label><input type="text" id="cSrvTok" placeholder="leave blank"></div>
       </div>
       <div class="row"><button id="testSrv" class="ghost">Test server</button><span id="srvMsg" class="foot" style="margin:0"></span></div>
+    </div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap">
+      <button id="doBackup" class="ghost">Back up the database</button>
+      <button id="doRestore" class="ghost">Restore from a backup</button>
+      <input type="file" id="restoreFile" accept="application/json,.json" hidden>
+      <span class="foot" id="backupMsg" style="margin:0">Chrome erases this database if the extension is ever removed. A backup is one file you keep.</span>
     </div>
     <div class="row"><span id="setupMsg" class="foot" style="margin:0">Saves itself as you type.</span>
       </div>
