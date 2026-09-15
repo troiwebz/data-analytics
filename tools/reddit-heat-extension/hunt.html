@@ -111,7 +111,7 @@
   <span class="stat" id="sSince" hidden></span>
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
-  <span class="stat" id="sSpendWrap" title="what the API calls cost today, against the daily budget under AI writing">AI today <b id="sSpend">0¢</b></span>
+  <button class="stat" id="sSpendWrap" title="click to see every call today: what it was for, who it was about, and what it cost">AI today <b id="sSpend">0¢</b></button>
   <span class="stat" id="sPoll">never checked</span>
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
   <button id="updNow" class="ghost">Update now</button>
@@ -233,7 +233,7 @@
         <div class="row" style="margin-top:8px"><input type="password" id="cKey" placeholder="sk-ant-… from console.anthropic.com" style="flex:1;min-width:260px"><button id="testKey" class="ghost">Test key</button></div>
         <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center">Daily budget $<input type="text" id="cBudget" placeholder="1.00" style="width:64px"> <span>— when it is used up, cards fall back to templates until tomorrow</span></label>
-          <span class="foot" style="margin:0">Template + AI slots on Sonnet costs about ½¢ a post, so twenty posts is roughly 10–15¢. The full writer on Opus thinks before it answers and costs four to eight times as much.</span>
+          <span class="foot" style="margin:0">Template + AI slots on Sonnet costs about $0.005 a post, so twenty posts is roughly $0.10. The full writer on Opus thinks before it answers and costs four to eight times as much. Click "AI today" in the header to see every call.</span>
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cPolish" checked> Polish pass (Sonnet, about 1¢ a post): rewrites any sentence that could have been sent to anyone</label>
         </div>
         <div class="foot" id="keyMsg" style="margin-top:4px"></div></div></label>

@@ -19,6 +19,11 @@ function ago(t) {
   return Math.round(m / 1440) + "d ago";
 }
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+// money in dollars, with enough decimals to be readable at these sizes
+function usd(cents) {
+  const d = (Number(cents) || 0) / 100;
+  return "$" + (d >= 0.1 ? d.toFixed(2) : d >= 0.001 ? d.toFixed(3) : d.toFixed(4));
+}
 
 function render() {
   const has = !!cur;
@@ -105,7 +110,7 @@ function aiStatus(p) {
   if (eng === "paste" && !p.ai) { el.textContent = "template shown — copy the brief, paste it into Claude in Chrome, paste the answer back"; el.style.color = "#98a0b3"; return; }
   if (p.ai) {
     const c = p.ai.concept;
-    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `Claude into your blueprint · ${p.ai.style} shape${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + p.ai.cents + "¢" : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
+    el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `Claude into your blueprint · ${p.ai.style} shape${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + usd(p.ai.cents) : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
     el.style.color = p.ai.generic ? "#e6c76b" : "#7ee29a";
     if (p.ai.generic) el.textContent += " · none of their words quoted — read it before sending";
     return;
@@ -255,7 +260,7 @@ async function refresh(keepCurrent = true) {
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").title = r.lastReport || "";
-  if (r.spend) { $("sSpend").textContent = `${r.spend.cents}¢ / $${(r.spend.budget / 100).toFixed(2)}`; $("sSpendWrap").style.color = r.spend.cents >= r.spend.budget ? "#ff8a65" : ""; }
+  if (r.spend) { $("sSpend").textContent = `${usd(r.spend.cents)} / ${usd(r.spend.budget)}`; $("sSpendWrap").style.color = r.spend.cents >= r.spend.budget ? "#ff8a65" : ""; }
   if (r.lastReport && !r.lastError) $("scan").textContent = "Last check: " + r.lastReport; else if (!r.lastReport) $("scan").textContent = "";
   $("sPoll").style.color = r.lastError ? "#ff8a65" : "";
   $("hint").hidden = !r.lastError;
@@ -527,6 +532,24 @@ function showTable(kind) {
   $("main").hidden = true;
   $("setup").hidden = true;
   $("tableFind").value = "";
+  if (kind === "spend") {
+    $("tableTitle").textContent = "AI spending";
+    $("tableNote").textContent = "Every call your API key paid for today, newest first. Nothing here is charged twice: a reply written once is cached on the post.";
+    $("tableHead").innerHTML = "<tr><th>Time</th><th>For</th><th>About</th><th>Model</th><th>Tokens in / out</th><th>Cost</th></tr>";
+    $("tableRows").innerHTML = `<tr><td colspan="6" style="color:#98a0b3">reading…</td></tr>`;
+    tableText = () => "";
+    send({ type: "hunt-spend" }).then((r) => {
+      if (!r) return;
+      const when = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const sum = r.byKind.map((k) => `<tr><td colspan="2"><b>${esc(k.kind)}</b></td><td>${k.calls} call${k.calls === 1 ? "" : "s"}</td><td style="color:#98a0b3">${usd(k.cents / k.calls)} each</td><td style="color:#98a0b3">${k.in.toLocaleString()} / ${k.out.toLocaleString()}</td><td><b>${usd(k.cents)}</b></td></tr>`).join("");
+      const rows = r.rows.map((x) => `<tr><td style="color:#98a0b3">${when(x.at)}</td><td>${esc(x.kind || "")}</td><td>${esc(x.who ? "u/" + x.who + " · " : "")}${esc(x.what || "")}</td><td style="color:#98a0b3">${esc((x.model || "").replace("claude-", ""))}</td><td style="color:#98a0b3">${(x.in || 0).toLocaleString()} / ${(x.out || 0).toLocaleString()}</td><td>${usd(x.cents)}</td></tr>`).join("");
+      const past = r.days.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Earlier days</td></tr>` + r.days.map((d) => `<tr><td style="color:#98a0b3">${esc(d.day)}</td><td colspan="4"></td><td>${usd(d.cents)}</td></tr>`).join("") : "";
+      $("tableTitle").textContent = `AI spending today: ${usd(r.cents)} of ${usd(r.budget)} · ${r.calls} call${r.calls === 1 ? "" : "s"}${r.calls ? ` · ${usd(r.cents / r.calls)} a call` : ""}`;
+      $("tableRows").innerHTML = (sum ? `<tr><td colspan="6" style="color:#98a0b3">Where it went</td></tr>` + sum + `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Every call</td></tr>` : "") + (rows || `<tr><td colspan="6" style="color:#98a0b3">Nothing spent today.</td></tr>`) + past;
+      tableText = () => r.rows.map((x) => `${when(x.at)}\t${x.kind}\t${x.who}\t${x.what}\t${x.model}\t${x.in}/${x.out}\t${usd(x.cents)}`).join("\n");
+    });
+    return;
+  }
   if (kind === "queue") {
     $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
     $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row to work on that one.";
@@ -586,6 +609,7 @@ function showTable(kind) {
   });
 }
 $("sQueueBtn").onclick = () => showTable("queue");
+$("sSpendWrap").onclick = () => showTable("spend");
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
 $("sDoneBtn").onclick = () => showTable("done");

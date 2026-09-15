@@ -121,6 +121,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
+  if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -144,8 +145,9 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
       if (!key) return reply({ ok: false, error: "no key saved yet" });
       try {
         const r = await fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-          body: JSON.stringify({ model: AI_MODEL, max_tokens: 16, messages: [{ role: "user", content: "Say OK." }] }) });
+          body: JSON.stringify({ model: AI_SLOT_MODEL, max_tokens: 16, messages: [{ role: "user", content: "Say OK." }] }) });
         const j = await r.json().catch(() => ({}));
+        if (r.ok) { const u = j.usage || {}; await spendAdd(aiCents(AI_SLOT_MODEL, u), { kind: "key test", who: "", what: "checking the API key works", model: AI_SLOT_MODEL, in: u.input_tokens || 0, out: u.output_tokens || 0 }); }
         reply(r.ok ? { ok: true } : { ok: false, error: (j.error && j.error.message) || ("HTTP " + r.status) });
       } catch (e) { reply({ ok: false, error: String(e.message || e) }); }
     })(); return true; }
@@ -888,9 +890,35 @@ async function spendGet() {
   const budget = Number((config.profile || {}).aiBudgetCents);
   return { day: dayKey(), cents, budget: Number.isFinite(budget) && budget > 0 ? budget : 100 };
 }
-async function spendAdd(c) {
+// Every paid call leaves a line: when, what it was for, who it was about,
+// which model, what it cost, and the tokens behind that number.
+async function spendAdd(c, entry) {
+  const { spend = {} } = await chrome.storage.local.get(["spend"]);
+  const day = dayKey();
+  const same = spend.day === day;
+  const cents = Math.round(((same ? Number(spend.cents || 0) : 0) + (Number(c) || 0)) * 10) / 10;
+  const days = { ...(spend.days || {}) };
+  if (!same && spend.day && Number(spend.cents)) days[spend.day] = Number(spend.cents);
+  for (const k of Object.keys(days)) if (Object.keys(days).length > 14 && k < day) delete days[k];
+  const log = [{ at: Date.now(), cents: Math.round((Number(c) || 0) * 100) / 100, ...(entry || {}) }, ...((same && Array.isArray(spend.log) ? spend.log : []))].slice(0, 300);
+  await chrome.storage.local.set({ spend: { day, cents, days, log } });
+}
+// What the day cost, split by what it was spent on.
+async function spendReport() {
+  const { spend = {} } = await chrome.storage.local.get(["spend"]);
   const s = await spendGet();
-  await chrome.storage.local.set({ spend: { day: s.day, cents: Math.round((s.cents + (Number(c) || 0)) * 10) / 10 } });
+  const rows = spend.day === s.day && Array.isArray(spend.log) ? spend.log : [];
+  const byKind = {};
+  for (const r of rows) {
+    const k = r.kind || "other";
+    byKind[k] = byKind[k] || { kind: k, calls: 0, cents: 0, in: 0, out: 0 };
+    byKind[k].calls += 1;
+    byKind[k].cents = Math.round((byKind[k].cents + (r.cents || 0)) * 100) / 100;
+    byKind[k].in += r.in || 0;
+    byKind[k].out += r.out || 0;
+  }
+  const days = Object.entries(spend.days || {}).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7).map(([d, c]) => ({ day: d, cents: c }));
+  return { ...s, rows, byKind: Object.values(byKind).sort((a, b) => b.cents - a.cents), days, calls: rows.length };
 }
 // Comments on the thread and the author's other posts, through the pinned
 // tab, cached on the post for a day. Never blocks a write: failures are skipped.
@@ -1005,14 +1033,14 @@ async function huntAiWrite(id, force) {
   ai.model = j.model || model;
   ai.cents = aiCents(model, u);
   ai.cached = u.cache_read_input_tokens || 0;
-  await spendAdd(ai.cents);
+  await spendAdd(ai.cents, { kind: "full letter", who: p.author || "", what: (p.title || "").slice(0, 70), model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
   await huntSet({ sent: [{ at: Date.now(), pl: ai.public_reply }, ...sentL].slice(0, 40) });
   // The polish pass: a cheaper model rewrites only the sentences that could
   // have been sent to anyone. Skipped when off, or when it would pass the cap.
   if ((config.profile || {}).aiPolish !== false && spent.cents + ai.cents + 1.5 < spent.budget) {
     try {
       const pol = await huntPolish(key, p, ai);
-      if (pol) { Object.assign(ai, pol); await spendAdd(pol.polishCents); }
+      if (pol) { Object.assign(ai, pol); await spendAdd(pol.polishCents, { kind: "polish pass", who: p.author || "", what: (p.title || "").slice(0, 70), model: AI_POLISH_MODEL, in: pol.polishIn || 0, out: pol.polishOut || 0 }); }
     } catch (_) { /* keep the first draft */ }
   }
   p.ai = ai;
@@ -1087,7 +1115,8 @@ async function huntSlotWrite(id, force) {
   ai.dealV = inbox.dealV || 0;
   ai.model = "template+slots";
   ai.cents = aiCents(AI_SLOT_MODEL, j.usage || {});
-  await spendAdd(ai.cents);
+  const u0 = j.usage || {};
+  await spendAdd(ai.cents, { kind: "reply + DM", who: p.author || "", what: (p.title || "").slice(0, 70), model: AI_SLOT_MODEL, in: (u0.input_tokens || 0) + (u0.cache_read_input_tokens || 0), out: u0.output_tokens || 0 });
   const shingles = ai.shingles || [];
   delete ai.shingles;
   p.ai = ai;
@@ -1110,7 +1139,8 @@ async function huntPolish(key, p, ai) {
   const again = huntAiClean({ ...ai, concept: ai.concept, public_reply: out.public_reply, dm_short: out.dm_short, dm_long: out.dm_long, fit: "yes" });
   if (!again || again.tooLong) return null;
   const cents = aiCents(AI_POLISH_MODEL, j.usage || {});
-  return { public_reply: again.public_reply, dm_short: again.dm_short, dm_long: again.dm_long, quoted: again.quoted, generic: again.generic, polished: true, genericFound: (Array.isArray(out.generic) ? out.generic : []).map((x) => String(x).slice(0, 160)).slice(0, 6), polishCents: cents, cents: Math.round((ai.cents + cents) * 10) / 10 };
+  const pu = j.usage || {};
+  return { polishIn: (pu.input_tokens || 0) + (pu.cache_read_input_tokens || 0), polishOut: pu.output_tokens || 0, public_reply: again.public_reply, dm_short: again.dm_short, dm_long: again.dm_long, quoted: again.quoted, generic: again.generic, polished: true, genericFound: (Array.isArray(out.generic) ? out.generic : []).map((x) => String(x).slice(0, 160)).slice(0, 6), polishCents: cents, cents: Math.round((ai.cents + cents) * 10) / 10 };
 }
 
 // ===========================================================================
@@ -1295,7 +1325,7 @@ async function inboxAiWrite(id, force) {
   const u = j.usage || {};
   draft.engine = "claude"; draft.at = Date.now();
   draft.cents = aiCents(model, u);
-  await spendAdd(draft.cents);
+  await spendAdd(draft.cents, { kind: "inbox reply", who: t.with || "", what: (t.post ? t.post.title : "") || "reply in chat", model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
   t.draft = draft;
   applyVerdict(t, draft, st.deal);
   await inboxSet({ threads: st.threads });
