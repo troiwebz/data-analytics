@@ -948,10 +948,36 @@ const HUNT_SELLER = /\bfor hire\b|\bi(?:'m| am) (?:a|an) (?:agency|freelancer|de
 // somebody and is asking who. The whole point is that money is already on
 // the table, so the message is a quote and a date, never a partnership.
 HEAT.PROJECT_SUBS = [
+  // where the buyer talks about the problem
   "smallbusiness", "Entrepreneur", "advancedentrepreneur", "sweatystartup", "consulting",
+  "EntrepreneurRideAlong", "startups", "SaaS", "microsaas", "ecommerce", "shopify",
+  "FulfillmentByAmazon", "dropship", "etsy", "Restaurateur", "realtors", "RealEstate",
+  "dentistry", "medicalpractice", "lawfirm", "Construction", "HVAC", "plumbing",
+  "Contractor", "landscaping", "gym", "fitnessbusiness", "salon", "Spas",
+  // where they ask which agency or freelancer to use
   "marketing", "DigitalMarketing", "PPC", "FacebookAds", "googleads", "SEO", "bigseo",
-  "SaaS", "startups", "ecommerce", "shopify", "webdev", "web_design", "Emailmarketing",
-  "agency", "msp", "EntrepreneurRideAlong", "BusinessIntelligence", "analytics",
+  "juststart", "Emailmarketing", "socialmedia", "content_marketing", "advertising",
+  "webdev", "web_design", "Wordpress", "webflow", "nocode", "automate", "zapier",
+  "agency", "msp", "BusinessIntelligence", "analytics", "CRM", "smallbusinessUK",
+];
+// Site-wide search finds the buyer wherever they posted, which no list of
+// subreddits can. These are the sentences somebody writes when they have
+// decided to pay: each one is run as its own search, newest first.
+HEAT.PROJECT_QUERIES = [
+  '"looking for an agency" OR "looking for a marketing agency" OR "hire an agency"',
+  '"looking to hire" (marketer OR "marketing agency" OR freelancer OR developer)',
+  '"need someone to run" (ads OR "google ads" OR "facebook ads" OR "meta ads")',
+  '"who do you use for" OR "who should i hire for" OR "can anyone recommend an agency"',
+  '"recommend an agency" OR "recommend a freelancer" OR "recommend a marketing agency"',
+  '"looking for someone to" (build OR run OR manage) (website OR ads OR seo OR store)',
+  '"hiring a" (freelancer OR contractor OR agency OR marketer OR "virtual assistant")',
+  '"our budget is" OR "budget of $" OR "monthly budget" (marketing OR ads OR seo OR website)',
+  '"need help with" ("google ads" OR "facebook ads" OR seo OR "local seo") (budget OR paying OR hire)',
+  '"looking for a developer" OR "need a developer" (budget OR paid OR hire OR quote)',
+  '"looking for quotes" OR "request for proposal" OR "accepting proposals"',
+  '"need a virtual assistant" OR "hiring a va" OR "looking for a va"',
+  '"want to outsource" OR "thinking of outsourcing" OR "outsourcing our"',
+  '"google business profile" OR "google my business" (help OR hire OR agency OR fix)',
 ];
 // The thing that makes a post worth a message: they are hiring, or looking
 // for who to hire, for something specific.

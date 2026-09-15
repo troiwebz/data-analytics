@@ -730,13 +730,26 @@ async function huntPoll(force) {
   const picks = [];
   for (let i = 0; i < n; i += 1) picks.push(subs[(st.cursor + i) % subs.length]);
   const psubs = st.projectSubs && st.projectSubs.length ? st.projectSubs : PROJECT_SUBS;
-  const pn = force ? psubs.length : Math.max(1, Math.min(6, st.perTick));
+  const pn = force ? psubs.length : Math.max(1, Math.min(4, st.perTick));
   const ppicks = [];
   for (let i = 0; i < pn; i += 1) ppicks.push(psubs[(st.cursor + i) % psubs.length]);
-  const query = HUNT_QUERIES[st.cursor % HUNT_QUERIES.length];
-  const urls = picks.map((x) => ({ url: `https://old.reddit.com/r/${encodeURIComponent(x)}/new.json?limit=25&raw_json=1`, hunt: "cofounder" }));
-  urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&limit=25&raw_json=1`, hunt: "cofounder" });
-  for (const sub of ppicks) urls.push({ url: `https://old.reddit.com/r/${encodeURIComponent(sub)}/new.json?limit=25&raw_json=1`, hunt: "project" });
+  // Reddit gives up to 100 per request, and the difference between 25 and 100
+  // is four times the reading for the same request. Site-wide search matters
+  // more than the lists: a business asking who to hire posts wherever it
+  // already posts, not in a subreddit we thought of.
+  const LIM = 100;
+  const nq = force ? PROJECT_QUERIES.length : 1;                    // a sweep runs every query
+  const pq = [];
+  for (let i = 0; i < nq; i += 1) pq.push(PROJECT_QUERIES[(st.cursor + i) % PROJECT_QUERIES.length]);
+  const nqc = force ? HUNT_QUERIES.length : 1;
+  const cq = [];
+  for (let i = 0; i < nqc; i += 1) cq.push(HUNT_QUERIES[(st.cursor + i) % HUNT_QUERIES.length]);
+  const search = (q) => `https://old.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=new&t=week&limit=${LIM}&raw_json=1`;
+  const listing = (sub) => `https://old.reddit.com/r/${encodeURIComponent(sub)}/new.json?limit=${LIM}&raw_json=1`;
+  const urls = picks.map((x) => ({ url: listing(x), hunt: "cofounder" }));
+  for (const q of cq) urls.push({ url: search(q), hunt: "cofounder" });
+  for (const sub of ppicks) urls.push({ url: listing(sub), hunt: "project" });
+  for (const q of pq) urls.push({ url: search(q), hunt: "project" });
 
   const posts = st.posts;
   let added = 0, seen = 0, error = "", ok = 0, known = 0, dropped = 0;
@@ -758,14 +771,16 @@ async function huntPoll(force) {
         if (cand.hunt === "project") addedPr += 1; else addedCo += 1;
       }
     } catch (e) { error = String(e.message || e); }
-    await sleep(force ? 700 : 1200);           // stay well under Reddit's public pace
+    // a full sweep is ~90 requests, so pace them: fast enough to finish in a
+    // minute and a half, slow enough that Reddit never sees a burst
+    await sleep(force ? 800 : 1200);
   }
   // Forget stale, untouched candidates so the store cannot grow forever.
   const cutoff = Date.now() - HUNT_KEEP_DAYS * 86400000;
   for (const [id, p] of Object.entries(posts)) {
     if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete posts[id];
   }
-  const report = `scanned ${seen} posts in ${picks.length + ppicks.length} subreddits + search · ${addedCo} new co-founder ask${addedCo === 1 ? "" : "s"} · ${addedPr} new project${addedPr === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a match${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
+  const report = `scanned ${seen} posts in ${picks.length + ppicks.length} subreddits + ${cq.length + pq.length} searches · ${addedCo} new co-founder ask${addedCo === 1 ? "" : "s"} · ${addedPr} new project${addedPr === 1 ? "" : "s"} · ${known} already in the database · ${dropped} not a match${ok < urls.length ? ` · ${urls.length - ok} request(s) failed: ${error}` : ""}`;
   // the last few hundred it said no to, newest first, so you can check its work
   const seenReject = new Set();
   const keptRejects = [...rejects, ...(Array.isArray(st.rejects) ? st.rejects : [])]

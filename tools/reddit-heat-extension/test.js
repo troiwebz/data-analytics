@@ -931,3 +931,21 @@ console.log("titles fit their row: ok");
   assert.strictEqual(H.classifyFor("project", co, "We have 30 paying clinics.").keep, false);
 }
 console.log("the project hunt: ok");
+
+// Volume: the project hunt reads thousands of posts, not dozens.
+{
+  assert.ok(H.PROJECT_SUBS.length >= 50, "a wide list of subreddits: " + H.PROJECT_SUBS.length);
+  assert.strictEqual(new Set(H.PROJECT_SUBS).size, H.PROJECT_SUBS.length, "no subreddit listed twice");
+  assert.ok(H.PROJECT_QUERIES.length >= 12, "and site-wide searches too: " + H.PROJECT_QUERIES.length);
+  for (const q of H.PROJECT_QUERIES) {
+    assert.ok(q.length > 20 && /"/.test(q), "each search is a real phrase: " + q);
+    assert.strictEqual((q.match(/"/g) || []).length % 2, 0, "quotes are balanced: " + q);
+  }
+  // the searches look for the buyer, never for somebody selling
+  for (const q of H.PROJECT_QUERIES) assert.ok(!/for hire|portfolio|my rates/i.test(q), "no seller phrases: " + q);
+  // and what they turn up is judged by the same classifier
+  const fromSearch = H.classifyProject("Our budget is $3000 a month, looking for someone to run our Facebook ads", "Ecommerce, 40 orders a day.");
+  assert.strictEqual(fromSearch.keep, true);
+  assert.strictEqual(fromSearch.kind, "Meta ads");
+}
+console.log("enough projects to choose from: ok");
