@@ -351,6 +351,13 @@ async function refresh(keepCurrent = true) {
     $("schedChip").hidden = false;
     $("schedChip").textContent = `Scheduled ${r.schedule} · next in ${mins}m`;
   } else $("schedChip").hidden = true;
+  // a bulk skip is undoable for an hour, by the batch, from the header
+  const lb = r.lastBulk;
+  const fresh30 = lb && lb.ids && lb.ids.length && Date.now() - lb.at < 3600000;
+  $("undoBulk").hidden = !fresh30;
+  if (fresh30) $("undoBulk").textContent = `Undo ${lb.ids.length} ${lb.action === "later" ? "parked" : lb.action === "not_relevant" ? "marked not relevant" : "skipped"} ${ago(lb.at)}`;
+  $("sSkippedBtn").hidden = !r.skippedTotal;
+  $("sSkipped").textContent = r.skippedTotal || 0;
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
   if (days >= 7 && (r.contactedTotal || 0) > 0) { $("backupWarn").hidden = false; $("backupWarn").textContent = r.lastBackupAt ? `No backup for ${days} days` : "Never backed up"; }
   else $("backupWarn").hidden = true;
@@ -656,6 +663,7 @@ for (const id of ["cUp", "cShare", "cExp"]) {
 // ---- tables: click any counter to see exactly what is behind it ----------
 function showTable(kind) {
   $("table").hidden = false;
+  if ($("skBar")) $("skBar").hidden = kind !== "skipped";
   $("main").hidden = true;
   $("setup").hidden = true;
   $("tableFind").value = "";
@@ -672,6 +680,37 @@ function showTable(kind) {
       $("tableTitle").textContent = `Schedule · ${r.waiting} waiting${r.waiting ? ` · next ${when(Date.now() + r.next)}` : ""}`;
       $("tableRows").innerHTML = rows || `<tr><td colspan="5" style="color:#98a0b3">Nothing scheduled. Tick some rows in the queue and press "Schedule these".</td></tr>`;
       for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id }); showTable("schedule"); refresh(false); };
+    });
+    return;
+  }
+  if (kind === "skipped") {
+    $("tableTitle").textContent = "Put back";
+    $("tableNote").textContent = "Everything you set aside: skipped, marked not relevant, or parked until tomorrow. Nothing here was deleted. Tick the ones you want and press Put back in the queue.";
+    $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="skAll"></th><th>Post</th><th>Who</th><th>Why it left</th><th>When</th></tr>`;
+    $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">reading…</td></tr>`;
+    tableText = () => "";
+    send({ type: "hunt-skipped" }).then((r) => {
+      if (!r) return;
+      const rows = r.rows.map((x) => `<tr><td><input type="checkbox" class="skPick" data-id="${esc(x.id)}"></td>`
+        + `<td><a href="${esc(x.permalink || "#")}" target="_blank" rel="noopener">${esc(x.title || "(no title)")}</a></td>`
+        + `<td>${esc(x.author ? "u/" + x.author : "")}${x.sub ? ` <span style="color:#98a0b3">r/${esc(x.sub)}</span>` : ""}</td>`
+        + `<td style="color:${x.byAi ? "#e6c76b" : "#98a0b3"}">${esc(x.why)}</td>`
+        + `<td style="color:#98a0b3">${x.at ? esc(ago(x.at)) : ""}</td></tr>`).join("");
+      $("tableTitle").textContent = `Put back · ${r.rows.length} set aside`;
+      $("tableRows").innerHTML = rows || `<tr><td colspan="5" style="color:#98a0b3">Nothing has been set aside.</td></tr>`;
+      const picks = () => Array.from($("tableRows").querySelectorAll(".skPick:checked")).map((c) => c.dataset.id);
+      const paint = () => { const n = picks().length; $("skBack").disabled = !n; $("skBack").textContent = n ? `Put ${n} back in the queue` : "Put back in the queue"; };
+      if ($("skAll")) $("skAll").onclick = () => { for (const c of $("tableRows").querySelectorAll(".skPick")) c.checked = $("skAll").checked; paint(); };
+      for (const c of $("tableRows").querySelectorAll(".skPick")) c.onclick = paint;
+      $("skBar").hidden = !r.rows.length;
+      $("skBack").onclick = async () => {
+        const ids = picks();
+        if (!ids.length) return;
+        $("skBack").disabled = true; $("skBack").textContent = "putting back…";
+        await send({ type: "hunt-bulk", ids, action: "undo" });
+        showTable("skipped"); refresh(false);
+      };
+      paint();
     });
     return;
   }
@@ -824,6 +863,17 @@ $("bulkSched").onclick = async () => {
   $("sPoll").textContent = `${(r && r.added) || 0} posts scheduled, one every ${gapMin} minutes`;
 };
 $("backupWarn").onclick = () => { $("setup").hidden = false; $("aiPanel").hidden = true; $("doBackup").scrollIntoView({ behavior: "smooth", block: "center" }); };
+$("undoBulk").onclick = async () => {
+  const r0 = await send({ type: "hunt-queue", limit: 1 });
+  const lb = r0 && r0.lastBulk;
+  if (!lb || !lb.ids || !lb.ids.length) { $("undoBulk").hidden = true; return; }
+  $("undoBulk").textContent = "putting them back…"; $("undoBulk").disabled = true;
+  const r = await send({ type: "hunt-bulk", ids: lb.ids, action: "undo" });
+  $("undoBulk").disabled = false;
+  $("sPoll").textContent = `put ${(r && r.n) || 0} back in the queue`;
+  await refresh(false);
+};
+$("sSkippedBtn").onclick = () => showTable("skipped");
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
 $("sDoneBtn").onclick = () => showTable("done");

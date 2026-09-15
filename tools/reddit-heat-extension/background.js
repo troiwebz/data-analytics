@@ -123,6 +123,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
   if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
   if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
   if (msg.type === "hunt-schedule-list") { scheduleList().then(reply); return true; }
@@ -569,6 +570,7 @@ async function huntGet() {
     schedule: Array.isArray(hunt.schedule) ? hunt.schedule : [],
     sent: Array.isArray(hunt.sent) ? hunt.sent : [],   // fingerprints of the last DMs built, so none repeats
     lastReport: hunt.lastReport || "",
+    lastBulk: hunt.lastBulk || null,   // the last batch you skipped, so it can be put back
   };
 }
 async function huntSet(patch) {
@@ -827,6 +829,8 @@ async function huntQueue(limit = 40) {
     total: list.length,
     blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
     lastReport: st.lastReport || "",
+    lastBulk: st.lastBulk || null,
+    skippedTotal: all.filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now())).length,
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     schedule: (st.schedule || []).filter((x) => !x.state).length,
@@ -875,7 +879,12 @@ async function huntAct(id, action, variant) {
     st.contacted[p.author.toLowerCase()] = { at: now, id, how: prev && prev.how === "reply" ? "reply+dm" : "dm", sub: p.sub };
     await dmSent();                      // start the gap before the next one
   }
-  if (action === "undo") { delete p.act; delete p.repliedAt; delete p.dmAt; if ((st.contacted[p.author.toLowerCase()] || {}).id === id) delete st.contacted[p.author.toLowerCase()]; }
+  if (action === "undo") {
+    // a skip also hid this person's other posts, so undo has to reach those too
+    delete p.act; delete p.laterUntil; delete p.repliedAt; delete p.dmAt;
+    for (const q of sameAuthor) { delete q.act; delete q.laterUntil; }
+    if ((st.contacted[p.author.toLowerCase()] || {}).id === id) delete st.contacted[p.author.toLowerCase()];
+  }
   p.actAt = now;
   await huntSet({ posts: st.posts, contacted: st.contacted });
   return { ok: true };
@@ -919,8 +928,26 @@ async function spendAdd(c, entry) {
 // Skip a pile of posts in one go.
 async function huntBulk(ids, action) {
   let n = 0;
-  for (const id of ids) { const r = await huntAct(id, action); if (r && r.ok !== false) n += 1; }
+  const did = [];
+  for (const id of ids) { const r = await huntAct(id, action); if (r && r.ok !== false) { n += 1; did.push(id); } }
+  // one bad bulk skip should never cost you the afternoon: remember it
+  if (action === "skip" || action === "not_relevant" || action === "later") {
+    await huntSet({ lastBulk: { action, ids: did, at: Date.now() } });
+  } else if (action === "undo") {
+    await huntSet({ lastBulk: null });
+  }
   return { ok: true, n };
+}
+// Everything you have put aside: skipped, not relevant, or parked until tomorrow.
+async function huntSkipped() {
+  const st = await huntGet();
+  const rows = Object.values(st.posts || {})
+    .filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now()))
+    .map((p) => ({ id: p.id, title: p.title, author: p.author, sub: p.sub, permalink: p.permalink, created: p.created,
+      why: p.cancelledBy === "ai" ? "AI: " + (p.cancelReason || "not a fit") : p.act === "not_relevant" ? "not relevant" : p.act === "skip" ? "skipped" : "later",
+      byAi: p.cancelledBy === "ai", at: p.actAt || 0 }))
+    .sort((a, b) => b.at - a.at);
+  return { rows, lastBulk: st.lastBulk || null };
 }
 // A schedule is a list of things to open, spaced out. Opening is all it does:
 // the reply and the DM are filled in and you press Reddit's own button.

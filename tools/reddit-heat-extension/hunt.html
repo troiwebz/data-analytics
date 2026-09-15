@@ -131,6 +131,8 @@
   <button class="stat" id="sDoneBtn" title="replied or DM'd — struck through, never shown again">Done today <b id="sDoneToday">0</b></button>
   <span class="stat" id="sSince" hidden></span>
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
+  <button class="stat" id="undoBulk" hidden style="color:#e6c76b" title="put that whole batch back in the queue"></button>
+  <button class="stat" id="sSkippedBtn" hidden title="everything you set aside, and a way to put it back">Set aside <b id="sSkipped">0</b></button>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
   <button class="stat" id="schedChip" hidden title="click to see the schedule"></button>
   <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
@@ -280,6 +282,10 @@
 
   <!-- any table view: queue, contacted -->
   <div id="table" hidden>
+    <div id="skBar" class="row" style="margin:0 0 10px;flex-wrap:wrap" hidden>
+      <button id="skBack" class="primary" disabled>Put back in the queue</button>
+      <span class="foot" style="margin:0">nothing here was deleted, it was only set aside</span>
+    </div>
     <div id="bulkBar" class="row" style="margin:0 0 10px;flex-wrap:wrap" hidden>
       <b id="bulkCount" style="margin-right:4px">0 selected</b>
       <button id="bulkSkip" class="ghost">Skip</button>
