@@ -133,6 +133,7 @@
   <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
   <button class="stat" id="undoBulk" hidden style="color:#e6c76b" title="put that whole batch back in the queue"></button>
   <button class="stat" id="sSkippedBtn" hidden title="everything you set aside, and a way to put it back">Set aside <b id="sSkipped">0</b></button>
+  <button class="stat" id="undoReset" hidden style="color:#e6c76b" title="put the whole database back as it was before the reset">Undo the reset</button>
   <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
   <button class="stat" id="schedChip" hidden title="click to see the schedule"></button>
   <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
@@ -249,6 +250,18 @@
       <button id="doRestore" class="ghost">Restore from a backup</button>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>
       <span class="foot" id="backupMsg" style="margin:0">Chrome erases this database if the extension is ever removed. A backup is one file you keep.</span>
+    </div>
+    <div style="margin-top:14px;padding:12px 14px;border:1px solid #6b3a2e;border-radius:10px">
+      <b style="color:#e6c76b">Start again</b>
+      <div class="foot" style="margin:6px 0 0;line-height:1.5">
+        Throws away every post held here, so the next check brings the whole window back in, nothing skipped and nothing judged.
+        Who you have already contacted is kept, so no one gets a second DM. The old database is held for a day, so this is undoable.
+      </div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap">
+        <button id="doReset" class="ghost">Clear the queue and scan again</button>
+        <button id="doResetAll" class="ghost" style="color:#ff8a65">Erase everything, contacted list too</button>
+        <span class="foot" id="resetMsg" style="margin:0"></span>
+      </div>
     </div>
     <div class="row"><span id="setupMsg" class="foot" style="margin:0">Saves itself as you type.</span>
       </div>

@@ -123,6 +123,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-reset") { huntReset(msg.mode).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-reset-undo") { huntResetUndo().then(reply); return true; }
   if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
   if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
   if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
@@ -830,6 +832,7 @@ async function huntQueue(limit = 40) {
     blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
     lastReport: st.lastReport || "",
     lastBulk: st.lastBulk || null,
+    undoReset: ((await chrome.storage.local.get(["undoReset"])).undoReset || {}).at || 0,
     skippedTotal: all.filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now())).length,
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
@@ -937,6 +940,34 @@ async function huntBulk(ids, action) {
     await huntSet({ lastBulk: null });
   }
   return { ok: true, n };
+}
+// Start again. The posts are thrown away so the next sweep brings the whole
+// window back in, unjudged. Who you have already contacted is kept unless you
+// ask for it too, because losing it is how the same person gets a second DM.
+// Either way the old database is held for a day so the reset itself is undoable.
+async function huntReset(mode = "queue") {
+  const { hunt = {}, inbox = {} } = await chrome.storage.local.get(["hunt", "inbox"]);
+  const before = {
+    posts: Object.keys(hunt.posts || {}).length,
+    contacted: Object.keys(hunt.contacted || {}).length,
+    threads: Object.keys(inbox.threads || {}).length,
+  };
+  await chrome.storage.local.set({ undoReset: { at: Date.now(), mode, hunt, inbox } });
+  const next = { ...hunt, posts: {}, cursor: 0, schedule: [], lastBulk: null, lastReport: "", lastError: "", found: 0, sent: [] };
+  if (mode === "all") next.contacted = {};
+  const patch = { hunt: next };
+  if (mode === "all") patch.inbox = { ...inbox, threads: {} };
+  await chrome.storage.local.set(patch);
+  return { ok: true, before, keptContacted: mode === "all" ? 0 : before.contacted, mode };
+}
+async function huntResetUndo() {
+  const { undoReset = null } = await chrome.storage.local.get(["undoReset"]);
+  if (!undoReset || !undoReset.hunt) return { ok: false, error: "there is no reset to undo" };
+  const patch = { hunt: undoReset.hunt };
+  if (undoReset.mode === "all" && undoReset.inbox) patch.inbox = undoReset.inbox;
+  await chrome.storage.local.set(patch);
+  await chrome.storage.local.remove("undoReset");
+  return { ok: true, posts: Object.keys(undoReset.hunt.posts || {}).length, contacted: Object.keys(undoReset.hunt.contacted || {}).length };
 }
 // Everything you have put aside: skipped, not relevant, or parked until tomorrow.
 async function huntSkipped() {

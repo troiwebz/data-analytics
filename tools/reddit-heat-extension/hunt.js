@@ -356,6 +356,8 @@ async function refresh(keepCurrent = true) {
   const fresh30 = lb && lb.ids && lb.ids.length && Date.now() - lb.at < 3600000;
   $("undoBulk").hidden = !fresh30;
   if (fresh30) $("undoBulk").textContent = `Undo ${lb.ids.length} ${lb.action === "later" ? "parked" : lb.action === "not_relevant" ? "marked not relevant" : "skipped"} ${ago(lb.at)}`;
+  $("undoReset").hidden = !(r.undoReset && Date.now() - r.undoReset < 86400000);
+  if (!$("undoReset").hidden) $("undoReset").textContent = `Undo the reset · ${ago(r.undoReset)}`;
   $("sSkippedBtn").hidden = !r.skippedTotal;
   $("sSkipped").textContent = r.skippedTotal || 0;
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
@@ -874,6 +876,34 @@ $("undoBulk").onclick = async () => {
   await refresh(false);
 };
 $("sSkippedBtn").onclick = () => showTable("skipped");
+async function doReset(mode) {
+  const all = mode === "all";
+  const msg = all
+    ? "Erase EVERYTHING: every post, and the list of people you have already contacted.\n\nWithout that list the same person can get a second DM. Only do this on a fresh Reddit account.\n\nContinue?"
+    : "Clear the queue and start again?\n\nEvery post held here is thrown away and the next check brings the whole window back in, nothing skipped. Who you have contacted is kept, so nobody gets a second DM.";
+  if (!confirm(msg)) return;
+  $("resetMsg").textContent = "clearing…"; $("resetMsg").style.color = "";
+  const r = await send({ type: "hunt-reset", mode: all ? "all" : "queue" });
+  if (!r || !r.ok) { $("resetMsg").textContent = "could not clear: " + ((r && r.error) || "no answer"); $("resetMsg").style.color = "#ff8a65"; return; }
+  $("resetMsg").textContent = `cleared ${r.before.posts} posts${r.keptContacted ? `, kept ${r.keptContacted} contacted` : ""} — checking every subreddit now…`;
+  cur = null; queue = []; allQueue = []; picked.clear(); openRow = "";
+  await refresh(false);
+  const poll = await send({ type: "hunt-poll" });
+  $("resetMsg").textContent = poll && poll.report ? "done: " + poll.report : poll && poll.error ? "cleared, but the check failed: " + poll.error : "done";
+  $("resetMsg").style.color = "#7ee29a";
+  await refresh(false);
+  showTable("queue");
+}
+$("doReset").onclick = () => doReset("queue");
+$("doResetAll").onclick = () => doReset("all");
+$("undoReset").onclick = async () => {
+  $("undoReset").textContent = "putting it back…"; $("undoReset").disabled = true;
+  const r = await send({ type: "hunt-reset-undo" });
+  $("undoReset").disabled = false;
+  $("sPoll").textContent = r && r.ok ? `put back ${r.posts} posts and ${r.contacted} contacted` : "nothing to undo";
+  await refresh(false);
+  showTable("queue");
+};
 $("sTodayBtn").onclick = () => showTable("today");
 $("sEverBtn").onclick = () => showTable("ever");
 $("sDoneBtn").onclick = () => showTable("done");
