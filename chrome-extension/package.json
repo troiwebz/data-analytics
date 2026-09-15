@@ -1,0 +1,7 @@
+{
+  "name": "haf-watcher",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node test/run.mjs" },
+  "devDependencies": { "jsdom": "^25.0.0" }
+}

@@ -85,7 +85,13 @@ let edited = {}, editedDm = {};
 
 // ---------------------------------------------------------------- rendering
 
+let rendering = false, rerun = false;
 async function render() {
+  // Never re-enter: a nested render spins. But a render asked for while one is
+  // running (a click landing mid-refresh) must not be dropped either, or the
+  // row would not open - so remember it and run once more at the end.
+  if (rendering) { rerun = true; return; }
+  rendering = true;
   try { await renderInner(); }
   catch (e) {
     $('rows').innerHTML = `<tr><td colspan="${COLS.length}"><div class="empty" style="color:var(--red)">` +
@@ -93,6 +99,9 @@ async function render() {
       `<span class="sub">Press <b>Update now</b>; if it persists open DevTools (⌥⌘I) → Console and send me the red line.</span>` +
       `</div></td></tr>`;
     console.error('[HAF dashboard]', e);
+  } finally {
+    rendering = false;
+    if (rerun) { rerun = false; render(); }
   }
 }
 
@@ -378,5 +387,16 @@ $('q').addEventListener('input', render);
 $('fstatus').addEventListener('input', render);
 $('hidedone').addEventListener('input', render);
 
-chrome.storage.onChanged.addListener(() => render());
+// Re-render when the data behind the table changes. Two guards, because a
+// storage write that happens *during* a render would otherwise re-trigger one
+// and spin forever, leaving the page unresponsive to clicks:
+//   - only keys the table is built from count as a change
+//   - renders are coalesced, and one never starts while another is running
+const WATCHED = ['recentLeads', 'config', 'rateState', 'staged', 'log'];
+let pending = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !Object.keys(changes).some((k) => WATCHED.includes(k))) return;
+  clearTimeout(pending);
+  pending = setTimeout(render, 150);
+});
 render();

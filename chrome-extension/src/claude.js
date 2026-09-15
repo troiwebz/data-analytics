@@ -51,20 +51,30 @@ export async function getAi() {
   const { ai } = await chrome.storage.local.get('ai');
   const local = { ...AI_DEFAULTS, ...(ai || {}) };
 
-  // A key saved by v0.21 lived in this object. Move it to the vault and take
-  // it out of here, so there is exactly one home for it.
-  if (local.key) {
+  // Older versions kept the key in here, or in the settings mirror. Move it to
+  // the vault. This has to be idempotent: getAi() runs on every dashboard
+  // render, chrome.storage.onChanged triggers a render, so a migration that
+  // rewrites storage every time is an endless render loop. Each branch below
+  // therefore removes what it migrated, and writes only when it found work.
+  if (local.key) {                                   // v0.21: inside this object
     await vault.setKey(local.key);
     delete local.key;
     await chrome.storage.local.set({ ai: local });
   }
 
-  let mirror = {};
-  try { ({ aiSettings: mirror = {} } = await chrome.storage.sync.get('aiSettings')); }
-  catch { return local; }
-  if (mirror.key) { await vault.setKey(mirror.key); delete mirror.key; }
-  // Only fill from the mirror where this machine has nothing of its own saved.
-  if (!ai) {
+  let mirror;
+  try { ({ aiSettings: mirror } = await chrome.storage.sync.get('aiSettings')); }
+  catch { return local; }                            // sync off or unavailable
+
+  if (mirror?.key) {                                 // v0.22: inside the mirror
+    await vault.setKey(mirror.key);
+    delete mirror.key;
+    try { await chrome.storage.sync.set({ aiSettings: mirror }); }
+    catch { /* the vault already has it; the stale copy is harmless */ }
+  }
+
+  // Only adopt the mirror's settings where this machine has none of its own.
+  if (!ai && mirror) {
     const restored = { ...local, ...pick(mirror) };
     await chrome.storage.local.set({ ai: restored });
     return restored;
@@ -103,7 +113,12 @@ const round = (n, dp = 4) => Math.round(n * 10 ** dp) / 10 ** dp;
 
 /** Everything the Settings page and the dashboard show. */
 export async function aiStatus() {
-  const [ai, key] = await Promise.all([getAi(), vault.info()]);
+  // getAi() runs the migrations that move an older key into the vault, so the
+  // vault has to be read AFTER it, never alongside it. In parallel, the first
+  // status check after an upgrade reads the vault before the migration lands
+  // and reports "no key stored" for a key that is right there.
+  const ai = await getAi();
+  const key = await vault.info();
   const u = usageToday(ai);
   const spent = spendOf(u, ai.model);
   return {
@@ -197,7 +212,8 @@ const SYSTEM = [
  * Never throws: on any failure the caller falls back to the built-in rules.
  */
 export async function writeSpecifics(leads) {
-  const [ai, key] = await Promise.all([getAi(), vault.getKey()]);
+  const ai = await getAi();                 // migrations first, then the vault
+  const key = await vault.getKey();
   if (!key) return { specifics: {}, note: 'no Claude key set' };
   if (ai.enabled === false) return { specifics: {}, note: 'Claude switched off' };
   if (!leads || !leads.length) return { specifics: {} };

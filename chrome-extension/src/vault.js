@@ -40,7 +40,8 @@ export async function read() {
   const mirror = await readSync();
 
   if (local.key && !mirror.key) {             // profile copy lost or never written
-    try { await chrome.storage.sync.set({ [VAULT]: local }); } catch { /* local is enough */ }
+    try { await chrome.storage.sync.set({ [VAULT]: local }); }
+    catch { /* sync unavailable; the local copy still works */ }
     return local;
   }
   if (!local.key && mirror.key) {             // this is the case that used to lose the key
@@ -58,6 +59,11 @@ export async function read() {
 export const getKey = async () => (await read()).key || '';
 
 export async function setKey(key) {
+  // Storing the key it already holds must not count as a change: a write fires
+  // chrome.storage.onChanged, which re-renders the dashboard, which reads the
+  // vault again. Writing on every read would never settle.
+  const current = await readLocal();
+  if (current.key === String(key) && (await readSync()).key === String(key)) return current;
   const entry = { key: String(key), savedAt: Date.now() };
   await chrome.storage.local.set({ [VAULT]: entry });          // must not fail
   try { await chrome.storage.sync.set({ [VAULT]: entry }); } catch { /* local is enough */ }
