@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HAF Watcher — BlackHatWorld Hire a Freelancer",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Watches the Hire a Freelancer forum, scores every new thread, and has Claude write the technical lines of your reply and PM. Nothing posts without your tap.",
   "permissions": [
     "alarms",
@@ -14,7 +14,8 @@
     "*://*.blackhatworld.com/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://api.telegram.org/*"
   ],
   "background": {
     "service_worker": "src/background.js",

@@ -17,6 +17,7 @@ import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
+import * as telegram from './telegram.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset } from './claude.js';
 import {
@@ -200,11 +201,25 @@ export async function pollFeed() {
   if (!leads.length) return { new: fresh.length, matched: 0 };
 
   await recordLeads(leads);
+
+  // Telegram, straight from here: every new thread goes to your phone as it is
+  // found, no Apps Script in the way. A failure is logged and nothing else -
+  // the lead is already saved, so it is never lost to a network blip.
   try {
-    const r = await pushLeads(cfg, leads);
-    await log(`${fresh.length} new → ${r.sent ?? leads.length} sent, ${r.expired ?? 0} expired, ${r.held ?? 0} held`);
-  } catch (e) {
-    await log(`push failed, leads kept locally: ${e.message}`, 'error');
+    const t = await telegram.sendLeads(leads, cfg);
+    if (t.error) await log(`Telegram: ${t.sent} of ${leads.length} sent, then ${t.error}`, 'error');
+    else if (t.sent) await log(`Telegram: sent ${t.sent} lead(s)`);
+  } catch (e) { await log(`Telegram failed: ${e.message}`, 'error'); }
+
+  if (cfg.webhookUrl) {
+    try {
+      const r = await pushLeads(cfg, leads);
+      await log(`${fresh.length} new → ${r.sent ?? leads.length} sent, ${r.expired ?? 0} expired, ${r.held ?? 0} held`);
+    } catch (e) {
+      await log(`Sheet push failed, leads kept locally: ${e.message}`, 'error');
+    }
+  } else {
+    await log(`${fresh.length} new thread(s), ${leads.length} drafted`);
   }
 
   const hot = leads.filter((l) => l.score >= cfg.stageScore).sort((a, b) => b.score - a.score);
@@ -571,6 +586,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await scheduleAlarms(await getConfig());
         await log(`settings and database cleared; Claude key ${r.keyKept ? 'kept' : 'not found'}`);
         sendResponse(r);
+        break;
+      }
+      case 'tg-status':   sendResponse(await telegram.status(await getConfig())); break;
+      case 'tg-save-token': {
+        try {
+          await telegram.setToken(msg.token);
+          sendResponse(await telegram.status(await getConfig()));
+        } catch (e) { sendResponse({ error: e.message }); }
+        break;
+      }
+      case 'tg-clear-token': await telegram.clearToken(); sendResponse(await telegram.status(await getConfig())); break;
+      case 'tg-test':     sendResponse(await telegram.test(await getConfig()).catch((e) => ({ error: e.message }))); break;
+      case 'tg-send': {                              // resend one lead by hand
+        const cfg = await getConfig();
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
+        if (!lead) { sendResponse({ error: 'lead not found' }); break; }
+        sendResponse(await telegram.sendLead(lead, cfg).then(() => ({ ok: true })).catch((e) => ({ error: e.message })));
         break;
       }
       case 'check-update':  sendResponse(await checkForUpdate()); break;

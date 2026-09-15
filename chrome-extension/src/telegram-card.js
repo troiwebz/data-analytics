@@ -1,7 +1,8 @@
-// Builds the Telegram card for a lead in the extension, so the layout can
-// change without touching the Apps Script relay (which forwards `lead.card`
-// as-is). The public reply and the PM draft are included as <pre> blocks —
-// one tap copies them. Buttons stay the relay's defaults.
+// The header of a lead's Telegram message: what it is, how hot, how old, and
+// where to go. The two drafts are NOT here - telegram.js appends the public
+// reply to this card and sends the PM as a message of its own, so each is a
+// clean <pre> block that one tap copies and neither can be truncated by
+// Telegram's 4096-character limit.
 import { lintSummary } from './compliance.js';
 
 /** `matched` is an array locally, comma-joined when it comes from the Sheet. */
@@ -53,7 +54,5 @@ export function buildCard(lead) {
     `\n<a href="${esc(lead.url)}">Open thread</a>` +
     (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">Open PM to ${esc(lead.author)}</a>` : '');
 
-  const dmBlock = lead.dm ? `\n\n✉️ <b>PM draft</b> (tap to copy, paste on the PM page)\n<pre>${esc(lead.dm)}</pre>` : '';
-  const room = 4000 - head.length;
-  return head + (dmBlock.length <= room ? dmBlock : dmBlock.slice(0, Math.max(0, room - 12)) + '…</pre>');
+  return head;
 }

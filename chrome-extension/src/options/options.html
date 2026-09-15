@@ -67,9 +67,29 @@
   </div>
 
   <div class="c">
-    <h2>Telegram <span class="hint">optional — leave empty to run entirely on this Mac</span></h2>
-    <p class="hint" style="margin:0 0 10px">Only needed if you want leads pushed to your phone and a shared Google Sheet.
-      Everything else works without it.</p>
+    <h2>Telegram <span class="hint">every new thread arrives on your phone automatically</span></h2>
+    <label class="sw"><input type="checkbox" id="telegramEnabled"> Send new threads to Telegram</label>
+    <p class="hint" style="margin:0 0 10px">Two messages per thread: the public reply, then the PM.
+      Tap either block on your phone to copy it. Sent straight from Chrome, so nothing else has to be running.</p>
+    <label>Bot token <span class="hint">from @BotFather on Telegram — stored in the vault with your Claude key</span></label>
+    <div class="row">
+      <input type="password" id="tgToken" placeholder="1234567890:AA…" autocomplete="off">
+      <button id="saveTg" style="flex:0 0 auto">Save token</button>
+      <button id="clearTg" class="sec" style="flex:0 0 auto">Remove</button>
+    </div>
+    <label>Your chat id <span class="hint">message @userinfobot on Telegram and it replies with it</span></label>
+    <input type="text" id="telegramChatId" placeholder="8812664414">
+    <div class="row" style="margin-top:10px">
+      <button id="testTg" class="sec" style="flex:0 0 auto">Send a test message</button>
+      <span class="hint" style="align-self:center">Press Save first, then this. Your phone should buzz.</span>
+    </div>
+    <div id="tgStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
+  </div>
+
+  <div class="c">
+    <h2>Google Sheet <span class="hint">optional — leave empty and everything still works</span></h2>
+    <p class="hint" style="margin:0 0 10px">Only needed for a shared Sheet as a permanent record, and for
+      approving posts from the old Telegram buttons. Telegram above does not need it.</p>
     <label>Apps Script web app URL <span class="hint">ends in /exec</span></label>
     <input type="text" id="webhookUrl" placeholder="https://script.google.com/macros/s/…/exec">
     <label>Shared secret <span class="hint">must match SHARED_SECRET in Apps Script</span></label>

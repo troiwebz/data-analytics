@@ -2,10 +2,10 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES } from '../claude.js';
 
-const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
+const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer', 'telegramChatId'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
-const BOOL = ['enabled', 'autoPost', 'aiSpecifics'];
+const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 
@@ -174,4 +174,45 @@ $('testAi').addEventListener('click', async () => {
   refreshAi();
 });
 
-getConfig().then(fill).then(refreshAi);
+// ---- Telegram: token in the vault, chat id in settings, both used from here
+function showTg(r, err) {
+  const el = $('tgStatus');
+  if (err) { el.innerHTML = esc(err); el.style.color = '#dc2626'; return; }
+  el.style.color = '#334155';
+  if (!r?.stored) {
+    el.style.color = '#b45309';
+    el.innerHTML = '<b>No bot token saved.</b> New threads will not reach your phone. '
+                 + 'Open Telegram, message <b>@BotFather</b>, send <b>/newbot</b>, and paste the token it gives you above.';
+    return;
+  }
+  el.innerHTML = `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)` +
+    (r.chatId ? ` · chat id <b>${esc(r.chatId)}</b>` : ' · <span style="color:#b45309">no chat id yet</span>') + '<br>' +
+    (r.enabled ? 'New threads are sent here automatically as they are found.'
+               : '<span style="color:#b45309">Sending is switched off - tick the box above and Save.</span>');
+}
+
+async function refreshTg() { const r = await ai('tg-status'); showTg(r, r?.error); }
+
+$('saveTg').addEventListener('click', async () => {
+  const token = $('tgToken').value.trim();
+  if (!token) return showTg(null, 'Paste the token first.');
+  const r = await ai('tg-save-token', { token });
+  if (r?.error) return showTg(null, r.error);
+  $('tgToken').value = '';                 // cleared from the box once stored
+  showTg(r);
+});
+
+$('clearTg').addEventListener('click', async () => {
+  if (!confirm('Remove the stored Telegram bot token? Your Claude key is not affected.')) return;
+  showTg(await ai('tg-clear-token'));
+});
+
+$('testTg').addEventListener('click', async () => {
+  $('testTg').disabled = true; $('testTg').textContent = 'Sending…';
+  const r = await ai('tg-test');
+  if (r?.error) showTg(null, r.error);
+  else { status(`Sent. Check Telegram - the message is from @${r.bot}.`); refreshTg(); }
+  $('testTg').disabled = false; $('testTg').textContent = 'Send a test message';
+});
+
+getConfig().then(fill).then(refreshAi).then(refreshTg);

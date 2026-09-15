@@ -21,6 +21,10 @@
 
 const VAULT = 'vault';
 
+// Secrets the vault holds, by field name. Adding one here is all that is
+// needed: storage, mirroring, restore and reset protection all follow.
+export const SECRETS = { anthropic: 'key', telegram: 'tgToken' };
+
 /** Storage keys a reset is allowed to clear. The vault is not among them. */
 export const RESETTABLE = ['config', 'ai', 'recentLeads', 'seenThreads', 'rateState', 'log', 'staged'];
 
@@ -39,53 +43,71 @@ export async function read() {
   const local = await readLocal();
   const mirror = await readSync();
 
-  if (local.key && !mirror.key) {             // profile copy lost or never written
+  const has = (v) => Object.values(SECRETS).some((f) => v && v[f]);
+  if (has(local) && !has(mirror)) {           // profile copy lost or never written
     try { await chrome.storage.sync.set({ [VAULT]: local }); }
     catch { /* sync unavailable; the local copy still works */ }
     return local;
   }
-  if (!local.key && mirror.key) {             // this is the case that used to lose the key
+  if (!has(local) && has(mirror)) {           // this is the case that used to lose the key
     await chrome.storage.local.set({ [VAULT]: mirror });
     return { ...mirror, restored: true };
   }
-  // Both present: newer wins, so a key saved on another machine takes over.
-  if (local.key && mirror.key && (mirror.savedAt || 0) > (local.savedAt || 0)) {
+  // Both present: newer wins, so a secret saved on another machine takes over.
+  if (has(local) && has(mirror) && (mirror.savedAt || 0) > (local.savedAt || 0)) {
     await chrome.storage.local.set({ [VAULT]: mirror });
     return { ...mirror, restored: true };
   }
   return local;
 }
 
-export const getKey = async () => (await read()).key || '';
+export const getSecret = async (name) => (await read())[SECRETS[name]] || '';
+export const getKey = () => getSecret('anthropic');
 
-export async function setKey(key) {
-  // Storing the key it already holds must not count as a change: a write fires
+export async function setSecret(name, value) {
+  const field = SECRETS[name];
+  if (!field) throw new Error(`Unknown secret: ${name}`);
+  // Storing what it already holds must not count as a change: a write fires
   // chrome.storage.onChanged, which re-renders the dashboard, which reads the
   // vault again. Writing on every read would never settle.
   const current = await readLocal();
-  if (current.key === String(key) && (await readSync()).key === String(key)) return current;
-  const entry = { key: String(key), savedAt: Date.now() };
+  if (current[field] === String(value) && (await readSync())[field] === String(value)) return current;
+  const entry = { ...current, [field]: String(value), savedAt: Date.now() };
   await chrome.storage.local.set({ [VAULT]: entry });          // must not fail
   try { await chrome.storage.sync.set({ [VAULT]: entry }); } catch { /* local is enough */ }
   return entry;
 }
+export const setKey = (key) => setSecret('anthropic', key);
 
-export async function removeKey() {
-  await chrome.storage.local.remove(VAULT);
-  try { await chrome.storage.sync.remove(VAULT); } catch { /* nothing mirrored */ }
+/** Forget one secret; the others in the vault are untouched. */
+export async function removeSecret(name) {
+  const field = SECRETS[name];
+  const entry = { ...(await read()), savedAt: Date.now() };
+  delete entry[field];
+  delete entry.restored;
+  const empty = !Object.values(SECRETS).some((f) => entry[f]);
+  if (empty) {
+    await chrome.storage.local.remove(VAULT);
+    try { await chrome.storage.sync.remove(VAULT); } catch { /* nothing mirrored */ }
+    return;
+  }
+  await chrome.storage.local.set({ [VAULT]: entry });
+  try { await chrome.storage.sync.set({ [VAULT]: entry }); } catch { /* local is enough */ }
 }
+export const removeKey = () => removeSecret('anthropic');
 
 export const mask = (k) => (k ? `${k.slice(0, 11)}…${k.slice(-4)}` : '');
 
 /** What the Settings page shows about the stored key, without revealing it. */
-export async function info() {
+export async function info(name = 'anthropic') {
+  const field = SECRETS[name];
   const v = await read();
   return {
-    stored: !!v.key,
-    hint: mask(v.key),
+    stored: !!v[field],
+    hint: mask(v[field]),
     savedAt: v.savedAt || 0,
     restored: !!v.restored,
-    mirrored: !!(await readSync()).key
+    mirrored: !!(await readSync())[field]
   };
 }
 
@@ -97,5 +119,5 @@ export async function info() {
 export async function resetKeepingVault() {
   await chrome.storage.local.remove(RESETTABLE);
   const v = await read();                     // refills local from the mirror
-  return { cleared: RESETTABLE.length, keyKept: !!v.key };
+  return { cleared: RESETTABLE.length, keyKept: !!v[SECRETS.anthropic] };
 }

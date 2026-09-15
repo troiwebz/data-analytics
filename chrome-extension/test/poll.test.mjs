@@ -46,6 +46,7 @@ const LISTING = `<html>${Array.from({ length: 3 }, (_, i) => `
   </div>`).join('')}</html>`;
 
 let aiCalls = 0;
+let tg = [];
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes('api.anthropic.com/v1/models')) return { ok: true, status: 200, json: async () => ({ data: [] }) };
@@ -58,6 +59,7 @@ globalThis.fetch = async (url, opts) => {
       usage: { input_tokens: 800, cache_read_input_tokens: 300, output_tokens: 90 }
     }) };
   }
+  if (u.includes('api.telegram.org')) { tg.push(JSON.parse(opts.body)); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) }; }
   if (u.includes('script.google.com')) throw new Error('Apps Script must NOT be called');
   if (u.includes('index.rss')) return { ok: true, status: 200, text: async () => RSS };
   if (u.includes('manifest.json')) return { ok: true, json: async () => ({ version: '0.21.0' }) };
@@ -73,7 +75,10 @@ const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; c
 
 await C.saveKey('sk-ant-api03-TESTKEYTESTKEY');
 // No webhookUrl, no sharedSecret: the Apps Script path must never be touched.
-await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0 });
+await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0,
+                  telegramEnabled: true, telegramChatId: '999' });
+const TG = await import('../src/telegram.js');
+await TG.setToken('1234567890:AAtesttoken');
 
 let r = await bg.pollFeed();                    // first run seeds the database
 ok('first run seeds without Apps Script', r.seeded === 3, JSON.stringify(r));
@@ -97,6 +102,12 @@ ok('DM url built', /direct-messages\/add\?to=/.test(lead.dmUrl), lead.dmUrl);
 
 const st = await C.aiStatus();
 ok('spend recorded', st.spentToday > 0 && st.leadsToday === 3, JSON.stringify(st));
+
+// Telegram fires by itself on a new thread, with no Apps Script involved.
+ok('Telegram got two messages per new thread', tg.length === 6, String(tg.length));
+ok('the public reply went to Telegram', tg.some((m) => /Manual submissions to directories/.test(m.text) && /Public reply/.test(m.text)));
+ok('the PM went to Telegram as its own message', tg.some((m) => /PM to buyer0/.test(m.text)));
+ok('everything went to the configured chat', tg.every((m) => m.chat_id === '999'));
 
 // --- Rebuild drafts: leads found before the key existed get Claude lines now.
 store.recentLeads = store.recentLeads.map((l) => {

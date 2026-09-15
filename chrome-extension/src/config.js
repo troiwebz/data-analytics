@@ -16,7 +16,11 @@ export const DEFAULT_CONFIG = {
                                // in Apps Script Script Properties); falls back to rules
 
 
-  webhookUrl: '',              // Apps Script /exec URL
+  // Telegram, straight from this extension. The bot token lives in the vault.
+  telegramEnabled: true,       // send every new lead to Telegram automatically
+  telegramChatId: '',          // from @userinfobot
+
+  webhookUrl: '',              // Apps Script /exec URL (optional, legacy relay)
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
 
   notifyScore: 0,              // send everything; Telegram decides what buzzes
@@ -387,7 +391,7 @@ export const DEFAULT_CONFIG = {
   }
 };
 
-export const CONFIG_VERSION = 14;
+export const CONFIG_VERSION = 15;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -435,6 +439,11 @@ export async function migrateConfig() {
     }
   }
   if (v < 13 && next.aiSpecifics == null) next.aiSpecifics = DEFAULT_CONFIG.aiSpecifics;
+  if (v < 15) {
+    for (const k of ['telegramEnabled', 'telegramChatId']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+  }
   if (v < 14) {
     // v13 put the same three bullets in the public reply and the PM, and the
     // PM quoted the reply back. v14 splits them: one line in public, three in
