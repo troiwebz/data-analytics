@@ -16,6 +16,11 @@ export const DEFAULT_CONFIG = {
                                // in Apps Script Script Properties); falls back to rules
 
 
+  // Your own words about the business, handed to Claude with every thread.
+  // Optional, and empty by default: what goes in here is what Claude knows
+  // about you that the thread cannot tell it.
+  brief: '',
+
   // A sound when new threads land, so the machine can sit in the background.
   soundEnabled: true,
   sound: 'chime',              // new threads
@@ -456,7 +461,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 22;
+export const CONFIG_VERSION = 23;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -497,6 +502,7 @@ export async function migrateConfig() {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
   }
+  if (v < 23 && next.brief == null) next.brief = DEFAULT_CONFIG.brief;
   if (v < 22) {
     // Spacing moves from whole minutes to seconds, so it can be set below a
     // minute. Carry over whatever was set, and bring the PM default down.

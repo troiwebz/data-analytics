@@ -131,5 +131,39 @@ for (const good of [
 ok('a bare noun phrase still becomes a claim',
    tone('manual creation on residential IPs with our own numbers') === 'We handle manual creation on residential IPs with our own numbers');
 
+// The brief: the user's own words about their business, handed to Claude with
+// every thread. Last, because each call here moves the usage counters.
+// Earlier tests cleared the key and broke fetch on purpose; put both back or
+// writeSpecifics returns before it ever builds a request.
+globalThis.fetch = async (url, opts) => { lastReq = { url, opts }; return reply; };
+reply = { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: '{}' }], usage: {} }) };
+await C.saveKey('sk-ant-api03-BRIEFTEST000001');
+
+const systemFor = async (cfg) => {
+  lastReq = null;
+  await C.writeSpecifics([{ threadId: 'b', title: 't', snippet: 's' }], cfg);
+  if (!lastReq) throw new Error('no request was made - the key or fetch stub is wrong');
+  return JSON.parse(lastReq.opts.body).system[0];
+};
+
+const plainSys = await systemFor({});
+ok('no brief leaves the instructions exactly as they were', !/ABOUT THE WRITER/.test(plainSys.text));
+
+const brief = 'We are a 6 person agency in Chennai, strongest at local SEO and GMB. We do not touch adult or crypto.';
+const withBrief = await systemFor({ brief });
+ok('the brief reaches Claude', withBrief.text.includes('6 person agency in Chennai'));
+ok('it is labelled as the writer, not as instructions', /ABOUT THE WRITER/.test(withBrief.text));
+ok('and cannot override the rules', /the rules win/i.test(withBrief.text));
+ok('it rides in the cached prefix', withBrief.cache_control.type === 'ephemeral');
+ok('and not in the per-thread message', !JSON.parse(lastReq.opts.body).messages[0].content.includes('Chennai'));
+
+const huge = await systemFor({ brief: 'x'.repeat(6000) });
+ok('a runaway brief is trimmed rather than billed',
+   Math.max(...(huge.text.match(/x+/g) || ['']).map((r) => r.length)) === 1200,
+   String(Math.max(...(huge.text.match(/x+/g) || ['']).map((r) => r.length))));
+
+const blank = await systemFor({ brief: '   \n  ' });
+ok('whitespace is not a brief', !/ABOUT THE WRITER/.test(blank.text));
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

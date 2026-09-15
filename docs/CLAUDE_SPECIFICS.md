@@ -39,6 +39,29 @@ All of it is seeded from the thread id, which means two things at once. Across
 threads the output varies. Within one thread it is **stable**: pressing Rebuild
 does not quietly reword a reply you already read and approved.
 
+## Telling Claude about you
+
+Settings -> Claude -> **What to say about you**. Optional, and the single
+biggest thing you can do to improve the drafts.
+
+Claude can read the thread. It cannot know that you own a 40 directory list for
+the UAE, that you do phone verification in house, that you will not touch
+adult or crypto, or that your turnaround is three days. Write that here in
+plain words:
+
+> We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a
+> 40 directory list for UAE and UK. We do our own phone verification in house.
+> We do not touch adult or crypto. Turnaround is usually 3 to 5 days.
+
+It is used to decide what "we" can honestly claim, which of the five closes
+fits, and what to say when a post is vague. It is never quoted back at the
+buyer, and it cannot override the tone and compliance rules.
+
+It rides in the cached prefix, so it is paid for once per check rather than
+once per lead, and read at a tenth of the input price on every check after the
+first. Long entries are trimmed at 1200 characters. Leave it empty and nothing
+changes.
+
 ## Setting it up
 
 1. Get a key at https://console.anthropic.com -> API keys. It starts `sk-ant-`.

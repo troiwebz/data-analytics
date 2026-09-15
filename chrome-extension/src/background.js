@@ -111,7 +111,32 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await setConfig(cfg);
   await scheduleAlarms(cfg);
   await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
+  // Drafts are written once and stored, so a template change reaches nothing
+  // already in the database. Re-render when the wording has moved, rather than
+  // waiting for someone to notice and press a button. No network, no cost.
+  await refreshIfTemplatesChanged(cfg);
 });
+
+/** A cheap fingerprint of everything that decides how a draft reads. */
+const templateStamp = (cfg) => {
+  const src = JSON.stringify([cfg.templates, cfg.dmTemplates, cfg.offers, cfg.dmTitle, cfg.specifics]);
+  let h = 2166136261 >>> 0;
+  for (const ch of src) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return h.toString(36);
+};
+
+async function refreshIfTemplatesChanged(cfg) {
+  try {
+    const stamp = templateStamp(cfg);
+    const { draftStamp } = await chrome.storage.local.get('draftStamp');
+    if (draftStamp === stamp) return;
+    const r = await rebuildDrafts({ withAi: false });
+    await chrome.storage.local.set({ draftStamp: stamp });
+    if (r.updated) await log(`templates changed: ${r.updated} stored draft(s) brought up to date`);
+  } catch (e) {
+    await log(`could not refresh drafts: ${e.message}`, 'error');
+  }
+}
 chrome.runtime.onStartup.addListener(async () => scheduleAlarms(await getConfig()));
 
 // Toolbar icon opens the dashboard as a full tab (focused if already open).
@@ -207,11 +232,59 @@ export async function specificsFor(leads, cfg) {
     snippet: String(l.snippet || '').slice(0, 800),
     category: l.category || ''
   }));
-  const { specifics, note } = await writeSpecifics(payload);
+  const { specifics, note } = await writeSpecifics(payload, cfg);
   const n = Object.keys(specifics).length;
   if (n) await log(`Claude wrote specifics for ${n}/${leads.length} lead(s)`);
   else if (note) await log(`Claude stood down (${note}); using built-in rules`);
   return specifics;
+}
+
+/**
+ * Re-render every stored draft from the current templates.
+ *
+ * A lead keeps the text it was written with, so changing a template changes
+ * nothing already in the database until this runs. That is why an old sign-off
+ * kept appearing long after it had been deleted from the code, and why this now
+ * runs by itself whenever the templates change, not only on a button.
+ *
+ * withAi also fills in Claude lines for leads found before a key was added.
+ */
+export async function rebuildDrafts({ withAi = false } = {}) {
+  const cfg = await getConfig();
+  const leads = await getLeads();
+  const has = (l) => l.aiSpecifics?.tips?.length || l.aiSpecifics?.length;
+  const missing = leads.filter((l) => !has(l) && !['POSTED', 'SKIPPED'].includes(l.status));
+
+  let aiCount = 0;
+  if (withAi && cfg.aiSpecifics && missing.length) {
+    for (let i = 0; i < missing.length; i += 8) {
+      const fresh = await specificsFor(missing.slice(i, i + 8), cfg);
+      for (const [id, parts] of Object.entries(fresh)) {
+        await updateLead(id, { aiSpecifics: parts });
+        const lead = leads.find((l) => String(l.threadId) === String(id));
+        if (lead) lead.aiSpecifics = parts;
+        aiCount++;
+      }
+      if (!Object.keys(fresh).length) break;        // stood down; stop asking
+    }
+  }
+
+  let n = 0;
+  for (const l of leads) {
+    const draft = renderReply(l, cfg);
+    const dm = renderDm(l, cfg);
+    if (draft === l.draft && dm === l.dm) continue;
+    const dmTitle = renderDmTitle(l, cfg);
+    const patch = {
+      draft, dm, dmTitle, dmUrl: dmUrl(l.author),
+      lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
+    };
+    patch.card = buildCard({ ...l, ...patch });
+    await updateLead(l.threadId, patch);
+    n++;
+  }
+  if (n || aiCount) await log(`rebuilt ${n} draft(s)` + (aiCount ? `, ${aiCount} with fresh Claude lines` : ''));
+  return { ok: true, updated: n, ai: aiCount, pending: missing.length - aiCount };
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
@@ -633,46 +706,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
         break;
       }
-      case 'regen': {          // rebuild reply + PM from the current templates
-        const cfg = await getConfig();
-        const leads = await getLeads();
-
-        // Leads found before the key was added have no Claude lines. Fill those
-        // in first, newest first, so a rebuild after adding a key is worth doing.
-        const has = (l) => l.aiSpecifics?.tips?.length || l.aiSpecifics?.length;
-        const missing = leads.filter((l) => !has(l) && !['POSTED', 'SKIPPED'].includes(l.status));
-        let aiCount = 0;
-        if (cfg.aiSpecifics && missing.length) {
-          for (let i = 0; i < missing.length; i += 8) {
-            const fresh = await specificsFor(missing.slice(i, i + 8), cfg);
-            for (const [id, bullets] of Object.entries(fresh)) {
-              await updateLead(id, { aiSpecifics: bullets });
-              const lead = leads.find((l) => String(l.threadId) === String(id));
-              if (lead) lead.aiSpecifics = bullets;
-              aiCount++;
-            }
-            if (!Object.keys(fresh).length) break;   // stood down; stop asking
-          }
-        }
-
-        let n = 0;
-        for (const l of leads) {
-          const draft = renderReply(l, cfg);
-          const dm = renderDm(l, cfg);
-          if (draft === l.draft && dm === l.dm) continue;
-          const dmTitle = renderDmTitle(l, cfg);
-          const patch = {
-            draft, dm, dmTitle, dmUrl: dmUrl(l.author),
-            lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
-          };
-          patch.card = buildCard({ ...l, ...patch });
-          await updateLead(l.threadId, patch);
-          n++;
-        }
-        await log(`rebuilt ${n} draft(s)` + (aiCount ? `, ${aiCount} with fresh Claude lines` : ''));
-        sendResponse({ ok: true, updated: n, ai: aiCount, pending: missing.length - aiCount });
-        break;
-      }
+      case 'regen': sendResponse(await rebuildDrafts({ withAi: true })); break;
       case 'fill-thread': {                          // 📝 open the thread with the reply typed in
         const cfg = await getConfig();
         const staged = (await getStaged())[msg.lead.threadId];
@@ -736,7 +770,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'ai-budget':   sendResponse(await setBudget(msg.budget).catch((e) => ({ error: e.message }))); break;
       case 'ai-model':    sendResponse(await setModel(msg.model).catch((e) => ({ error: e.message }))); break;
       case 'ai-enabled':  sendResponse(await setEnabled(msg.on)); break;
-      case 'ai-test':     sendResponse(await testCall().catch((e) => ({ ok: false, error: e.message }))); break;
+      case 'ai-test':     sendResponse(await testCall(await getConfig()).catch((e) => ({ ok: false, error: e.message }))); break;
       case 'ai-reveal':   sendResponse({ key: await revealKey() }); break;
       case 'ai-credits':  sendResponse(await addCredits(msg.amount).catch((e) => ({ error: e.message }))); break;
       case 'ai-reset-spend': sendResponse(await resetSpend()); break;

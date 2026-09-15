@@ -270,7 +270,23 @@ const SYSTEM = [
  * returns { specifics: { [threadId]: [bullet, ...] }, note }
  * Never throws: on any failure the caller falls back to the built-in rules.
  */
-export async function writeSpecifics(leads) {
+/**
+ * The seller's own description of the business, if they wrote one. It goes in
+ * the cached system prefix rather than the per-thread message, so it is paid
+ * for once per poll and read at a tenth of the price after that.
+ */
+function systemFor(brief) {
+  const note = String(brief || '').trim().slice(0, 1200);
+  if (!note) return SYSTEM;
+  return SYSTEM + '\n\n'
+    + 'ABOUT THE WRITER. Their own words, and the most important thing you have:\n'
+    + note + '\n'
+    + 'Use it to decide what "we" can honestly claim, which of the five offers fits, and what to say\n'
+    + 'when the thread is vague. Never quote it back at the buyer or restate it as marketing.\n'
+    + 'Where it conflicts with the rules above, the rules win.';
+}
+
+export async function writeSpecifics(leads, cfg = {}) {
   const ai = await getAi();                 // migrations first, then the vault
   const key = await vault.getKey();
   if (!key) return { specifics: {}, note: 'no Claude key set' };
@@ -293,7 +309,7 @@ export async function writeSpecifics(leads) {
   const body = {
     model: ai.model,
     max_tokens: 130 * batch.length + 60,
-    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: systemFor(cfg.brief), cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
   };
@@ -457,7 +473,7 @@ export async function resetSpend() {
  * One real call on a sample thread, so "is this actually Claude?" can be
  * answered by looking rather than by trusting. Costs a fraction of a cent.
  */
-export async function testCall() {
+export async function testCall(cfg = {}) {
   const before = await aiStatus();
   if (!before.configured) return { ok: false, error: 'No key stored. Paste one and press Save key first.' };
   const started = Date.now();
@@ -467,7 +483,7 @@ export async function testCall() {
     title: 'Need local citation building for a Dubai clinic, also ranking in the UK',
     snippet: 'We have a clinic in Dubai and a second location in Manchester. Need consistent NAP '
            + 'across directories that actually get indexed locally, plus GMB cleanup. Budget $400.'
-  }]);
+  }], cfg);
   const after = await aiStatus();
   return {
     ok: !!specifics.test,

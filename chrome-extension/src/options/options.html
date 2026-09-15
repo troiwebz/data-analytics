@@ -47,6 +47,13 @@
     <p class="hint" style="margin:6px 0 0">The box above is always blank. It is a place to paste a new key,
       not a display of the stored one. What is actually stored is shown below.
       <b>Copy stored key</b> puts it on your clipboard so you can keep it in a password manager.</p>
+    <label>What to say about you <span class="hint">optional, but the single biggest thing you can do to improve the drafts</span></label>
+    <textarea id="brief" style="min-height:110px" placeholder="What you actually do, what you are good at, what you will not take on, anything true and specific you want mentioned. For example:
+
+We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40 directory list for UAE and UK. We do our own phone verification in house. We do not touch adult or crypto. Turnaround is usually 3 to 5 days. Clients are mostly agencies reselling to their own clients."></textarea>
+    <p class="hint" style="margin:6px 0 0">Claude gets this with every thread. It decides what "we" can honestly claim,
+      which of the five closes fits, and what to say when a post is vague. It is never quoted back at the buyer.
+      Leave it empty and Claude works from the thread alone, as it does now.</p>
     <label>Model <span class="hint">cheaper models cost less per lead; all three follow the same template</span></label>
     <div class="row">
       <select id="aiModel" style="max-width:260px"></select>
