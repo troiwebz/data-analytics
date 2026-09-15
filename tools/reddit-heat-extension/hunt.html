@@ -100,6 +100,27 @@
   @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
 </style>
 
+<div id="dead" hidden style="margin:10px 12px 0;padding:12px 14px;border:1px solid #ff8a65;border-radius:10px;background:#2a1410;color:#ffd9cf">
+  <b style="color:#ff8a65">The background is not answering — this is not lost data.</b>
+  <div style="margin:6px 0 0;font-size:13px;line-height:1.5">
+    Every count on this page comes from the background worker, so when it stops answering they all show 0.
+    Your queue, your contacted list and your settings are still in the browser's storage, untouched.
+    Reload the extension and the numbers come back.
+  </div>
+  <div id="deadData" style="margin:8px 0 0;font-size:13px;color:#7ee29a"></div>
+  <div style="margin:8px 0 0;font-size:12px;opacity:.8">Chrome said: <span id="deadWhy"></span></div>
+  <div class="row" style="margin:10px 0 0">
+    <button id="deadReload" class="primary">Reload the extension</button>
+    <button id="deadSave" class="ghost" title="reads the database straight from storage, without the worker">Back it up first</button>
+    <button id="deadHow" class="ghost">It keeps happening</button>
+  </div>
+  <div id="deadSteps" hidden style="margin:8px 0 0;font-size:13px;line-height:1.6">
+    Open <b>chrome://extensions</b>, find Reddit Lead Threads. A red <b>Errors</b> button there says what the
+    worker choked on; <b>service worker</b> opens its console. Click <b>Reload</b> under the card.
+    If the update was still copying files when Chrome loaded them, one reload is the whole fix.
+  </div>
+</div>
+
 <header>
   <h1>Co-founder hunt</h1>
   <button id="toggle" class="primary">Start watching</button>

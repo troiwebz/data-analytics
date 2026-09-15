@@ -1,7 +1,82 @@
 // Co-founder hunt: one post at a time, a two-line public reply to pick, a DM in
 // the length you want, then next. Nobody is ever shown twice.
 const $ = (id) => document.getElementById(id);
-const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
+// Every number on this page comes from the worker. When the worker is not
+// answering, the page used to sit at its HTML defaults - "In queue 0",
+// "never checked", "v?" - which reads exactly like losing all your data.
+// It is not: the database is in chrome.storage and is untouched. So: one
+// retry in case the worker is only asleep, then say so, loudly.
+let workerDown = "";
+const sendOnce = (msg) => new Promise((r) => {
+  try {
+    chrome.runtime.sendMessage(msg, (out) => {
+      const e = chrome.runtime.lastError;      // read it, or Chrome logs it as unchecked
+      r(e ? { __down: e.message || "no answer from the background" } : out);
+    });
+  } catch (e) { r({ __down: String((e && e.message) || e) }); }
+});
+const send = async (msg) => {
+  let out = await sendOnce(msg);
+  if (out && out.__down) {                     // asleep? sendMessage wakes it; give it a moment
+    await new Promise((r) => setTimeout(r, 600));
+    out = await sendOnce(msg);
+  }
+  if (out && out.__down) { workerSays(out.__down); return undefined; }
+  if (workerDown) workerSays("");
+  return out;
+};
+function workerSays(err) {
+  workerDown = err;
+  const box = $("dead");
+  if (!box) return;
+  box.hidden = !err;
+  if (err) { $("deadWhy").textContent = err; deadFacts(); }
+}
+// Proof, not reassurance: this page can read chrome.storage itself, so it
+// counts the database in front of you while the worker is still down.
+async function deadFacts() {
+  try {
+    const { hunt = {}, inbox = {} } = await chrome.storage.local.get(["hunt", "inbox"]);
+    const posts = Object.values(hunt.posts || {});
+    if (!posts.length && !Object.keys(hunt.contacted || {}).length) {
+      $("deadData").textContent = "Storage really is empty, so this one is not just the worker. Restore your last backup under Your details.";
+      $("deadData").style.color = "#ff8a65";
+      return;
+    }
+    const open = posts.filter((x) => !x.act && !x.repliedAt && !x.dmAt).length;
+    $("deadData").style.color = "#7ee29a";
+    const many = (n, one, lots) => `${n} ${n === 1 ? one : lots}`;
+    $("deadData").textContent = `Read straight from storage just now: ${many(posts.length, "post", "posts")} held, ${open} of them still open, `
+      + `${many(Object.keys(hunt.contacted || {}).length, "person", "people")} contacted, ${many(Object.keys(inbox.threads || {}).length, "chat thread", "chat threads")}, `
+      + `last check ${hunt.lastPoll ? new Date(hunt.lastPoll).toLocaleString() : "never"}. Nothing is lost.`;
+  } catch (e) { $("deadData").textContent = "Could not read storage: " + ((e && e.message) || e); }
+}
+// the script tag sits at the end of the body, so the banner is already there
+$("deadHow").onclick = () => { $("deadSteps").hidden = !$("deadSteps").hidden; };
+// the same file the normal backup button writes, built here without the worker
+$("deadSave").onclick = async () => {
+  try {
+    const { hunt = {}, inbox = {}, config = {}, spend = {} } = await chrome.storage.local.get(["hunt", "inbox", "config", "spend"]);
+    const profile = { ...(config.profile || {}) };
+    delete profile.apiKey;                       // the key stays out of the file, dead worker or not
+    const data = { v: 1, at: Date.now(),
+      counts: { posts: Object.keys(hunt.posts || {}).length, contacted: Object.keys(hunt.contacted || {}).length, threads: Object.keys(inbox.threads || {}).length },
+      hunt: { posts: hunt.posts || {}, contacted: hunt.contacted || {}, found: hunt.found || 0, me: hunt.me || "", subs: hunt.subs, maxAgeH: hunt.maxAgeH, sent: hunt.sent || [] },
+      inbox: { threads: inbox.threads || {}, plan: inbox.plan || "", deal: inbox.deal || null, me: inbox.me || "" },
+      profile, spendDays: spend.days || {} };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));
+    a.download = `cofounder-hunt-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    $("deadSave").textContent = `saved ${data.counts.posts} posts, ${data.counts.contacted} people`;
+  } catch (e) { $("deadSave").textContent = "could not read storage"; }
+};
+$("deadReload").onclick = () => {
+  $("deadReload").textContent = "reloading…"; $("deadReload").disabled = true;
+  try { chrome.runtime.reload(); } catch (_) { /* the page dies with it; that is the point */ }
+  setTimeout(() => location.reload(), 1200);
+};
 
 let openRow = "";         // the row showing its synopsis
 let picked = new Set();   // rows ticked in the table
