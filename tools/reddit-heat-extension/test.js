@@ -308,7 +308,7 @@ assert.strictEqual(H.huntThing({ title: "Looking for a co-founder for my Liquor 
 const syn = H.huntSynopsis({ title: "Looking for a technical co-founder for my fitness app", body: "I run a gym business in Bangalore. 400 users on the waitlist. Equity only (10%), nights and weekends.", role: "technical", stage: "idea", equityOnly: true, sub: "startups" });
 assert.strictEqual(syn.who, "company owner");
 assert.strictEqual(syn.wants, "someone to build it");
-assert.strictEqual(syn.country, "India");
+assert.strictEqual(syn.country, "Bangalore, India", "the city is shown when they named one");
 assert.strictEqual(syn.money, "equity only, no cash");
 assert.strictEqual(syn.equity, "10% on offer");
 assert.strictEqual(syn.traction, "400 users");
@@ -602,3 +602,29 @@ console.log("two points from their market: ok");
   assert.ok(!H.huntSlotPrompt(mk("q", "t"), {}).schema.required.includes("reply_line"), "the model is not asked for a public line");
 }
 console.log("public one-liner: ok");
+
+// Where they are, and how that reads next to where you are.
+{
+  const mk = (t, b) => ({ id: "L", author: "sam", sub: "SaaS", title: t, body: b });
+  assert.deepStrictEqual(H.huntPlace(mk("Co-founder", "We are in Bangalore")), { city: "Bangalore", country: "India" });
+  assert.deepStrictEqual(H.huntPlace(mk("Co-founder", "Berlin based")), { city: "Berlin", country: "Germany" });
+  assert.deepStrictEqual(H.huntPlace(mk("Co-founder", "nothing said")), { city: "", country: "" });
+  assert.strictEqual(H.huntPlace(mk("Co-founder", "we sell across India")).country, "India", "a country with no city still counts");
+  const me = { name: "Noah", location: "Bangkok, Thailand" };
+  assert.ok(/same day/.test(H.huntLocationLine(mk("x", "we are in Bangkok"), me)), "same country reads as an advantage");
+  assert.ok(/close enough to Bangalore/.test(H.huntLocationLine(mk("x", "Bangalore"), me)), "same region says so");
+  assert.ok(/overlap Berlin/.test(H.huntLocationLine(mk("x", "Berlin"), me)), "far apart is said plainly");
+  assert.strictEqual(H.huntLocationLine(mk("x", "nothing said"), me), "", "nothing invented when they said nothing");
+  assert.strictEqual(H.huntLocationLine(mk("x", "Bangalore"), { name: "Noah" }), "", "nothing said when you have not set your own");
+  // it lands in the DM, and only when both are known
+  const p = { ...mk("Looking for a co-founder for my salon SaaS", "We are in Bangalore, paying salons already."), role: "marketing", stage: "revenue" };
+  assert.ok(/I'm in Bangkok/.test(H.huntDM(p, me, "long")), H.huntDM(p, me, "long"));
+  assert.ok(!/I'm in/.test(H.huntDM(p, { name: "Noah" }, "long")), "no location set, no line");
+  // the writer is told both places
+  const pr = H.huntSlotPrompt(p, me);
+  assert.ok(pr.user.includes("Where they are: Bangalore") && pr.user.includes("Where we are: Bangkok, Thailand"));
+  assert.ok(pr.system.includes("WHERE THEY ARE MATTERS"), "and told to make one point local");
+  // the table and the card show the city
+  assert.strictEqual(H.huntSynopsis(p).country, "Bangalore, India");
+}
+console.log("location: ok");

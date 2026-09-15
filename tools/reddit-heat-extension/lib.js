@@ -1304,6 +1304,7 @@ const COUNTRIES = [
   ["Indonesia", /\b(indonesia|jakarta|bali)\b/i],
   ["Kenya", /\b(kenya|nairobi)\b/i],
   ["South Africa", /\b(south africa|johannesburg|cape town)\b/i],
+  ["Thailand", /\b(thailand|thai|bangkok|chiang mai)\b/i],
   ["Europe", /\b(europe|european|\beu\b|€|eur\b)\b/i],
 ];
 HEAT.huntCountry = function (p) {
@@ -1313,6 +1314,51 @@ HEAT.huntCountry = function (p) {
   if (based && based[1].length > 3) return based[1];
   if (/\b(r\/)?(indianstartups|indiabusiness)\b/i.test(p.sub || "")) return "India";
   return "";
+};
+
+// The city they named, if they named one. Better than the country in a DM.
+const CITIES = [
+  ["Bangalore", /\b(bangalore|bengaluru)\b/i, "India"], ["Mumbai", /\bmumbai\b/i, "India"], ["Delhi", /\b(new )?delhi\b/i, "India"],
+  ["Hyderabad", /\bhyderabad\b/i, "India"], ["Chennai", /\bchennai\b/i, "India"], ["Pune", /\bpune\b/i, "India"],
+  ["Kolkata", /\bkolkata\b/i, "India"], ["Gurgaon", /\b(gurgaon|gurugram)\b/i, "India"], ["Noida", /\bnoida\b/i, "India"],
+  ["New York", /\b(new york|nyc)\b/i, "United States"], ["San Francisco", /\b(san francisco|bay area)\b/i, "United States"],
+  ["Austin", /\baustin\b/i, "United States"], ["Seattle", /\bseattle\b/i, "United States"], ["Chicago", /\bchicago\b/i, "United States"],
+  ["Boston", /\bboston\b/i, "United States"], ["Los Angeles", /\blos angeles\b/i, "United States"], ["Miami", /\bmiami\b/i, "United States"],
+  ["London", /\blondon\b/i, "United Kingdom"], ["Manchester", /\bmanchester\b/i, "United Kingdom"],
+  ["Toronto", /\btoronto\b/i, "Canada"], ["Vancouver", /\bvancouver\b/i, "Canada"], ["Montreal", /\bmontreal\b/i, "Canada"],
+  ["Sydney", /\bsydney\b/i, "Australia"], ["Melbourne", /\bmelbourne\b/i, "Australia"], ["Brisbane", /\bbrisbane\b/i, "Australia"],
+  ["Berlin", /\bberlin\b/i, "Germany"], ["Munich", /\bmunich\b/i, "Germany"], ["Hamburg", /\bhamburg\b/i, "Germany"],
+  ["Amsterdam", /\bamsterdam\b/i, "Netherlands"], ["Rotterdam", /\brotterdam\b/i, "Netherlands"],
+  ["Lagos", /\blagos\b/i, "Nigeria"], ["Abuja", /\babuja\b/i, "Nigeria"],
+  ["Karachi", /\bkarachi\b/i, "Pakistan"], ["Lahore", /\blahore\b/i, "Pakistan"], ["Islamabad", /\bislamabad\b/i, "Pakistan"],
+  ["Manila", /\bmanila\b/i, "Philippines"], ["Cebu", /\bcebu\b/i, "Philippines"],
+  ["Singapore", /\bsingapore\b/i, "Singapore"], ["Dubai", /\bdubai\b/i, "UAE"], ["Abu Dhabi", /\babu dhabi\b/i, "UAE"],
+  ["Sao Paulo", /\b(sao paulo|são paulo)\b/i, "Brazil"], ["Rio de Janeiro", /\brio de janeiro\b/i, "Brazil"],
+  ["Paris", /\bparis\b/i, "France"], ["Madrid", /\bmadrid\b/i, "Spain"], ["Barcelona", /\bbarcelona\b/i, "Spain"],
+  ["Warsaw", /\bwarsaw\b/i, "Poland"], ["Krakow", /\bkrakow\b/i, "Poland"],
+  ["Jakarta", /\bjakarta\b/i, "Indonesia"], ["Bali", /\bbali\b/i, "Indonesia"],
+  ["Nairobi", /\bnairobi\b/i, "Kenya"], ["Johannesburg", /\bjohannesburg\b/i, "South Africa"], ["Cape Town", /\bcape town\b/i, "South Africa"],
+  ["Bangkok", /\bbangkok\b/i, "Thailand"], ["Chiang Mai", /\bchiang mai\b/i, "Thailand"],
+];
+HEAT.huntPlace = function (p) {
+  const t = ((p.title || "") + " " + (p.body || "") + " " + (p.flair || "")).slice(0, 3000);
+  for (const [city, re, country] of CITIES) if (re.test(t)) return { city, country };
+  return { city: "", country: HEAT.huntCountry(p) || "" };
+};
+// One line about where you are, only when they said where they are. The same
+// country is an advantage; far apart is said plainly rather than hidden.
+const REGION = { India: "Asia", Pakistan: "Asia", Singapore: "Asia", Indonesia: "Asia", Philippines: "Asia", UAE: "Asia", Thailand: "Asia", "United Kingdom": "Europe", Germany: "Europe", Netherlands: "Europe", France: "Europe", Spain: "Europe", Poland: "Europe", Europe: "Europe" };
+HEAT.huntLocationLine = function (p, profile = {}) {
+  const mine = String(profile.location || "").trim();
+  if (!mine) return "";
+  const them = HEAT.huntPlace(p);
+  const where = them.city || them.country;
+  if (!where) return "";
+  const myCountry = (COUNTRIES.find(([, re]) => re.test(mine)) || [])[0] || mine.split(",").pop().trim();
+  const myCity = mine.split(",")[0].trim();
+  if (them.country && myCountry && them.country.toLowerCase() === myCountry.toLowerCase()) return `I'm in ${myCity} too, so we would be working the same day.`;
+  if (REGION[them.country] && REGION[myCountry] && REGION[them.country] === REGION[myCountry]) return `I'm in ${myCity}, close enough to ${where} that our working days overlap.`;
+  return `I'm in ${myCity} and keep hours that overlap ${where}.`;
 };
 
 // Who is asking: a freelancer, someone running a company, a solo founder.
@@ -1338,7 +1384,7 @@ HEAT.huntSynopsis = function (p) {
   return {
     who: HEAT.huntWho(p),
     wants,
-    country: HEAT.huntCountry(p),
+    country: (() => { const q = HEAT.huntPlace(p); return q.city ? `${q.city}, ${q.country}` : q.country; })(),
     stage: p.stage === "unknown" ? "" : p.stage === "idea" ? "idea only" : p.stage === "building" ? "something built" : "has revenue",
     money: p.equityOnly ? "equity only, no cash" : p.hasBudget ? "has money to spend" : "",
     equity: equity ? equity[1] + "% on offer" : "",
@@ -1877,6 +1923,8 @@ HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
 
 FIRST, DECIDE FIT. fit = "no" when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer, is recruiting for a salaried job, is selling a service, or is a student project with no path to paying anyone.
 
+WHERE THEY ARE MATTERS. When the post names a city, a country or a local market, make ONE of the two points local: the payment rail everyone there uses, the rule that applies there, the platform that owns that market, how customers there actually buy, what hiring or pricing is really like. Never "the Indian market is growing" or anything a brochure would say.
+
 The two POINTS are what make this message land: they must read like someone who has built in this exact market. For a salon booking product that is no-shows, rebooking rates, stylist adoption, walk-ins, deposits; for a clinic tool it is intake, no-shows, insurance codes, staff who hate new software; for a marketplace it is the thin side, take rate, leakage off-platform. Name the real thing for THEIR market, never "user acquisition" or "product-market fit".
 
 Then fill the slots. Rules for every slot:
@@ -1896,6 +1944,7 @@ ${(p.body || "(no body)").slice(0, compact ? 2000 : 5000)}
 
 WHAT WE READ FROM IT (may be wrong; trust the post)
 Wants: ${s.wants}. Stage: ${s.stage || "not stated"}. Money: ${s.money || "not stated"}. ${s.traction ? "Traction: " + s.traction + "." : ""}
+Where they are: ${HEAT.huntPlace(p).city || HEAT.huntPlace(p).country || "not stated"}. Where we are: ${profile.location || "not stated"}.
 ${HEAT.huntContextText(p, true)}
 For context only, never write about it: we answer as a co-founder who ${sh.clause || sh.shapeShort}.
 
@@ -1956,23 +2005,23 @@ const S_POINTS = [
 const STYLES = [
   { key: "plain", build: (m, pick) => [
     [pick(S_OPEN)(m), m.observation, m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
-    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "observation-first", build: (m, pick) => [
     [m.observation, pick(S_OPEN)(m), m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
-    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "points-led", build: (m, pick) => [
     [pick(S_OPEN)(m), m.long && m.pts ? pick(S_POINTS)(m) : "", m.observation].filter(Boolean).join(" "), "",
-    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "plan-led", build: (m, pick) => [
     [pick(S_OPEN)(m), m.observation, m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
-    [m.plan, pick(S_STAND)(m), m.offer, "You keep the company and the IP.", pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    [m.plan, pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.where, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "brief", build: (m, pick) => [
     [pick(S_OPEN)(m), m.observation].filter(Boolean).join(" "), "",
-    [pick(S_STAND)(m), "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+    [pick(S_STAND)(m), "You keep the company and the IP.", m.where, m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
 ];
 function lower(s) { return /^I\b|^I'/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
@@ -2049,6 +2098,7 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
       const m = {
         ...base,
+        where: HEAT.huntLocationLine(p, profile),
         long: !!opts.long,
         pts: !!(base.p1 && base.p2),
         plan: base.move ? pick(S_PLAN)(base) : "",

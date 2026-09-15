@@ -308,11 +308,12 @@ function applyView(list) {
   const v = viewGet();
   const find = v.fFind.trim().toLowerCase();
   // options for country and who come from what is actually in the queue
-  fillSelect("fCountry", list.map((p) => huntSynopsis(p).country).filter(Boolean), v.fCountry, "any country");
+  // the filter works by country; the table still shows the city they named
+  fillSelect("fCountry", list.map((p) => huntPlace(p).country).filter(Boolean), v.fCountry, "any country");
   fillSelect("fWho", list.map((p) => huntWho(p)), v.fWho, "anyone");
   let out = list.filter((p) => {
     const s = huntSynopsis(p);
-    if (v.fCountry && s.country !== v.fCountry) return false;
+    if (v.fCountry && huntPlace(p).country !== v.fCountry) return false;
     if (v.fWants && (p.role || "unclear") !== v.fWants) return false;
     if (v.fWho && s.who !== v.fWho) return false;
     if (v.fStage && (p.stage || "unknown") !== v.fStage) return false;
@@ -328,7 +329,7 @@ function applyView(list) {
     oldest: (a, b) => (a.created || 0) - (b.created || 0),
     fewest: (a, b) => (a.comments || 0) - (b.comments || 0),
     most: (a, b) => (b.comments || 0) - (a.comments || 0),
-    country: (a, b) => (huntSynopsis(a).country || "zzz").localeCompare(huntSynopsis(b).country || "zzz"),
+    country: (a, b) => (huntPlace(a).country || "zzz").localeCompare(huntPlace(b).country || "zzz"),
     wants: (a, b) => (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9),
     who: (a, b) => huntWho(a).localeCompare(huntWho(b)),
   }[v.qSort];
