@@ -218,18 +218,15 @@ assert.strictEqual(cf("Need a developer co-founder", "I have 10 years in sales. 
 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
 const short = H.huntShortReply(hp, { name: "Troi" });
-assert.strictEqual(short.split("\n").length, 2, "the public reply is exactly two lines:\n" + short);
-assert.strictEqual(short.split("\n")[1], "Check your DM.");   // the old two-line form, kept for the paste engine
-assert.ok(short.length < 420, "the public reply stays short: " + short.length);
+assert.strictEqual(short.split("\n").length, 1, "the public reply is one short line: " + short);
+assert.ok(/dm/i.test(short), "it points at the DM: " + short);
+assert.ok(short.length <= 70, "the public reply stays short: " + short.length);
 assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
-const opts = H.huntShortOptions(hp, { name: "Troi" });
-assert.strictEqual(opts.length, 1, "one public reply, not a menu");
-assert.strictEqual(opts[0].split("\n").length, 2);
-assert.strictEqual(opts[0].split("\n")[1], "Check your DM.");
-assert.ok(!/https?:\/\/|\$\d/.test(opts[0]));
-assert.ok(opts[0].includes("Equity-only"), "equity-only posts lead with the equity line");
-assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage: "revenue" }, {})[0].includes("pay for execution"), "funded posts lead with money");
-for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
+const opts = H.huntShortOptions(hp, { name: "Troi" }, 3);
+assert.strictEqual(opts.length, 3, "asking for three gives three different ones");
+assert.strictEqual(new Set(opts).size, 3);
+assert.ok(opts.every((o) => o.split("\n").length === 1 && !/https?:\/\/|\$\d/.test(o)));
+assert.ok(opts.some((o) => /interested|keen|help/i.test(o)), "they say you are interested");
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a letter: " + dm.length);
 assert.ok(dm.startsWith("Hi Jane,"), dm);
@@ -267,7 +264,7 @@ assert.strictEqual(H.tgLink("troi"), "https://t.me/troi");
 assert.strictEqual(H.waLink(""), "");
 // the 3-line public reply stays clean: no offer, no links
 const short2 = H.huntShortReply(hp, { name: "Troi", whatsapp: "+919876543210" });
-assert.ok(!/wa\.me|t\.me|48 hours|free/.test(short2) && short2.split("\n").length === 2);
+assert.ok(!/wa\.me|t\.me|48 hours|free/.test(short2) && short2.split("\n").length === 1);
 console.log("dm offer + private channel: ok");
 
 // names read like a person wrote them
@@ -588,13 +585,17 @@ console.log("two points from their market: ok");
   for (let i = 0; i < 40; i += 1) {
     const p = mk("p" + i, ["Marketing co-founder wanted for Konnekt", "Looking for a co-founder for my salon SaaS", "Need a technical co-founder for my gym scheduling app"][i % 3]);
     const line = H.huntPublicLine(p, {}, { avoid: used });
-    assert.ok(line.length < 120 && !/\n/.test(line), "one short line: " + line);
+    assert.ok(line.length <= 70 && !/\n/.test(line), "one short line: " + line);
     assert.ok(!/https?:|[$%]/.test(line), "no link, no price: " + line);
     assert.ok(/dm/i.test(line), "it points at the DM: " + line);
     used.push(line);
   }
   assert.strictEqual(new Set(used).size, 40, "forty in a row, none repeated");
-  assert.ok(H.huntPublicLine(mk("z", "Looking for a co-founder for my salon SaaS"), {}).includes("your salon SaaS"), "their thing is named");
+  // most of the lines are just "interested, check your DM"; some name their thing
+  const many = Array.from({ length: 30 }, (_, i) => H.huntPublicLine(mk("z" + i, "Looking for a co-founder for my salon SaaS"), {}));
+  assert.ok(many.some((l) => l.includes("your salon SaaS")), "some name their thing");
+  assert.ok(many.some((l) => /interested/i.test(l)), "most say you are interested");
+  assert.ok(many.every((l) => l.length <= 70), "every one is short: " + Math.max(...many.map((l) => l.length)));
   // the slot engine uses it, and no longer pays the model for a reply line
   const a = H.huntSlotAssemble(mk("q", "Looking for a co-founder for my salon SaaS"), { name: "Noah" }, { product: "salon SaaS", observation: "o", points: [], move: "", question: "q?", phrase: "", fit: "yes" });
   assert.ok(/dm/i.test(a.public_reply) && !/\n/.test(a.public_reply), a.public_reply);

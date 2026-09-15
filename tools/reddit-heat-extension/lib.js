@@ -1071,34 +1071,28 @@ const SHORT_CLOSE = [
 HEAT.PUBLIC_CLOSE = "Check your DM.";
 // The public comment says one thing: there is a DM waiting, about their thing.
 // Built from pools so the same line never appears twice on Reddit.
+// Short. It says one thing: I'm interested, the details are in your DM.
 const PUB_LINE = [
+  () => `Interested. Check your DM.`,
+  () => `Interested, DM sent.`,
+  () => `Check your DM, I'm interested.`,
+  () => `Sent you a DM, interested.`,
+  () => `DM sent. Interested.`,
+  () => `Interested in this. Check your DM.`,
+  () => `Keen on this one. Check your DM.`,
+  () => `Check your DM, would like to help.`,
+  () => `DM'd you, interested.`,
+  () => `Interested. Details in your DM.`,
+  (t) => `Interested in ${t}. Check your DM.`,
   (t) => `Check your DM about ${t}.`,
   (t) => `Sent you a DM about ${t}.`,
-  (t) => `DM'd you about ${t}.`,
-  (t) => `Just sent you a DM regarding ${t}.`,
-  (t) => `Dropped you a DM about ${t}.`,
-  (t) => `Messaged you about ${t} — check your DM.`,
-  (t) => `Put a note about ${t} in your DMs.`,
-  (t) => `Check your DM — wrote to you about ${t}.`,
-  (t) => `Sent something over about ${t}, it's in your DMs.`,
-  (t) => `Replied in your DMs about ${t}.`,
-  (t) => `There's a DM from me about ${t}.`,
-  (t) => `Wrote to you about ${t} — see your DM.`,
-  (t) => `Your DMs have a note from me about ${t}.`,
-  (t) => `Sent a DM your way about ${t}.`,
-  (t) => `Check the DM I sent about ${t}.`,
-  (t) => `Left you a DM about ${t}.`,
-  (t) => `Have a look at your DM about ${t}.`,
-  (t) => `Reached out in your DMs about ${t}.`,
-  (t) => `Something about ${t} is sitting in your DMs.`,
-  (t) => `Sent my thoughts on ${t} by DM.`,
+  (t) => `DM'd you about ${t}, interested.`,
+  (t) => `Interested in ${t}, DM sent.`,
+  (t) => `${t.charAt(0).toUpperCase() + t.slice(1)} sounds good. Check your DM.`,
 ];
 const PUB_TAIL = [
-  () => ``,
+  () => ``, () => ``, () => ``, () => ``,   // usually nothing at all
   () => ` No rush.`,
-  () => ` Whenever you have a minute.`,
-  () => ` Two minutes to read.`,
-  () => ` Happy to keep it there if it's easier.`,
   () => ` Short one.`,
 ];
 function pubHash(x) { let h = 2166136261; for (let i = 0; i < String(x).length; i += 1) { h ^= String(x).charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); }
@@ -1115,16 +1109,11 @@ HEAT.huntPublicLine = function (p, profile = {}, opts = {}) {
 };
 // One public reply, not a menu: the single most specific useful line for
 // THIS post, then "Check your DM." The context lines win over the role pool.
-HEAT.huntShortOptions = function (p, profile = {}, n = 1) {
-  const m = HEAT.huntVars(p, profile);
-  const role = HEAT.SHORT_ROLE(p);
-  const openers = [];
-  if (p.equityOnly) openers.push(SHORT_CTX.equityOnly);
-  if (p.hasBudget) openers.push(SHORT_CTX.hasBudget);
-  if (p.stage && SHORT_CTX[p.stage]) openers.push(SHORT_CTX[p.stage]);
-  for (const o of (SHORT_OBS[role] || SHORT_OBS.unclear)) openers.push(o);
+// One short line, the same everywhere: interested, the rest is in the DM.
+HEAT.huntShortOptions = function (p, profile = {}, n = 1, opts = {}) {
   const out = [];
-  for (let i = 0; i < Math.min(Math.max(1, n), openers.length); i += 1) out.push(`${openers[i](m)}\n${HEAT.PUBLIC_CLOSE}`);
+  const avoid = [...(opts.avoid || [])];
+  for (let i = 0; i < Math.max(1, n); i += 1) { const line = HEAT.huntPublicLine(p, profile, { avoid }); avoid.push(line); out.push(line); }
   return out;
 };
 HEAT.SHORT_ROLE = function (p) { return SHORT_OBS[p.role] ? p.role : "unclear"; };

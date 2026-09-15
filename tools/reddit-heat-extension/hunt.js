@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const send = (msg) => new Promise((r) => chrome.runtime.sendMessage(msg, r));
 
+let openRow = "";         // the row showing its synopsis
 let picked = new Set();   // rows ticked in the table
 let queue = [];        // what is in front of you: filtered and sorted
 let allQueue = [];     // everything the worker sent, before the view
@@ -617,12 +618,28 @@ function showTable(kind) {
   $("bulkBar").hidden = kind !== "queue" || picked.size === 0;
   if (kind === "queue") {
     $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
-    $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row to work on that one.";
+    $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row for a quick read, click again to work on it.";
     $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>`;
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     $("tableRows").innerHTML = (queue.map((p) => {
       const s = huntSynopsis(p);
-      return `<tr class="pick" data-id="${p.id}"><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+      const open = openRow === p.id;
+      return `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+    }).map((row, i) => {
+      const p = queue[i];
+      if (openRow !== p.id) return row;
+      const s2 = huntSynopsis(p);
+      const bits = [["Who", s2.who], ["Wants", s2.wants], ["Where", s2.country], ["Stage", s2.stage], ["Money", s2.money], ["Traction", s2.traction || s2.revenue], ["Time", s2.commit], ["Equity", s2.equity]].filter(([, v]) => v);
+      const gist = String(p.body || "").replace(/\s+/g, " ").trim().slice(0, 320);
+      return row + `<tr class="syn-row"><td></td><td colspan="6" style="padding:4px 10px 14px">
+        <div style="color:#98a0b3;font-size:12px;margin-bottom:6px">${bits.map(([k, v]) => `<b style="color:#e8eaf0">${esc(k)}:</b> ${esc(v)}`).join(" &nbsp;·&nbsp; ")}</div>
+        <div style="color:#c9cede">${esc(gist)}${p.body && p.body.length > 320 ? "…" : ""}</div>
+        <div class="row" style="margin:8px 0 0">
+          <button class="primary openfull" data-id="${p.id}">Open this one</button>
+          <button class="ghost rowskip" data-id="${p.id}">Skip</button>
+          <button class="ghost rowbad" data-id="${p.id}">Not relevant</button>
+          <a href="https://www.reddit.com${esc(String(p.permalink || "").replace(/^https?:\/\/[^/]+/, ""))}" target="_blank" rel="noopener" class="foot" style="margin:0">read it on Reddit ↗</a>
+        </div></td></tr>`;
     }).join("") || `<tr><td colspan="7" style="color:#98a0b3">Nobody waiting yet.</td></tr>`) + `<tr id="doneRowsAnchor"></tr>`;
     // today's finished ones stay in the list, struck through, so the day's work is visible
     send({ type: "hunt-done" }).then((r) => {
@@ -640,11 +657,22 @@ function showTable(kind) {
       paintBulk();
     };
     paintBulk();
+    for (const b of $("tableRows").querySelectorAll("button.openfull")) b.onclick = () => {
+      const i = queue.findIndex((x) => x.id === b.dataset.id);
+      if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
+      openRow = ""; $("table").hidden = true; $("main").hidden = false; render();
+    };
+    for (const b of $("tableRows").querySelectorAll("button.rowskip")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "skip" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
+    for (const b of $("tableRows").querySelectorAll("button.rowbad")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "not_relevant" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
     for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
       tr.onclick = (e) => {
-        if (e.target && e.target.classList && e.target.classList.contains("rowpick")) return;
-        const i = queue.findIndex((x) => x.id === tr.dataset.id);
+        if (e.target && (e.target.classList.contains("rowpick") || e.target.tagName === "BUTTON" || e.target.tagName === "A")) return;
+        const id = tr.dataset.id;
+        // first click opens a short reading of the post, a second opens it fully
+        if (openRow !== id) { openRow = id; showTable("queue"); return; }
+        const i = queue.findIndex((x) => x.id === id);
         if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
+        openRow = "";
         $("table").hidden = true; $("main").hidden = false; render();
       };
     }
@@ -901,6 +929,7 @@ document.addEventListener("keydown", (e) => {
   updBackground();
   inboxBadge();
   setInterval(inboxBadge, 20000);
+  showTable("queue");                       // the list first, the card when you pick one
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();
