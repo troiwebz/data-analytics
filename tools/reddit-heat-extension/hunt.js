@@ -54,7 +54,9 @@ function render() {
   $("syn").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
   const useAi = !!p.ai && engine() !== "templates";
-  options = useAi ? [p.ai.public_reply] : huntShortOptions(p, profile, 1);
+  // a reply cached by an older version was two lines; those become one short line
+  const cachedLine = useAi && p.ai.public_reply && !/\n/.test(p.ai.public_reply) ? p.ai.public_reply : "";
+  options = [cachedLine || huntShortOptions(p, profile, 1)[0]];
   variant = 0;
   $("opts").hidden = true;                       // one reply, no menu
   aiStatus(p);

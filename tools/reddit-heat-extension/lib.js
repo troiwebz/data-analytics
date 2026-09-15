@@ -1069,45 +1069,67 @@ const SHORT_CLOSE = [
 // n distinct 3-line replies for THIS post. Line 1 speaks to their situation,
 // line 2 gives something away, line 3 points at the DM. No link, no price.
 HEAT.PUBLIC_CLOSE = "Check your DM.";
-// The public comment says one thing: there is a DM waiting, about their thing.
-// Built from pools so the same line never appears twice on Reddit.
-// Short. It says one thing: I'm interested, the details are in your DM.
-const PUB_LINE = [
-  () => `Interested. Check your DM.`,
-  () => `Interested, DM sent.`,
-  () => `Check your DM, I'm interested.`,
-  () => `Sent you a DM, interested.`,
-  () => `DM sent. Interested.`,
-  () => `Interested in this. Check your DM.`,
-  () => `Keen on this one. Check your DM.`,
-  () => `Check your DM, would like to help.`,
-  () => `DM'd you, interested.`,
-  () => `Interested. Details in your DM.`,
-  (t) => `Interested in ${t}. Check your DM.`,
-  (t) => `Check your DM about ${t}.`,
-  (t) => `Sent you a DM about ${t}.`,
-  (t) => `DM'd you about ${t}, interested.`,
-  (t) => `Interested in ${t}, DM sent.`,
-  (t) => `${t.charAt(0).toUpperCase() + t.slice(1)} sounds good. Check your DM.`,
+// The public comment is one very short line and says one thing: there is a
+// DM waiting. Built from two pools so the same line never appears twice.
+const PUB_LEAD = [
+  ``, ``, ``,                        // most of the time nothing at all: just "Check DM."
+  `Interested.`,
+  `Let's talk further.`,
+  `Let's talk.`,
+  `Keen.`,
+  `Keen on this.`,
+  `Interested in this.`,
+  `Would like to help.`,
+  `Happy to help here.`,
+  `Count me in.`,
+  `I'm interested.`,
+  `Sounds good.`,
+  `Worth a chat.`,
+  `Let's connect.`,
+  `Up for this.`,
+  `This is up my street.`,
 ];
-const PUB_TAIL = [
-  () => ``, () => ``, () => ``, () => ``,   // usually nothing at all
-  () => ` No rush.`,
-  () => ` Short one.`,
+const PUB_PTR = [
+  `Check DM.`,
+  `Check your DM.`,
+  `Check DM please.`,
+  `DM sent.`,
+  `Sent you a DM.`,
+  `DM'd you.`,
+  `Dropped you a DM.`,
+  `Details in your DM.`,
+  `Just DM'd you.`,
+  `Check your DMs.`,
 ];
-function pubHash(x) { let h = 2166136261; for (let i = 0; i < String(x).length; i += 1) { h ^= String(x).charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); }
-// 20 openings x 6 endings, and never one you used on a recent post
+// FNV-1a, then an avalanche pass: without it the low bits of two salted hashes
+// of the same post move together, and the same lead keeps meeting the same
+// pointer. With it the three draws below are independent.
+function pubHash(x) {
+  let h = 2166136261; const s = String(x);
+  for (let i = 0; i < s.length; i += 1) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 15; h = Math.imul(h, 2246822507);
+  h ^= h >>> 13; h = Math.imul(h, 3266489909);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+// 18 leads x 10 pointers x either order, and never one used on a recent post
 HEAT.huntPublicLine = function (p, profile = {}, opts = {}) {
-  const thing = HEAT.huntThing(p);
   const used = new Set(opts.avoid || []);
-  const seed = pubHash(p.id || p.title || "");
-  for (let i = 0; i < PUB_LINE.length * PUB_TAIL.length; i += 1) {
-    const line = PUB_LINE[(seed + i) % PUB_LINE.length](thing) + PUB_TAIL[(seed + i * 7) % PUB_TAIL.length]();
+  const key = String(p.id || p.title || "");
+  // two independent hashes, so the lead a post gets does not decide its pointer
+  const seed = pubHash(key), seedB = pubHash("ptr:" + key), flip = pubHash("ord:" + key) % 2;
+  const L = PUB_LEAD.length, P = PUB_PTR.length, pairs = L * P;
+  let first = "";
+  // walk every lead x pointer pair, then every pair again the other way round
+  for (let i = 0; i < pairs * 2; i += 1) {
+    const lead = PUB_LEAD[(seed + i) % L];
+    const ptr = PUB_PTR[(seedB + Math.floor(i / L)) % P];
+    // no lead means the pointer stands alone; otherwise either can go first
+    const line = !lead ? ptr : ((i >= pairs ? 1 : 0) ^ flip ? `${ptr} ${lead}` : `${lead} ${ptr}`);
+    if (!first) first = line;
     if (!used.has(line)) return line;
   }
-  return PUB_LINE[seed % PUB_LINE.length](thing);
-};
-// One public reply, not a menu: the single most specific useful line for
+  return first;
+};// One public reply, not a menu: the single most specific useful line for
 // THIS post, then "Check your DM." The context lines win over the role pool.
 // One short line, the same everywhere: interested, the rest is in the DM.
 HEAT.huntShortOptions = function (p, profile = {}, n = 1, opts = {}) {

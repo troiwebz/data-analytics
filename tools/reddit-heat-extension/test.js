@@ -591,11 +591,16 @@ console.log("two points from their market: ok");
     used.push(line);
   }
   assert.strictEqual(new Set(used).size, 40, "forty in a row, none repeated");
-  // most of the lines are just "interested, check your DM"; some name their thing
-  const many = Array.from({ length: 30 }, (_, i) => H.huntPublicLine(mk("z" + i, "Looking for a co-founder for my salon SaaS"), {}));
-  assert.ok(many.some((l) => l.includes("your salon SaaS")), "some name their thing");
-  assert.ok(many.some((l) => /interested/i.test(l)), "most say you are interested");
-  assert.ok(many.every((l) => l.length <= 70), "every one is short: " + Math.max(...many.map((l) => l.length)));
+  // "Check DM." and "Let's talk further. Check DM." - nothing longer than that
+  const many = Array.from({ length: 200 }, (_, i) => H.huntPublicLine(mk("z" + i, "Looking for a co-founder for my salon SaaS"), {}));
+  assert.ok(many.every((l) => l.length <= 45), "every one is very short: " + Math.max(...many.map((l) => l.length)));
+  assert.ok(many.every((l) => l.split(". ").length <= 2), "at most two little sentences: " + many.find((l) => l.split(". ").length > 2));
+  assert.ok(many.some((l) => l === "Check DM."), "the bare pointer is in there");
+  assert.ok(many.some((l) => /^Let's talk further\./.test(l)), "so is the lead they asked for");
+  assert.ok(!many.some((l) => /salon SaaS/i.test(l)), "the public line never names their thing");
+  // hundreds of them, so the pool does not run dry on a busy day
+  const pool = new Set(Array.from({ length: 5000 }, (_, i) => H.huntPublicLine(mk("s" + i, "t"), {})));
+  assert.ok(pool.size >= 250, "hundreds of distinct lines: " + pool.size);
   // the slot engine uses it, and no longer pays the model for a reply line
   const a = H.huntSlotAssemble(mk("q", "Looking for a co-founder for my salon SaaS"), { name: "Noah" }, { product: "salon SaaS", observation: "o", points: [], move: "", question: "q?", phrase: "", fit: "yes" });
   assert.ok(/dm/i.test(a.public_reply) && !/\n/.test(a.public_reply), a.public_reply);
