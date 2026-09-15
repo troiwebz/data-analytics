@@ -185,11 +185,21 @@ function handleCommand_(msg) {
         '/won 1234567 — mark a lead as won (for template stats)\n' +
         '/version — which version is running\n' +
         '/ai — Claude-written specifics on/off, or set the model\n' +
-        '/cost — what Claude has cost today', true);
+        '/cost — what Claude has cost today\n' +
+        '/budget 0.25 — cap Claude spend per day', true);
     case 'stats':
       return tgSay_(statsText_(), true);
     case 'cost':
       return tgSay_(aiUsageText_(), true);
+    case 'budget': {
+      const n = parseFloat(arg);
+      if (!isFinite(n)) return tgSay_('Daily Claude budget is $' + aiBudget_().toFixed(2) +
+        '. Send /budget 0.25 to change it, /budget 0 for no cap.', true);
+      setProp_('AI_DAILY_BUDGET_USD', Math.max(0, n));
+      setProp_('AI_BUDGET_FLAGGED', '');
+      return tgSay_(n > 0 ? 'Claude will stand down after $' + n.toFixed(2) + ' a day and use the built-in rules.'
+                          : 'Daily budget removed. Claude runs with no cap.', true);
+    }
     case 'ai': {
       const on = arg.toLowerCase();
       if (on === 'on' || on === 'off') {

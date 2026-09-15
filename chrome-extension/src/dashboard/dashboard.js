@@ -75,6 +75,8 @@ async function render() {
 async function renderInner() {
   const [cfg, leads, log, rate, staged] = await Promise.all(
     [getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
+  // Cheap and cached by the service worker; never blocks the table.
+  const ai = await chrome.runtime.sendMessage({ cmd: 'ai-status' }).catch(() => ({}));
 
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
@@ -83,10 +85,17 @@ async function renderInner() {
 
   const today = leads.filter((l) => time(l.foundAt) > Date.now() - 86400000);
   const n = (s) => leads.filter((l) => l.status === s).length;
-  $('stats').innerHTML = [
+  const tiles = [
     [leads.length, 'in database'], [today.length, 'found today'],
     [n('POSTED'), 'posted'], [n('SKIPPED'), 'skipped'], [Object.keys(staged).length, 'staged']
-  ].map(([v, k]) => `<div class="k"><b>${v}</b><span>${k}</span></div>`).join('');
+  ];
+  if (ai?.configured) {
+    const spent = '$' + Number(ai.spentToday || 0).toFixed(3);
+    tiles.push([spent, ai.budget > 0 ? `claude · ${'$' + Number(ai.remaining).toFixed(2)} left` : 'claude today']);
+  }
+  $('stats').innerHTML = tiles
+    .map(([v, k]) => `<div class="k"${String(k).startsWith('claude') && ai.overBudget ? ' style="border-color:#fecaca"' : ''}><b>${v}</b><span>${k}</span></div>`)
+    .join('');
 
   // header
   $('head').innerHTML = COLS.map((c) => {

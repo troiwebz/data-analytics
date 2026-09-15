@@ -40,13 +40,19 @@ Optional properties: `ANTHROPIC_MODEL` (default `claude-opus-5`),
 | `/ai off` · `/ai on` | toggle without touching the key |
 | `/ai claude-haiku-4-5` | change model |
 | `/cost` | tokens and dollars spent today, and per lead |
+| `/budget 0.25` | cap the daily spend; `0` removes the cap |
 
 ## What it costs, and why it is small
 
 Five things keep the bill down:
 
+- **A daily spend limit.** Default **$0.50 a day**. When it is reached Claude
+  stands down until tomorrow and the built-in rules take over; nothing breaks
+  and nothing is lost. Change it in Settings or with `/budget 0.25`.
+- **Two bullets, three at most.** The prompt asks for two and allows a third
+  only when the post needs it, and Apps Script discards any beyond three.
 - **Claude writes only the bullets.** Greeting, offer and sign-off come from
-  the template, so output is ~70 tokens per lead rather than ~400.
+  the template, so output is ~50 tokens per lead rather than ~400.
 - **Leads are batched per poll** (up to 8), so the instructions are paid for
   once per poll, not once per lead.
 - **The instructions are a cached prefix**, read at a tenth of the input price
@@ -58,8 +64,8 @@ Five things keep the bill down:
   Those get the built-in rules; press **Rebuild drafts** to fill any of them in
   with Claude later.
 
-Roughly **$0.002-0.003 per lead on Opus 5**: about **$4/month at 50 leads a
-day**. `claude-haiku-4-5` is about a fifth of that (~$0.70/month) if you want
+Roughly **$0.0015-0.002 per lead on Opus 5**: about **$3/month at 50 leads a
+day**, and the daily limit caps it whatever happens. `claude-haiku-4-5` is about a fifth of that (~$0.70/month) if you want
 it cheaper — one `/ai claude-haiku-4-5` away, and the model choice is yours.
 `/cost` shows the real figure rather than this estimate.
 

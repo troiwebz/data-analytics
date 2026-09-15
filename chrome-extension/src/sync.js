@@ -13,7 +13,12 @@ async function call(cfg, action, payload = {}) {
   let data;
   try { data = JSON.parse(text); }
   catch { throw new Error(`Apps Script returned non-JSON (${res.status}): ${text.slice(0, 200)}`); }
-  if (!data.ok) throw new Error(data.error || 'Apps Script reported failure');
+  if (!data.ok) {
+    if (/unknown action/i.test(data.error || '')) {
+      throw new Error('Your Apps Script is an older version. Paste the newest Code.gs into it and redeploy (Deploy > Manage deployments > pencil > New version), then try again.');
+    }
+    throw new Error(data.error || 'Apps Script reported failure');
+  }
   return data;
 }
 
@@ -40,5 +45,6 @@ export const fetchSpecifics = (cfg, leads) =>
 export const saveAiKey = (cfg, key) => call(cfg, 'aikey', { key });
 export const clearAiKey = (cfg) => call(cfg, 'aikey', { clear: true });
 export const aiKeyStatus = (cfg) => call(cfg, 'aikey', {});
+export const setAiBudget = (cfg, budget) => call(cfg, 'aikey', { budget });
 
 export const ping = (cfg) => call(cfg, 'ping');

@@ -114,21 +114,14 @@ function handlePending_() {
 function handleAiKey_(p) {
   if (p.key) {
     const key = String(p.key).trim();
-    if (!/^sk-ant-/.test(key)) return { ok: false, error: 'That does not look like an Anthropic key (they start with sk-ant-).' };
+    if (!/^sk-ant-/.test(key)) return { ok: false, error: 'That does not look like an Anthropic key. They start with sk-ant-.' };
     setProp_('ANTHROPIC_API_KEY', key);
     setProp_('AI_SPECIFICS', 'yes');
   }
-  if (p.clear) {
-    PropertiesService.getScriptProperties().deleteProperty('ANTHROPIC_API_KEY');
-  }
-  const cur = aiKey_();
-  return {
-    ok: true,
-    configured: !!cur,
-    hint: cur ? cur.slice(0, 11) + '…' + cur.slice(-4) : '',
-    model: aiModel_(),
-    enabled: aiEnabled_()
-  };
+  if (p.clear) PropertiesService.getScriptProperties().deleteProperty('ANTHROPIC_API_KEY');
+  if (p.budget != null) setProp_('AI_DAILY_BUDGET_USD', Math.max(0, Number(p.budget) || 0));
+  if (p.model) setProp_('ANTHROPIC_MODEL', String(p.model));
+  return Object.assign({ ok: true }, aiStatus_());
 }
 
 /** Newest rows for the dashboard's "Sync from Sheet". */

@@ -16,7 +16,7 @@ import { matchLead } from './matcher.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
-import { pushLeads, fetchApproved, reportResult, fetchRecent, fetchSpecifics } from './sync.js';
+import { pushLeads, fetchApproved, reportResult, fetchRecent, fetchSpecifics, aiKeyStatus } from './sync.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -540,6 +540,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
+      case 'ai-status': {                            // today's Claude spend, for the dashboard
+        const cfg = await getConfig();
+        sendResponse(cfg.webhookUrl ? await aiKeyStatus(cfg).catch((e) => ({ error: e.message })) : {});
+        break;
+      }
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }

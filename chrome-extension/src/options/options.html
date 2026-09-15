@@ -47,7 +47,13 @@
       <button id="saveKey" style="flex:0 0 auto">Save key</button>
       <button id="clearKey" class="sec" style="flex:0 0 auto">Remove</button>
     </div>
-    <div id="aiStatus" class="hint" style="margin-top:8px"></div>
+    <label>Spend limit per day <span class="hint">Claude stands down and the built-in rules take over once this is reached; 0 means no cap</span></label>
+    <div class="row">
+      <input type="number" id="aiBudget" step="0.05" min="0" style="max-width:140px">
+      <button id="saveBudget" class="sec" style="flex:0 0 auto">Set limit</button>
+      <span style="flex:1"></span>
+    </div>
+    <div id="aiStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
   </div>
 
   <div class="c">

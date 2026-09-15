@@ -1,5 +1,5 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
-import { ping, saveAiKey, clearAiKey, aiKeyStatus } from '../sync.js';
+import { ping, saveAiKey, clearAiKey, aiKeyStatus, setAiBudget } from '../sync.js';
 
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
@@ -77,12 +77,27 @@ $('reset').addEventListener('click', async () => {
 // ---- Anthropic key: entered here, stored in Apps Script, never held locally
 function showAi(r, err) {
   const el = $('aiStatus');
-  if (err) { el.textContent = err; el.style.color = '#dc2626'; return; }
-  el.style.color = r?.configured ? '#16a34a' : '#64748b';
-  el.textContent = r?.configured
-    ? `Key stored in Apps Script (${r.hint}) · model ${r.model} · ${r.enabled ? 'active' : 'switched off'}`
-    : 'No key stored yet. Paste one above and press Save key — Claude stays off until then, and replies use the built-in rules.';
+  if (err) { el.innerHTML = esc(err); el.style.color = '#dc2626'; return; }
+  el.style.color = '#334155';
+  if (!r?.configured) {
+    el.style.color = '#64748b';
+    el.textContent = 'No key stored yet. Paste one above and press Save key. Until then replies use the built-in rules.';
+    return;
+  }
+  if (r.budget != null) $('aiBudget').value = r.budget;
+  const money = (n) => '$' + Number(n || 0).toFixed(4);
+  el.innerHTML =
+    `Key stored in Apps Script (<b>${esc(r.hint)}</b>) · model <b>${esc(r.model)}</b> · ` +
+    (r.enabled ? '<span style="color:#16a34a">active</span>' : '<span style="color:#dc2626">switched off</span>') + '<br>' +
+    `Today: <b>${r.leadsToday || 0}</b> leads in ${r.callsToday || 0} call(s) · spent <b>${money(r.spentToday)}</b>` +
+    (r.perLead ? ` (${money(r.perLead)} per lead)` : '') + '<br>' +
+    (r.budget > 0
+      ? `Limit <b>$${Number(r.budget).toFixed(2)}/day</b> · <b>${money(r.remaining)}</b> left` +
+        (r.overBudget ? ' · <span style="color:#dc2626">limit reached, using built-in rules until tomorrow</span>' : '')
+      : 'No daily limit set.');
 }
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function refreshAi() {
   try { showAi(await aiKeyStatus(await getConfig())); }
@@ -100,6 +115,12 @@ $('saveKey').addEventListener('click', async () => {
     showAi(r);
   } catch (e) { showAi(null, e.message); }
   $('saveKey').textContent = 'Save key';
+});
+
+$('saveBudget').addEventListener('click', async () => {
+  const v = Number($('aiBudget').value);
+  if (!isFinite(v) || v < 0) return showAi(null, 'Enter a number, for example 0.25.');
+  try { showAi(await setAiBudget(await getConfig(), v)); } catch (e) { showAi(null, e.message); }
 });
 
 $('clearKey').addEventListener('click', async () => {
