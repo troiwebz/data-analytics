@@ -1,82 +1,81 @@
-# Claude-written specifics
+# Claude writes the technical lines
 
-The category template says what you do. Claude writes the 2-4 bullets in the
-middle that prove you read *that* thread.
+Every reply and PM has the same shape:
 
-```
-Hi @buyer,                                     ← template
-We do this every week. We run SEO for…         ← template
+    greeting          <- template
+    2-3 technical     <- Claude, from the actual thread
+    offer + sign-off  <- template
 
-- Submissions to UAE directories that          ┐
-  actually index, plus the UK set separately   │
-- Existing listings audited for duplicate      ├ Claude
-  and mismatched NAP before anything new       │
-- Arabic and English name variants handled     ┘
+Only the middle is written by Claude. That is the part that has to prove you
+read the post; the rest never changes, so paying a model to rewrite it would be
+waste.
 
-Samples and past results on request. PMing you now.   ← template
-```
+## Setting it up
 
-## Setup
+1. Get a key at https://console.anthropic.com -> API keys. It starts `sk-ant-`.
+2. Extension Settings -> Claude -> paste it -> **Save key**.
 
-1. Get a key at <https://console.anthropic.com> → API keys.
-2. Paste the current `apps-script/single-file/Code.gs` and redeploy
-   (**Deploy → Manage deployments → ✏️ → New version**).
-3. Extension **Settings → Claude → Anthropic API key** → paste → **Save key**.
-   The extension sends it to Apps Script and immediately forgets it; the key is
-   stored in Script Properties and only a masked hint (`sk-ant-api0…4f9c`) is
-   ever read back. An extension ships its source to every machine it is
-   installed on, so it must never hold the key itself.
-   (Adding `ANTHROPIC_API_KEY` by hand in ⚙️ Project Settings works too.)
-4. Send `/ai` to the bot, or reopen Settings, to confirm it is on.
+That is the whole setup. The key is checked against Anthropic before it is
+stored, so a truncated paste is caught immediately.
 
-Optional properties: `ANTHROPIC_MODEL` (default `claude-opus-5`),
-`AI_SPECIFICS` (`no` to disable without removing the key).
+## Where the key lives
 
-## Controls
+In `chrome.storage.local` on this machine. Not in the extension folder, not in
+git, not in Google, not on any server. It is sent to `api.anthropic.com` and
+nowhere else. **Remove** in Settings deletes it.
+
+This is safe here because the extension is loaded from your own folder on your
+own Mac. If it were ever published to the Chrome Web Store the key would have to
+move to a server, because a published extension's files are readable by anyone
+who installs it.
+
+## What it costs
+
+Four things keep the bill small:
 
 | | |
 |---|---|
-| `/ai` | is it on, and which model |
-| `/ai off` · `/ai on` | toggle without touching the key |
-| `/ai claude-haiku-4-5` | change model |
-| `/cost` | tokens and dollars spent today, and per lead |
-| `/budget 0.25` | cap the daily spend; `0` removes the cap |
+| Claude writes only the bullets | ~70 output tokens a lead instead of ~400 |
+| All new threads go in one request | the instructions are paid for once per check, not once per lead |
+| The instructions sit in a cached prefix | repeat checks read them at 10% of the input price |
+| Results are stored on the lead | a thread is never paid for twice |
 
-## What it costs, and why it is small
+Models, per million tokens:
 
-Five things keep the bill down:
+| Model | In | Out |
+|---|---|---|
+| `claude-opus-5` | $5 | $25 |
+| `claude-sonnet-5` (default) | $2 | $10 |
+| `claude-haiku-4-5` | $1 | $5 |
 
-- **A daily spend limit.** Default **$0.50 a day**. When it is reached Claude
-  stands down until tomorrow and the built-in rules take over; nothing breaks
-  and nothing is lost. Change it in Settings or with `/budget 0.25`.
-- **Two bullets, three at most.** The prompt asks for two and allows a third
-  only when the post needs it, and Apps Script discards any beyond three.
-- **Claude writes only the bullets.** Greeting, offer and sign-off come from
-  the template, so output is ~50 tokens per lead rather than ~400.
-- **Leads are batched per poll** (up to 8), so the instructions are paid for
-  once per poll, not once per lead.
-- **The instructions are a cached prefix**, read at a tenth of the input price
-  on every poll after the first.
-- **`effort: "low"`** — short-form writing from supplied text, not reasoning.
-- **Results are stored on the lead**, so a thread is never sent twice.
-- **Backfill and "Load older threads" do not call Claude** — loading two days
-  of history would mean dozens of calls for threads you may never answer.
-  Those get the built-in rules; press **Rebuild drafts** to fill any of them in
-  with Claude later.
+In practice a check that finds 3 threads costs a fraction of a cent on Sonnet.
 
-Roughly **$0.0015-0.002 per lead on Opus 5**: about **$3/month at 50 leads a
-day**, and the daily limit caps it whatever happens. `claude-haiku-4-5` is about a fifth of that (~$0.70/month) if you want
-it cheaper — one `/ai claude-haiku-4-5` away, and the model choice is yours.
-`/cost` shows the real figure rather than this estimate.
+## The spend limit
 
-## Guard rails
+Settings -> Claude -> **Spend limit per day**. Default $0.50.
 
-A prompt is a request, not a guarantee, so every returned bullet is checked in
-Apps Script before it reaches a draft: em dashes, en dashes and bullet glyphs
-are stripped; anything promising a guarantee, a discount, free work or a
-ranking result is dropped; bullets outside 15-160 characters are dropped; at
-most four survive.
+When the day's spend reaches it, Claude stands down and replies fall back to the
+built-in rules in `src/specifics.js`. It resets at local midnight. Set it to 0
+for no limit.
 
-If the key is missing, the API errors, the response will not parse, or every
-bullet is rejected, the reply falls back to the built-in `specifics` rules.
-Nothing blocks and no lead is lost.
+Today's spend is on the dashboard as a tile, and in Settings in full: leads,
+calls, total, and cost per lead.
+
+## When Claude is not available
+
+No key, key removed, limit reached, network down, Anthropic returning an error:
+in every case the poll carries on and the reply uses the built-in rules. Claude
+never blocks a check and never loses a lead. The reason is written to the log at
+the bottom of the dashboard.
+
+## Rules enforced on the output
+
+A prompt is a request, not a guarantee, so what comes back is filtered before it
+reaches a draft:
+
+- em dashes, en dashes and bullet glyphs are replaced with plain hyphens
+- bullets under 16 or over 160 characters are dropped
+- anything promising a guarantee, a discount, free work or a percentage off is dropped
+- at most 3 bullets a lead
+
+Then the normal compliance linter runs over the finished reply, same as always.

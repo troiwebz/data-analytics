@@ -1,38 +1,40 @@
 # HAF Watcher
 
 Watches **[BlackHatWorld → Hire a Freelancer](https://www.blackhatworld.com/forums/hire-a-freelancer.76/)**
-every 3 minutes, sends every new thread to your phone on Telegram with a
-ready-to-paste reply, and — only when you tap 🚀 — posts it for you.
+every 3 minutes, scores every new thread, has Claude write the technical lines
+of a reply and a PM, and posts them only when you say so.
+
+## It runs on your Mac alone
 
 ```
- ┌──────────── server / always-on PC ──────────────┐
- │  Chrome Extension                               │
- │   every 3 min  → RSS + listing page             │
- │                → score, draft, reply count      │
- │                → push to Apps Script ───────────┼──┐
- │                → STAGE hot leads: open thread   │  │
- │                  in a background tab, type the  │  │
- │                  reply in, do NOT submit        │  │
- │   every 1 min  → "anything tapped 🚀?" ◄────────┼──┼──┐
- │                → staged tab? click Submit (<1s) │  │  │
- │                  else open + type + post        │  │  │
- └─────────────────────────────────────────────────┘  │  │
-                                                      ▼  │
-                              ┌───────────────────────────┴──┐
-                              │ Apps Script + Google Sheet   │
-                              │ dedupe · expire · lint · log │
-                              └────────────┬─────────────────┘
-                                           │ card + reply     ▲ 🚀 / ✅ / ⏭
-                                           ▼                  │
-                                    📱 Telegram on your phone
+ ┌─────────────── Chrome, on your machine ──────────────┐
+ │  Extension                                           │
+ │   every 3 min  → RSS + listing page                  │
+ │                → score, reply count, real post time  │
+ │                → Claude writes the technical lines ──┼──► api.anthropic.com
+ │                → reply + PM drafted, saved locally   │
+ │                → STAGE hot leads: open the thread in │
+ │                  a background tab, type the reply in,│
+ │                  do NOT submit                       │
+ │                                                      │
+ │  Dashboard (the toolbar icon)                        │
+ │   sortable table · Post · Send PM · Fill thread      │
+ └──────────────────────────────────────────────────────┘
 ```
 
-The extension is the only piece that can post (it holds your BHW login).
-Apps Script is the brain, the Sheet is the permanent record, Telegram is the UI.
+Nothing is needed beyond Chrome and an Anthropic key. The database is
+`chrome.storage.local`; the drafts are built on this machine; the key is on this
+machine. Nothing posts without a click.
+
+## Telegram and the Google Sheet are optional
+
+Leave the Apps Script fields in Settings empty and none of it is used. Fill them
+in and you additionally get leads pushed to your phone, 🚀 taps from Telegram,
+and a shared Sheet as a permanent record. See `docs/NO_MORE_PASTING.md`.
 
 ---
 
-## What you see on your phone
+## What you see on your phone (Telegram only)
 
 Two messages per thread. The card:
 

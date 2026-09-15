@@ -24,10 +24,6 @@
   <div class="c">
     <h2>Connection</h2>
     <label class="sw"><input type="checkbox" id="enabled"> Watcher enabled</label>
-    <label>Apps Script web app URL <span class="hint">ends in /exec</span></label>
-    <input type="text" id="webhookUrl" placeholder="https://script.google.com/macros/s/…/exec">
-    <label>Shared secret <span class="hint">must match SHARED_SECRET in Config.gs</span></label>
-    <input type="text" id="sharedSecret">
     <label>Feed URL</label>
     <input type="text" id="feedUrl">
     <div class="row">
@@ -41,11 +37,16 @@
   <div class="c">
     <h2>Claude <span class="hint">writes the 2-4 technical bullets in each reply; the rest stays templated</span></h2>
     <label class="sw"><input type="checkbox" id="aiSpecifics"> Let Claude write the technical bullets</label>
-    <label>Anthropic API key <span class="hint">from console.anthropic.com — stored in Apps Script, never kept in this extension</span></label>
+    <label>Anthropic API key <span class="hint">from console.anthropic.com — stored on this Mac only, in the extension's own storage</span></label>
     <div class="row">
       <input type="password" id="aiKey" placeholder="sk-ant-..." autocomplete="off">
       <button id="saveKey" style="flex:0 0 auto">Save key</button>
       <button id="clearKey" class="sec" style="flex:0 0 auto">Remove</button>
+    </div>
+    <label>Model <span class="hint">cheaper models cost less per lead; all three follow the same template</span></label>
+    <div class="row">
+      <select id="aiModel" style="max-width:260px"></select>
+      <span style="flex:1"></span>
     </div>
     <label>Spend limit per day <span class="hint">Claude stands down and the built-in rules take over once this is reached; 0 means no cap</span></label>
     <div class="row">
@@ -54,6 +55,16 @@
       <span style="flex:1"></span>
     </div>
     <div id="aiStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
+  </div>
+
+  <div class="c">
+    <h2>Telegram <span class="hint">optional — leave empty to run entirely on this Mac</span></h2>
+    <p class="hint" style="margin:0 0 10px">Only needed if you want leads pushed to your phone and a shared Google Sheet.
+      Everything else works without it.</p>
+    <label>Apps Script web app URL <span class="hint">ends in /exec</span></label>
+    <input type="text" id="webhookUrl" placeholder="https://script.google.com/macros/s/…/exec">
+    <label>Shared secret <span class="hint">must match SHARED_SECRET in Apps Script</span></label>
+    <input type="text" id="sharedSecret">
   </div>
 
   <div class="c">

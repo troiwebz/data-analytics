@@ -16,7 +16,8 @@ import { matchLead } from './matcher.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
-import { pushLeads, fetchApproved, reportResult, fetchRecent, fetchSpecifics, aiKeyStatus } from './sync.js';
+import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
+import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -114,23 +115,18 @@ export function dmUrl(author, title) {
  * falls back to the built-in specifics rules.
  */
 export async function specificsFor(leads, cfg) {
-  if (!cfg.aiSpecifics || !cfg.webhookUrl || !leads.length) return {};
-  try {
-    const payload = leads.map((l) => ({
-      threadId: String(l.threadId),
-      title: l.title,
-      snippet: String(l.snippet || '').slice(0, 800),
-      category: l.category || ''
-    }));
-    const ai = await fetchSpecifics(cfg, payload);
-    const n = Object.keys(ai).length;
-    await log(n ? `Claude wrote specifics for ${n}/${leads.length} lead(s)`
-                : `Claude returned nothing for ${leads.length} lead(s); using built-in rules`);
-    return ai;
-  } catch (e) {
-    await log(`Claude unavailable (${e.message}); using built-in rules`, 'error');
-    return {};
-  }
+  if (!cfg.aiSpecifics || !leads.length) return {};
+  const payload = leads.map((l) => ({
+    threadId: String(l.threadId),
+    title: l.title,
+    snippet: String(l.snippet || '').slice(0, 800),
+    category: l.category || ''
+  }));
+  const { specifics, note } = await writeSpecifics(payload);
+  const n = Object.keys(specifics).length;
+  if (n) await log(`Claude wrote specifics for ${n}/${leads.length} lead(s)`);
+  else if (note) await log(`Claude stood down (${note}); using built-in rules`);
+  return specifics;
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
@@ -540,11 +536,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
-      case 'ai-status': {                            // today's Claude spend, for the dashboard
-        const cfg = await getConfig();
-        sendResponse(cfg.webhookUrl ? await aiKeyStatus(cfg).catch((e) => ({ error: e.message })) : {});
-        break;
-      }
+      // Claude lives in the extension: key, spend and limits are all local.
+      case 'ai-status':   sendResponse(await aiStatus()); break;
+      case 'ai-save-key': sendResponse(await saveKey(msg.key).catch((e) => ({ error: e.message }))); break;
+      case 'ai-clear-key':sendResponse(await clearKey()); break;
+      case 'ai-budget':   sendResponse(await setBudget(msg.budget).catch((e) => ({ error: e.message }))); break;
+      case 'ai-model':    sendResponse(await setModel(msg.model).catch((e) => ({ error: e.message }))); break;
+      case 'ai-enabled':  sendResponse(await setEnabled(msg.on)); break;
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }

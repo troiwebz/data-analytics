@@ -1,5 +1,6 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
-import { ping, saveAiKey, clearAiKey, aiKeyStatus, setAiBudget } from '../sync.js';
+import { ping } from '../sync.js';
+import { RATES } from '../claude.js';
 
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
@@ -40,7 +41,6 @@ async function save() {
     (patch.specifics.geoPatterns || []).forEach((g) => new RegExp(g.p, 'i'));
   } catch (e) { return status(`bad regex: ${e.message}`, true); }
 
-  if (patch.enabled && !patch.webhookUrl) return status('Set the Apps Script URL before enabling.', true);
 
   await setConfig(patch);
   await chrome.runtime.sendMessage({ cmd: 'reschedule' });
@@ -53,7 +53,9 @@ $('test').addEventListener('click', async () => {
   status('testing…');
   try {
     const cfg = await getConfig();
-    const r = await ping({ ...cfg, webhookUrl: $('webhookUrl').value.trim(), sharedSecret: $('sharedSecret').value.trim() });
+    const url = $('webhookUrl').value.trim();
+    if (!url) return status('No Apps Script URL set, so there is nothing to test. That is fine: leads stay on this Mac and Claude is called from here.');
+    const r = await ping({ ...cfg, webhookUrl: url, sharedSecret: $('sharedSecret').value.trim() });
     status(`Connected. Sheet: ${r.sheet || 'ok'}`);
   } catch (e) { status(e.message, true); }
 });
@@ -63,8 +65,8 @@ $('poll').addEventListener('click', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'poll-now' });
   if (r?.error) status(r.error, true);
   else if (r?.skipped) status('Watcher is disabled — tick "Watcher enabled" at the top and Save first.', true);
-  else if (r?.seeded != null) status(`First run: ${r.seeded} threads seen, ${r.backfilled} from the last 48h recorded in the Sheet. Watching starts now.`);
-  else status(`${r?.new ?? 0} new thread(s), ${r?.matched ?? 0} sent.`);
+  else if (r?.seeded != null) status(`First run: ${r.seeded} threads seen, ${r.backfilled} from the last 48h recorded. Watching starts now.`);
+  else status(`${r?.new ?? 0} new thread(s), ${r?.matched ?? 0} drafted. Open the dashboard to see them.`);
 });
 
 $('reset').addEventListener('click', async () => {
@@ -74,7 +76,7 @@ $('reset').addEventListener('click', async () => {
   status('Defaults loaded — press Save to apply.');
 });
 
-// ---- Anthropic key: entered here, stored in Apps Script, never held locally
+// ---- Anthropic key: entered here, kept on this machine, used by the worker
 function showAi(r, err) {
   const el = $('aiStatus');
   if (err) { el.innerHTML = esc(err); el.style.color = '#dc2626'; return; }
@@ -87,7 +89,7 @@ function showAi(r, err) {
   if (r.budget != null) $('aiBudget').value = r.budget;
   const money = (n) => '$' + Number(n || 0).toFixed(4);
   el.innerHTML =
-    `Key stored in Apps Script (<b>${esc(r.hint)}</b>) · model <b>${esc(r.model)}</b> · ` +
+    `Key stored on this Mac (<b>${esc(r.hint)}</b>) · model <b>${esc(r.model)}</b> · ` +
     (r.enabled ? '<span style="color:#16a34a">active</span>' : '<span style="color:#dc2626">switched off</span>') + '<br>' +
     `Today: <b>${r.leadsToday || 0}</b> leads in ${r.callsToday || 0} call(s) · spent <b>${money(r.spentToday)}</b>` +
     (r.perLead ? ` (${money(r.perLead)} per lead)` : '') + '<br>' +
@@ -99,33 +101,42 @@ function showAi(r, err) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/** The worker owns the key; the page only ever asks it for status. */
+const ai = (cmd, extra = {}) => chrome.runtime.sendMessage({ cmd, ...extra });
+
+for (const [id, r] of Object.entries(RATES)) {
+  $('aiModel').insertAdjacentHTML('beforeend', `<option value="${id}">${r.label} · $${r.in}/$${r.out} per Mtok</option>`);
+}
+
 async function refreshAi() {
-  try { showAi(await aiKeyStatus(await getConfig())); }
-  catch (e) { showAi(null, /unknown action/i.test(e.message)
-    ? 'Update the Apps Script code to enable this (it needs the newest Code.gs).' : e.message); }
+  const r = await ai('ai-status');
+  if (r?.model) $('aiModel').value = r.model;
+  showAi(r, r?.error);
 }
 
 $('saveKey').addEventListener('click', async () => {
   const key = $('aiKey').value.trim();
   if (!key) return showAi(null, 'Paste the key first.');
-  $('saveKey').textContent = 'Saving…';
-  try {
-    const r = await saveAiKey(await getConfig(), key);
-    $('aiKey').value = '';                 // never keep it in the extension
-    showAi(r);
-  } catch (e) { showAi(null, e.message); }
+  $('saveKey').textContent = 'Checking…';
+  const r = await ai('ai-save-key', { key });
+  if (r?.error) showAi(null, r.error);
+  else { $('aiKey').value = ''; showAi(r); }   // cleared from the box once stored
   $('saveKey').textContent = 'Save key';
 });
 
+$('aiModel').addEventListener('change', async () => {
+  const r = await ai('ai-model', { model: $('aiModel').value });
+  showAi(r, r?.error);
+});
+
 $('saveBudget').addEventListener('click', async () => {
-  const v = Number($('aiBudget').value);
-  if (!isFinite(v) || v < 0) return showAi(null, 'Enter a number, for example 0.25.');
-  try { showAi(await setAiBudget(await getConfig(), v)); } catch (e) { showAi(null, e.message); }
+  const r = await ai('ai-budget', { budget: Number($('aiBudget').value) });
+  showAi(r, r?.error);
 });
 
 $('clearKey').addEventListener('click', async () => {
   if (!confirm('Remove the stored Anthropic key? Replies fall back to the built-in rules.')) return;
-  try { showAi(await clearAiKey(await getConfig())); } catch (e) { showAi(null, e.message); }
+  showAi(await ai('ai-clear-key'));
 });
 
 getConfig().then(fill).then(refreshAi);

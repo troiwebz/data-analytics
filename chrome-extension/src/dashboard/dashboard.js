@@ -102,6 +102,8 @@ async function renderInner() {
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
   $('state').textContent = cfg.enabled ? `Watching the forum · checking every ${cfg.pollMinutes} min` : 'Not watching · turn it on in Settings';
   $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} posts today`;
+  // Apps Script is optional; hide what needs it rather than failing on a click.
+  for (const id of ['approvals', 'sync']) $(id).hidden = !cfg.webhookUrl;
 
   const today = leads.filter((l) => time(l.foundAt) > Date.now() - 86400000);
   const n = (s) => leads.filter((l) => l.status === s).length;
@@ -112,6 +114,8 @@ async function renderInner() {
   if (ai?.configured) {
     const spent = '$' + Number(ai.spentToday || 0).toFixed(3);
     tiles.push([spent, ai.budget > 0 ? `claude · ${'$' + Number(ai.remaining).toFixed(2)} left` : 'claude today']);
+  } else if (cfg.aiSpecifics) {
+    tiles.push(['off', 'claude · add a key']);
   }
   $('stats').innerHTML = tiles
     .map(([v, k]) => `<div class="k"${String(k).startsWith('claude') && ai.overBudget ? ' style="border-color:#fecaca"' : ''}><b>${v}</b><span>${k}</span></div>`)

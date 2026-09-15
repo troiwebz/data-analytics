@@ -1,7 +1,12 @@
 // Client for the Google Apps Script control plane.
 
+// Apps Script is optional. Without a webhook URL the extension runs entirely
+// on this machine: local database, local Claude, posting from the dashboard.
+// Calls simply return an empty result instead of failing every poll.
+export const hasSheet = (cfg) => !!cfg.webhookUrl;
+
 async function call(cfg, action, payload = {}) {
-  if (!cfg.webhookUrl) throw new Error('webhookUrl not configured');
+  if (!cfg.webhookUrl) return { ok: true, offline: true, leads: [], specifics: {} };
   const res = await fetch(cfg.webhookUrl, {
     method: 'POST',
     // Apps Script rejects preflighted requests; text/plain keeps it simple.
@@ -36,15 +41,5 @@ export const reportResult = (cfg, threadId, status, detail) =>
 
 /** Last N rows of the Sheet (needs the Apps Script 'recent' action). */
 export const fetchRecent = (cfg, limit = 300) => call(cfg, 'recent', { limit }).then((d) => d.leads || []);
-
-/** Claude-written bullets for a batch of leads. {} when it is off or fails. */
-export const fetchSpecifics = (cfg, leads) =>
-  call(cfg, 'specifics', { leads }).then((d) => d.specifics || {});
-
-/** Store the Anthropic key in Apps Script, or read back whether one is set. */
-export const saveAiKey = (cfg, key) => call(cfg, 'aikey', { key });
-export const clearAiKey = (cfg) => call(cfg, 'aikey', { clear: true });
-export const aiKeyStatus = (cfg) => call(cfg, 'aikey', {});
-export const setAiBudget = (cfg, budget) => call(cfg, 'aikey', { budget });
 
 export const ping = (cfg) => call(cfg, 'ping');
