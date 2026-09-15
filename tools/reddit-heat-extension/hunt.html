@@ -435,25 +435,15 @@
       </section>
 
       <section class="card">
-        <p class="step"><b>Step 1</b> · public reply — one line, then "Check your DM." <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
-        <div id="genRow" class="row" style="margin:0 0 8px;flex-wrap:wrap" hidden>
-          <button id="genAi" class="primary">Write the DM</button>
-          <button id="genGuide" class="ghost">Write a detailed public reply</button>
-          <span class="foot" id="genNote" style="margin:0"></span>
-        </div>
-        <div class="row" style="margin:0 0 8px;flex-wrap:wrap">
-          <span class="foot" id="costNote" style="margin:0"></span>
-        </div>
-        <div id="guideRow" hidden style="margin:0 0 10px">
-          <div class="row" style="margin:0 0 4px"><b style="color:#7ee29a">Detailed public reply</b><span class="foot" id="guideNote" style="margin:0"></span>
-            <button id="guideRedo" class="ghost" style="margin-left:auto">rewrite</button>
-            <button id="guideDrop" class="ghost">use the one-liner instead</button></div>
-          <textarea id="guideText" style="height:180px"></textarea>
-          <div class="row" style="margin:6px 0 0">
-            <button id="guideOpen" class="primary">Open the post, this reply filled in ↗</button>
-            <button id="guideCopy" class="ghost">Copy only</button>
-          </div>
-        </div>
+        <!-- STEP 1 owns the public reply: its own size toggle, its own write
+             button, its own state line. Nothing about the DM lives here. -->
+        <p class="step" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span><b>Step 1</b> · public reply</span>
+          <span class="sizes" id="pubSizes"><button data-p="short" class="on">Short</button><button data-p="long">Detailed</button></span>
+          <button id="genGuide" class="ghost" style="padding:3px 10px;font-size:11px">Write the detailed one</button>
+          <button id="aiRedo" class="ghost" style="padding:3px 10px;font-size:11px" hidden>rewrite</button>
+          <span id="aiState" style="text-transform:none;letter-spacing:0"></span>
+        </p>
         <div id="pasteTools" class="row" style="margin:0 0 8px" hidden>
           <button id="copyBrief" class="ghost">1 · Copy the brief</button>
           <button id="copyBatch" class="ghost">Copy the next 10 briefs</button>
@@ -470,21 +460,31 @@
           <button id="goPost" class="primary">Open the post, reply filled in ↗</button>
           <button id="copyShort" class="ghost">Copy only</button>
           <span id="repliedMark" class="done" hidden>✓ replied</span>
+          <span class="foot" id="pubNote" style="margin:0 0 0 auto"></span>
         </div>
 
         <div class="sep"></div>
 
-        <p class="step"><b>Step 2</b> · the DM <span id="dmState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span></p>
+        <p class="step" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span><b>Step 2</b> · the DM</span>
+          <button id="dmRedo" class="ghost" style="padding:3px 10px;font-size:11px" hidden>rewrite</button>
+          <span id="dmState" style="text-transform:none;letter-spacing:0"></span>
+        </p>
         <div class="row" style="margin:0 0 8px">
           <span class="sizes" id="sizes"><button data-s="short">Short</button><button data-s="long" class="on">Long</button></span>
           <label class="foot" style="margin:0 0 0 8px">Offer</label><select id="dealCard" title="what the DM asks for — presets and your own offers"></select>
         </div>
         <textarea id="dm"></textarea>
+        <div class="row" id="genRow" hidden>
+          <button id="genAi" class="primary">Write the DM with Claude</button>
+          <span class="foot" id="genNote" style="margin:0"></span>
+        </div>
         <div class="row">
           <button id="goDm" class="good">Open the DM, filled in ↗</button>
           <button id="copyDm" class="ghost">Copy only</button>
           <span id="dmMark" class="done" hidden>✓ sent</span>
         </div>
+        <div class="row" style="margin-top:6px"><span class="foot" id="costNote" style="margin:0"></span></div>
 
         <div class="sep"></div>
 

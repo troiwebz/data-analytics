@@ -133,10 +133,10 @@ function render() {
   // a reply cached by an older version was two lines; those become one short line
   const cachedLine = useAi && p.ai.public_reply && !/\n/.test(p.ai.public_reply) ? p.ai.public_reply : "";
   options = [cachedLine || huntShortOptions(p, profile, 1)[0]];
+  pubShow(p);
   variant = 0;
   $("opts").hidden = true;                       // one reply, no menu
   aiStatus(p);
-  $("short").value = options[0] || "";
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
   $("dm").value = useAi ? (p.ai["dm_" + dmSize] || p.ai.dm_long || p.ai.dm_short) : huntDM(p, profile, dmSize);
   $("dmState").textContent = useAi ? `written for this post by ${p.ai.model === "on-device" ? "Chrome" : "Claude"}` : "template";
@@ -145,15 +145,11 @@ function render() {
   $("dmMark").hidden = !p.dmAt;
   const eng2 = engine();
   const paid = eng2 === "slots" || eng2 === "claude";
-  $("genRow").hidden = !paid;
-  $("genAi").hidden = !!p.ai;
-  $("genAi").textContent = "Write the DM";
-  $("genGuide").hidden = !!p.guide;
-  $("genGuide").textContent = "Write a detailed public reply";
-  $("genNote").textContent = paid
-    ? (profile.apiKey ? (p.ai ? "" : "the DM costs about $0.005 · a detailed public reply about $0.004 · the template below is free") : "paste your API key under AI writing first")
+  $("genRow").hidden = !(paid && !p.ai);
+  $("genAi").textContent = "Write the DM with Claude";
+  $("genNote").textContent = paid && !p.ai
+    ? (profile.apiKey ? "about $0.005 · the template above is free" : "paste your API key under AI writing first")
     : "";
-  guideShow(p);
   costShow(p);
   if (profile.autoWrite && paid) aiWrite(false);            // only if you asked for that
   else if (eng2 === "chrome" && profile.autoWrite) aiWrite(false);
@@ -197,7 +193,7 @@ async function chromeWrite(p, onProgress) {
 function aiStatus(p) {
   const el = $("aiState");
   const eng = engine();
-  $("aiRedo").hidden = !(eng !== "templates" && p.ai);
+  $("dmRedo").hidden = !(eng !== "templates" && p.ai);
   $("pasteTools").hidden = eng !== "paste";
   if (eng === "templates") { el.textContent = profile.aiEngine === "templates" ? "templates" : "templates — pick an engine under AI writing to have replies written to the post"; el.style.color = "#98a0b3"; return; }
   if (eng === "paste" && !p.ai) { el.textContent = "template shown — copy the brief, paste it into Claude in Chrome, paste the answer back"; el.style.color = "#98a0b3"; return; }
@@ -287,7 +283,7 @@ async function aiWriteAhead() {
   } catch (e) { aiErr[nxt.id] = String(e && e.message || e); }
   finally { aheadBusy = ""; }
 }
-$("aiRedo").onclick = () => aiWrite(true);
+$("dmRedo").onclick = () => aiWrite(true);
 $("genAi").onclick = () => { $("genRow").hidden = true; aiWrite(true); };
 
 // ---- Claude in Chrome: copy the brief, paste the answer back ---------------
@@ -546,41 +542,52 @@ function costShow(p) {
     : (daySpend.cents ? `Nothing spent on this post yet · today ${usd(daySpend.cents)} of ${usd(daySpend.budget)}` : "");
   $("costNote").style.color = daySpend.cents >= daySpend.budget ? "#ff8a65" : "#98a0b3";
 }
-// The detailed public comment: shown only when one exists for this post.
-function guideShow(p) {
+// Two sizes of public reply in one box: the free one-liner, and the detailed
+// answer Claude writes. The buttons under the box send whichever is shown.
+let pubSize = "short";
+try { pubSize = localStorage.getItem("huntPubSize") || "short"; } catch (_) { /* fine */ }
+function pubShow(p) {
+  for (const b of $("pubSizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.p === pubSize);
   const g = p && p.guide;
-  $("guideRow").hidden = !g;
-  if (!g) return;
-  $("guideText").value = g.text;
-  const bad = Array.isArray(g.checks) && g.checks.length;
-  $("guideNote").textContent = bad ? " CHECK: " + g.checks.join("; ") : ` written by Claude · ${usd(g.cents || 0)} · checked`;
-  $("guideNote").style.color = bad ? "#ff8a65" : "#98a0b3";
+  $("genGuide").hidden = !(pubSize === "long" && !g);
+  $("aiRedo").hidden = !(pubSize === "long" && g);
+  if (pubSize === "long") {
+    $("short").value = g ? g.text : "";
+    $("short").placeholder = "Nothing written yet. Press \u201cWrite the detailed one\u201d and Claude answers this thread properly: three to five numbered points, a question for them, then your line and the DM.";
+    $("short").style.height = "260px";
+    const bad = g && Array.isArray(g.checks) && g.checks.length;
+    $("pubNote").textContent = g ? (bad ? "CHECK: " + g.checks.join("; ") : `written by Claude · ${usd(g.cents || 0)} · checked`) : "about $0.004";
+    $("pubNote").style.color = bad ? "#ff8a65" : "#98a0b3";
+  } else {
+    $("short").value = options[0] || "";
+    $("short").placeholder = "";
+    $("short").style.height = "84px";
+    $("pubNote").textContent = "free, written here, never repeated";
+    $("pubNote").style.color = "#98a0b3";
+  }
 }
-$("genGuide").onclick = () => guideWrite(false);
-$("guideRedo").onclick = () => guideWrite(true);
-$("guideDrop").onclick = () => { if (cur) { delete cur.guide; render(); } };
-$("guideCopy").onclick = () => copyText($("guideText").value, $("guideCopy"));
-$("guideOpen").onclick = async () => {
-  if (!cur) return;
-  const text = $("guideText").value;
-  await copyText(text);
-  await chrome.storage.local.set({ pendingReply: { id: cur.id, permalink: cur.permalink, text, variant: 0, at: Date.now() } });
-  window.open("https://www.reddit.com" + cur.permalink.replace(/^https?:\/\/[^/]+/, ""), "_blank");
+for (const b of $("pubSizes").querySelectorAll("button")) b.onclick = () => {
+  pubSize = b.dataset.p;
+  try { localStorage.setItem("huntPubSize", pubSize); } catch (_) { /* fine */ }
+  if (cur) pubShow(cur);
 };
+$("genGuide").onclick = () => guideWrite(false);
+$("aiRedo").onclick = () => guideWrite(true);
 async function guideWrite(force) {
   if (!cur) return;
   const id = cur.id;
-  $("genGuide").disabled = true; $("genGuide").textContent = "writing…";
-  $("guideRedo").disabled = true;
+  const busy = force ? $("aiRedo") : $("genGuide");
+  const was = busy.textContent;
+  busy.disabled = true; busy.textContent = "writing…";
   const r = await send({ type: "hunt-guide", id, force: !!force });
-  $("genGuide").disabled = false; $("guideRedo").disabled = false;
-  $("genGuide").textContent = "Write a detailed public reply";
+  busy.disabled = false; busy.textContent = was;
   if (!r || !r.ok) {
-    $("genNote").textContent = "the public reply failed: " + ((r && r.error) || "no answer");
-    $("genNote").style.color = "#ff8a65";
+    $("pubNote").textContent = "it failed: " + ((r && r.error) || "no answer");
+    $("pubNote").style.color = "#ff8a65";
     return;
   }
   for (const q of queue) if (q.id === id) q.guide = r.guide;
+  pubSize = "long";
   if (cur && cur.id === id) { cur.guide = r.guide; render(); }
   refresh(false);
 }
