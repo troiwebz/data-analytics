@@ -55,6 +55,9 @@
   th,td{border-bottom:1px solid var(--line);padding:5px 14px 5px 0;text-align:left}
   td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   .note{color:var(--muted);font-size:12px;margin:0 0 18px}
+  .tips{margin:0 0 10px;padding:0 0 0 20px}
+  .tips li{margin:0 0 9px;line-height:1.55}
+  .tips b{color:var(--ink)}
 </style>
 <header>
   <h1>When threads appear</h1>
@@ -77,6 +80,12 @@
     <p class="sub" id="hourSub">The tall bars are when it is worth being at the keyboard.</p>
     <div id="hourly"></div>
   </div>
+  <div class="card" id="tipsCard" hidden>
+    <h2>What this says</h2>
+    <p class="sub">Read off the numbers above. Each line only appears once there is enough data behind it.</p>
+    <ul id="tips" class="tips"></ul>
+  </div>
+
   <div class="card">
     <h2>Threads by day of the week</h2>
     <p class="sub">Averaged over the weeks in the database, so a short run does not read as a quiet Sunday.</p>

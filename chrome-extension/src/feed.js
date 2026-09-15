@@ -51,6 +51,10 @@ export function parseRss(xml) {
       title: tag(block, 'title'),
       author: tag(block, 'dc:creator') || tag(block, 'author') || '',
       snippet: tag(block, 'description').slice(0, 1200),
+      // A XenForo forum feed puts the LAST POST date in <pubDate>, so this is
+      // when the thread was last active, not when it started. The listing page
+      // overwrites it with the real start time; until it does, it is only good
+      // enough to decide "is this new to us", never to count as a launch.
       postedAt: pub ? new Date(pub).toISOString() : new Date().toISOString(),
       lastActivityAt: pub ? new Date(pub).toISOString() : null,
       postedAtSource: 'feed'

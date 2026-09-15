@@ -128,9 +128,12 @@ async function renderInner() {
   // Launched today means the thread was started today, which is not the same
   // as us noticing it today: a backfill finds old threads, and a thread found
   // at 00:05 was launched yesterday.
+  // Only a start time read off the listing counts: the feed's date is the
+  // thread's last reply, so a bumped old thread is not a launch.
   const startedToday = (() => {
     const key = todayKey(cfg);
-    return leads.filter((l) => { const d = new Date(l.postedAt);
+    return leads.filter((l) => { if (l.postedAtSource !== 'listing') return false;
+      const d = new Date(l.postedAt);
       return !isNaN(d) && partsIn(d, cfg).key === key; }).length;
   })();
   const n = (s) => leads.filter((l) => l.status === s).length;

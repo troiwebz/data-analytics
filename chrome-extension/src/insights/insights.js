@@ -19,7 +19,20 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const when = (l) => { const t = new Date(l.postedAt); return isNaN(t) ? null : t; };
+/**
+ * Only a start time read off the forum listing counts.
+ *
+ * The RSS feed's date is the thread's LAST POST, so a year-old thread bumped
+ * this evening arrives looking like it started this evening. Counting those as
+ * launches is what turned a quiet forum into 27 threads a day with a spike at
+ * whatever hour the bumps happened. A thread whose date could not be read at
+ * all is excluded too, rather than being guessed at.
+ */
+const startedAt = (l) => {
+  if (l.postedAtSource !== 'listing') return null;
+  const t = new Date(l.postedAt);
+  return isNaN(t) ? null : t;
+};
 
 // ----------------------------------------------------------------- the chart
 
@@ -105,14 +118,16 @@ function barChart(host, bars, { height = 190, everyNthLabel = 1, unit = 'threads
 function build(leads, cfg) {
   // Grouped in the configured zone, not the machine's: a thread posted at
   // 1am IST belongs to that IST day wherever the laptop happens to be.
-  const dated = leads.map(when).filter(Boolean).sort((a, b) => a - b);
+  const dated = leads.map(startedAt).filter(Boolean).sort((a, b) => a - b);
+  const unknown = leads.length - dated.length;
   const dayKey = (d) => partsIn(d, cfg).key;
   const today = todayKey(cfg);
 
   const stats = $('stats');
   if (!dated.length) {
     stats.innerHTML = '';
-    $('note').textContent = 'No threads with a known start time yet. Press "Load older threads…" to fill this in.';
+    $('note').innerHTML = 'No threads with a confirmed start time yet. The forum feed only says when a thread was '
+      + 'last replied to, which is not the same thing. Press <b>Fill the last 7 days</b> to read the real dates off the forum.';
     for (const id of ['daily', 'hourly', 'weekly']) $(id).innerHTML = '<div class="empty">Nothing recorded yet.</div>';
     return;
   }
@@ -136,13 +151,17 @@ function build(leads, cfg) {
   const avg = complete.length ? complete.reduce((a, d) => a + d.value, 0) / complete.length : 0;
   const busiest = complete.reduce((a, d) => (d.value > (a?.value ?? -1) ? d : a), null);
 
-  $('range').textContent = `${days.length} day(s) recorded · ${dated.length} threads`;
+  $('range').textContent = `${days.length} day(s) · ${dated.length} threads with a confirmed start time`
+    + (unknown ? ` · ${unknown} excluded` : '');
   const zone = cfg.timezone || 'this computer';
+  const caveat = unknown
+    ? ` <b>${unknown}</b> lead(s) are left out because the forum did not give a start time for them, or the only date we have is when they were last replied to.`
+    : '';
   $('hourSub').innerHTML = `Times in <b>${esc(zone)}</b>. The tall bars are when it is worth being at the keyboard.`;
   $('note').innerHTML = enough
-    ? `Counted from when each thread was started, shown in <b>${esc(zone)}</b>. Today is striped and left out of the averages.`
+    ? `Counted from when each thread was started, shown in <b>${esc(zone)}</b>. Today is striped and left out of the averages.${caveat}`
     : `<b>Not enough history yet.</b> ${complete.length} complete day(s) recorded, which is too few to average or to read a weekday pattern from. ` +
-      `Press <b>Fill the last 7 days</b> above and the charts fill themselves in.`;
+      `Press <b>Fill the last 7 days</b> above and the charts fill themselves in.${caveat}`;
 
   stats.innerHTML = [
     [counts.get(today) || 0, 'launched today'],
@@ -189,10 +208,78 @@ function build(leads, cfg) {
     };
   }), { unit: 'threads (average)' });
 
+  const lines = tips(leads, dated, byHour, complete, seen, sum, cfg);
+  $('tipsCard').hidden = lines.length === 0;
+  $('tips').innerHTML = lines.map((t) => `<li>${t}</li>`).join('');
+
   if (byHour[hourPeak] > 0 && complete.length) {
     $('hourly').insertAdjacentHTML('afterbegin',
       `<p class="sub" style="margin:-8px 0 10px">Busiest hour so far: <b>${esc(hourLabel(hourPeak, cfg))}</b>.</p>`);
   }
+}
+
+/**
+ * Plain conclusions, each one only drawn when the data behind it is there.
+ * Nothing here is a rule of thumb: every line is computed from the threads in
+ * the database, and the line is left out rather than guessed at.
+ */
+function tips(leads, dated, byHour, complete, seen, sum, cfg) {
+  const out = [];
+  const fmt = (h) => hourLabel(h, cfg);
+
+  // The best three hours in a row: a window worth sitting at the keyboard for.
+  if (dated.length >= 25) {
+    let best = 0, bestAt = 0;
+    for (let h = 0; h < 24; h++) {
+      const run = byHour[h] + byHour[(h + 1) % 24] + byHour[(h + 2) % 24];
+      if (run > best) { best = run; bestAt = h; }
+    }
+    const share = Math.round((best / dated.length) * 100);
+    if (share >= 15) {
+      out.push(`<b>${fmt(bestAt)} to ${fmt((bestAt + 3) % 24)}</b> is the busiest window: ${share}% of all threads start in those three hours.`);
+    }
+    const quiet = byHour.map((v, h) => ({ v, h })).filter((x) => x.v > 0).sort((a, b) => a.v - b.v)[0];
+    if (quiet) out.push(`<b>${fmt(quiet.h)}</b> is the quietest hour with anything in it, so a reply posted then has the least competition on the page.`);
+  }
+
+  // Which day is worth clearing the diary for.
+  if (complete.length >= 7) {
+    const avgs = DAYS.map((name, i) => ({ name, v: seen[i] ? sum[i] / seen[i] : null })).filter((x) => x.v != null);
+    if (avgs.length >= 5) {
+      const top = avgs.slice().sort((a, b) => b.v - a.v)[0];
+      const low = avgs.slice().sort((a, b) => a.v - b.v)[0];
+      if (top.v >= low.v * 1.5) {
+        out.push(`<b>${top.name}</b> is the busiest day (${top.v.toFixed(1)} threads) and <b>${low.name}</b> the quietest (${low.v.toFixed(1)}).`);
+      }
+    }
+  }
+
+  // How crowded a thread already is when we reach it: the answer to "how fast
+  // do I have to be", and to "is it worth replying to this one at all".
+  const withReplies = leads.filter((l) => Number.isFinite(Number(l.replyCount)) && startedAt(l));
+  if (withReplies.length >= 10) {
+    const fresh = withReplies.filter((l) => (Date.now() - startedAt(l).getTime()) < 2 * 3600000);
+    const med = (xs) => { const a = xs.slice().sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+    if (fresh.length >= 5) {
+      out.push(`A thread under two hours old has <b>${med(fresh.map((l) => Number(l.replyCount)))} replies</b> on average, so getting in early is worth a few minutes.`);
+    }
+    const old = withReplies.filter((l) => (Date.now() - startedAt(l).getTime()) > 24 * 3600000);
+    if (old.length >= 5) {
+      const m = med(old.map((l) => Number(l.replyCount)));
+      out.push(`After a day they carry <b>${m} replies</b>. Past roughly ${Math.max(8, m)} the buyer has usually chosen, so those are worth a PM rather than a public reply.`);
+    }
+  }
+
+  // What the watcher is actually catching.
+  const today = todayKey(cfg);
+  const todayCount = dated.filter((d) => partsIn(d, cfg).key === today).length;
+  if (complete.length >= 3) {
+    const avg = complete.reduce((a, d) => a + d.value, 0) / complete.length;
+    if (todayCount > avg * 1.3) out.push(`Today is <b>busier than usual</b>: ${todayCount} so far against ${avg.toFixed(1)} on an average day.`);
+    else if (todayCount < avg * 0.6) out.push(`Today is <b>quieter than usual</b>: ${todayCount} so far against ${avg.toFixed(1)} on an average day.`);
+  }
+
+  return out;
 }
 
 // ------------------------------------------------------------------- the page

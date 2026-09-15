@@ -457,7 +457,10 @@ export async function deepBackfill({ pages = 5, sinceDays = 0, fromDate = '', to
   const leads = rows.map((r) => {
     const item = {
       threadId: r.threadId, url: r.url, title: r.title, author: r.author,
-      snippet: '', postedAt: r.startedAt || new Date().toISOString(),
+      // Never invent a start time. Stamping "now" on a thread whose date could
+      // not be read put it on today at the current minute, which is how a
+      // quiet forum came to look like 27 threads a day with a spike at 11pm.
+      snippet: '', postedAt: r.startedAt || null,
       lastActivityAt: r.lastActivityAt, postedAtSource: r.startedAt ? 'listing' : 'unknown',
       replyCount: r.replyCount
     };

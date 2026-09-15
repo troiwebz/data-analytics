@@ -18,16 +18,24 @@ const at = (daysBack, istHour) => {
   const [y, m, d] = partsIn(new Date(Date.now() - daysBack * 86400000), IST).key.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d, istHour - 5, -30)).toISOString();
 };
+// Only a start time read off the listing counts. The feed's date is a thread's
+// LAST REPLY, so a year-old thread bumped this minute must not be counted as
+// launched today - that is what made a quiet forum look like 27 a day.
+const listed = (iso) => ({ postedAt: iso, postedAtSource: 'listing' });
 const leads = [
   // today: 3 threads
-  { threadId: '1', postedAt: at(0, 9), title: 'a' }, { threadId: '2', postedAt: at(0, 14), title: 'b' },
-  { threadId: '3', postedAt: at(0, 14), title: 'c' },
+  { threadId: '1', ...listed(at(0, 9)), title: 'a' }, { threadId: '2', ...listed(at(0, 14)), title: 'b' },
+  { threadId: '3', ...listed(at(0, 14)), title: 'c' },
   // yesterday: 2
-  { threadId: '4', postedAt: at(1, 14), title: 'd' }, { threadId: '5', postedAt: at(1, 22), title: 'e' },
+  { threadId: '4', ...listed(at(1, 14)), title: 'd' }, { threadId: '5', ...listed(at(1, 20)), title: 'e' },
   // three days back: 1, leaving a gap the day between
-  { threadId: '6', postedAt: at(3, 9), title: 'f' },
-  // and one with no usable date at all
-  { threadId: '7', postedAt: 'not a date', title: 'g' }
+  { threadId: '6', ...listed(at(3, 9)), title: 'f' },
+  // a listed thread whose date cannot be read
+  { threadId: '7', postedAt: 'not a date', postedAtSource: 'listing', title: 'g' },
+  // an old thread bumped a minute ago: the feed says "now", the truth is old
+  { threadId: '8', postedAt: new Date().toISOString(), postedAtSource: 'feed', title: 'bumped' },
+  // and one the backfill could not date at all
+  { threadId: '9', postedAt: null, postedAtSource: 'unknown', title: 'undated' }
 ];
 
 global.chrome = {
@@ -37,6 +45,8 @@ global.chrome = {
                       set: async () => {} },
              onChanged: { addListener: () => {} } }
 };
+// A page error must fail the run, not vanish into a silent empty render.
+dom.window.addEventListener('error', (e) => { console.log('PAGE ERROR:', e.error?.stack || e.message); process.exitCode = 1; });
 await import(pathToFileURL(DIR + 'insights.js').href);
 await new Promise((r) => setTimeout(r, 150));
 
@@ -48,6 +58,8 @@ const tile = (label) => [...dom.window.document.querySelectorAll('.k')]
 
 ok('threads launched today are counted', tile('launched today') === '3', tile('launched today'));
 ok('a thread with an unreadable date is ignored', tile('threads recorded') === '6', tile('threads recorded'));
+ok('a bumped old thread is NOT counted as launched today', tile('launched today') === '3', tile('launched today'));
+ok('and the exclusions are reported', /3 excluded/.test($('range').textContent), $('range').textContent);
 
 // Four calendar days span today..3 days back, including the empty one.
 const dailyRows = [...$('daily').querySelectorAll('table tbody tr')];
