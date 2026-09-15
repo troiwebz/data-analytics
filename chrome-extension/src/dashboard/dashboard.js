@@ -372,8 +372,14 @@ async function rowAction(btn) {
     say(id, 'Opening the thread and typing the reply in…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'fill-thread', lead: { ...lead, draft } });
     btn.disabled = false;
-    return say(id, r?.ok ? 'Filled in — check the tab and press Post reply. 🚀 also fires instantly now.'
-                         : `Could not fill it: ${r?.error || 'unknown'}`, !!r?.ok);
+    if (!r?.ok) return say(id, `Could not fill it: ${r?.error || 'unknown'}`, false);
+    // Opening it filled means you are posting it, so the row is marked now
+    // rather than waiting for a second click that is easy to forget. Undo is
+    // on the row if you change your mind in the tab.
+    await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id, status: 'POSTED', detail: 'opened filled from the dashboard' });
+    delete edited[id];
+    say(id, 'Filled in and marked as posted. Press Post reply in the tab. Undo here if you change your mind.', true);
+    return render();
   }
   if (act === 'copydm') {
     await navigator.clipboard.writeText(plain(dm));
@@ -386,10 +392,19 @@ async function rowAction(btn) {
     await navigator.clipboard.writeText(plain(dm)).catch(() => {});
     say(id, 'Opening the DM page and filling it in…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'send-dm', lead: { ...lead, dm }, mode: 'fill' });
-    return say(id, r?.ok ? 'Filled in — check the tab and press Send direct message.'
-                         : `Opened, but could not fill it: ${r?.error || 'unknown'} — the text is on your clipboard.`, !!r?.ok);
+    if (!r?.ok) {
+      return say(id, `Opened, but could not fill it: ${r?.error || 'unknown'} — the text is on your clipboard.`, false);
+    }
+    await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id });
+    say(id, 'Filled in and marked as sent. Press Send direct message in the tab. Undo here if you change your mind.', true);
+    return render();
   }
-  if (act === 'pmsent') { await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id }); delete editedDm[id]; return render(); }
+  if (act === 'pmsent') {
+    await chrome.runtime.sendMessage({ cmd: 'mark-pm', threadId: id });
+    delete editedDm[id];
+    say(id, 'Marked as sent.', true);
+    return render();
+  }
   if (act === 'undo')   { await chrome.runtime.sendMessage({ cmd: 'unmark', threadId: id }); return render(); }
   if (act === 'undopm') { await chrome.runtime.sendMessage({ cmd: 'unmark-pm', threadId: id }); return render(); }
   if (act === 'senddm') {
@@ -416,6 +431,7 @@ async function rowAction(btn) {
       status: act === 'done' ? 'POSTED' : 'SKIPPED',
       detail: act === 'done' ? 'posted manually (dashboard)' : '' });
     delete edited[id];
+    say(id, act === 'done' ? 'Marked as posted.' : 'Skipped.', true);
     return render();
   }
 }

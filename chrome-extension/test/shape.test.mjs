@@ -44,9 +44,14 @@ ok('heading is bold only in the editor, not in the copy', !plain(d).includes('**
 ok('PM numbers the claims', /^1\. We /m.test(d) && /^2\. We /m.test(d) && /^3\. We /m.test(d));
 ok('every claim is about us', d.split('\n').filter((l) => /^\d\. /.test(l)).every((l) => /^\d\. We /.test(l)));
 ok('PM carries one of the five closes', /first order|already built|whole method|invoice|fixed price/i.test(d));
-ok('PM says it can start', /get started immediately|start on this right away|start whenever you are/i.test(d));
+// Every close must sit happily in front of the reply line, not repeat it.
+ok('no close asks for a reply itself, which would say it twice',
+   !Object.values(cfg.offers).some((t) => /(send|drop) a reply|just reply here/i.test(t)));
+ok('PM asks for a reply rather than announcing availability',
+   /(send|drop) a reply|reply here/i.test(d) && /get (started|going)|make a start/i.test(d), d.split('\n\n').slice(-2)[0]);
+ok('the old "say the word" close is gone', !/say the word|ready to start today/i.test(d));
 ok('PM signs off', d.trim().endsWith('Thanks!!'));
-ok('the start line appears once', (d.match(/Ready to start|get started|start on this/gi) || []).length === 1, d);
+ok('the reply line appears once', (d.match(/get started|get going|make a start/gi) || []).length === 1, d);
 ok('PM greets the author', d.startsWith('Hi buyer1001') || d.startsWith('Hey buyer1001'), d.slice(0, 20));
 // The requested shape has no budget line, so the PM no longer carries one.
 ok('the PM does not mention the budget', !d.includes('$400'), d);

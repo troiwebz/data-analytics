@@ -338,7 +338,7 @@ export const DEFAULT_CONFIG = {
 
     terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`,
 
-    scope: `{Tell me the market and the volume you want and I will come back today with a fixed price and a date|Send me the geo and the monthly volume and you will have a fixed price and a date today}. {No call needed|Nothing to book, just reply here}.`
+    scope: `{Tell me the market and the volume you want and I will come back today with a fixed price and a date|Send me the geo and the monthly volume and you will have a fixed price and a date today}. {No call needed|Nothing to book}.`
   },
 
   // ---- Private message ---------------------------------------------------
@@ -349,7 +349,7 @@ export const DEFAULT_CONFIG = {
   //   Why We Can Do It:            <- bold in the BHW editor
   //   1. 2. 3.                     <- what we have done, from Claude
   //   <one of the five closes>
-  //   We can get started immediately.
+  //   Just send a reply and we can get started.
   //   Thanks!!
   //
   // Only the numbered lines and the close change between threads. **bold**
@@ -366,7 +366,7 @@ export const DEFAULT_CONFIG = {
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -380,7 +380,7 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -394,7 +394,7 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -408,7 +408,7 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -422,7 +422,7 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -436,7 +436,7 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`,
 
@@ -450,13 +450,13 @@ Thanks!!`,
 
 {{offer}}
 
-{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
 
 Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 20;
+export const CONFIG_VERSION = 21;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -496,6 +496,11 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 21) {
+    // The sign-off asked for a reply instead of announcing availability.
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.offers = DEFAULT_CONFIG.offers;
   }
   if (v < 20) {
     // Checking every 3 minutes is the point of the thing; a config still on

@@ -29,6 +29,10 @@ global.chrome = {
       // The dashboard asks the worker for Claude status on every render; the
       // worker answers out of the same storage. This is where the loop lived.
       if (msg?.cmd === 'ai-status') { const C = await import('../src/claude.js'); return C.aiStatus(); }
+      if (msg?.cmd === 'fill-thread' || msg?.cmd === 'send-dm') {
+        global.__sent.push(msg);
+        return fillFails ? { ok: false, error: 'no reply box on that page' } : { ok: true, tabId: 7 };
+      }
       global.__sent.push(msg);
       const lead = leads.find((x) => String(x.threadId) === String(msg?.threadId));
       if (lead) {
@@ -66,6 +70,7 @@ global.chrome = {
 
 global.__writes = 0;
 global.__sent = [];
+let fillFails = false;
 let consoleErr = null;
 window.addEventListener('error', (e) => { consoleErr = e.error || e.message; });
 
@@ -131,6 +136,7 @@ const struck = (id) => {
   return { line: cs.textDecoration, colour: cs.textDecorationColor };
 };
 ok('posted rows are still marked', $('rows').querySelector('tr[data-row="9002"]').className.includes('posted'));
+const flashOf = (id) => $('rows').querySelector(`#msg-${id}`)?.textContent.trim() || '';
 const tagOf = (id) => $('rows').querySelector(`tr[data-row="${id}"] .done`)?.textContent.trim() || '';
 ok('a posted reply says so next to the title', tagOf('9002') === '✓ reply posted', tagOf('9002'));
 ok('a posted reply is struck through in green',
@@ -173,7 +179,51 @@ ok('Copy marks the thread posted',
 ok('and says so', /marked as posted/i.test($('rows').querySelector('#msg-9001')?.textContent || ''),
    $('rows').querySelector('#msg-9001')?.textContent);
 
+// Open filled is an intent to post, so it marks the row without a second click.
+leads[0].status = 'SENT'; leads[0].pmSent = false;
+await render();
+global.__sent = [];
+await openLead('9001');
+click($('rows').querySelector('button[data-act="fill"]')); await wait(); await wait();
+ok('Open filled marks the thread posted',
+   global.__sent.some((m) => m.cmd === 'mark' && m.threadId === '9001' && m.status === 'POSTED'),
+   JSON.stringify(global.__sent.map((m) => m.cmd)));
+ok('and says both what it did and that it can be undone',
+   /marked as posted/i.test(flashOf('9001')) && /undo/i.test(flashOf('9001')), flashOf('9001'));
+
+// A fill that fails must NOT mark anything.
+leads[0].status = 'SENT'; await render();
+fillFails = true; global.__sent = [];
+await openLead('9001');
+click($('rows').querySelector('button[data-act="fill"]')); await wait(); await wait();
+ok('a fill that fails marks nothing', !global.__sent.some((m) => m.cmd === 'mark'),
+   JSON.stringify(global.__sent.map((m) => m.cmd)));
+ok('and says why', /could not fill/i.test(flashOf('9001')), flashOf('9001'));
+fillFails = false;
+
+// Open filled on the PM marks the PM, not the thread.
+leads[0].status = 'SENT'; leads[0].pmSent = false; await render();
+global.__sent = [];
+await openLead('9001');
+click($('rows').querySelector('button[data-act="opendm"]')); await wait(); await wait();
+ok('Open filled on the PM marks it sent', global.__sent.some((m) => m.cmd === 'mark-pm'));
+ok('and does not mark the thread posted', !global.__sent.some((m) => m.cmd === 'mark'));
+
+// "I posted it" and "I sent it" confirm rather than silently re-rendering.
+leads[0].status = 'SENT'; leads[0].pmSent = false; await render();
+await openLead('9001');
+click($('rows').querySelector('button[data-act="done"]')); await wait(); await wait();
+ok('"I posted it" confirms', /marked as posted/i.test(flashOf('9001')), flashOf('9001'));
+
+leads[0].status = 'SENT'; leads[0].pmSent = false; await render();
+await openLead('9001');
+click($('rows').querySelector('button[data-act="pmsent"]')); await wait(); await wait();
+ok('"I sent it" confirms', /marked as sent/i.test(flashOf('9001')), flashOf('9001'));
+
 // A stray copy must be reversible.
+leads[0].status = 'SENT'; leads[0].pmSent = false; await render();
+await openLead('9001');
+click($('rows').querySelector('button[data-act="copy"]')); await wait();
 await openLead('9001');
 const undo = $('rows').querySelector('button[data-act="undo"]');
 ok('a posted row offers Undo', !!undo);
