@@ -959,6 +959,15 @@ HEAT.PROJECT_SUBS = [
   "juststart", "Emailmarketing", "socialmedia", "content_marketing", "advertising",
   "webdev", "web_design", "Wordpress", "webflow", "nocode", "automate", "zapier",
   "agency", "msp", "BusinessIntelligence", "analytics", "CRM", "smallbusinessUK",
+  // more of where the buyer already posts about their own trade
+  "AskMarketing", "SEO_Digital_Marketing", "GoogleMyBusiness", "localseo", "PPCHelp",
+  "FacebookAdvertising", "instagrammarketing", "TikTokMarketing",
+  "smallbusinessowner", "BusinessOwners", "SmallBusinessCanada", "AusSmallBusiness",
+  "Barber", "tattoos", "photography", "weddingphotography", "eventplanning",
+  "Chiropractic", "physicaltherapy", "optometry", "veterinary", "AutoDetailing",
+  "AskARealEstateAgent", "Insurance", "Accounting", "bookkeeping", "Lawyertalk",
+  "roofing", "Flooring", "electricians", "Welding", "pestcontrol", "MoveOut",
+  "CleaningTips", "housecleaning", "PoolService", "Trucking", "logistics",
 ];
 // Site-wide search finds the buyer wherever they posted, which no list of
 // subreddits can. These are the sentences somebody writes when they have
@@ -978,6 +987,21 @@ HEAT.PROJECT_QUERIES = [
   '"need a virtual assistant" OR "hiring a va" OR "looking for a va"',
   '"want to outsource" OR "thinking of outsourcing" OR "outsourcing our"',
   '"google business profile" OR "google my business" (help OR hire OR agency OR fix)',
+  // The problem, not the request: ten times as many, and the answer to one is
+  // a useful public reply. "Our agency isn't working out" is the best lead on
+  // Reddit - already paying, already unhappy, already knows it has a price.
+  '"my agency" ("isn\'t working" OR "is not working" OR "no results" OR fired)',
+  '"fired our agency" OR "left our agency" OR "switching agencies" OR "bad experience with an agency"',
+  '"rankings dropped" OR "rankings tanked" OR "lost our rankings" OR "traffic dropped"',
+  '"not showing up on google" OR "nobody can find" OR "can\'t be found on google"',
+  '"not getting any calls" OR "phone stopped ringing" OR "no leads" (business OR clients OR customers)',
+  '"ads stopped working" OR "ads are not converting" OR "wasted money on ads"',
+  '"how do i get more customers" OR "how to get more clients" OR "struggling to get customers"',
+  '"cost per lead" OR "cac is too high" OR "our cpa" (too high OR increasing OR killing)',
+  '"google update" (hit OR killed OR tanked OR dropped) (traffic OR rankings OR business)',
+  '"is seo worth it" OR "should i invest in seo" OR "should i hire a marketing"',
+  '"no one finds my" OR "nobody finds my" (store OR shop OR website OR business)',
+  '"need more customers" OR "need more leads" (my business OR our business OR small business)',
 ];
 // The thing that makes a post worth a message: they are hiring, or looking
 // for who to hire, for something specific.
@@ -1005,6 +1029,53 @@ HEAT.classifyFor = function (key, title, body) {
   return key === "project" ? HEAT.classifyProject(title, body) : HEAT.classifyCofounder(title, body);
 };
 HEAT.subsFor = function (key) { return key === "project" ? HEAT.PROJECT_SUBS : HEAT.HUNT_SUBS; };
+
+// A business with the problem we solve, who has not decided to pay anybody
+// yet. Ten times as many of these as there are people actively hiring, and
+// the right answer to one is a useful public reply, not a DM.
+const PROBLEM_RE = /\b(?:rank(?:ing)?s? (?:dropped|fell|tanked|disappeared)|lost (?:our |my )?(?:ranking|traffic|visibility)|not? (?:showing|appearing) (?:up )?(?:on|in) (?:google|maps|search)|nobody (?:can )?find|no ?one (?:can )?finds?|can'?t be found|not getting (?:any )?(?:calls|leads|customers|enquiries|inquiries|bookings|orders)|no (?:calls|leads|customers|sales|traffic|bookings)|phone (?:has )?stopped ringing|traffic (?:dropped|died|tanked)|ads? (?:are )?not (?:working|converting)|ads? stopped (?:working|converting)|wasted (?:money|\$?\d+) on ads|burning (?:money|cash) on ads|cac (?:is )?(?:too )?high|cost per (?:lead|acquisition) (?:is )?(?:too )?high|conversion rate (?:is )?(?:so )?low|how do i get (?:more )?(?:customers|clients|leads|traffic|sales)|how to get (?:more )?(?:customers|clients|leads|traffic)|struggling to get (?:customers|clients|leads|traffic|sales)|agency (?:is ?n'?t|is not|was not|wasn'?t) working|fired (?:our|my) agency|left (?:our|my) agency|bad experience with (?:an|our) agency|google (?:update|algorithm) (?:hit|killed|tanked)|reviews? (?:dropped|disappeared|gone)|is seo worth it|should i (?:do|invest in|pay for) (?:seo|ads|marketing))\b/i;
+// Somebody with a business behind the problem, not a hobbyist or a student.
+const BUSINESS_RE = /\b(?:my (?:business|company|shop|store|clinic|practice|restaurant|salon|gym|agency|firm)|our (?:business|company|shop|store|clinic|practice|restaurant|customers|clients|revenue|sales|team)|we (?:sell|serve|run|own|operate|charge|invoice)|small business|local business|storefront|brick and mortar|franchise|\bclients?\b|\bcustomers\b|\brevenue\b|\bmrr\b|\barr\b|paying (?:customers|clients)|we spend\b|our (?:ad )?spend\b|(?:shopify|woocommerce|etsy|amazon|wix|squarespace) (?:store|shop|site|seller)|\bsaas\b)\b/i;
+
+HEAT.classifyProblem = function (title, body) {
+  const t = (title || "").toLowerCase();
+  const all = (t + "\n" + String(body || "").slice(0, 1500)).toLowerCase();
+  if (HUNT_SELLER.test(t) || HUNT_SELLER.test(all.slice(0, 400))) return { keep: false, why: "an agency selling" };
+  if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "looking for a job" };
+  if (/\b(?:for hire|available for|my portfolio|dm me for|we offer|our agency|i offer)\b/i.test(t)) return { keep: false, why: "offering, not asking" };
+  if (/\bco[- ]?founder\b|\bcofounder\b/i.test(t)) return { keep: false, why: "a co-founder ask" };
+  if (!PROBLEM_RE.test(all)) return { keep: false, why: "no problem we solve" };
+  if (!BUSINESS_RE.test(all)) return { keep: false, why: "no business behind it" };
+  const kind = /\b(?:maps|google business|gbp|local|near me|storefront|walk[- ]ins?|phone|calls)\b/.test(all) ? "local SEO"
+    : /\b(?:ads?|ppc|adwords|google ads|facebook|meta|instagram|tiktok|cac|cost per)\b/.test(all) ? "paid ads"
+    : /\b(?:rank|seo|traffic|google update|algorithm|keywords?)\b/.test(all) ? "SEO"
+    : /\b(?:store|shopify|checkout|orders|conversion)\b/.test(all) ? "the store"
+    : "marketing";
+  return { keep: true, why: "", role: "problem", kind, budget: "", stage: "", hasBudget: /\b(?:we spend|budget|paying|retainer|per month)\b/i.test(all), equityOnly: false };
+};
+
+// One door for every post. The list it came from decides which tests run,
+// and what comes back is a badge and a tier, never a yes or a no: a business
+// with the problem is worth seeing even though nobody is hiring yet.
+HEAT.BADGES = [
+  { key: "hiring", label: "Hiring now", colour: "#2ea043", tier: 3, note: "Budget said out loud. Worth a DM with a quote and a date." },
+  { key: "cofounder", label: "Co-founder", colour: "#ff5722", tier: 3, note: "A founder looking for a partner." },
+  { key: "problem", label: "Has the problem", colour: "#2f80ed", tier: 2, note: "A business with the problem, not yet paying anybody. Answer in the open first." },
+];
+HEAT.badgeDef = function (key) { return HEAT.BADGES.find((b) => b.key === key) || HEAT.BADGES[1]; };
+HEAT.classifyAny = function (title, body, source) {
+  // the co-founder list only ever produces co-founder leads
+  if (source !== "project") {
+    const c = HEAT.classifyCofounder(title, body);
+    return c.keep ? { ...c, badge: "cofounder", tier: 3 } : c;
+  }
+  const hire = HEAT.classifyProject(title, body);
+  if (hire.keep) return { ...hire, badge: "hiring", tier: 3 };
+  const prob = HEAT.classifyProblem(title, body);
+  if (prob.keep) return { ...prob, badge: "problem", tier: 2 };
+  // the more specific reason is the more useful one to show
+  return hire.why === "no budget, or unpaid" || hire.why === "nobody is being hired here" ? prob : hire;
+};
 
 HEAT.classifyProject = function (title, body) {
   const t = (title || "").toLowerCase();

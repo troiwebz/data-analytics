@@ -114,7 +114,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "override") { chrome.storage.local.get(["posts"]).then(async ({ posts = {} }) => { const p = posts[msg.id]; if (p) { Object.assign(p, msg.patch, { manual: true }); if (msg.patch.status) { p.statusAt = Date.now(); p.ignored = msg.patch.status === "not_lead"; if (msg.patch.status === "replied" && !p.replied) p.replied = Date.now(); if (msg.patch.status === "new") { p.replied = 0; } } if (msg.patch.ignored === true) { p.status = "not_lead"; p.statusAt = Date.now(); } if (msg.patch.ignored === false && p.status === "not_lead") { p.status = "new"; } if (msg.patch.replied && !p.status) { p.status = "replied"; p.statusAt = Date.now(); } await chrome.storage.local.set({ posts }); } reply({ ok: !!p }); }); return true; }
   if (msg.type === "hunt-queue") { huntQueue(msg.limit || 40).then(reply); return true; }
   if (msg.type === "hunt-act") { huntAct(msg.id, msg.action, msg.variant).then(reply); return true; }
-  if (msg.type === "hunt-done") { huntGet().then((st) => { const rows = Object.values(st.posts).filter((p) => (p.hunt === "project" ? "project" : "cofounder") === st.target).filter((p) => p.repliedAt || p.dmAt).map((p) => ({ id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink, created: p.created || p.firstSeen || 0, score: p.score || 0, repliedAt: p.repliedAt || 0, dmAt: p.dmAt || 0, at: Math.max(p.repliedAt || 0, p.dmAt || 0) })).sort((a, b) => b.at - a.at); reply({ rows }); }); return true; }
+  if (msg.type === "hunt-done") { huntGet().then((st) => { const rows = Object.values(st.posts).filter((p) => p.repliedAt || p.dmAt).map((p) => ({ id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink, created: p.created || p.firstSeen || 0, score: p.score || 0, repliedAt: p.repliedAt || 0, dmAt: p.dmAt || 0, at: Math.max(p.repliedAt || 0, p.dmAt || 0) })).sort((a, b) => b.at - a.at); reply({ rows }); }); return true; }
   if (msg.type === "hunt-check-mine") { huntCheckMine(msg.id).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-server") { huntSet({ server: msg.url ? { url: msg.url, token: msg.token || "" } : null }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "version-state") { versionState().then(reply); return true; }
@@ -131,6 +131,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-campaign-get") { campaignSettings().then(reply); return true; }
   if (msg.type === "hunt-reset") { huntReset(msg.mode).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-reset-undo") { huntResetUndo().then(reply); return true; }
+  if (msg.type === "hunt-scan-state") { chrome.storage.local.get(["scanState"]).then((x) => reply(x.scanState || { running: false })); return true; }
+  if (msg.type === "hunt-scan-stop") { chrome.storage.local.get(["scanState"]).then((x) => chrome.storage.local.set({ scanState: { ...(x.scanState || {}), stop: true } })).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-target") { huntSet({ target: msg.target === "project" ? "project" : "cofounder" }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-rejects") { huntRejects(msg.limit || 200).then(reply); return true; }
   if (msg.type === "hunt-rescue") { huntRescue(msg.id).then(reply); return true; }
@@ -656,7 +658,7 @@ function huntCandidate(child, why, target) {
   const title = d.title || "", body = d.selftext || "";
   // which hunt this post is being judged for: the list it came from decides
   const hunt = target === "project" ? "project" : "cofounder";
-  const c = classifyFor(hunt, title, body);
+  const c = classifyAny(title, body, hunt);
   if (!c.keep) {
     // Kept, in short, so the 88 posts a scan throws away are not invisible.
     if (why) why.push({ id: d.name || ("t3_" + d.id), author, sub: d.subreddit || "", title, hunt,
@@ -677,7 +679,7 @@ function huntCandidate(child, why, target) {
     ups: d.score || 0,
     flair: d.link_flair_text || "",
     role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget,
-    hunt, kind: c.kind || "", budget: c.budget || "",
+    hunt, badge: c.badge || "cofounder", tier: c.tier || 2, kind: c.kind || "", budget: c.budget || "",
     firstSeen: Date.now(),
   };
 }
@@ -751,11 +753,17 @@ async function huntPoll(force) {
   for (const sub of ppicks) urls.push({ url: listing(sub), hunt: "project" });
   for (const q of pq) urls.push({ url: search(q), hunt: "project" });
 
+  await chrome.storage.local.set({ scanState: { running: true, at: Date.now(), done: 0, total: urls.length, seen: 0, found: 0, where: "starting", stop: false } });
   const posts = st.posts;
   let added = 0, seen = 0, error = "", ok = 0, known = 0, dropped = 0;
   const rejects = [];
   let addedCo = 0, addedPr = 0;
   for (const { url, hunt: target } of urls) {
+    // Stop means stop: whatever has been found so far is kept.
+    const { scanState: sc } = await chrome.storage.local.get(["scanState"]);
+    if (sc && sc.stop) { error = error || "stopped"; break; }
+    const where = (url.match(/\/r\/([^/]+)\//) || [])[1] || "site-wide search";
+    await chrome.storage.local.set({ scanState: { running: true, at: Date.now(), done: ok, total: urls.length, seen, found: added, where, stop: false } });
     try {
       const j = await huntFetch(url);
       ok += 1;
@@ -787,6 +795,7 @@ async function huntPoll(force) {
     .filter((r) => (seenReject.has(r.id) ? false : seenReject.add(r.id)))
     .filter((r) => Date.now() - (r.created || r.at || 0) < 7 * 86400000)
     .slice(0, 400);
+  await chrome.storage.local.set({ scanState: { running: false, at: Date.now(), done: ok, total: urls.length, seen, found: added, where: "", stop: false } });
   await huntSet({ posts, rejects: keptRejects, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
   return { ok: true, added, seen, known, dropped, checked: ok, error: ok ? "" : error, report };
 }
@@ -841,6 +850,12 @@ async function huntCheckMine(id) {
 
 // The queue: fit-ranked, never anyone already contacted, never anything you
 // skipped or marked irrelevant.
+function HEAT_BADGE_COUNTS(list) {
+  const n = {};
+  for (const b of BADGES) n[b.key] = 0;
+  for (const p of list) n[p.badge || "cofounder"] = (n[p.badge || "cofounder"] || 0) + 1;
+  return n;
+}
 async function huntQueue(limit = 40) {
   const st = await huntGet();
   const { inbox: ibx = {} } = await chrome.storage.local.get(["inbox"]);
@@ -850,10 +865,8 @@ async function huntQueue(limit = 40) {
   let blocked = 0;
   const maxAge = st.maxAgeH * 3600000;
   let stale = 0, later = 0;
-  const target = st.target;
-  const mine = (p) => (p.hunt === "project" ? "project" : "cofounder") === target;
+  // One list. The badge says what kind each one is; the page filters on it.
   for (const p of Object.values(st.posts)) {
-    if (!mine(p)) continue;                       // the other hunt has its own queue
     if (p.act === "skip" || p.act === "not_relevant" || p.dmAt) continue;
     if (p.laterUntil && p.laterUntil > now) { later += 1; continue; }   // snoozed till tomorrow
     if (p.mine) { blocked += 1; continue; }              // you already commented there
@@ -863,7 +876,8 @@ async function huntQueue(limit = 40) {
     // a reply written under an older deal is not shown; it gets written again
     list.push({ ...p, ai: p.ai && (p.ai.dealV || 0) === dealV ? p.ai : undefined, score: huntScore(p, now) });
   }
-  list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || b.score - a.score);
+  // best kind first, then best fit: the three worth a message are at the top
+  list.sort((a, b) => (b.repliedAt ? 1 : 0) - (a.repliedAt ? 1 : 0) || (b.tier || 2) - (a.tier || 2) || b.score - a.score);
   // One card per person: the same founder cross-posts to several subreddits.
   // Keep the best-fit post, remember the others as "also posted in".
   const seenAuthor = {};
@@ -880,22 +894,22 @@ async function huntQueue(limit = 40) {
   const yday = today.getTime() - 86400000;
   const contacted = Object.values(st.contacted);
   const doneAt = (p) => Math.max(p.repliedAt || 0, p.dmAt || 0);
-  const all = Object.values(st.posts).filter(mine);
+  const all = Object.values(st.posts);
   const doneToday = all.filter((p) => doneAt(p) >= today.getTime()).length;
   const doneYesterday = all.filter((p) => doneAt(p) >= yday && doneAt(p) < today.getTime()).length;
   const lastDone = Math.max(0, ...all.map(doneAt));
   const newSince = all.filter((p) => (p.firstSeen || 0) > lastDone && !p.act && !p.dmAt && !p.mine).length;
   const aiCancelled = all.filter((p) => p.cancelledBy === "ai" && (p.actAt || 0) >= today.getTime()).length;
   return {
-    queue: list.slice(0, limit),
+    queue: list.slice(0, Math.max(limit, 200)),   // the page filters by badge, so send it plenty
     total: list.length,
     blocked, later, dupes, aiCancelled, doneToday, doneYesterday, newSince, lastDone,
     lastReport: st.lastReport || "",
     lastBulk: st.lastBulk || null,
     undoReset: ((await chrome.storage.local.get(["undoReset"])).undoReset || {}).at || 0,
     skippedTotal: all.filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now())).length,
-    rejectTotal: (st.rejects || []).filter((r) => !st.posts[r.id] && (r.hunt === "project" ? "project" : "cofounder") === target).length,
-    target,
+    rejectTotal: (st.rejects || []).filter((r) => !st.posts[r.id]).length,
+    badges: HEAT_BADGE_COUNTS(list),
     spend: await spendGet(),
     lastBackupAt: (await chrome.storage.local.get(["lastBackupAt"])).lastBackupAt || 0,
     schedule: (st.schedule || []).filter((x) => !x.state).length,
@@ -1222,7 +1236,7 @@ async function huntResetUndo() {
 async function huntRejects(limit = 200) {
   const st = await huntGet();
   const have = st.posts || {};
-  return { rows: (st.rejects || []).filter((r) => !have[r.id] && (r.hunt === "project" ? "project" : "cofounder") === st.target).slice(0, limit) };
+  return { rows: (st.rejects || []).filter((r) => !have[r.id]).slice(0, limit) };
 }
 // Put one back into the queue by hand, whatever the classifier thought.
 async function huntRescue(id) {
@@ -1244,7 +1258,6 @@ async function huntRescue(id) {
 async function huntSkipped() {
   const st = await huntGet();
   const rows = Object.values(st.posts || {})
-    .filter((p) => (p.hunt === "project" ? "project" : "cofounder") === st.target)
     .filter((p) => p.act === "skip" || p.act === "not_relevant" || (p.laterUntil && p.laterUntil > Date.now()))
     .map((p) => ({ id: p.id, title: p.title, author: p.author, sub: p.sub, permalink: p.permalink, created: p.created,
       why: p.cancelledBy === "ai" ? "AI: " + (p.cancelReason || "not a fit") : p.act === "not_relevant" ? "not relevant" : p.act === "skip" ? "skipped" : "later",

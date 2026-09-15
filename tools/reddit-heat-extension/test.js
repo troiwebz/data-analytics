@@ -949,3 +949,34 @@ console.log("the project hunt: ok");
   assert.strictEqual(fromSearch.kind, "Meta ads");
 }
 console.log("enough projects to choose from: ok");
+
+// One list, three kinds. Every post gets a badge and a tier, never a yes/no.
+{
+  assert.deepStrictEqual(H.BADGES.map((b) => b.key), ["hiring", "cofounder", "problem"]);
+  assert.strictEqual(H.badgeDef("problem").label, "Has the problem");
+  assert.strictEqual(H.badgeDef("nope").key, "cofounder", "an unknown badge falls back to a safe one");
+  assert.strictEqual(H.badgeDef("hiring").tier, 3);
+  assert.strictEqual(H.badgeDef("problem").tier, 2, "problems sort below people who are hiring");
+  const co = ["Looking for a technical co-founder for my clinic app", "We have 30 paying clinics."];
+  const hire = ["Looking for an agency to run our Google Ads, budget $4k a month", "Dental group."];
+  const prob = ["Our Google Maps ranking dropped and the phone stopped ringing", "We run a dental clinic with four chairs."];
+  // the list a post came from decides which tests it faces
+  assert.strictEqual(H.classifyAny(co[0], co[1], "cofounder").badge, "cofounder");
+  assert.strictEqual(H.classifyAny(co[0], co[1], "project").keep, false, "a co-founder ask is not a project");
+  assert.strictEqual(H.classifyAny(hire[0], hire[1], "project").badge, "hiring");
+  assert.strictEqual(H.classifyAny(hire[0], hire[1], "cofounder").keep, false, "and a paid brief is not a co-founder ask");
+  const p = H.classifyAny(prob[0], prob[1], "project");
+  assert.strictEqual(p.badge, "problem");
+  assert.strictEqual(p.tier, 2);
+  assert.strictEqual(p.kind, "local SEO", "and it says what kind of problem");
+  // a problem with no business behind it, and a business with no problem, are both out
+  assert.strictEqual(H.classifyProblem("My rankings dropped", "personal blog, no idea why").keep, false);
+  assert.strictEqual(H.classifyProblem("How does SEO work?", "student, curious").keep, false);
+  assert.strictEqual(H.classifyProblem("[For Hire] SEO expert", "portfolio inside").keep, false);
+  // the searches that find them
+  assert.ok(H.PROJECT_QUERIES.some((q) => /agency/i.test(q) && /working|fired/i.test(q)), "it hunts unhappy agency clients");
+  assert.ok(H.PROJECT_QUERIES.some((q) => /rankings dropped/i.test(q)));
+  assert.ok(H.PROJECT_SUBS.length >= 90, "and a wide net: " + H.PROJECT_SUBS.length);
+  assert.strictEqual(new Set(H.PROJECT_SUBS).size, H.PROJECT_SUBS.length, "no subreddit twice");
+}
+console.log("one list, three kinds: ok");

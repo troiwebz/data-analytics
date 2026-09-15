@@ -1,6 +1,11 @@
 // Co-founder hunt: one post at a time, a two-line public reply to pick, a DM in
 // the length you want, then next. Nobody is ever shown twice.
 const $ = (id) => document.getElementById(id);
+// what kind of lead this is, in one word, in its own colour
+function badgeTag(p) {
+  const d = badgeDef((p && p.badge) || "cofounder");
+  return `<span class="bdg" style="background:${d.colour}22;color:${d.colour};border:1px solid ${d.colour}55" title="${d.note}">${d.label}</span>`;
+}
 // Every number on this page comes from the worker. When the worker is not
 // answering, the page used to sit at its HTML defaults - "In queue 0",
 // "never checked", "v?" - which reads exactly like losing all your data.
@@ -117,7 +122,7 @@ function render() {
     p.equityOnly ? '<span class="tag equity">equity only</span>' : "",
   ].filter(Boolean).join(" ");
   const also = (p.also || []).map((a) => `<a href="${esc(a.permalink)}" target="_blank" style="color:#8ab4ff">r/${esc(a.sub)}</a>`).join(", ");
-  $("meta").innerHTML = `r/${p.sub} · ${esc(p.author)} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments · fit ${p.score} ${tags}${also ? ` · <span class="tag" title="the same person cross-posted; one card, the rest hidden">also in ${also}</span>` : ""}`;
+  $("meta").innerHTML = `${badgeTag(p)} r/${p.sub} · ${esc(p.author)}${p.kind ? " · " + esc(p.kind) : ""}${p.budget ? " · " + esc(p.budget) : ""} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments · fit ${p.score} ${tags}${also ? ` · <span class="tag" title="the same person cross-posted; one card, the rest hidden">also in ${also}</span>` : ""}`;
   $("body").textContent = p.body || "(no body text)";
 
   // the reading of the post, under the post
@@ -386,7 +391,7 @@ async function refresh(keepCurrent = true) {
   $("undoReset").hidden = !(r.undoReset && Date.now() - r.undoReset < 86400000);
   if (!$("undoReset").hidden) $("undoReset").textContent = `Undo the reset · ${ago(r.undoReset)}`;
   $("sSkippedBtn").hidden = !r.skippedTotal;
-  if (r.target && r.target !== target) { target = r.target; paintTarget(); }
+  if (r.badges) { badgeCounts = r.badges; paintBadges(); }
   $("sRejectBtn").hidden = !r.rejectTotal;
   $("sReject").textContent = r.rejectTotal || 0;
   campChip();
@@ -466,6 +471,7 @@ function applyView(list) {
   }[v.qSort];
   if (by) out = out.slice().sort(by);
   // a clicked column header wins over the Sort box
+  if (badgeFilter) out = out.filter((p) => (p.badge || "cofounder") === badgeFilter);
   if (colSort.key && COL_SORT[colSort.key]) out = out.slice().sort((a, b) => COL_SORT[colSort.key](a, b) * colSort.dir);
   $("viewCount").textContent = out.length === list.length ? `${list.length} in front of you` : `showing ${out.length} of ${list.length}`;
   return out;
@@ -645,13 +651,30 @@ $("badTop").onclick = () => act("not_relevant");
 $("laterTop").onclick = () => act("later");
 $("bad").onclick = () => act("not_relevant");
 $("undo").onclick = async () => { if (lastActed) { await send({ type: "hunt-act", id: lastActed, action: "undo" }); lastActed = null; await refresh(false); } };
+let scanTimer = 0;
+async function scanTick() {
+  const st = await send({ type: "hunt-scan-state" });
+  const on = !!(st && st.running);
+  $("scanLive").hidden = !on;
+  $("scanStop").hidden = !on;
+  $("now").disabled = on;
+  $("now").textContent = on ? "Scanning…" : "Scan now";
+  if (on) {
+    $("scanLive").textContent = `${st.where || "…"} · ${st.done} of ${st.total} · ${st.seen.toLocaleString()} posts read · ${st.found} new`;
+    clearTimeout(scanTimer); scanTimer = setTimeout(scanTick, 900);
+  }
+}
+$("scanStop").onclick = async () => { $("scanStop").textContent = "stopping…"; await send({ type: "hunt-scan-stop" }); setTimeout(() => { $("scanStop").textContent = "Stop"; }, 1500); };
+scanTick();
+setInterval(scanTick, 5000);
 $("now").onclick = async () => {
-  $("now").textContent = "Checking…"; $("now").disabled = true;
+  $("now").textContent = "Scanning…"; $("now").disabled = true;
+  scanTick();
   try {
     const r = await Promise.race([send({ type: "hunt-poll" }), new Promise((ok) => setTimeout(() => ok({ error: "no answer in 90s — reload the pinned old.reddit.com tab" }), 90000))]);
     if (r && r.error) $("sPoll").textContent = "last check failed: " + r.error;
     else if (r && r.report) $("scan").textContent = "This check: " + r.report;
-  } finally { $("now").textContent = "Check now"; $("now").disabled = false; refresh(); checkAhead(); }
+  } finally { $("now").textContent = "Scan now"; $("now").disabled = false; scanTick(); refresh(); checkAhead(); }
 };
 $("toggle").onclick = async () => { await send({ type: "hunt-on", on: $("toggle").textContent.startsWith("Start") }); refresh(); };
 for (const b of document.querySelectorAll("#win button")) b.onclick = async () => { await send({ type: "hunt-window", hours: Number(b.dataset.h) }); refresh(false); };
@@ -940,7 +963,7 @@ function drawQueueRows() {
     const open = openRow === p.id;
     const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
     const row = `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td>`
-      + `<td><b title="${esc(p.title)}">${esc(titleForRow(p.title))}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td>`
+      + `<td><b title="${esc(p.title)}">${esc(titleForRow(p.title))}</b>${half}<br>${badgeTag(p)} <span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}${p.kind ? " · " + esc(p.kind) : ""}${p.budget ? " · " + esc(p.budget) : ""}</span></td>`
       + `<td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
     if (!open) return row;
     const bits = [["Who", s.who], ["Wants", s.wants], ["Where", s.country], ["Stage", s.stage], ["Money", s.money], ["Traction", s.traction || s.revenue], ["Time", s.commit], ["Equity", s.equity]].filter(([, v]) => v);
@@ -1357,25 +1380,28 @@ $("dropLoose").onclick = async () => {
 };
 $("sSkippedBtn").onclick = () => showTable("skipped");
 $("sRejectBtn").onclick = () => showTable("rejects");
-// ---- two hunts, one machine -------------------------------------------
-// Switching swaps the queue, the counts and what the writer offers. The
-// contacted list is shared, so nobody is messaged from both.
-let target = "cofounder";
-function paintTarget() {
-  const def = huntDef(target);
-  $("huntTitle").textContent = def.label;
-  document.documentElement.style.setProperty("--or", def.colour);
-  for (const b of $("huntPick").querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === target);
+// ---- one list, three kinds --------------------------------------------
+// Every lead is in the same queue with a badge saying what it is. The chips
+// filter to one kind when you want to work only that kind; nothing is hidden.
+let badgeFilter = "";
+try { badgeFilter = localStorage.getItem("huntBadge") || ""; } catch (_) { /* fine */ }
+let badgeCounts = {};
+function paintBadges() {
+  const tabs = [["", "All", Object.values(badgeCounts).reduce((a, b) => a + b, 0)]]
+    .concat(BADGES.map((b) => [b.key, b.label, badgeCounts[b.key] || 0]));
+  $("badgePick").innerHTML = tabs.map(([k, label, n]) => {
+    const on = badgeFilter === k;
+    const col = k ? badgeDef(k).colour : "var(--or)";
+    return `<button data-b="${k}" class="${on ? "on" : ""}" style="${on ? `background:${col};border-color:${col}` : `color:${k ? col : "var(--dim)"}`}" title="${k ? esc(badgeDef(k).note) : "everything waiting"}">${label} ${n}</button>`;
+  }).join("");
+  for (const b of $("badgePick").querySelectorAll("button")) b.onclick = () => {
+    badgeFilter = b.dataset.b;
+    try { localStorage.setItem("huntBadge", badgeFilter); } catch (_) { /* fine */ }
+    queue = applyView(allQueue);
+    cur = queue[0] || null; variant = 0;
+    paintBadges(); showTable("queue"); render();
+  };
 }
-for (const b of $("huntPick").querySelectorAll("button")) b.onclick = async () => {
-  if (target === b.dataset.t) return;
-  target = b.dataset.t;
-  paintTarget();
-  await send({ type: "hunt-target", target });
-  cur = null; queue = []; allQueue = []; picked.clear(); openRow = "";
-  await refresh(false);
-  showTable("queue");
-};
 async function doReset(mode) {
   const all = mode === "all";
   const msg = all
