@@ -232,6 +232,9 @@
         <div class="row" style="margin-top:8px"><label class="foot" style="margin:0">Model</label><select id="cModel"><option value="claude-sonnet-5">Claude Sonnet 5 · the default · about 1¢ a post</option><option value="claude-opus-5">Claude Opus 5 · a touch better, about 2–4¢ a post</option></select></div>
         <div class="row" style="margin-top:8px"><input type="password" id="cKey" placeholder="sk-ant-… from console.anthropic.com" style="flex:1;min-width:260px"><button id="testKey" class="ghost">Test key</button></div>
         <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
+          <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cAuto"> write every card as it comes up, without asking (costs money on posts you skip)</label>
+        </div>
+        <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center">Daily budget $<input type="text" id="cBudget" placeholder="1.00" style="width:64px"> <span>— when it is used up, cards fall back to templates until tomorrow</span></label>
           <span class="foot" style="margin:0">Template + AI slots on Sonnet costs about $0.005 a post, so twenty posts is roughly $0.10. The full writer on Opus thinks before it answers and costs four to eight times as much. Click "AI today" in the header to see every call.</span>
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cPolish" checked> Polish pass (Sonnet, about 1¢ a post): rewrites any sentence that could have been sent to anyone</label>
@@ -277,6 +280,12 @@
     <div id="wrap" class="wrap" hidden>
       <section class="card">
         <h2><a id="title" target="_blank" rel="noopener"></a></h2>
+        <div class="row" style="margin:0 0 8px">
+          <button id="skipTop" class="ghost" title="not for you — next card">Skip <kbd>s</kbd></button>
+          <button id="badTop" class="ghost" title="not a co-founder ask at all">Not relevant <kbd>x</kbd></button>
+          <button id="laterTop" class="ghost" title="hide until tomorrow 7am">Later <kbd>l</kbd></button>
+          <span class="foot" style="margin:0">nothing is written for a post until you ask for it</span>
+        </div>
         <div class="meta" id="meta"></div>
         <div class="body" id="body"></div>
         <dl class="syn" id="syn"></dl>
@@ -284,6 +293,10 @@
 
       <section class="card">
         <p class="step"><b>Step 1</b> · public reply — one line, then "Check your DM." <span id="aiState" style="text-transform:none;letter-spacing:0;margin-left:8px"></span> <button id="aiRedo" class="ghost" style="padding:1px 8px;font-size:11px;margin-left:6px" hidden>rewrite</button></p>
+        <div id="genRow" class="row" style="margin:0 0 8px" hidden>
+          <button id="genAi" class="primary">Write this one with Claude</button>
+          <span class="foot" id="genNote" style="margin:0"></span>
+        </div>
         <div id="pasteTools" class="row" style="margin:0 0 8px" hidden>
           <button id="copyBrief" class="ghost">1 · Copy the brief</button>
           <button id="copyBatch" class="ghost">Copy the next 10 briefs</button>

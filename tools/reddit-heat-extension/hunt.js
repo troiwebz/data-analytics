@@ -63,7 +63,12 @@ function render() {
   $("dmState").style.color = useAi ? "#7ee29a" : "#98a0b3";
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
-  aiWrite(false);
+  const eng2 = engine();
+  const paid = eng2 === "slots" || eng2 === "claude";
+  $("genRow").hidden = !(paid && !p.ai);
+  $("genNote").textContent = paid && !p.ai ? (profile.apiKey ? "about $0.005 · the template below is free" : "paste your API key under AI writing first") : "";
+  if (profile.autoWrite && paid) aiWrite(false);            // only if you asked for that
+  else if (eng2 === "chrome" && profile.autoWrite) aiWrite(false);
 }
 
 // ---- AI: written for this exact post, once, then cached on the post ------
@@ -165,6 +170,7 @@ async function aiWrite(force) {
 let aheadBusy = "";
 async function aiWriteAhead() {
   const eng = engine();
+  if (!profile.autoWrite) return;                            // no writing for cards you have not looked at
   if (eng === "templates" || eng === "paste" || (eng === "claude" && !profile.apiKey)) return;
   const nxt = queue.find((q) => q !== cur && !q.ai && !aiErr[q.id] && !q.mine);
   if (!nxt || aheadBusy) return;
@@ -181,6 +187,7 @@ async function aiWriteAhead() {
   finally { aheadBusy = ""; }
 }
 $("aiRedo").onclick = () => aiWrite(true);
+$("genAi").onclick = () => { $("genRow").hidden = true; aiWrite(true); };
 
 // ---- Claude in Chrome: copy the brief, paste the answer back ---------------
 function briefFor(list) { return huntBrief(list, profile); }
@@ -402,6 +409,9 @@ for (const b of document.querySelectorAll("#sizes button")) b.onclick = () => { 
 $("didReply").onclick = () => act("replied");
 $("didDm").onclick = async () => { await act("dm"); gateTick(); };
 $("skip").onclick = () => act("skip");
+$("skipTop").onclick = () => act("skip");
+$("badTop").onclick = () => act("not_relevant");
+$("laterTop").onclick = () => act("later");
 $("bad").onclick = () => act("not_relevant");
 $("undo").onclick = async () => { if (lastActed) { await send({ type: "hunt-act", id: lastActed, action: "undo" }); lastActed = null; await refresh(false); } };
 $("now").onclick = async () => {
@@ -428,7 +438,7 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$(
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
+  profile = { ...(config.profile || {}), autoWrite: $("cAuto").checked, dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -443,6 +453,7 @@ $("testKey").onclick = async () => {
   if (r && r.ok && !profile.aiEngine) { profile.aiEngine = "slots"; await saveSetup(true); for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === "slots"; aiErr = {}; render(); }
 };
 $("cPolish").onchange = () => saveSetup(true);
+$("cAuto").onchange = () => { saveSetup(true); render(); };
 $("cLinks").onchange = async () => { await saveSetup(true); for (const q of queue) delete q.ai; if (cur) { delete cur.ai; variant = 0; render(); } };
 for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBook", "cPort", "cKey", "cSrv", "cSrvTok", "cBudget", "cGapMin", "cGapMax", "cDmCap"]) {
   $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
@@ -762,6 +773,7 @@ document.addEventListener("keydown", (e) => {
   $("cModel").value = AI_PRICES_UI[profile.aiModel] ? profile.aiModel : "claude-sonnet-5";
   $("cBudget").value = ((Number(profile.aiBudgetCents) > 0 ? profile.aiBudgetCents : 100) / 100).toFixed(2); $("cPolish").checked = profile.aiPolish !== false;
   $("cLinks").checked = !!profile.dmLinks;
+  $("cAuto").checked = !!profile.autoWrite;
   $("cGapMin").value = profile.dmGapMin || 60; $("cGapMax").value = profile.dmGapMax || 180; $("cDmCap").value = profile.dmCap || 25;
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
