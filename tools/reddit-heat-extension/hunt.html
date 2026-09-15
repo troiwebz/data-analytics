@@ -286,6 +286,41 @@
   </div>
 
   <!-- AI writing: which engine writes the replies -->
+  <!-- the campaign's own screen: the run, not the threads -->
+  <div id="runView" hidden>
+    <div class="card" style="margin-bottom:14px">
+      <div class="row" style="margin:0 0 6px;align-items:baseline">
+        <h2 id="runTitle" style="margin:0">Campaign</h2>
+        <span class="stat" id="runState" style="margin-left:6px"></span>
+        <span class="foot" id="runWhen" style="margin:0 0 0 auto"></span>
+      </div>
+      <div id="runNext" style="font-size:15px;margin:6px 0 0"></div>
+      <div style="margin:12px 0 0;height:10px;border-radius:999px;background:#1e222b;overflow:hidden">
+        <div id="runBar" style="height:100%;width:0;background:var(--or);transition:width .4s"></div>
+      </div>
+      <div class="foot" id="runBarNote" style="margin:6px 0 0"></div>
+      <div class="row" style="margin:12px 0 0;flex-wrap:wrap">
+        <button id="runPause" class="ghost">Pause</button>
+        <button id="runResume" class="ghost" hidden>Resume</button>
+        <button id="runStop" class="ghost" style="color:#ff8a65">Stop the campaign</button>
+        <button id="runOpenNow" class="ghost" hidden>Open the next one now</button>
+        <button id="runNew" class="primary" hidden>Plan a new campaign</button>
+        <span class="foot" id="runMsg" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <section class="card">
+        <p class="step" style="margin:0 0 8px"><b>The plan</b></p>
+        <dl class="syn" id="runPlan"></dl>
+      </section>
+      <section class="card">
+        <p class="step" style="margin:0 0 8px"><b>What has happened</b></p>
+        <div id="runFeed" class="foot" style="margin:0;line-height:1.9"></div>
+      </section>
+    </div>
+  </div>
+
   <div id="campaignPanel" class="card" hidden style="margin-bottom:16px">
     <p class="step" style="margin-bottom:10px"><b>Campaign</b> · a day of first contact, paced across the hours you are awake</p>
     <div class="dealRow">

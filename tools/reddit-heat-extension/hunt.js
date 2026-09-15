@@ -379,6 +379,7 @@ async function refresh(keepCurrent = true) {
   $("undoReset").hidden = !(r.undoReset && Date.now() - r.undoReset < 86400000);
   if (!$("undoReset").hidden) $("undoReset").textContent = `Undo the reset · ${ago(r.undoReset)}`;
   $("sSkippedBtn").hidden = !r.skippedTotal;
+  campChip();
   $("sSkipped").textContent = r.skippedTotal || 0;
   const days = r.lastBackupAt ? Math.floor((Date.now() - r.lastBackupAt) / 86400000) : 999;
   if (days >= 7 && (r.contactedTotal || 0) > 0) { $("backupWarn").hidden = false; $("backupWarn").textContent = r.lastBackupAt ? `No backup for ${days} days` : "Never backed up"; }
@@ -1030,11 +1031,111 @@ function campOpts() {
 }
 function campSave() { send({ type: "hunt-campaign-set", campaign: campOpts() }); }
 for (const id of ["kDms", "kRatio", "kFrom", "kTo"]) $(id).oninput = campSave;
-$("openCampaign").onclick = () => {
-  const show = $("campaignPanel").hidden;
-  $("campaignPanel").hidden = !show;
-  if (show) { $("aiPanel").hidden = true; $("setup").hidden = true; }
+// ---- the campaign's own screen ------------------------------------------
+// It has its own URL inside the extension (hunt.html#campaign) so it can be
+// opened straight to, and it shows the run: no thread table, no cards.
+let runTimer = 0;
+function runShow(on) {
+  $("runView").hidden = !on;
+  if (on) {
+    $("wrap").hidden = true; $("table").hidden = true; $("setup").hidden = true;
+    $("aiPanel").hidden = true; $("campaignPanel").hidden = true; $("empty").hidden = true;
+    if (location.hash !== "#campaign") location.hash = "#campaign";
+    drawRun();
+  } else {
+    clearTimeout(runTimer);
+    if (location.hash === "#campaign") history.replaceState(null, "", location.pathname);
+  }
+}
+const clockOf = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+async function drawRun() {
+  const r = await send({ type: "hunt-campaign-status" });
+  if (!r || $("runView").hidden) return;
+  const c = r.running;
+  if (!c) {
+    $("runTitle").textContent = "No campaign yet";
+    $("runState").textContent = ""; $("runWhen").textContent = "";
+    $("runNext").textContent = "Nothing is running. Set the numbers below and put a day on the schedule.";
+    $("runBar").style.width = "0"; $("runBarNote").textContent = "";
+    $("runPlan").innerHTML = ""; $("runFeed").textContent = "";
+    for (const id of ["runPause", "runResume", "runStop", "runOpenNow"]) $(id).hidden = true;
+    $("runNew").hidden = false;
+    return;
+  }
+  const doneDms = c.dmsSent, target = c.plannedDms;
+  const pct = target ? Math.round(100 * doneDms / target) : 0;
+  const live = c.state === "running";
+  $("runTitle").textContent = `Campaign · ${new Date(c.startedAt).toLocaleDateString([], { day: "numeric", month: "short" })}`;
+  $("runState").textContent = c.state === "running" ? (c.nextAt ? "running" : "finishing") : c.state;
+  $("runState").style.color = c.state === "running" ? "#7ee29a" : c.state === "paused" ? "#e6c76b" : "#98a0b3";
+  $("runWhen").textContent = `started ${clockOf(c.startedAt)}${c.doneAt ? ` · ended ${clockOf(c.doneAt)}` : ""}`;
+  $("runNext").innerHTML = c.state === "paused"
+    ? `<span style="color:#e6c76b">Paused.</span> Nothing opens until you press Resume.`
+    : c.dmsOpen
+      ? `<span style="color:#e6c76b">A tab is open now</span> for u/${esc((c.openNow[0] || {}).author || "")} — press send there, or it goes by itself after the countdown.`
+      : c.next
+        ? (() => { const m = Math.round((c.next.at - Date.now()) / 60000);
+            return `Next: <b>${c.next.kind === "reply" ? "public comment" : "the DM"}</b> to <b>u/${esc(c.next.author)}</b> at <b>${clockOf(c.next.at)}</b>, ${m <= 0 ? "any moment now" : m === 1 ? "in a minute" : m < 60 ? `in ${m} minutes` : `in ${Math.floor(m / 60)}h ${m % 60}m`}.`; })()
+        : `Nothing left to open.`;
+  $("runBar").style.width = Math.min(100, pct) + "%";
+  $("runBar").style.background = c.state === "paused" ? "#e6c76b" : "var(--or)";
+  $("runBarNote").textContent = `${doneDms} of ${target} DMs sent · ${c.repliesSent} of ${c.plannedReplies} public comments`
+    + (c.dmsWaiting ? ` · ${c.dmsWaiting} still to come` : "")
+    + (c.dmsDropped + c.repliesDropped ? ` · ${c.dmsDropped + c.repliesDropped} dropped` : "");
+  $("runPlan").innerHTML = [
+    ["People", c.people],
+    ["DMs today", `${c.plannedDms} · one public comment per ${c.settings.ratio}`],
+    ["Hours", `${c.settings.fromHour}:00 to ${c.settings.toHour}:00`],
+    ["Spacing", `about ${c.gapMin} minutes apart`],
+    ["First", clockOf(c.firstAt)],
+    ["Last", clockOf(c.lastAt)],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
+  const feed = [
+    ...c.recent.map((x) => `<div><span style="color:#7ee29a">sent</span> ${x.kind === "reply" ? "a public comment" : "the DM"} to u/${esc(x.author)} · ${esc(clockOf(x.at))}</div>`),
+    ...c.droppedList.map((x) => `<div><span style="color:#e6c76b">dropped</span> u/${esc(x.author)} · ${esc(x.why)}</div>`),
+  ];
+  $("runFeed").innerHTML = feed.join("") || "Nothing has gone out yet.";
+  $("runPause").hidden = !live;
+  $("runResume").hidden = c.state !== "paused";
+  $("runStop").hidden = !(c.state === "running" || c.state === "paused");
+  $("runOpenNow").hidden = !(live && c.next);
+  $("runNew").hidden = (c.state === "running" || c.state === "paused");
+  clearTimeout(runTimer);
+  runTimer = setTimeout(drawRun, 10000);
+}
+async function runControl(what) {
+  $("runMsg").textContent = "…";
+  const r = await send({ type: "hunt-campaign-control", what });
+  $("runMsg").textContent = r && r.ok ? "" : "could not do that: " + ((r && r.error) || "no answer");
+  drawRun(); refresh(false);
+}
+$("runPause").onclick = () => runControl("pause");
+$("runResume").onclick = () => runControl("resume");
+$("runStop").onclick = () => { if (confirm("Stop the campaign?\n\nEverything still to come is taken off the schedule. What has already gone out stays sent.")) runControl("stop"); };
+$("runNew").onclick = () => { runShow(false); $("campaignPanel").hidden = false; $("campaignPanel").scrollIntoView({ behavior: "smooth", block: "center" }); };
+$("runOpenNow").onclick = async () => {
+  const r = await send({ type: "hunt-campaign-status" });
+  const n = r && r.running && r.running.next;
+  if (!n) return;
+  const row = (await send({ type: "hunt-schedule-list" })).rows.find((x) => x.state === "waiting");
+  if (!row) return;
+  $("runOpenNow").disabled = true; $("runOpenNow").textContent = "opening…";
+  await send({ type: "hunt-schedule-run", id: row.id, kind: row.kind });
+  $("runOpenNow").disabled = false; $("runOpenNow").textContent = "Open the next one now";
+  drawRun();
 };
+$("openCampaign").onclick = () => runShow($("runView").hidden);
+// the button says what the campaign is doing, so it is never hidden state
+async function campChip() {
+  const r = await send({ type: "hunt-campaign-status" });
+  const c = r && r.running;
+  if (!c || c.state === "stopped" || c.state === "done") { $("openCampaign").textContent = "Campaign"; $("openCampaign").style.color = ""; return; }
+  $("openCampaign").textContent = c.state === "paused"
+    ? `Campaign · paused ${c.dmsSent}/${c.plannedDms}`
+    : `Campaign · ${c.dmsSent}/${c.plannedDms}${c.nextAt ? " · next " + clockOf(c.nextAt) : ""}`;
+  $("openCampaign").style.color = c.state === "paused" ? "#e6c76b" : "#7ee29a";
+}
+window.addEventListener("hashchange", () => { if (location.hash === "#campaign") runShow(true); });
 send({ type: "hunt-campaign-get" }).then((c) => {
   if (!c) return;
   $("kDms").value = c.dms; $("kRatio").value = c.ratio; $("kFrom").value = c.fromHour; $("kTo").value = c.toHour;
@@ -1064,7 +1165,7 @@ $("planGo").onclick = async () => {
   $("planMsg").textContent = `on the schedule: ${r.dms} DMs and ${r.replies} public comments, first at ${new Date(r.firstAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, last at ${new Date(r.lastAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   $("planMsg").style.color = "#7ee29a";
   await refresh(false);
-  showTable("schedule");
+  runShow(true);                       // straight to the campaign, not to a table of rows
 };
 let dropped = null;
 $("dropHide").onclick = () => { $("drop").hidden = true; dropped = null; };
@@ -1299,7 +1400,8 @@ document.addEventListener("keydown", (e) => {
   updBackground();
   inboxBadge();
   setInterval(inboxBadge, 20000);
-  showTable("queue");                       // the list first, the card when you pick one
+  if (location.hash === "#campaign") runShow(true);   // its own URL, opened straight to
+  else showTable("queue");                  // the list first, the card when you pick one
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();

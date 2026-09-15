@@ -123,6 +123,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-campaign-status") { campaignStatus().then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-campaign-control") { campaignControl(msg.what).then(reply); return true; }
   if (msg.type === "hunt-campaign-plan") { campaignPlan(msg.opts || {}).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-campaign-start") { campaignStart(msg.opts || {}).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-campaign-set") { chrome.storage.local.set({ campaign: msg.campaign || {} }).then(() => reply({ ok: true })); return true; }
@@ -1037,18 +1039,101 @@ async function campaignPlan(opts = {}) {
 
 // Take a plan and put it on the schedule. The plan is recomputed here rather
 // than trusted from the page, so nothing can be tampered with in between.
+// Every line it creates carries the campaign's id, which is what makes a
+// campaign a thing you can watch, pause and stop rather than a pile of rows.
 async function campaignStart(opts = {}) {
   const plan = await campaignPlan(opts);
   if (!plan.rows.length) return { ok: false, error: "nothing in the queue to schedule" };
   const st = await huntGet();
   const list = st.schedule || [];
+  const cid = "c" + Date.now().toString(36);
   const added = [];
   for (const r of plan.rows) {
-    if (r.reply) added.push({ id: r.id, at: r.replyAt, kind: "reply" });
-    added.push({ id: r.id, at: r.dmAt, kind: "dm" });
+    if (r.reply) added.push({ id: r.id, at: r.replyAt, kind: "reply", cid });
+    added.push({ id: r.id, at: r.dmAt, kind: "dm", cid });
   }
   await huntSet({ schedule: [...list, ...added].sort((a, b) => a.at - b.at).slice(-400) });
-  return { ok: true, dms: plan.dms, replies: plan.replies, firstAt: plan.firstAt, lastAt: plan.lastAt, gapMin: plan.gapMin };
+  await chrome.storage.local.set({ campaignRun: {
+    id: cid, startedAt: Date.now(), state: "running",
+    settings: plan.settings, postIds: plan.rows.map((r) => r.id),
+    plannedDms: plan.dms, plannedReplies: plan.replies,
+    firstAt: plan.firstAt, lastAt: plan.lastAt, gapMin: plan.gapMin, pausedAt: 0,
+  } });
+  return { ok: true, cid, dms: plan.dms, replies: plan.replies, firstAt: plan.firstAt, lastAt: plan.lastAt, gapMin: plan.gapMin };
+}
+
+// What the campaign is doing right now, as one object: no thread list, no
+// table, just the run.
+async function campaignStatus() {
+  const { campaignRun = null } = await chrome.storage.local.get(["campaignRun"]);
+  if (!campaignRun) return { ok: true, running: null };
+  const st = await huntGet();
+  const rows = (st.schedule || []).filter((x) => x.cid === campaignRun.id);
+  const now = Date.now();
+  const line = (x) => {
+    const p = st.posts[x.id] || {};
+    const sent = x.kind === "reply" ? p.repliedAt : p.dmAt;
+    let state = x.state === "opened" && sent ? "sent" : (x.state || "waiting");
+    let why = x.reason || "";
+    if (state === "waiting" && (p.act || !p.id)) {
+      state = "dropped";
+      why = !p.id ? "the post is gone" : p.cancelledBy === "ai" ? (p.cancelReason || "not a fit") : p.act === "not_relevant" ? "you marked it not relevant" : "you skipped it";
+    }
+    if (state === "cancelled" || state === "gone") state = "dropped";
+    return { kind: x.kind, at: x.at, state, why, author: p.author || "", sub: p.sub || "", title: p.title || "", sentAt: sent || x.sentAt || 0, id: x.id };
+  };
+  const all = rows.map(line);
+  const of = (kind, state) => all.filter((x) => x.kind === kind && x.state === state).length;
+  const waiting = all.filter((x) => x.state === "waiting").sort((a, b) => a.at - b.at);
+  const open = all.filter((x) => x.state === "opened");
+  const done = all.filter((x) => x.state === "sent").sort((a, b) => b.sentAt - a.sentAt);
+  const dropped = all.filter((x) => x.state === "dropped");
+  const live = campaignRun.state === "running" && waiting.length > 0;
+  // nothing left to open: the run is over
+  if (campaignRun.state === "running" && !waiting.length && !open.length) {
+    campaignRun.state = "done"; campaignRun.doneAt = campaignRun.doneAt || now;
+    await chrome.storage.local.set({ campaignRun });
+  }
+  return {
+    ok: true,
+    running: {
+      ...campaignRun,
+      live,
+      dmsSent: of("dm", "sent"), dmsWaiting: of("dm", "waiting"), dmsOpen: of("dm", "opened"), dmsDropped: of("dm", "dropped"),
+      repliesSent: of("reply", "sent"), repliesWaiting: of("reply", "waiting"), repliesDropped: of("reply", "dropped"),
+      nextAt: waiting.length ? waiting[0].at : 0,
+      next: waiting.length ? { author: waiting[0].author, sub: waiting[0].sub, title: waiting[0].title, kind: waiting[0].kind, at: waiting[0].at } : null,
+      openNow: open.map((x) => ({ author: x.author, kind: x.kind, at: x.openedAt || x.at })),
+      recent: done.slice(0, 8).map((x) => ({ author: x.author, kind: x.kind, at: x.sentAt })),
+      droppedList: dropped.slice(0, 8).map((x) => ({ author: x.author, why: x.why })),
+      people: campaignRun.postIds.length,
+    },
+  };
+}
+async function campaignControl(what) {
+  const { campaignRun = null } = await chrome.storage.local.get(["campaignRun"]);
+  if (!campaignRun) return { ok: false, error: "no campaign is running" };
+  const st = await huntGet();
+  const list = st.schedule || [];
+  const now = Date.now();
+  if (what === "pause") {
+    campaignRun.state = "paused"; campaignRun.pausedAt = now;
+  } else if (what === "resume") {
+    // everything still to come shifts by however long it was paused
+    const by = campaignRun.pausedAt ? now - campaignRun.pausedAt : 0;
+    for (const x of list) if (x.cid === campaignRun.id && !x.state) x.at += Math.max(0, by);
+    campaignRun.state = "running"; campaignRun.pausedAt = 0;
+    await huntSet({ schedule: list });
+  } else if (what === "stop") {
+    const keep = list.filter((x) => !(x.cid === campaignRun.id && !x.state));
+    await huntSet({ schedule: keep });
+    campaignRun.state = "stopped"; campaignRun.doneAt = now;
+  } else if (what === "clear") {
+    await chrome.storage.local.remove("campaignRun");
+    return { ok: true, cleared: true };
+  } else return { ok: false, error: "unknown control" };
+  await chrome.storage.local.set({ campaignRun });
+  return { ok: true, state: campaignRun.state };
 }
 
 // Start again. The posts are thrown away so the next sweep brings the whole
@@ -1180,6 +1265,10 @@ async function scheduleTick() {
   const due = list.filter((x) => !x.state && x.at <= now).sort((a, b) => a.at - b.at)[0];
   if (!due) return;
   const save = async () => { await huntSet({ schedule: list }); };
+  if (due.cid) {
+    const { campaignRun = null } = await chrome.storage.local.get(["campaignRun"]);
+    if (campaignRun && campaignRun.id === due.cid && campaignRun.state !== "running") { due.at = now + 120000; return save(); }
+  }
   const p = st.posts[due.id];
   if (!p || p.act) { due.state = "gone"; due.reason = p ? "you skipped it" : "the post is no longer in the database"; return save(); }
   if (due.kind === "reply" && p.repliedAt) { due.state = "done"; return save(); }
