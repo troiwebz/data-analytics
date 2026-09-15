@@ -201,6 +201,8 @@ function aiStatus(p) {
   }
   if (aiBusy === p.id) { const s = Math.round((Date.now() - aiStart) / 1000); el.textContent = (eng === "chrome" ? `Chrome is writing for this post… ${s}s (on-device is slow, usually 1–2 min)` : `Claude is writing for this post… ${s}s`); el.style.color = "#e6c76b"; return; }
   if (aiErr[p.id]) { el.textContent = "AI failed: " + aiErr[p.id] + " — showing templates"; el.style.color = "#ff8a65"; return; }
+  // under "never drop anything" the doubt is kept and shown, not acted on
+  if (p.ai && p.ai.fit === "no") { el.textContent = "Claude thinks this one is not a fit: " + (p.ai.fit_reason || "no reason given") + " — written anyway, your call"; el.style.color = "#e6c76b"; return; }
   el.textContent = "";
 }
 async function aiWrite(force) {
@@ -544,7 +546,7 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$(
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), autoWrite: $("cAuto").checked, dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
+  profile = { ...(config.profile || {}), autoWrite: $("cAuto").checked, dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, fitStrict: $("cFit").value || "strict", name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -972,6 +974,8 @@ $("undoBulk").onclick = async () => {
   $("sPoll").textContent = `put ${(r && r.n) || 0} back in the queue`;
   await refresh(false);
 };
+$("cFit").innerHTML = FIT_MODES.map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
+$("cFit").onchange = () => saveSetup(true);
 $("sSkippedBtn").onclick = () => showTable("skipped");
 async function doReset(mode) {
   const all = mode === "all";
@@ -1154,6 +1158,7 @@ document.addEventListener("keydown", (e) => {
   $("cBudget").value = ((Number(profile.aiBudgetCents) > 0 ? profile.aiBudgetCents : 100) / 100).toFixed(2); $("cPolish").checked = profile.aiPolish !== false;
   $("cLinks").checked = !!profile.dmLinks;
   $("cAuto").checked = !!profile.autoWrite;
+  $("cFit").value = FIT_MODES.some((m) => m.key === profile.fitStrict) ? profile.fitStrict : "strict";
   $("cGapMin").value = profile.dmGapMin || 60; $("cGapMax").value = profile.dmGapMax || 180; $("cDmCap").value = profile.dmCap || 25;
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";

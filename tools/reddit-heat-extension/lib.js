@@ -1475,6 +1475,25 @@ HEAT.huntTitleLine = function (p, max = 100) {
   return t;
 };
 
+// How hard the writer is allowed to veto a post. The veto is cheap insurance
+// against DMing someone who could never say yes, but it is a judgement call,
+// so it is yours to set.
+HEAT.FIT_MODES = [
+  { key: "strict", label: "Drop anyone who is not a founder looking for a partner (default)" },
+  { key: "loose", label: "Only drop the obvious ones: job ads, people offering themselves, students" },
+  { key: "off", label: "Never drop anything, write every post and let me decide" },
+];
+HEAT.fitRule = function (profile = {}) {
+  const mode = HEAT.FIT_MODES.some((m) => m.key === profile.fitStrict) ? profile.fitStrict : "strict";
+  if (mode === "off") {
+    return { mode, text: `FIRST, DECIDE FIT. Set fit = "yes" unless the post is plainly not a person at all (deleted, spam, a bot). The operator reads every one of these themselves, so do not filter for them; put any doubt in fit_reason instead and still write the message properly.` };
+  }
+  if (mode === "loose") {
+    return { mode, text: `FIRST, DECIDE FIT. Only set fit = "no" for the clear non-starters: the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "what I bring"); it is a salaried job ad; it is a student exercise with no path to anyone being paid; or it is spam. Everything else is "yes", including agencies, service businesses, side projects, and people whose ask is a different kind of partner than we usually take: a team that can build and share the costs is plausibly useful to them, and the operator decides. Put your doubt in fit_reason.` };
+  }
+  return { mode, text: `FIRST, DECIDE FIT. We only want founders who own an idea or product and are looking for a co-founder to build or grow it. Set fit = "no" and explain in fit_reason when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "ideal fit:", "what I bring"), is recruiting for a salaried job, is selling a service, is a student project with no path to any income, or is asking for something we do not do. When fit is "no", still fill the other fields briefly, but nobody will read them.` };
+};
+
 HEAT.huntVars = function (p, profile = {}) {
   const stage = p.stage;
   const stageLine = p.stage === "revenue" ? "Since you already have revenue, you're in a much stronger position than most people posting this, and you can almost certainly pay for execution instead of trading equity for it."
@@ -1597,7 +1616,7 @@ HEAT.huntAiPrompt = function (p, profile = {}, opts = {}) {
   const offerShort = (HEAT.HUNT_OFFER_SHORT[HEAT.SHORT_ROLE(p)] || HEAT.HUNT_OFFER_SHORT.unclear)({ thing: m.thing, deal: m.deal });
   const system = `You write Reddit replies for ${profile.name || "the user"}${profile.role ? ", " + profile.role : ""}, who answers co-founder posts and comes in AS a co-founder, but on a split of income and expenses instead of equity (the deal shape: ${m.shape.label}). He brings his own small team with him. The person you are writing to posted on Reddit asking for a co-founder. You ARE offering to be that co-founder — on those terms, never for equity alone and never for free. The public reply gives ONE genuinely useful, specific line for their situation. The DM is an INTRODUCTION, not a letter: what you noticed in their post, one specific useful thought, how we work (the HOW WE WORK text below, adapted), the two questions — then stop. Never pitch, never use marketing words (leverage, unlock, elevate, game-changer, seamless), never open with a compliment, never say "great post" or "I'd love to". Write like one founder talking to another over coffee: direct, plain, warm, specific.
 
-FIRST, DECIDE FIT. We only want founders who own an idea or product and are looking for a co-founder to build or grow it. Set fit = "no" and explain in fit_reason when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer ("available", "looking to join", "ideal fit:", "what I bring"), is recruiting for a salaried job, is selling a service, is a student project with no path to any income, or is asking for something we do not do. When fit is "no", still fill the other fields briefly, but nobody will read them.
+${HEAT.fitRule(profile).text}
 
 WORK IN THIS ORDER. Step 1: fill the CONCEPT card from the post alone, quoting two or three of their phrases verbatim. Step 2: pick the concept type and take ONE move from the PLAYBOOK for that type; adapt it to their product, stage and numbers — that adapted move is the "useful thought" in the replies. Step 3: write, building every sentence from the card.
 
@@ -1964,7 +1983,7 @@ HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
   const sh = HEAT.dealShape({ ...HEAT.DEAL_DEFAULT, ...(profile.deal || {}) });
   const system = `You read one Reddit post from a founder looking for a co-founder and fill in short slots that a message is built from. The message answers as a co-founder candidate whose terms are a split of income and expenses rather than equity. You never write the whole message and you never mention the terms — that text already exists. Your job is only the parts that must come from THIS post.
 
-FIRST, DECIDE FIT. fit = "no" when the poster is offering THEMSELVES as a co-founder, CTO, developer or marketer, is recruiting for a salaried job, is selling a service, or is a student project with no path to paying anyone.
+${HEAT.fitRule(profile).text}
 
 WHERE THEY ARE MATTERS. When the post names a city, a country or a local market, make ONE of the two points local: the payment rail everyone there uses, the rule that applies there, the platform that owns that market, how customers there actually buy, what hiring or pricing is really like. Never "the Indian market is growing" or anything a brochure would say.
 

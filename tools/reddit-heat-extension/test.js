@@ -670,3 +670,22 @@ console.log("no article on the fallback: ok");
   assert.ok(/Never name the subreddit/.test(H.huntAiPrompt(named, { name: "Noah" }).system), "the full letter forbids it");
 }
 console.log("openings: ok");
+
+// How hard the writer may veto is a setting, and it reaches both prompts.
+{
+  const p = { id: "ag", sub: "cofounderhunt", title: "Looking for an Agency / Sales Partner in Australia", body: "we are a dev agency and want someone to sell for us" };
+  const seen = {};
+  for (const mode of ["strict", "loose", "off", undefined, "nonsense"]) {
+    const prof = { name: "Noah", fitStrict: mode };
+    const rule = H.fitRule(prof);
+    seen[String(mode)] = rule.mode;
+    assert.ok(H.huntSlotPrompt(p, prof, {}).system.includes(rule.text), "the slot prompt carries the rule for " + mode);
+    assert.ok(H.huntAiPrompt(p, prof).system.includes(rule.text), "the full letter carries the rule for " + mode);
+  }
+  assert.deepStrictEqual(seen, { strict: "strict", loose: "loose", off: "off", undefined: "strict", nonsense: "strict" }, "anything unknown falls back to strict");
+  assert.ok(/only want founders/i.test(H.fitRule({ fitStrict: "strict" }).text));
+  assert.ok(/clear non-starters/i.test(H.fitRule({ fitStrict: "loose" }).text));
+  assert.ok(/Set fit = "yes" unless/.test(H.fitRule({ fitStrict: "off" }).text));
+  assert.deepStrictEqual(H.FIT_MODES.map((m) => m.key), ["strict", "loose", "off"]);
+}
+console.log("how strict the veto is: ok");

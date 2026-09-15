@@ -150,7 +150,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "inbox-terms") { (async () => { const { inbox = {} } = await chrome.storage.local.get(["inbox"]); await inboxSet({ deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}), ...(msg.deal || {}) }, dealV: Date.now() }); reply({ ok: true }); })(); return true; }
   if (msg.type === "inbox-plan") { inboxSet({ plan: msg.plan || "" }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "inbox-prompt") { (async () => { const st = await inboxGet(); const t = st.threads[msg.id]; if (!t) return reply(null); const hunt = await huntGet(); const { config = {} } = await chrome.storage.local.get(["config"]); reply(inboxAiPrompt(t, t.postId ? hunt.posts[t.postId] : null, { ...(config.profile || {}), deal: st.deal }, st.plan || INBOX_PLAN_DEFAULT)); })(); return true; }
-  if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); const { inbox: ib = {} } = await chrome.storage.local.get(["inbox"]); const clean = huntAiClean(msg.ai); if (!clean || !clean.public_reply) return reply({ ok: false, error: clean && clean.tooLong ? "the reply line is over 40 words" : "failed the checks (needs a reply line and both DMs)" }); if (clean.fit === "no") { p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = clean.fit_reason || "not a fit"; await huntSet({ posts: st.posts }); return reply({ ok: false, cancelled: true, reason: p.cancelReason }); } const { config: cfg = {} } = await chrome.storage.local.get(["config"]); const sentP = Array.isArray(st.sent) ? st.sent : []; /* the public line is always ours: one short line, free, never repeated */ clean.public_reply = huntPublicLine(p, { ...(cfg.profile || {}) }, { avoid: sentP.map((x) => x.pl).filter(Boolean) }); p.ai = { ...clean, at: Date.now(), model: msg.model || "on-device", cents: 0, dealV: ib.dealV || 0 }; await huntSet({ posts: st.posts, sent: [{ at: Date.now(), pl: clean.public_reply }, ...sentP].slice(0, 40) }); reply({ ok: true, ai: p.ai }); })(); return true; }
+  if (msg.type === "hunt-ai-save") { (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p) return reply({ ok: false }); const { inbox: ib = {}, config: cfg0 = {} } = await chrome.storage.local.get(["inbox", "config"]); const clean = huntAiClean(msg.ai); if (!clean || !clean.public_reply) return reply({ ok: false, error: clean && clean.tooLong ? "the reply line is over 40 words" : "failed the checks (needs a reply line and both DMs)" }); if (clean.fit === "no" && HEAT_FIT((cfg0.profile || {})) !== "off") { p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = clean.fit_reason || "not a fit"; await huntSet({ posts: st.posts }); return reply({ ok: false, cancelled: true, reason: p.cancelReason }); } const { config: cfg = {} } = await chrome.storage.local.get(["config"]); const sentP = Array.isArray(st.sent) ? st.sent : []; /* the public line is always ours: one short line, free, never repeated */ clean.public_reply = huntPublicLine(p, { ...(cfg.profile || {}) }, { avoid: sentP.map((x) => x.pl).filter(Boolean) }); p.ai = { ...clean, at: Date.now(), model: msg.model || "on-device", cents: 0, dealV: ib.dealV || 0 }; await huntSet({ posts: st.posts, sent: [{ at: Date.now(), pl: clean.public_reply }, ...sentP].slice(0, 40) }); reply({ ok: true, ai: p.ai }); })(); return true; }
   if (msg.type === "hunt-ai-test") { (async () => {
       const key = await huntAiKey();
       if (!key) return reply({ ok: false, error: "no key saved yet" });
@@ -554,6 +554,8 @@ async function exportCsv(posts, snaps) {
 const HUNT_ALARM = "hunt-poll";
 const HUNT_KEEP_DAYS = 14;
 
+// "strict" | "loose" | "off" - how hard the writer may veto a post, from the profile
+function HEAT_FIT(profile) { return fitRule(profile || {}).mode; }
 async function huntGet() {
   const { hunt = {} } = await chrome.storage.local.get(["hunt"]);
   return {
@@ -1282,7 +1284,8 @@ async function huntAiWrite(id, force) {
   }
   if (!ai) return { ok: false, error: "the model's reply failed the checks (two lines, no links, no prices, lengths)" };
   // The AI's cancel: not a founder who would hire a team -> gone, with the reason.
-  if (ai.fit === "no") {
+  // Switched off under "never drop anything", where the doubt is yours to read.
+  if (ai.fit === "no" && HEAT_FIT(profile) !== "off") {
     p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = ai.fit_reason || "not a fit";
     await huntSet({ posts: st.posts });
     return { ok: false, cancelled: true, reason: p.cancelReason };
@@ -1367,7 +1370,7 @@ async function huntSlotWrite(id, force) {
   if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this post" };
   const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
   let slots; try { slots = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
-  if (slots.fit === "no") {
+  if (slots.fit === "no" && HEAT_FIT(profile) !== "off") {
     p.act = "not_relevant"; p.actAt = Date.now(); p.cancelledBy = "ai"; p.cancelReason = String(slots.fit_reason || "not a fit").slice(0, 200);
     await huntSet({ posts: st.posts });
     return { ok: false, cancelled: true, reason: p.cancelReason };

@@ -279,6 +279,11 @@
         <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cAuto"> write every card as it comes up, without asking (costs money on posts you skip)</label>
         </div>
+        <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+          <label class="foot" style="margin:0">When Claude reads the post and thinks it is not a fit</label>
+          <select id="cFit" style="min-width:320px"></select>
+          <span class="foot" style="margin:0">Dropped posts are never deleted: they go to "Set aside", with the reason, and can be put back.</span>
+        </div>
         <div class="row" style="margin-top:8px;gap:14px;flex-wrap:wrap">
           <label class="foot" style="margin:0;display:flex;gap:6px;align-items:center">Daily budget $<input type="text" id="cBudget" placeholder="1.00" style="width:64px"> <span>— when it is used up, cards fall back to templates until tomorrow</span></label>
           <span class="foot" style="margin:0">Template + AI slots on Sonnet costs about $0.005 a post, so twenty posts is roughly $0.10. The full writer on Opus thinks before it answers and costs four to eight times as much. Click "AI today" in the header to see every call.</span>
