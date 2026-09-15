@@ -1,8 +1,16 @@
 // Claude, called straight from the extension.
 //
-// The key lives in chrome.storage.local on this machine. It is never written
-// into the extension folder, never committed, and never sent anywhere except
-// api.anthropic.com. Nothing else is needed: no server, no Apps Script.
+// The key is never written into the extension folder, never committed, and
+// never sent anywhere except api.anthropic.com. Nothing else is needed: no
+// server, no Apps Script.
+//
+// It is kept in two places at once. chrome.storage.local is the working copy.
+// chrome.storage.sync holds a mirror, which belongs to the Chrome profile
+// rather than to this copy of the extension, so the key survives a reload, a
+// `git pull`, removing and re-adding the folder, loading it from a new path
+// (which gives the extension a new id and an empty local store), and a fresh
+// machine signed into the same Chrome. getAi() re-fills local from the mirror
+// whenever local has come up empty.
 //
 // Cost is the whole design here:
 //   - Claude writes ONLY the technical bullets. Greeting, offer and sign-off
@@ -37,14 +45,36 @@ export const AI_DEFAULTS = {
   usage: {}           // { day, calls, leads, in, cached, out }
 };
 
+/** Fields worth mirroring: settings, not per-machine counters. */
+const MIRRORED = ['key', 'model', 'budget', 'enabled'];
+const pick = (o) => Object.fromEntries(MIRRORED.filter((k) => k in o).map((k) => [k, o[k]]));
+
 export async function getAi() {
   const { ai } = await chrome.storage.local.get('ai');
-  return { ...AI_DEFAULTS, ...(ai || {}) };
+  const local = { ...AI_DEFAULTS, ...(ai || {}) };
+  if (local.key) return local;
+
+  // Local came up empty: a new extension id, a cleared profile, a fresh
+  // machine. Restore from the profile mirror rather than asking again.
+  let mirror = {};
+  try { ({ aiSettings: mirror = {} } = await chrome.storage.sync.get('aiSettings')); }
+  catch { return local; }                       // sync off or unavailable
+  if (!mirror.key) return local;
+  const restored = { ...local, ...pick(mirror) };
+  await chrome.storage.local.set({ ai: restored });
+  // The flag is for this reply only — it says "just now", not "at some point".
+  return { ...restored, restored: true };
 }
 
 async function setAi(patch) {
   const next = { ...(await getAi()), ...patch };
+  delete next.restored;
   await chrome.storage.local.set({ ai: next });
+  // Best effort: the working copy is already saved, so a sync failure (quota,
+  // sync switched off) must not fail the save.
+  if (MIRRORED.some((k) => k in patch)) {
+    try { await chrome.storage.sync.set({ aiSettings: pick(next) }); } catch { /* local is enough */ }
+  }
   return next;
 }
 
@@ -82,6 +112,7 @@ export async function aiStatus() {
     callsToday: u.calls || 0,
     perLead: u.leads ? round(spent / u.leads, 5) : 0,
     overBudget: (Number(ai.budget) || 0) > 0 && spent >= (Number(ai.budget) || 0),
+    restored: !!ai.restored,
     local: true
   };
 }
@@ -100,7 +131,11 @@ export async function saveKey(key) {
   return aiStatus();
 }
 
-export async function clearKey() { await setAi({ key: '' }); return aiStatus(); }
+export async function clearKey() {
+  await setAi({ key: '' });
+  try { await chrome.storage.sync.remove('aiSettings'); } catch { /* nothing mirrored */ }
+  return aiStatus();
+}
 export async function setBudget(v) {
   const n = Number(v);
   if (!isFinite(n) || n < 0) throw new Error('Enter a number, for example 0.25.');
@@ -235,4 +270,30 @@ async function recordUsage(usage, leadCount) {
     cached: prev.cached + (usage.cache_read_input_tokens || 0),
     out: prev.out + (usage.output_tokens || 0)
   } });
+}
+
+/**
+ * One real call on a sample thread, so "is this actually Claude?" can be
+ * answered by looking rather than by trusting. Costs a fraction of a cent.
+ */
+export async function testCall() {
+  const before = await aiStatus();
+  if (!before.configured) return { ok: false, error: 'No key stored. Paste one and press Save key first.' };
+  const started = Date.now();
+  const { specifics, note } = await writeSpecifics([{
+    threadId: 'test',
+    category: 'seo',
+    title: 'Need local citation building for a Dubai clinic, also ranking in the UK',
+    snippet: 'We have a clinic in Dubai and a second location in Manchester. Need consistent NAP '
+           + 'across directories that actually get indexed locally, plus GMB cleanup. Budget $400.'
+  }]);
+  const after = await aiStatus();
+  return {
+    ok: !!specifics.test,
+    bullets: specifics.test || [],
+    note,
+    ms: Date.now() - started,
+    model: after.model,
+    cost: Math.round((after.spentToday - before.spentToday) * 1e6) / 1e6
+  };
 }

@@ -82,14 +82,17 @@ function showAi(r, err) {
   if (err) { el.innerHTML = esc(err); el.style.color = '#dc2626'; return; }
   el.style.color = '#334155';
   if (!r?.configured) {
-    el.style.color = '#64748b';
-    el.textContent = 'No key stored yet. Paste one above and press Save key. Until then replies use the built-in rules.';
+    el.style.color = '#b45309';
+    el.innerHTML = '<b>No key stored.</b> Replies are being written from the built-in rules, not by Claude. ' +
+                   'Paste a key above and press Save key.';
     return;
   }
   if (r.budget != null) $('aiBudget').value = r.budget;
   const money = (n) => '$' + Number(n || 0).toFixed(4);
   el.innerHTML =
-    `Key stored on this Mac (<b>${esc(r.hint)}</b>) · model <b>${esc(r.model)}</b> · ` +
+    `<span style="color:#16a34a">✓ Key stored</span> (<b>${esc(r.hint)}</b>) · kept in this Chrome profile, so it survives updates` +
+    (r.restored ? ' <span class="hint">· restored from your Chrome profile after the extension was reloaded</span>' : '') + '<br>' +
+    `Model <b>${esc(r.model)}</b> · ` +
     (r.enabled ? '<span style="color:#16a34a">active</span>' : '<span style="color:#dc2626">switched off</span>') + '<br>' +
     `Today: <b>${r.leadsToday || 0}</b> leads in ${r.callsToday || 0} call(s) · spent <b>${money(r.spentToday)}</b>` +
     (r.perLead ? ` (${money(r.perLead)} per lead)` : '') + '<br>' +
@@ -137,6 +140,27 @@ $('saveBudget').addEventListener('click', async () => {
 $('clearKey').addEventListener('click', async () => {
   if (!confirm('Remove the stored Anthropic key? Replies fall back to the built-in rules.')) return;
   showAi(await ai('ai-clear-key'));
+});
+
+$('testAi').addEventListener('click', async () => {
+  const out = $('aiTest');
+  $('testAi').disabled = true; $('testAi').textContent = 'Asking Claude…';
+  const r = await ai('ai-test');
+  if (r?.ok) {
+    out.innerHTML = '<div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;padding:10px 12px">' +
+      `<b style="color:#16a34a">Claude answered in ${(r.ms / 1000).toFixed(1)}s</b> ` +
+      `<span class="hint">${esc(r.model)} · this call cost $${Number(r.cost).toFixed(5)}</span>` +
+      '<div class="hint" style="margin:8px 0 4px">Sample thread: <i>"Need local citation building for a Dubai clinic, also ranking in the UK"</i></div>' +
+      '<ul style="margin:4px 0 0 18px;padding:0;line-height:1.6">' +
+        r.bullets.map((b) => `<li>${esc(b)}</li>`).join('') + '</ul>' +
+      '<div class="hint" style="margin-top:8px">These are the lines Claude puts in the middle of your reply and PM. ' +
+      'If they name Dubai, the UK, NAP or GMB, they were written for this thread, not picked from a template.</div></div>';
+  } else {
+    out.innerHTML = '<div style="border:1px solid #fecaca;background:#fef2f2;border-radius:8px;padding:10px 12px;color:#b91c1c">' +
+      esc(r?.error || r?.note || 'Claude did not answer.') + '</div>';
+  }
+  $('testAi').disabled = false; $('testAi').textContent = 'Test Claude now';
+  refreshAi();
 });
 
 getConfig().then(fill).then(refreshAi);

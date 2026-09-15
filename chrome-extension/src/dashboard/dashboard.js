@@ -176,8 +176,17 @@ function detail(l, staged, cfg) {
   const done = ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status);
   let dm = editedDm[l.threadId] ?? l.dm;
   if (dm == null) { try { dm = renderDm(l, cfg); } catch { dm = ''; } }
+  // Say plainly who wrote the technical lines, so the drafts can be trusted
+  // or challenged without opening the log.
+  const byClaude = Array.isArray(l.aiSpecifics) && l.aiSpecifics.length;
+  const who = byClaude
+    ? `<div class="sub" style="margin-bottom:8px;color:#16a34a">Claude wrote the ${l.aiSpecifics.length} technical line(s) in this draft:
+        ${l.aiSpecifics.map((b) => `<span style="opacity:.85">"${esc(b)}"</span>`).join(' ')}</div>`
+    : `<div class="sub" style="margin-bottom:8px;color:#b45309">Built-in rules wrote this one, not Claude.
+        Add a key in Settings, then press "Rebuild drafts" to have Claude redo it.</div>`;
   return `<tr class="detail"><td colspan="${COLS.length}">
     ${l.snippet ? `<div class="snip">${esc(l.snippet)}</div>` : ''}
+    ${who}
     ${staged[l.threadId] ? '<div class="sub" style="margin-bottom:8px">⚡ armed in a background tab — Post now fires instantly</div>' : ''}
     <div class="cols">
       <div>
@@ -326,7 +335,9 @@ $('sync').addEventListener('click', () => busy('sync', 'Loading…', async () =>
 }));
 $('regen').addEventListener('click', () => busy('regen', 'Rebuilding…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
-  alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
+  alert(`Rebuilt ${r?.updated ?? 0} draft(s).` +
+    (r?.ai ? `\nClaude wrote fresh technical lines for ${r.ai} of them.` : '') +
+    (r?.pending ? `\n${r.pending} still on the built-in rules — add a Claude key in Settings, or the daily spend limit was reached.` : ''));
 }));
 $('backfill').addEventListener('click', async () => {
   if (!confirm('Record the last 48 hours of HAF threads? Nothing is sent to Telegram.')) return;

@@ -18,11 +18,47 @@ waste.
 That is the whole setup. The key is checked against Anthropic before it is
 stored, so a truncated paste is caught immediately.
 
-## Where the key lives
+## Where the key lives, and why it does not disappear
 
-In `chrome.storage.local` on this machine. Not in the extension folder, not in
-git, not in Google, not on any server. It is sent to `api.anthropic.com` and
-nowhere else. **Remove** in Settings deletes it.
+Two places at once:
+
+- **`chrome.storage.local`** — the working copy, belonging to this installed
+  extension.
+- **`chrome.storage.sync`** — a mirror belonging to your *Chrome profile*, not
+  to this copy of the extension.
+
+The mirror is what makes the key permanent. Local storage is emptied whenever
+Chrome decides the extension is a different extension, which happens if you
+remove and re-add the folder, or load it from a new path. When the extension
+starts and finds local empty, it refills it from the mirror. You will not be
+asked for the key again after a `git pull`, a reload, a reinstall, or on a
+second machine signed into the same Chrome.
+
+Not in the extension folder, not in git, not in Google Apps Script, not on any
+server of ours. It is sent to `api.anthropic.com` and nowhere else. **Remove**
+in Settings deletes both copies.
+
+### The key box always looks empty
+
+The **Anthropic API key** field is a place to paste a *new* key, not a display
+of the stored one, so it is blank every time the page opens. The line beneath it
+is the truth: `✓ Key stored (sk-ant-api0…XXXX)`.
+
+## Proving the replies are really Claude's
+
+Three ways, in increasing effort:
+
+1. **Settings -> Claude -> Test Claude now.** Makes one real call on a sample
+   Dubai/UK citations thread and prints the bullets it got back, with the time
+   taken and the exact cost. Costs about a tenth of a cent.
+2. **Open any lead on the dashboard.** Above the draft it says either
+   `Claude wrote the N technical line(s) in this draft:` followed by them, or
+   `Built-in rules wrote this one, not Claude.`
+3. **The log** at the bottom of the dashboard: `Claude wrote specifics for 3/3
+   lead(s)`, or the reason it stood down.
+
+A lead found *before* the key was saved keeps its built-in lines. Press
+**Rebuild drafts** to have Claude redo them.
 
 This is safe here because the extension is loaded from your own folder on your
 own Mac. If it were ever published to the Chrome Web Store the key would have to

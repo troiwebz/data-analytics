@@ -43,6 +43,8 @@
       <button id="saveKey" style="flex:0 0 auto">Save key</button>
       <button id="clearKey" class="sec" style="flex:0 0 auto">Remove</button>
     </div>
+    <p class="hint" style="margin:6px 0 0">The box above is always blank. It is a place to paste a new key,
+      not a display of the stored one. What is actually stored is shown below.</p>
     <label>Model <span class="hint">cheaper models cost less per lead; all three follow the same template</span></label>
     <div class="row">
       <select id="aiModel" style="max-width:260px"></select>
@@ -55,6 +57,11 @@
       <span style="flex:1"></span>
     </div>
     <div id="aiStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="testAi" class="sec" style="flex:0 0 auto">Test Claude now</button>
+      <span class="hint" style="align-self:center">Writes bullets for a sample thread so you can see the real output. Costs about $0.001.</span>
+    </div>
+    <div id="aiTest" style="margin-top:10px"></div>
   </div>
 
   <div class="c">

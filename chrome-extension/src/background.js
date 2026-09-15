@@ -17,7 +17,7 @@ import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
-import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled } from './claude.js';
+import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, checkDmLimit, recordDm, log,
@@ -485,23 +485,43 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
         break;
       }
-      case 'regen': {                                // rebuild drafts/PM/card from current templates
+      case 'regen': {          // rebuild reply + PM from the current templates
         const cfg = await getConfig();
         const leads = await getLeads();
-        const fresh = msg.withAi ? await specificsFor(leads.filter((l) => !l.aiSpecifics).slice(0, 40), cfg) : {};
-        for (const [id, bullets] of Object.entries(fresh)) await updateLead(id, { aiSpecifics: bullets });
+
+        // Leads found before the key was added have no Claude lines. Fill those
+        // in first, newest first, so a rebuild after adding a key is worth doing.
+        const missing = leads.filter((l) => !l.aiSpecifics?.length && !['POSTED', 'SKIPPED'].includes(l.status));
+        let aiCount = 0;
+        if (cfg.aiSpecifics && missing.length) {
+          for (let i = 0; i < missing.length; i += 8) {
+            const fresh = await specificsFor(missing.slice(i, i + 8), cfg);
+            for (const [id, bullets] of Object.entries(fresh)) {
+              await updateLead(id, { aiSpecifics: bullets });
+              const lead = leads.find((l) => String(l.threadId) === String(id));
+              if (lead) lead.aiSpecifics = bullets;
+              aiCount++;
+            }
+            if (!Object.keys(fresh).length) break;   // stood down; stop asking
+          }
+        }
+
         let n = 0;
         for (const l of leads) {
+          const draft = renderReply(l, cfg);
           const dm = renderDm(l, cfg);
-          if (dm === l.dm) continue;
+          if (draft === l.draft && dm === l.dm) continue;
           const dmTitle = renderDmTitle(l, cfg);
-          const patch = { dm, dmTitle, dmUrl: dmUrl(l.author, dmTitle), dmLint: lintDraft(dm, cfg.compliance) };
+          const patch = {
+            draft, dm, dmTitle, dmUrl: dmUrl(l.author, dmTitle),
+            lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
+          };
           patch.card = buildCard({ ...l, ...patch });
           await updateLead(l.threadId, patch);
           n++;
         }
-        await log(`rebuilt PM drafts for ${n} lead(s)`);
-        sendResponse({ ok: true, updated: n });
+        await log(`rebuilt ${n} draft(s)` + (aiCount ? `, ${aiCount} with fresh Claude lines` : ''));
+        sendResponse({ ok: true, updated: n, ai: aiCount, pending: missing.length - aiCount });
         break;
       }
       case 'fill-thread': {                          // 📝 open the thread with the reply typed in
@@ -543,6 +563,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'ai-budget':   sendResponse(await setBudget(msg.budget).catch((e) => ({ error: e.message }))); break;
       case 'ai-model':    sendResponse(await setModel(msg.model).catch((e) => ({ error: e.message }))); break;
       case 'ai-enabled':  sendResponse(await setEnabled(msg.on)); break;
+      case 'ai-test':     sendResponse(await testCall().catch((e) => ({ ok: false, error: e.message }))); break;
       case 'check-update':  sendResponse(await checkForUpdate()); break;
       default:              sendResponse({ error: 'unknown command' });
     }
