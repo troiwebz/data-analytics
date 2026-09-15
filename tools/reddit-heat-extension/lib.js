@@ -1963,6 +1963,25 @@ HEAT.huntParseAnswers = function (text) {
 // no two DMs share the same style, the same sentences, or the same phrasing,
 // and each one is checked against the last ones you sent before it is shown.
 // ===========================================================================
+// The channels we actually deliver. Every plan should lead to one of them, but
+// which one is decided by the post, not by us: local SEO for a business with a
+// map pin, search ads where people already search for the thing, Meta for
+// demand that has to be created, short video where the product is watchable.
+// "none" exists so a pre-product post is not sold ads it cannot use yet.
+HEAT.CHANNELS = [
+  { key: "local_seo", label: "local SEO", when: "the customer is a business with an address or a service area - salons, gyms, clinics, dentists, plumbers, restaurants, agencies selling to them. Google Business Profile, map pack ranking, reviews, one landing page per area." },
+  { key: "google_ads_seo", label: "Google Ads and SEO", when: "people already search for this by name or by the problem it solves - B2B software, tools, professional services. High intent search ads first, then pages for the terms that convert." },
+  { key: "meta_ads", label: "Meta ads", when: "nobody is searching for it yet and the demand has to be created - consumer products, new categories, anything with a visual before and after. Facebook and Instagram ads to a cold audience." },
+  { key: "instagram_tiktok", label: "Instagram and TikTok", when: "the product is watchable and the buyer is a consumer or a creator - lifestyle, food, fitness, fashion, apps with a visible result. Short video organic first, paid after it works." },
+  { key: "none", label: "no channel yet", when: "there is nothing to send traffic to yet: no product, no landing page, or fewer than ten users. The first ten come by hand." },
+];
+HEAT.channelLabel = function (key) { const c = HEAT.CHANNELS.find((x) => x.key === key); return c ? c.label : ""; };
+HEAT.channelBlock = function () {
+  return `THE CHANNEL. Decide which of these the plan should lead to, from the post alone:\n`
+    + HEAT.CHANNELS.map((c) => `- ${c.key} (${c.label}): ${c.when}`).join("\n")
+    + `\nChoose the one that fits what they are actually selling and who buys it. Never pick a paid channel for someone who says they have no money. Never pick local SEO for a product with no geography. If it is too early for any of them, choose none.`;
+};
+
 HEAT.SLOT_SCHEMA = {
   type: "object",
   properties: {
@@ -1974,9 +1993,11 @@ HEAT.SLOT_SCHEMA = {
     question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
     points: { type: "array", items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
     phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
-    steps: { type: "array", items: { type: "string" }, description: "THREE short steps, each under 16 words, that you would take in the first two weeks on THIS product, in order. Concrete and checkable: who you would talk to, what you would put in front of them, what you would measure. Lower case start, no full stop, no numbering, no 'find a co-founder', no generic startup advice." },
+    steps: { type: "array", items: { type: "string" }, description: "THREE short steps, each under 16 words, that you would take in the first two weeks on THIS product, in order. Concrete and checkable: who you would talk to, what you would put in front of them, what you would measure. AT LEAST ONE of them must be the first real move on the channel you chose, named plainly (a Google Business Profile, a search campaign on the terms they would type, a Meta ad to a cold audience, a short video on their result). Lower case start, no full stop, no numbering, no 'find a co-founder', no generic startup advice." },
+    channel: { type: "string", enum: ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"], description: "Which marketing channel this product should be taken to first, decided from the post. See THE CHANNEL below." },
+    channel_reason: { type: "string", description: "Under 15 words: why that channel and not the others, in terms of THIS product and its buyer." },
   },
-  required: ["fit", "fit_reason", "product", "observation", "move", "question", "phrase", "points", "steps"],
+  required: ["fit", "fit_reason", "product", "observation", "move", "question", "phrase", "points", "steps", "channel", "channel_reason"],
   additionalProperties: false,
 };
 // ---- the long public reply ------------------------------------------------
@@ -1990,9 +2011,10 @@ HEAT.GUIDE_SCHEMA = {
     opener: { type: "string", description: "ONE sentence, under 25 words, that shows you read THIS post: the number they gave, the stage they are at, the constraint they named. No greeting, no compliment, no 'great question'." },
     points: { type: "array", items: { type: "string" }, description: "THREE to FIVE pieces of real, specific help for this exact post, in order of what matters. Each is one or two sentences, under 40 words, and must be usable this week by someone with no budget. Concrete: name the thing to do, to whom, and what to look at afterwards. No generic startup advice, no 'it depends', no mention of yourself, your team or any offer." },
     close: { type: "string", description: "ONE short sentence, under 20 words: the one thing that decides it. No offer, no pitch, no call to action about DMs." },
+    channel: { type: "string", enum: ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"], description: "Which marketing channel this product should be taken to first, decided from the post. See THE CHANNEL below." },
     hook: { type: "string", description: "ONE question, under 20 words, addressed to them, about the single detail that would change your advice: a number they did not give, a choice they have not made, what they tried already. It must be a question they will want to answer in public, specific to this post, and answerable in a line. Never 'does that help', never 'let me know', never about hiring or working together." },
   },
-  required: ["opener", "points", "close", "hook"],
+  required: ["opener", "points", "close", "hook", "channel"],
   additionalProperties: false,
 };
 HEAT.huntGuidePrompt = function (p, profile = {}) {
@@ -2007,7 +2029,10 @@ RULES
 - No links, no prices, no percentages.
 - No marketing words (leverage, unlock, seamless, game-changer), no compliments.
 - Specific to THIS post. If a sentence would fit any other startup, delete it.
-- Plain words. Short sentences. No dashes of any kind.`;
+- Plain words. Short sentences. No dashes of any kind.
+
+${HEAT.channelBlock()}
+- At least one of the points is the first real move on that channel, written as advice they can follow on their own today: what to set up, what to put in it, what to look at after a week. Never as something being offered. If you chose none, the points are about getting the first ten users by hand instead.`;
   const user = `THE POST
 Subreddit: r/${p.sub || "?"}
 Title: ${p.title || ""}
@@ -2074,6 +2099,9 @@ Then fill the slots. Rules for every slot:
 - Never promise free work, a free prototype, or a timeline you were not told.
 - No links, no prices, no percentages, anywhere.
 - Never name the subreddit. "Your post came up in r/cofounderhunt" reads like a scraper found them.
+
+${HEAT.channelBlock()}
+- Name the channel the way a person would, never as a service being sold: "a Google Business Profile and the map pack", "search ads on the terms they would type", "one Meta ad to a cold audience", "a short video of the before and after". Never "we offer", never "our SEO services", never a package or a price.
 - Plain words a busy person reads in one pass.`;
   const s = HEAT.huntSynopsis(p);
   const user = `THE POST
@@ -2379,6 +2407,8 @@ HEAT.huntSlotAssemble = function (p, profile = {}, slots = {}, opts = {}) {
     why: String(slots.observation || "").slice(0, 200),
     fit: slots.fit === "no" ? "no" : "yes",
     fit_reason: String(slots.fit_reason || "").slice(0, 200),
+    channel: HEAT.CHANNELS.some((c) => c.key === slots.channel) ? slots.channel : "",
+    channel_reason: String(slots.channel_reason || "").slice(0, 160),
     style: built.style,
     overlap: built.overlap,
     shingles: HEAT.dmShingles(built.text),

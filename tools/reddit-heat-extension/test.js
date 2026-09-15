@@ -769,7 +769,7 @@ console.log("the long DM is a list, not a wall: ok");
 {
   const p = { id: "gd", sub: "microsaas", author: "Jeet", title: "Left my SDE job to build an AI research agent", body: "could not market it, no paying user" };
   const pr = H.huntGuidePrompt(p, { name: "Noah" });
-  assert.deepStrictEqual(Object.keys(pr.schema.properties), ["opener", "points", "close", "hook"]);
+  assert.deepStrictEqual(Object.keys(pr.schema.properties), ["opener", "points", "close", "channel", "hook"]);
   assert.ok(/never mention yourself, a team/i.test(pr.system), "the prompt forbids the pitch");
   assert.ok(!/minItems|maxItems/.test(JSON.stringify(pr.schema)), "no array constraint the API refuses");
   const out = { opener: "Four years as an SDE and no paying user says the problem was never the building",
@@ -806,3 +806,32 @@ console.log("the long DM is a list, not a wall: ok");
   assert.strictEqual(H.huntGuideBuild({ opener: "x", points: [], close: "y" }, {}), "");
 }
 console.log("the detailed public reply: ok");
+// Every plan leads to a channel we can actually deliver, chosen from the post.
+{
+  assert.deepStrictEqual(H.CHANNELS.map((c) => c.key), ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"]);
+  assert.strictEqual(H.channelLabel("meta_ads"), "Meta ads");
+  assert.strictEqual(H.channelLabel("nonsense"), "");
+  const p = { id: "ch", sub: "startups", author: "Jane", title: "Looking for a co-founder for my salon booking SaaS", body: "three pilot salons" };
+  const slot = H.huntSlotPrompt(p, { name: "Noah" }, {});
+  const guide = H.huntGuidePrompt(p, { name: "Noah" });
+  for (const [what, pr] of [["the writer", slot], ["the public reply", guide]]) {
+    assert.ok(/THE CHANNEL/.test(pr.system), what + " is told to pick one");
+    for (const c of H.CHANNELS) assert.ok(pr.system.includes(c.when), what + " is told when " + c.key + " applies");
+    assert.deepStrictEqual(pr.schema.properties.channel.enum, ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"], what + " can only pick one of ours");
+    assert.ok(pr.schema.required.includes("channel"), what + " must pick one");
+  }
+  assert.ok(/never as something being offered|never as a service being sold/i.test(slot.system + guide.system), "and never sell it");
+  // it survives into the answer and onto the card
+  const slots = { fit: "yes", product: "salon booking SaaS", observation: "Three pilot salons is enough to know what renews",
+    points: ["salons churn when the owner stops seeing bookings", "the front desk decides adoption"],
+    steps: ["set up a Google Business Profile for each pilot salon", "put the before and after numbers on one page", "measure map pack position after a week"],
+    move: "call the three pilots", question: "q?", phrase: "", channel: "local_seo", channel_reason: "salons are found on the map" };
+  const out = H.huntSlotAssemble(p, { name: "Noah" }, slots, {});
+  assert.strictEqual(out.channel, "local_seo");
+  assert.strictEqual(out.channel_reason, "salons are found on the map");
+  assert.ok(/Google Business Profile/.test(out.dm_long), "the first move is in the DM: " + out.dm_long);
+  assert.deepStrictEqual(out.checks, [], "and it still passes the checks");
+  // a channel we do not offer is dropped rather than shown
+  assert.strictEqual(H.huntSlotAssemble(p, { name: "Noah" }, { ...slots, channel: "billboards" }, {}).channel, "");
+}
+console.log("every plan leads to a channel: ok");

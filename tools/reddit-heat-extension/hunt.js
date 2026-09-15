@@ -206,6 +206,8 @@ function aiStatus(p) {
     el.textContent = `written for this post by ${p.ai.model === "on-device" ? "Chrome, on-device" : p.ai.model === "claude-chrome" ? "Claude in Chrome" : p.ai.model === "template+slots" ? `Claude into your blueprint · ${p.ai.style} shape${p.ai.overlap !== undefined ? ` · ${Math.round(p.ai.overlap * 100)}% like your recent ones` : ""}` : "Claude"}${p.ai.polished ? " + polished" : ""}${p.ai.cents ? " · " + usd(p.ai.cents) : ""}${c && c.product ? " · about: " + c.product + (c.type ? " (" + c.type.replace("_", " ") + ")" : "") : p.ai.why ? " · built around: " + p.ai.why : ""}${p.ai.quoted && p.ai.quoted.length ? " · quotes them: “" + p.ai.quoted[0] + "”" : ""}`;
     el.style.color = p.ai.generic ? "#e6c76b" : "#7ee29a";
     if (p.ai.generic) el.textContent += " · none of their words quoted — read it before sending";
+    // which channel the plan leads to, so you can see it before you send
+    if (p.ai.channel) el.textContent += ` · plan leads to ${channelLabel(p.ai.channel) || p.ai.channel}${p.ai.channel_reason ? " (" + p.ai.channel_reason + ")" : ""}`;
     // both lengths are checked when they are written; say so, and say what failed
     const ck = Array.isArray(p.ai.checks) ? p.ai.checks : null;
     if (ck && ck.length) { el.textContent += " · CHECK: " + ck.join("; "); el.style.color = "#ff8a65"; }
