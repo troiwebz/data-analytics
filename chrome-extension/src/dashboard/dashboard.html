@@ -33,6 +33,9 @@
   th.on{color:var(--blue)} th.on .ar{opacity:1}
   td{border-bottom:1px solid #f1f5f9;padding:9px 10px;vertical-align:top}
   tr.r{cursor:pointer} tr.r:hover td{background:#f8fafc}
+  .ch{display:inline-block;width:12px;color:var(--mute);font-size:11px}
+  .ext{text-decoration:none;color:var(--mute);font-size:12px;padding:0 4px;border-radius:4px}
+  .ext:hover{color:var(--blue);background:#eff6ff}
   /* Posted is done: strike the title so a glance down the table shows what is
      handled. Skipped and expired are dimmed but not struck — different meaning. */
   tr.posted .t{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#16a34a;color:var(--mute)}
@@ -44,6 +47,7 @@
   tr.warm td:first-child{box-shadow:inset 3px 0 0 #eab308}
   .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .t{font-weight:600;color:var(--ink);text-decoration:none}
+  tr.r:not(.posted):hover .t{text-decoration:underline;text-decoration-color:#cbd5e1}
   .t:hover{color:var(--blue)}
   .sub{color:var(--mute);font-size:12px}
   .st{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700}

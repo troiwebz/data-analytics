@@ -62,7 +62,11 @@ const COLS = [
   { key: 'score',   label: 'Score',    sortable: true,  dir: -1, num: true, get: (l) => l.score ?? 0,
     cell: (l) => `<b>${l.score ?? 0}</b>` },
   { key: 'title',   label: 'Thread',   sortable: false,
-    cell: (l) => `${l.status === 'POSTED' ? '✅ ' : ''}<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || '(no title)')}</a>` +
+    // The title opens the draft, because that is what a click on a row is for.
+    // Going to the thread on BHW is the arrow next to it, deliberately small.
+    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span>` +
+      `${l.status === 'POSTED' ? '✅ ' : ''}<span class="t">${esc(l.title || '(no title)')}</span>` +
+      ` <a class="ext" href="${esc(l.url)}" target="_blank" rel="noopener" title="Open this thread on BlackHatWorld">↗</a>` +
       `<div class="sub">${esc(l.author || '')}${l.categoryLabel ? ' · ' + esc(l.categoryLabel) : ''}` +
       `${tags(l.matched).length ? ' · ' + esc(tags(l.matched).slice(0, 4).join(', ')) : ''}</div>` },
   { key: 'budget',  label: 'Budget',   sortable: true,  dir: -1, num: true, get: (l) => l.budgetAmount ?? 0,
@@ -244,18 +248,26 @@ $('head').addEventListener('click', (e) => {
   render();
 });
 
-// Click a row to open it; click again to close.
+// Click anywhere on a row to open it; click again to close. Only real
+// controls inside the row are exempt.
 $('rows').addEventListener('click', (e) => {
-  if (e.target.closest('a, button, textarea')) return;
+  if (e.target.closest('a, button, textarea, input, select')) return;
   const id = e.target.closest('tr[data-row]')?.dataset.row;
   if (!id) return;
   openRow = openRow === id ? null : id;
   render();
 });
 
-document.addEventListener('click', async (e) => {
+document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
+  rowAction(btn).catch((err) => {
+    say(btn.dataset.id, `That did not work: ${err && err.message ? err.message : err}`, false);
+    console.error('[HAF dashboard]', err);
+  });
+});
+
+async function rowAction(btn) {
   const id = btn.dataset.id, act = btn.dataset.act;
   const cfg = await getConfig();
   const lead = (await getLeads()).find((l) => String(l.threadId) === String(id));
@@ -310,7 +322,7 @@ document.addEventListener('click', async (e) => {
     delete edited[id];
     return render();
   }
-});
+}
 
 const busy = async (id, label, fn) => {
   const b = $(id), old = b.textContent;
