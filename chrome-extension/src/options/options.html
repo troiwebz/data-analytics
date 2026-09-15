@@ -116,8 +116,14 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   <div class="c">
     <h2>Telegram <span class="hint">every new thread arrives on your phone automatically</span></h2>
     <label class="sw"><input type="checkbox" id="telegramEnabled"> Send new threads to Telegram</label>
-    <p class="hint" style="margin:0 0 10px">Two messages per thread: the public reply, then the PM.
-      Tap either block on your phone to copy it. Sent straight from Chrome, so nothing else has to be running.</p>
+    <p class="hint" style="margin:0 0 10px">The PM comes first, because it is the one you send. Tap a block on
+      your phone to copy it. Sent straight from Chrome, so nothing else has to be running.</p>
+    <label>What to send</label>
+    <select id="telegramSend" style="max-width:320px">
+      <option value="both">The PM, then the public reply</option>
+      <option value="pm">The PM only</option>
+      <option value="reply">The public reply only</option>
+    </select>
     <label>Bot token <span class="hint">from @BotFather on Telegram — stored in the vault with your Claude key</span></label>
     <div class="row">
       <input type="password" id="tgToken" placeholder="1234567890:AA…" autocomplete="off">

@@ -2,7 +2,7 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES } from '../claude.js';
 
-const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief'];
+const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume'];

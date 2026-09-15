@@ -2,9 +2,13 @@
 
 Every new thread reaches your phone by itself, as two messages:
 
-1. **the card** - score, category, budget, reply count, when it was posted, and
-   links to the thread and the PM page - with the **public reply** in a block
-2. **the PM**, in a block of its own
+1. **the PM** - the card (score, category, budget, reply count, when it was
+   posted), a link to the PM page with the recipient already filled in, a link
+   to your BHW inbox, the subject line, and the PM itself in a block
+2. **the public reply**, in a block of its own, with a link to the thread
+
+The PM comes first because it is the one that actually gets sent. Settings ->
+Telegram -> **What to send** can cut it to the PM alone, or the reply alone.
 
 Tap a block on the Telegram mobile app and the whole thing is on your
 clipboard. Open the thread or the PM page from the link above it, paste, send.

@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG = {
   // Telegram, straight from this extension. The bot token lives in the vault.
   telegramEnabled: true,       // send every new lead to Telegram automatically
   telegramChatId: '',          // from @userinfobot
+  telegramSend: 'both',        // 'both' (PM first, then the reply) | 'pm' | 'reply'
 
   webhookUrl: '',              // Apps Script /exec URL (optional, legacy relay)
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
@@ -461,7 +462,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 23;
+export const CONFIG_VERSION = 24;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -502,6 +503,7 @@ export async function migrateConfig() {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
   }
+  if (v < 24 && next.telegramSend == null) next.telegramSend = DEFAULT_CONFIG.telegramSend;
   if (v < 23 && next.brief == null) next.brief = DEFAULT_CONFIG.brief;
   if (v < 22) {
     // Spacing moves from whole minutes to seconds, so it can be set below a

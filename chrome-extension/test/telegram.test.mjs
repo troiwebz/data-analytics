@@ -24,7 +24,7 @@ const C = await import('../src/claude.js');
 let fails = 0;
 const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + ' ' + e); } };
 
-const cfg = { telegramEnabled: true, telegramChatId: '8812664414' };
+const cfg = { telegramEnabled: true, telegramChatId: '8812664414', telegramSend: 'both' };
 const lead = (id) => ({
   threadId: id, title: 'Looking for Bulk GMB Listings', author: 'Yeon', url: 'https://bhw/threads/x.' + id + '/',
   card: '<b>6 pts</b> · SEO', dmUrl: 'https://bhw/direct-messages/add?to=Yeon', dmTitle: 'Re: Bulk GMB Listings',
@@ -45,16 +45,32 @@ ok('both go to the bot API', sent.every((m) => m.url.startsWith('https://api.tel
 ok('both go to the right chat', sent.every((m) => m.body.chat_id === '8812664414'));
 
 const [first, second] = sent;
-ok('first carries the card', first.body.text.includes('6 pts'));
-ok('first carries the PUBLIC reply', first.body.text.includes('Verification handled per listing'));
-ok('public reply is tap-to-copy', /<pre>[\s\S]*Verification handled[\s\S]*<\/pre>/.test(first.body.text));
-ok('first does NOT carry the PM', !first.body.text.includes('Portfolio and samples'));
-ok('second carries the PM', second.body.text.includes('Portfolio and samples'));
-ok('PM is tap-to-copy', /<pre>[\s\S]*Portfolio and samples[\s\S]*<\/pre>/.test(second.body.text));
-ok('PM message links the PM page', second.body.text.includes('direct-messages/add'));
-ok('the PM link carries no title parameter', !/[?&]title=/.test(second.body.text), second.body.text.slice(0, 200));
-ok('the subject is readable, since the URL no longer carries it', second.body.text.includes('Re: Bulk GMB Listings'));
+// The PM leads, because it is the one that gets sent.
+ok('the PM comes FIRST', first.body.text.includes('Portfolio and samples'), first.body.text.slice(0, 120));
+ok('the first message carries the card', first.body.text.includes('6 pts'));
+ok('PM is tap-to-copy', /<pre>[\s\S]*Portfolio and samples[\s\S]*<\/pre>/.test(first.body.text));
+ok('the PM message links the prefilled PM page', first.body.text.includes('direct-messages/add'));
+ok('and links your inbox', first.body.text.includes('https://www.blackhatworld.com/direct-messages/"'));
+ok('the PM link carries no title parameter', !/[?&]title=/.test(first.body.text));
+ok('the subject is readable, since the URL no longer carries it', first.body.text.includes('Re: Bulk GMB Listings'));
+ok('the public reply comes second', second.body.text.includes('Verification handled per listing'));
+ok('public reply is tap-to-copy', /<pre>[\s\S]*Verification handled[\s\S]*<\/pre>/.test(second.body.text));
+ok('the two are not mixed up', !first.body.text.includes('Verification handled') && !second.body.text.includes('Portfolio and samples'));
 ok('both are HTML', sent.every((m) => m.body.parse_mode === 'HTML'));
+
+// A lead with no PM draft must say so, not silently send only the reply.
+sent = [];
+await T.sendLeads([{ ...lead('4'), dm: '' }], cfg);
+ok('a missing PM draft still sends a PM message', sent.length === 2, String(sent.length));
+ok('and says what is wrong', /No PM draft on this lead/.test(sent[0].body.text), sent[0].body.text.slice(-120));
+
+// Either half can be switched off.
+sent = [];
+await T.sendLeads([lead('5')], { ...cfg, telegramSend: 'pm' });
+ok('"PM only" sends one message', sent.length === 1 && /Portfolio and samples/.test(sent[0].body.text));
+sent = [];
+await T.sendLeads([lead('6')], { ...cfg, telegramSend: 'reply' });
+ok('"reply only" sends one message', sent.length === 1 && /Verification handled/.test(sent[0].body.text));
 
 // Telegram's 4096 limit must never reject a message.
 sent = [];
@@ -66,7 +82,9 @@ ok('and say so', sent.some((m) => /full text is on the dashboard/.test(m.body.te
 // HTML in a thread title cannot break the message.
 sent = [];
 await T.sendLeads([{ ...lead('3'), draft: 'Use <b>bold</b> & "quotes"' }], cfg);
-ok('draft html is escaped', sent[0].body.text.includes('&lt;b&gt;bold&lt;/b&gt; &amp;'));
+// The reply is the second message now, so escaping is checked where it lives.
+ok('draft html is escaped', sent.some((m) => m.body.text.includes('&lt;b&gt;bold&lt;/b&gt; &amp;')),
+   sent.map((m) => m.body.text.slice(0, 60)).join(' | '));
 
 // A burst is capped rather than flooding the phone.
 sent = [];

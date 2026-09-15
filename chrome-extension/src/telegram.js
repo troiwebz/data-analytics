@@ -4,10 +4,12 @@
 // same way it talks to Anthropic, and the bot token lives in the vault beside
 // the Claude key, so it survives resets and reinstalls.
 //
-// Two messages per lead, deliberately:
-//   1. the card (score, replies, when it was posted, links) plus the PUBLIC
-//      reply in a <pre> block
-//   2. the PRIVATE message in a <pre> block of its own
+// The private message goes FIRST, because it is the one that gets sent. The
+// public reply follows it, and either can be switched off in Settings.
+//
+//   1. the card (score, replies, when it was posted, links) plus the PM in a
+//      <pre> block, with a link to the prefilled PM page and to your inbox
+//   2. the public reply in a <pre> block of its own
 //
 // One tap on a <pre> block copies the whole thing on the Telegram mobile app,
 // which is the point: see the lead on your phone, copy, paste, send. Splitting
@@ -49,32 +51,55 @@ function preBlock(label, text, room) {
   return `\n\n${label}\n<pre>${body.slice(0, Math.max(0, room - label.length - 40))}\n[cut - full text is on the dashboard]</pre>`;
 }
 
+const INBOX = 'https://www.blackhatworld.com/direct-messages/';
+
+/**
+ * The PM. First, because it is the message that actually gets sent, and a lead
+ * with no PM draft says so rather than quietly sending nothing - which is how
+ * a missing draft used to look exactly like "Telegram only sends the reply".
+ */
+function pmMessage(lead) {
+  const head = String(lead.card || `<b>${esc(lead.title)}</b>`) +
+    `\n\n✉️ <b>PM to ${esc(lead.author || 'the poster')}</b>` +
+    (lead.dmUrl ? `\n<a href="${esc(lead.dmUrl)}">Open the PM page for ${esc(lead.author || 'them')}</a>` : '') +
+    `\n<a href="${INBOX}">Your BHW inbox</a>` +
+    (lead.dmTitle ? `\nSubject: <code>${esc(lead.dmTitle)}</code>` : '');
+
+  const body = plain(lead.dm || '').trim();
+  return head + (body
+    ? preBlock('(tap to copy)', body, LIMIT - head.length)
+    : '\n\n<i>No PM draft on this lead. Open it on the dashboard and press Rebuild drafts.</i>');
+}
+
+const replyMessage = (lead) => {
+  const head = '📋 <b>Public reply</b>' + (lead.url ? ` · <a href="${esc(lead.url)}">open the thread</a>` : '');
+  const body = plain(lead.draft || '').trim();
+  return body ? head + preBlock('(tap to copy)', body, LIMIT - head.length) : '';
+};
+
+/**
+ * Both parts are sent independently. They used to share one try block, so a
+ * failure on the second swallowed the first and the batch stopped - which is
+ * why a lead could arrive as the public reply alone with nothing explaining it.
+ */
 export async function sendLead(lead, cfg) {
   const chatId = cfg.telegramChatId;
   if (!chatId) throw new Error('No Telegram chat id saved.');
+  const what = cfg.telegramSend || 'both';
 
-  const head = String(lead.card || `<b>${esc(lead.title)}</b>`);
-  // Strip the bold markers: a tap-to-copy block should give the words.
-  const first = head + preBlock('📋 <b>Public reply</b> (tap to copy)', plain(lead.draft), LIMIT - head.length);
-  await call('sendMessage', { chat_id: chatId, text: first, parse_mode: 'HTML',
-                              disable_web_page_preview: true });
+  const parts = [];
+  if (what !== 'reply') parts.push(pmMessage(lead));
+  if (what !== 'pm') parts.push(replyMessage(lead));
 
-  if (lead.dm) {
-    // The subject used to ride in the URL; it does not any more, so it has to
-    // be readable here or it cannot be typed in on a phone.
-    const title = `✉️ <b>PM to ${esc(lead.author || 'the poster')}</b>` +
-      (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">open the PM page</a>` : '') +
-      (lead.dmTitle ? `\nSubject: <code>${esc(lead.dmTitle)}</code>` : '');
-    await call('sendMessage', { chat_id: chatId,
-      text: title + preBlock('(tap to copy)', plain(lead.dm), LIMIT - title.length),
-      parse_mode: 'HTML', disable_web_page_preview: true });
+  let failure = null;
+  for (const text of parts.filter(Boolean)) {
+    try {
+      await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+    } catch (e) { failure = failure || e; }
   }
+  if (failure) throw failure;
 }
 
-/**
- * Send a batch after a poll. Never throws and never blocks the poll: Telegram
- * being down must not cost you the lead, which is already in the database.
- */
 export async function sendLeads(leads, cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId || !(await getToken())) return { sent: 0 };
   let sent = 0, error = '';
