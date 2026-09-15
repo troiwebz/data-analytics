@@ -195,16 +195,20 @@ function meter(label, used, cap) {
   const max = Math.max(1, Number(cap) || 1);
   const pct = Math.min(100, Math.round((used / max) * 100));
   const colour = pct >= 100 ? '#dc2626' : pct >= 80 ? '#f59e0b' : '#22c55e';
-  return `<span class="meter" title="${esc(label)}: ${used} of ${cap} today">` +
-         `<span class="mlab">${esc(label)} ${used}/${cap}</span>` +
+  return `<span class="meter" title="${esc(label)}: ${used} of ${cap} used today">` +
+         `<span class="mtop">${esc(label)} <b>${used}/${cap}</b></span>` +
          `<span class="mbar"><i style="width:${pct}%;background:${colour}"></i></span></span>`;
 }
 
 function row(l, staged, cfg) {
   const id = esc(String(l.threadId));
   const tier = (l.score ?? 0) >= 15 ? 'hot' : (l.score ?? 0) >= 10 ? 'warm' : '';
+  // Struck through once it has been actioned. Green for a posted reply, blue
+  // for a PM sent: both are done, and which one it was should be readable
+  // without opening the row.
   const state = l.status === 'POSTED' ? 'posted'
-              : ['SKIPPED', 'EXPIRED'].includes(l.status) ? 'dim' : '';
+              : ['SKIPPED', 'EXPIRED'].includes(l.status) ? 'dim'
+              : l.pmSent ? 'pmdone' : '';
   const cells = COLS.map((c) => {
     let html;
     try { html = c.cell(l); } catch { html = '<span class="sub">—</span>'; }

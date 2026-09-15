@@ -73,10 +73,12 @@
   </div>
 
   <div class="c">
-    <h2>Sound <span class="hint">so the machine can sit in the background</span></h2>
+    <h2>Alerts <span class="hint">a Mac notification and a sound when new threads land</span></h2>
     <label class="sw"><input type="checkbox" id="soundEnabled"> Play a sound when new threads are found</label>
-    <p class="hint" style="margin:0 0 10px">One sound per check, not one per thread. A check that finds five
-      threads makes one noise.</p>
+    <p class="hint" style="margin:0 0 10px">One banner and one sound per check, not one per thread. A check that
+      finds five threads makes one noise. The banner is a real macOS notification: it stacks in Notification
+      Centre, arrives over other apps, and a hot lead stays on screen until you dismiss it. Clicking it opens
+      the drafts.</p>
     <div class="row">
       <div style="flex:1">
         <label>New threads</label>
@@ -92,11 +94,16 @@
       </div>
     </div>
     <div class="row" style="margin-top:8px">
-      <button id="playSound" class="sec" style="flex:0 0 auto">Play the new-thread sound</button>
-      <button id="playHot" class="sec" style="flex:0 0 auto">Play the hot-lead sound</button>
+      <button id="testAlert" style="flex:0 0 auto">Test the banner and sound</button>
+      <button id="playSound" class="sec" style="flex:0 0 auto">Just the new-thread sound</button>
+      <button id="playHot" class="sec" style="flex:0 0 auto">Just the hot-lead sound</button>
       <span style="flex:1"></span>
     </div>
     <div id="soundMsg" class="hint" style="margin-top:8px"></div>
+    <p class="hint" style="margin:10px 0 0">No banner? macOS decides that, not this extension.
+      Open <b>System Settings &rarr; Notifications &rarr; Google Chrome</b> and turn <b>Allow notifications</b> on,
+      with the style set to <b>Alerts</b> if you want them to stay on screen. Also check no <b>Focus</b> or
+      Do Not Disturb is running, and that Chrome is not in full screen with notifications suppressed.</p>
   </div>
 
   <div class="c">

@@ -32,10 +32,13 @@
   th .ar{opacity:.35;font-size:10px}
   th.on{color:var(--blue)} th.on .ar{opacity:1}
   td{border-bottom:1px solid #f1f5f9;padding:9px 10px;vertical-align:top}
-  .meter{display:inline-flex;flex-direction:column;gap:3px;margin-right:14px;vertical-align:middle}
-  .mlab{font-size:11px;opacity:.85;letter-spacing:.02em}
-  .mbar{display:block;width:96px;height:6px;border-radius:99px;background:#334155;overflow:hidden}
-  .mbar i{display:block;height:100%;border-radius:99px;transition:width .3s}
+  .meter{display:inline-flex;flex-direction:column;gap:6px;min-width:132px;padding:7px 11px 8px;
+    border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.05)}
+  .mtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    font-size:11px;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
+  .mtop b{font-size:12.5px;font-weight:700;letter-spacing:0;opacity:1;font-variant-numeric:tabular-nums}
+  .mbar{display:block;height:4px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden}
+  .mbar i{display:block;height:100%;border-radius:99px;transition:width .35s ease}
   tr.r{cursor:pointer} tr.r:hover td{background:#f8fafc}
   .ch{display:inline-block;width:12px;color:var(--mute);font-size:11px}
   .ext{text-decoration:none;color:var(--mute);font-size:12px;padding:0 4px;border-radius:4px}
@@ -43,6 +46,9 @@
   /* Posted is done: strike the title so a glance down the table shows what is
      handled. Skipped and expired are dimmed but not struck — different meaning. */
   tr.posted .t{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#16a34a;color:var(--mute)}
+  tr.pmdone .t{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#2563eb;color:var(--mute)}
+  tr.pmdone td{background:#f8fbff}
+  tr.pmdone:hover td{background:#eff6ff}
   tr.posted td{background:#f6fdf8}
   tr.posted:hover td{background:#eefbf3}
   tr.dim td{opacity:.55}
@@ -51,7 +57,7 @@
   tr.warm td:first-child{box-shadow:inset 3px 0 0 #eab308}
   .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .t{font-weight:600;color:var(--ink);text-decoration:none}
-  tr.r:not(.posted):hover .t{text-decoration:underline;text-decoration-color:#cbd5e1}
+  tr.r:not(.posted):not(.pmdone):hover .t{text-decoration:underline;text-decoration-color:#cbd5e1}
   .t:hover{color:var(--blue)}
   .sub{color:var(--mute);font-size:12px}
   .st{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700}
@@ -77,7 +83,7 @@
 <header>
   <h1>HAF Watcher <small id="ver"></small></h1>
   <span><span class="dot" id="dot"></span><span id="state">…</span></span>
-  <span id="rate" style="display:inline-flex;align-items:center"></span>
+  <span id="rate" style="display:inline-flex;align-items:center;gap:10px"></span>
   <span class="sp"></span>
   <button id="poll" class="pri" title="Read the forum right now instead of waiting for the next automatic check">Check for new threads</button>
   <button id="update" class="pri" title="Reload the extension after pulling new code">Install update</button>

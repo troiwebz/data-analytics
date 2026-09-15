@@ -69,7 +69,12 @@ global.__sent = [];
 let consoleErr = null;
 window.addEventListener('error', (e) => { consoleErr = e.error || e.message; });
 
-await import(pathToFileURL(DIR + 'dashboard.js').href);
+const dash = await import(pathToFileURL(DIR + 'dashboard.js').href);
+// The dashboard re-renders off storage changes, debounced by 150ms.
+const render = async () => {
+  await chrome.storage.local.set({ recentLeads: leads });
+  await new Promise((r) => setTimeout(r, 300));
+};
 await new Promise((r) => setTimeout(r, 120));
 
 let fails = 0;
@@ -119,7 +124,24 @@ ok('Copy copies the reply', copied.includes('Bulk GMB'), copied.slice(0, 40));
 ok('Copy did not close the row', !!$('rows').querySelector('tr.detail'));
 
 // A posted lead keeps its struck-through title.
+// Struck through once actioned, and the colour says which action it was.
+const struck = (id) => {
+  const el = $('rows').querySelector(`tr[data-row="${id}"] .t`);
+  const cs = window.getComputedStyle(el);
+  return { line: cs.textDecoration, colour: cs.textDecorationColor };
+};
 ok('posted rows are still marked', $('rows').querySelector('tr[data-row="9002"]').className.includes('posted'));
+ok('a posted reply is struck through in green',
+   /line-through/.test(struck('9002').line) && struck('9002').colour === 'rgb(22, 163, 74)', JSON.stringify(struck('9002')));
+
+leads[0].pmSent = true; leads[0].status = 'SENT';
+await render();
+ok('a PM sent is struck through too', /line-through/.test(struck('9001').line), JSON.stringify(struck('9001')));
+ok('and in blue, so the two are distinguishable', struck('9001').colour === 'rgb(37, 99, 235)', struck('9001').colour);
+
+leads[0].pmSent = false; leads[0].status = 'SENT';
+await render();
+ok('an untouched row is not struck', !/line-through/.test(struck('9001').line), struck('9001').line);
 
 // Header buttons still wired.
 ok('Settings button is live', typeof $('opts').onclick !== 'undefined' && !!$('opts'));

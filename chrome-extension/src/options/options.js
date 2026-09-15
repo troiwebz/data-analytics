@@ -261,6 +261,26 @@ async function preview(which) {
   if (r?.error) { $('soundMsg').style.color = '#dc2626'; $('soundMsg').textContent = r.error; }
   else { $('soundMsg').style.color = '#64748b'; $('soundMsg').textContent = 'Played. Press Save at the bottom to keep these settings.'; }
 }
+$('testAlert').addEventListener('click', async () => {
+  const b = $('testAlert');
+  b.disabled = true; b.textContent = 'Sending…';
+  const r = await chrome.runtime.sendMessage({ cmd: 'test-alert' });
+  const el = $('soundMsg');
+  const bannerOk = r?.banner?.ok, soundOk = r?.sound?.ok !== false && !r?.sound?.error;
+  if (bannerOk && soundOk) {
+    el.style.color = '#16a34a';
+    el.innerHTML = 'Sent. You should have heard the hot-lead sound and seen a banner in the top right. '
+                 + 'Click the banner to check it opens the dashboard.';
+  } else {
+    el.style.color = '#b45309';
+    el.innerHTML = (soundOk ? 'Sound played. ' : `Sound failed: ${esc(r?.sound?.error || 'unknown')}. `)
+      + (bannerOk
+          ? 'Banner sent - if nothing appeared, macOS is blocking it. See the note below.'
+          : `Banner failed: ${esc(r?.banner?.error || 'Chrome would not show it')}. See the note below.`);
+  }
+  b.disabled = false; b.textContent = 'Test the banner and sound';
+});
+
 $('playSound').addEventListener('click', () => preview('sound'));
 $('playHot').addEventListener('click', () => preview('soundHot'));
 

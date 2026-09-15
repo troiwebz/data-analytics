@@ -276,9 +276,9 @@ export async function pollFeed() {
   await playSound(cfg, hot.length ? cfg.soundHot : cfg.sound);
 
   const best = hot[0] || [...leads].sort((a, b) => (b.score || 0) - (a.score || 0))[0];
-  const what = leads.length === 1 ? '1 new thread' : `${leads.length} new threads`;
-  notify(hot.length ? `🔥 ${what} · ${hot[0].score} pts` : what,
-         `${best.title}\nClick to open the drafts.`);
+  const what = leads.length === 1 ? '1 new HAF thread' : `${leads.length} new HAF threads`;
+  await notify(hot.length ? `🔥 ${what} · ${hot[0].score} pts` : what,
+               best.title, { hot: hot.length > 0 });
 
   if (hot.length) await stageLeads(hot, cfg);
   return { new: fresh.length, matched: leads.length, staged: hot.length };
@@ -519,21 +519,50 @@ export async function runInThread(lead, mode, opts = {}) {
 
 // ---------------------------------------------------------------- helpers
 
-function notify(title, message) {
-  chrome.notifications.create('haf-leads', {
-    type: 'basic', iconUrl: chrome.runtime.getURL('src/icons/icon128.png'),
-    title, message: String(message || '').slice(0, 180)
+/**
+ * A real macOS notification. Chrome hands chrome.notifications straight to the
+ * system, so these are Notification Centre banners: they stack, they persist,
+ * and they arrive over other apps and full screen.
+ *
+ * One caveat worth knowing, because it looks like a bug: macOS can silence
+ * them entirely at System Settings > Notifications > Google Chrome, and while
+ * Do Not Disturb or any Focus is on. Nothing in the extension can override
+ * that, which is what the test button in Settings is for.
+ *
+ * `hot` keeps the banner on screen until it is dismissed, rather than letting
+ * a good lead slide away after a few seconds.
+ */
+export async function notify(title, message, { hot = false, id = 'haf-leads' } = {}) {
+  return new Promise((resolve) => {
+    try {
+      chrome.notifications.create(id, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('src/icons/icon128.png'),
+        title,
+        message: String(message || '').slice(0, 180),
+        priority: hot ? 2 : 1,
+        requireInteraction: hot,
+        buttons: [{ title: 'Open the drafts' }]
+      }, (created) => {
+        const err = chrome.runtime.lastError;
+        if (err) { log(`notification blocked: ${err.message}`, 'error'); resolve({ ok: false, error: err.message }); }
+        else resolve({ ok: true, id: created });
+      });
+    } catch (e) { resolve({ ok: false, error: e.message }); }
   });
 }
 
-// Clicking the banner is the fastest route to the drafts, so open them.
-chrome.notifications.onClicked.addListener(async (id) => {
-  chrome.notifications.clear(id);
+async function openDashboard() {
   const url = chrome.runtime.getURL('src/dashboard/dashboard.html');
   const [tab] = await chrome.tabs.query({ url });
   if (tab) { chrome.tabs.update(tab.id, { active: true }); chrome.windows.update(tab.windowId, { focused: true }); }
   else chrome.tabs.create({ url });
-});
+}
+
+// The banner and its button both go to the drafts: that is the only thing
+// anyone wants from it.
+chrome.notifications.onClicked.addListener((id) => { chrome.notifications.clear(id); openDashboard(); });
+chrome.notifications.onButtonClicked.addListener((id) => { chrome.notifications.clear(id); openDashboard(); });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg?.cmd) return;
@@ -689,6 +718,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         if (!lead) { sendResponse({ error: 'lead not found' }); break; }
         sendResponse(await telegram.sendLead(lead, cfg).then(() => ({ ok: true })).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'test-alert': {                           // prove the banner and the sound work
+        const cfg = await getConfig();
+        const sound = await playSound({ ...cfg, soundEnabled: true }, cfg.soundHot);
+        const banner = await notify('🔥 2 new HAF threads · 14 pts',
+          'Looking for Bulk GMB Listings', { hot: true, id: 'haf-test' });
+        sendResponse({ sound, banner });
         break;
       }
       case 'play-sound': {                           // the Play button in Settings

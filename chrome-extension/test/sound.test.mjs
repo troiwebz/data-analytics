@@ -2,18 +2,22 @@
 const bags = { local: {} };
 const clone = (v) => (v === undefined ? undefined : structuredClone(v));
 let played = [], created = 0, hasDoc = false, createFails = null;
+globalThis.__banners = [];
 
 globalThis.chrome = {
   runtime: {
     onInstalled: { addListener: () => {} }, onStartup: { addListener: () => {} },
     onMessage: { addListener: () => {} },
-    getManifest: () => ({ version: '0.30.0' }), getURL: (p) => 'chrome-extension://x/' + p,
+    getManifest: () => ({ version: '0.33.0' }), getURL: (p) => 'chrome-extension://x/' + p, lastError: null,
     sendMessage: async (m) => { if (m?.target === 'offscreen-audio') { played.push(m); return { ok: true }; } return {}; }
   },
   action: { onClicked: { addListener: () => {} } },
   tabs: { onRemoved: { addListener: () => {} } },
   alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
-  notifications: { create: () => {}, clear: () => {}, onClicked: { addListener: () => {} } },
+  notifications: {
+    create: (id, opts, cb) => { globalThis.__banners.push({ id, opts }); cb && cb(id); },
+    clear: () => {}, onClicked: { addListener: () => {} }, onButtonClicked: { addListener: () => {} }
+  },
   scripting: { executeScript: async () => [{ result: {} }] },
   offscreen: {
     hasDocument: async () => hasDoc,
@@ -68,6 +72,28 @@ ok('concurrent checks create one page', created === 1, String(created));
 const realOffscreen = chrome.offscreen; delete chrome.offscreen;
 ok('an old Chrome fails gracefully', (await bg.playSound(cfg)).ok === false);
 chrome.offscreen = realOffscreen;
+
+// The banner. macOS shows these itself, so all that can be checked here is
+// that the right thing is handed to Chrome.
+globalThis.__banners = [];
+let r2 = await bg.notify('2 new HAF threads', 'Looking for Bulk GMB Listings');
+ok('a banner is created', r2.ok && globalThis.__banners.length === 1, JSON.stringify(r2));
+const b = globalThis.__banners[0].opts;
+ok('it carries the title and the thread', b.title.includes('2 new') && b.message.includes('Bulk GMB'));
+ok('it has an icon, or macOS shows nothing', /icon128\.png$/.test(b.iconUrl), b.iconUrl);
+ok('it offers a way into the drafts', b.buttons?.[0]?.title === 'Open the drafts');
+ok('an ordinary batch does not stick on screen', b.requireInteraction === false);
+
+globalThis.__banners = [];
+await bg.notify('🔥 1 new HAF thread · 14 pts', 'Bulk GMB', { hot: true });
+const hotB = globalThis.__banners[0].opts;
+ok('a hot lead stays until dismissed', hotB.requireInteraction === true);
+ok('and is raised to top priority', hotB.priority === 2);
+
+// Chrome refusing (macOS blocking it) must be reported, never thrown.
+chrome.notifications.create = (id, opts, cb) => { chrome.runtime.lastError = { message: 'blocked by the system' }; cb(); chrome.runtime.lastError = null; };
+const blocked = await bg.notify('x', 'y');
+ok('a blocked banner is reported, not thrown', blocked.ok === false && /blocked/.test(blocked.error), JSON.stringify(blocked));
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
