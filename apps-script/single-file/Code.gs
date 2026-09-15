@@ -783,6 +783,7 @@ function doPost(e) {
       case 'result':  return json_(handleResult_(body));
       case 'recent':  return json_({ ok: true, leads: handleRecent_(body.limit || 300) });
       case 'specifics': return json_({ ok: true, specifics: aiSpecifics_(body.leads || []) });
+      case 'aikey':     return json_(handleAiKey_(body));
       default:        return json_({ ok: false, error: 'unknown action' });
     }
   } catch (err) {
@@ -852,6 +853,31 @@ function handlePending_() {
       return { threadId: String(r.threadId), url: r.url, title: r.title,
                author: r.author, category: r.category, draft: r.draft };
     });
+}
+
+/**
+ * Store the Anthropic key in Script Properties, or report whether one is set.
+ * The key is never returned — only a masked hint, so the extension can show
+ * that it is configured without ever holding it.
+ */
+function handleAiKey_(p) {
+  if (p.key) {
+    const key = String(p.key).trim();
+    if (!/^sk-ant-/.test(key)) return { ok: false, error: 'That does not look like an Anthropic key (they start with sk-ant-).' };
+    setProp_('ANTHROPIC_API_KEY', key);
+    setProp_('AI_SPECIFICS', 'yes');
+  }
+  if (p.clear) {
+    PropertiesService.getScriptProperties().deleteProperty('ANTHROPIC_API_KEY');
+  }
+  const cur = aiKey_();
+  return {
+    ok: true,
+    configured: !!cur,
+    hint: cur ? cur.slice(0, 11) + '…' + cur.slice(-4) : '',
+    model: aiModel_(),
+    enabled: aiEnabled_()
+  };
 }
 
 /** Newest rows for the dashboard's "Sync from Sheet". */

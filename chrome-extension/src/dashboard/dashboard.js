@@ -78,7 +78,7 @@ async function renderInner() {
 
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
-  $('state').textContent = cfg.enabled ? `Watching · every ${cfg.pollMinutes} min` : 'Paused — enable in Settings';
+  $('state').textContent = cfg.enabled ? `Watching the forum · checking every ${cfg.pollMinutes} min` : 'Not watching · turn it on in Settings';
   $('rate').textContent = `${rate.count}/${cfg.maxPostsPerDay} posts today`;
 
   const today = leads.filter((l) => time(l.foundAt) > Date.now() - 86400000);
@@ -115,8 +115,8 @@ async function renderInner() {
 
   $('rows').innerHTML = list.length
     ? list.map((l) => row(l, staged, cfg)).join('')
-    : `<tr><td colspan="${COLS.length}"><div class="empty">Nothing yet.<br>` +
-      `New threads appear within ${cfg.pollMinutes} minutes. Use <b>Backfill 48h</b> or <b>Scrape all…</b> to load history.</div></td></tr>`;
+    : `<tr><td colspan="${COLS.length}"><div class="empty">No threads here yet.<br>` +
+      `New ones appear on their own within ${cfg.pollMinutes} minutes. To see past threads now, press <b>Load last 48h</b>.</div></td></tr>`;
 
   $('log').innerHTML = log.slice(0, 12)
     .map((e) => `<div class="${e.level}">${when(e.t).split(', ')[1] || ''} ${esc(e.msg)}</div>`).join('');
@@ -274,28 +274,28 @@ const busy = async (id, label, fn) => {
   try { return await fn(); } finally { b.textContent = old; b.disabled = false; render(); }
 };
 
-$('poll').addEventListener('click', () => busy('poll', 'Polling…', async () => {
+$('poll').addEventListener('click', () => busy('poll', 'Checking…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'poll-now' });
   if (r?.error) alert(r.error);
-  else if (r?.skipped) alert('Watcher is disabled — enable it in Settings.');
+  else if (r?.skipped) alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
 }));
-$('update').addEventListener('click', () => busy('update', 'Checking…', async () => {
+$('update').addEventListener('click', () => busy('update', 'Looking…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'check-update' });
   if (r?.reloading) return;
-  alert(r?.error || `Already on v${r?.version}. Run the pull command first, then press Update now again.`);
+  alert(r?.error || `Already on v${r?.version}. Copy the command below into Terminal first, then press Install update again.`);
 }));
-$('approvals').addEventListener('click', () => busy('approvals', '…', () => chrome.runtime.sendMessage({ cmd: 'approvals-now' })));
-$('sync').addEventListener('click', () => busy('sync', 'Syncing…', async () => {
+$('approvals').addEventListener('click', () => busy('approvals', 'Posting…', () => chrome.runtime.sendMessage({ cmd: 'approvals-now' })));
+$('sync').addEventListener('click', () => busy('sync', 'Loading…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'sync' });
   if (r?.error) alert(r.error);
 }));
-$('regen').addEventListener('click', () => busy('regen', '…', async () => {
+$('regen').addEventListener('click', () => busy('regen', 'Rebuilding…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
   alert(`Rebuilt PM drafts for ${r?.updated ?? 0} lead(s).`);
 }));
 $('backfill').addEventListener('click', async () => {
   if (!confirm('Record the last 48 hours of HAF threads? Nothing is sent to Telegram.')) return;
-  await busy('backfill', '…', async () => {
+  await busy('backfill', 'Loading…', async () => {
     const r = await chrome.runtime.sendMessage({ cmd: 'backfill' });
     alert(r?.error ? r.error : `Recorded ${r?.backfilled ?? 0} thread(s).`);
   });

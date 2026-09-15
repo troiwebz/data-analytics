@@ -1,10 +1,10 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
-import { ping } from '../sync.js';
+import { ping, saveAiKey, clearAiKey, aiKeyStatus } from '../sync.js';
 
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'dmOffer'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minMinutesBetweenPosts', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes'];
-const BOOL = ['enabled', 'autoPost'];
+const BOOL = ['enabled', 'autoPost', 'aiSpecifics'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 
@@ -74,4 +74,37 @@ $('reset').addEventListener('click', async () => {
   status('Defaults loaded — press Save to apply.');
 });
 
-getConfig().then(fill);
+// ---- Anthropic key: entered here, stored in Apps Script, never held locally
+function showAi(r, err) {
+  const el = $('aiStatus');
+  if (err) { el.textContent = err; el.style.color = '#dc2626'; return; }
+  el.style.color = r?.configured ? '#16a34a' : '#64748b';
+  el.textContent = r?.configured
+    ? `Key stored in Apps Script (${r.hint}) · model ${r.model} · ${r.enabled ? 'active' : 'switched off'}`
+    : 'No key stored yet. Paste one above and press Save key — Claude stays off until then, and replies use the built-in rules.';
+}
+
+async function refreshAi() {
+  try { showAi(await aiKeyStatus(await getConfig())); }
+  catch (e) { showAi(null, /unknown action/i.test(e.message)
+    ? 'Update the Apps Script code to enable this (it needs the newest Code.gs).' : e.message); }
+}
+
+$('saveKey').addEventListener('click', async () => {
+  const key = $('aiKey').value.trim();
+  if (!key) return showAi(null, 'Paste the key first.');
+  $('saveKey').textContent = 'Saving…';
+  try {
+    const r = await saveAiKey(await getConfig(), key);
+    $('aiKey').value = '';                 // never keep it in the extension
+    showAi(r);
+  } catch (e) { showAi(null, e.message); }
+  $('saveKey').textContent = 'Save key';
+});
+
+$('clearKey').addEventListener('click', async () => {
+  if (!confirm('Remove the stored Anthropic key? Replies fall back to the built-in rules.')) return;
+  try { showAi(await clearAiKey(await getConfig())); } catch (e) { showAi(null, e.message); }
+});
+
+getConfig().then(fill).then(refreshAi);

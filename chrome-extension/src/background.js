@@ -108,6 +108,31 @@ export function dmUrl(author, title) {
          (title ? '&title=' + form(title) : '');
 }
 
+/**
+ * Claude-written bullets for a batch of leads, keyed by threadId.
+ * Never throws and never blocks a poll: any failure returns {} and the reply
+ * falls back to the built-in specifics rules.
+ */
+export async function specificsFor(leads, cfg) {
+  if (!cfg.aiSpecifics || !cfg.webhookUrl || !leads.length) return {};
+  try {
+    const payload = leads.map((l) => ({
+      threadId: String(l.threadId),
+      title: l.title,
+      snippet: String(l.snippet || '').slice(0, 800),
+      category: l.category || ''
+    }));
+    const ai = await fetchSpecifics(cfg, payload);
+    const n = Object.keys(ai).length;
+    await log(n ? `Claude wrote specifics for ${n}/${leads.length} lead(s)`
+                : `Claude returned nothing for ${leads.length} lead(s); using built-in rules`);
+    return ai;
+  } catch (e) {
+    await log(`Claude unavailable (${e.message}); using built-in rules`, 'error');
+    return {};
+  }
+}
+
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
 export function enrich(m, cfg, status, aiSpecifics) {
   if (aiSpecifics?.length) m = { ...m, aiSpecifics };

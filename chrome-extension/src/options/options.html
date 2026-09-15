@@ -39,6 +39,18 @@
   </div>
 
   <div class="c">
+    <h2>Claude <span class="hint">writes the 2-4 technical bullets in each reply; the rest stays templated</span></h2>
+    <label class="sw"><input type="checkbox" id="aiSpecifics"> Let Claude write the technical bullets</label>
+    <label>Anthropic API key <span class="hint">from console.anthropic.com — stored in Apps Script, never kept in this extension</span></label>
+    <div class="row">
+      <input type="password" id="aiKey" placeholder="sk-ant-..." autocomplete="off">
+      <button id="saveKey" style="flex:0 0 auto">Save key</button>
+      <button id="clearKey" class="sec" style="flex:0 0 auto">Remove</button>
+    </div>
+    <div id="aiStatus" class="hint" style="margin-top:8px"></div>
+  </div>
+
+  <div class="c">
     <h2>Posting</h2>
     <label class="sw"><input type="checkbox" id="autoPost"> Act on 🚀 taps from Telegram <span class="hint">(nothing posts without a tap)</span></label>
     <div class="row">

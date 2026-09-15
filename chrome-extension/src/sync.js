@@ -36,4 +36,9 @@ export const fetchRecent = (cfg, limit = 300) => call(cfg, 'recent', { limit }).
 export const fetchSpecifics = (cfg, leads) =>
   call(cfg, 'specifics', { leads }).then((d) => d.specifics || {});
 
+/** Store the Anthropic key in Apps Script, or read back whether one is set. */
+export const saveAiKey = (cfg, key) => call(cfg, 'aikey', { key });
+export const clearAiKey = (cfg) => call(cfg, 'aikey', { clear: true });
+export const aiKeyStatus = (cfg) => call(cfg, 'aikey', {});
+
 export const ping = (cfg) => call(cfg, 'ping');
