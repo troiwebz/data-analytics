@@ -30,6 +30,23 @@ const dmLink = (l) => l.dmUrl ||
   encodeURIComponent(l.author || '').replace(/%20/g, '+') +
   (l.dmTitle ? '&title=' + encodeURIComponent(l.dmTitle).replace(/%20/g, '+') : '');
 
+/**
+ * The stored status values are terse and a couple were actively misleading:
+ * "SENT" meant "sent to your Telegram", which reads as "reply sent". These are
+ * what the table shows instead. The stored values are untouched.
+ */
+const STATUS = {
+  SENT:     { label: 'To do',    hint: 'Found and drafted. Nothing posted yet.' },
+  NEW:      { label: 'To do',    hint: 'Found and drafted. Nothing posted yet.' },
+  APPROVED: { label: 'Queued',   hint: 'You tapped Post. It posts within a minute.' },
+  POSTED:   { label: 'Posted',   hint: 'Your reply is live on the thread.' },
+  SKIPPED:  { label: 'Skipped',  hint: 'You decided against this one.' },
+  FAILED:   { label: 'Failed',   hint: 'Posting did not work. Open it and try again.' },
+  BACKFILL: { label: 'History',  hint: 'Loaded from the past, not new.' },
+  EXPIRED:  { label: 'Too late', hint: 'Too many replies already; the buyer has likely chosen.' },
+};
+const statusOf = (s) => STATUS[s] || { label: String(s || 'to do').toLowerCase(), hint: '' };
+
 /** `matched` is an array locally but comma-joined when it comes from the Sheet. */
 const tags = (v) => Array.isArray(v) ? v.map(String)
   : typeof v === 'string' ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
@@ -51,8 +68,11 @@ const COLS = [
   { key: 'budget',  label: 'Budget',   sortable: true,  dir: -1, num: true, get: (l) => l.budgetAmount ?? 0,
     cell: (l) => l.budget ? esc(l.budget) : '<span class="sub">—</span>' },
   { key: 'status',  label: 'Status',   sortable: true,  dir: 1,  get: (l) => l.status || '',
-    cell: (l) => `<span class="st ${esc(l.status || '')}">${esc(l.status || 'sent')}</span>` +
-      (l.pmSent ? ' <span class="st POSTED">PM</span>' : '') },
+    cell: (l) => {
+      const st = statusOf(l.status);
+      return `<span class="st ${esc(l.status || 'SENT')}" title="${esc(st.hint)}">${esc(st.label)}</span>` +
+             (l.pmSent ? ' <span class="st POSTED" title="Private message sent">PM sent</span>' : '');
+    } },
 ];
 
 let sortKey = 'posted', sortDir = -1;     // newest first
@@ -108,7 +128,9 @@ async function renderInner() {
   // rows
   const q = $('q').value.trim().toLowerCase();
   const hide = $('hidedone').checked;
+  const fs = $('fstatus').value;
   let list = leads.filter((l) => {
+    if (fs && (l.status || 'SENT') !== fs) return false;
     if (hide && ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status)) return false;
     if (!q) return true;
     return `${l.title} ${l.author} ${tags(l.matched).join(' ')} ${l.category}`.toLowerCase().includes(q);
@@ -326,6 +348,7 @@ $('cmd').addEventListener('click', async () => {
   setTimeout(() => ($('cmdmsg').textContent = ''), 3000);
 });
 $('q').addEventListener('input', render);
+$('fstatus').addEventListener('input', render);
 $('hidedone').addEventListener('input', render);
 
 chrome.storage.onChanged.addListener(() => render());

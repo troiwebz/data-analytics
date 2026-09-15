@@ -83,6 +83,16 @@
 <div class="stats" id="stats"></div>
 <div class="tools">
   <input id="q" placeholder="Search title, author, keyword…">
+  <select id="fstatus" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui">
+    <option value="">All</option>
+    <option value="SENT">To do</option>
+    <option value="APPROVED">Queued</option>
+    <option value="POSTED">Posted</option>
+    <option value="SKIPPED">Skipped</option>
+    <option value="FAILED">Failed</option>
+    <option value="BACKFILL">History</option>
+    <option value="EXPIRED">Too late</option>
+  </select>
   <label style="font-size:13px;color:var(--mute)"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
   <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
   <span class="sp" style="flex:1"></span>

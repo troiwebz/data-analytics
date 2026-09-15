@@ -129,7 +129,21 @@ threadId · foundAt · postedAt · replyCount · score · category · author · 
 budget · matched · url · snippet · draft · compliance · status · decidedAt · result · error
 ```
 
-`NEW → SENT → APPROVED → POSTED` · `SKIPPED` · `EXPIRED` · `FAILED`
+Stored status vs what the table shows:
+
+| Stored | Shown | Meaning |
+|---|---|---|
+| `SENT` | **To do** | Found and drafted. Nothing posted. |
+| `APPROVED` | **Queued** | You tapped Post; it goes out within a minute. |
+| `POSTED` | **Posted** | Your reply is live. Title struck through. |
+| `SKIPPED` | **Skipped** | You decided against it. |
+| `FAILED` | **Failed** | Posting did not work; open it and retry. |
+| `BACKFILL` | **History** | Loaded from the past, not new. |
+| `EXPIRED` | **Too late** | Too many replies already. |
+
+`SENT` means "sent to your Telegram", which read as "reply sent" — hence the
+separate display labels. The stored values are unchanged so the Sheet and the
+Apps Script relay keep working.
 
 Enforced on every poll:
 - a thread id ever recorded is **never sent twice**
