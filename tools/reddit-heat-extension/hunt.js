@@ -468,8 +468,35 @@ function applyView(list) {
     who: (a, b) => huntWho(a).localeCompare(huntWho(b)),
   }[v.qSort];
   if (by) out = out.slice().sort(by);
+  // a clicked column header wins over the Sort box
+  if (colSort.key && COL_SORT[colSort.key]) out = out.slice().sort((a, b) => COL_SORT[colSort.key](a, b) * colSort.dir);
   $("viewCount").textContent = out.length === list.length ? `${list.length} in front of you` : `showing ${out.length} of ${list.length}`;
   return out;
+}
+// ---- click a column to sort by it, click again to turn it round ----------
+// Each one starts in the direction that is useful: the newest post, the best
+// fit, A to Z for words. The arrow in the header says which way it is.
+const COL_SORT = {
+  post: (a, b) => String(a.title || "").localeCompare(String(b.title || "")),
+  who: (a, b) => huntWho(a).localeCompare(huntWho(b)),
+  wants: (a, b) => String(huntSynopsis(a).wants || "").localeCompare(String(huntSynopsis(b).wants || "")),
+  country: (a, b) => (huntPlace(a).country || "zzz").localeCompare(huntPlace(b).country || "zzz"),
+  age: (a, b) => (b.created || b.firstSeen || 0) - (a.created || a.firstSeen || 0),   // youngest first
+  fit: (a, b) => (b.score || 0) - (a.score || 0),                                      // best first
+};
+let colSort = { key: "", dir: 1 };
+try { const c = JSON.parse(localStorage.getItem("huntCols") || "null"); if (c && c.key) colSort = c; } catch (_) { /* fine */ }
+function colClick(key) {
+  if (colSort.key === key) colSort.dir = -colSort.dir;
+  else colSort = { key, dir: 1 };
+  try { localStorage.setItem("huntCols", JSON.stringify(colSort)); } catch (_) { /* fine */ }
+  queue = applyView(allQueue);
+  showTable("queue");
+}
+function colHead(key, label) {
+  const on = colSort.key === key;
+  const arrow = on ? (colSort.dir === 1 ? " \u25b2" : " \u25bc") : "";
+  return `<th class="colsort" data-k="${key}" style="cursor:pointer;${on ? "color:var(--or)" : ""}" title="click to sort by ${label.toLowerCase()}, click again to reverse">${label}${arrow}</th>`;
 }
 function fillSelect(id, values, keep, anyLabel) {
   const el = $(id);
@@ -979,12 +1006,14 @@ function showTable(kind) {
   if (kind === "queue") {
     $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
     $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row for a quick read, click again to work on it.";
-    $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th><th>Post</th><th>Who</th><th>Wants</th><th>Country</th><th>Age</th><th>Fit</th></tr>`;
+    $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th>`
+      + colHead("post", "Post") + colHead("who", "Who") + colHead("wants", "Wants") + colHead("country", "Country") + colHead("age", "Age") + colHead("fit", "Fit") + `</tr>`;
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     $("tableRows").innerHTML = (queue.map((p) => {
       const s = huntSynopsis(p);
       const open = openRow === p.id;
-      return `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b><br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+      const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
+      return `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
     }).map((row, i) => {
       const p = queue[i];
       if (openRow !== p.id) return row;
@@ -1004,11 +1033,16 @@ function showTable(kind) {
     // today's finished ones stay in the list, struck through, so the day's work is visible
     send({ type: "hunt-done" }).then((r) => {
       const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-      const done = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime());
+      // A post you replied to but have not DM'd is still waiting, so it stays
+      // in the queue above. Listing it down here as well showed the same
+      // thread twice on one screen, which is what "duplicates" was.
+      const waiting = new Set(queue.map((x) => x.id));
+      const done = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime()).filter((d) => !waiting.has(d.id));
       const anchor = $("doneRowsAnchor"); if (!anchor) return;
       anchor.outerHTML = done.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Done today — ${done.length}</td></tr>` + done.map((d) => `<tr class="done"><td><b>${esc(d.title)}</b><br><span style="color:#98a0b3">r/${esc(d.sub)} · ${esc(d.author)}</span></td><td class="mark">${d.repliedAt ? "reply ✓" : ""}</td><td class="mark">${d.dmAt ? "DM ✓" : ""}</td><td></td><td class="when">${new Date(d.at).toLocaleTimeString()}</td><td></td></tr>`).join("") : "";
       $("tableTitle").textContent = (queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`) + ` · done today ${done.length}`;
     });
+    for (const th of $("tableHead").querySelectorAll("th.colsort")) th.onclick = () => colClick(th.dataset.k);
     for (const cb of $("tableRows").querySelectorAll("input.rowpick")) {
       cb.onclick = (e) => { e.stopPropagation(); if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); paintBulk(); };
     }
