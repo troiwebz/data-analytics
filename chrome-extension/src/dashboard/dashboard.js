@@ -2,7 +2,7 @@
 // click again to reverse. Click a row to open the reply, the PM and the
 // actions for that lead.
 import { getConfig } from '../config.js';
-import { renderDm, partsFor, offerOf } from '../templates.js';
+import { renderDm, partsFor, offerOf, plain } from '../templates.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -220,7 +220,7 @@ function detail(l, staged, cfg) {
     <div class="cols">
       <div>
         <div class="lbl">Public reply</div>
-        <textarea data-draft="${id}" ${done ? 'readonly' : ''}>${esc(edited[l.threadId] ?? l.draft ?? '')}</textarea>
+        <textarea data-draft="${id}" ${done ? 'readonly' : ''}>${esc(plain(edited[l.threadId] ?? l.draft ?? ''))}</textarea>
         <div class="acts">
           <button data-act="copy" data-id="${id}">📋 Copy</button>
           ${done ? `<button data-act="open" data-id="${id}">🔗 Thread</button>`
@@ -232,7 +232,7 @@ function detail(l, staged, cfg) {
       </div>
       <div>
         <div class="lbl">✉️ Private message to ${esc(l.author || '')}</div>
-        <textarea class="dm" data-dm="${id}">${esc(dm)}</textarea>
+        <textarea class="dm" data-dm="${id}">${esc(plain(dm))}</textarea>
         <div class="acts">
           ${l.pmSent ? '<span class="st POSTED">PM sent</span>' : `
           <button class="go" data-act="senddm" data-id="${id}">✉️ Send PM now</button>
@@ -301,7 +301,7 @@ async function rowAction(btn) {
   let dm = editedDm[id] ?? lead.dm;
   if (dm == null) { try { dm = renderDm(lead, cfg); } catch { dm = ''; } }
 
-  if (act === 'copy')  { await navigator.clipboard.writeText(draft); return say(id, 'Copied — paste into the thread.', true); }
+  if (act === 'copy')  { await navigator.clipboard.writeText(plain(draft)); return say(id, 'Copied — paste into the thread.', true); }
   if (act === 'open')  { chrome.tabs.create({ url: lead.url }); return; }
   if (act === 'fill') {
     btn.disabled = true;
@@ -311,10 +311,10 @@ async function rowAction(btn) {
     return say(id, r?.ok ? 'Filled in — check the tab and press Post reply. 🚀 also fires instantly now.'
                          : `Could not fill it: ${r?.error || 'unknown'}`, !!r?.ok);
   }
-  if (act === 'copydm') { await navigator.clipboard.writeText(dm); return say(id, 'PM copied.', true); }
+  if (act === 'copydm') { await navigator.clipboard.writeText(plain(dm)); return say(id, 'PM copied.', true); }
   if (act === 'opendm') {
     // Open it filled in, not blank — the body cannot ride in the URL.
-    await navigator.clipboard.writeText(dm).catch(() => {});
+    await navigator.clipboard.writeText(plain(dm)).catch(() => {});
     say(id, 'Opening the DM page and filling it in…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'send-dm', lead: { ...lead, dm }, mode: 'fill' });
     return say(id, r?.ok ? 'Filled in — check the tab and press Send direct message.'

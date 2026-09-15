@@ -15,6 +15,7 @@
 // you are never copying the public reply when you wanted the PM.
 
 import * as vault from './vault.js';
+import { plain } from './templates.js';
 
 const API = 'https://api.telegram.org/bot';
 const LIMIT = 4000;           // Telegram's cap is 4096; leave room for tags
@@ -53,7 +54,8 @@ export async function sendLead(lead, cfg) {
   if (!chatId) throw new Error('No Telegram chat id saved.');
 
   const head = String(lead.card || `<b>${esc(lead.title)}</b>`);
-  const first = head + preBlock('📋 <b>Public reply</b> (tap to copy)', lead.draft, LIMIT - head.length);
+  // Strip the bold markers: a tap-to-copy block should give the words.
+  const first = head + preBlock('📋 <b>Public reply</b> (tap to copy)', plain(lead.draft), LIMIT - head.length);
   await call('sendMessage', { chat_id: chatId, text: first, parse_mode: 'HTML',
                               disable_web_page_preview: true });
 
@@ -61,7 +63,7 @@ export async function sendLead(lead, cfg) {
     const title = `✉️ <b>PM to ${esc(lead.author || 'the poster')}</b>` +
       (lead.dmUrl ? ` · <a href="${esc(lead.dmUrl)}">open the PM page</a>` : '');
     await call('sendMessage', { chat_id: chatId,
-      text: title + preBlock('(tap to copy)', lead.dm, LIMIT - title.length),
+      text: title + preBlock('(tap to copy)', plain(lead.dm), LIMIT - title.length),
       parse_mode: 'HTML', disable_web_page_preview: true });
   }
 }

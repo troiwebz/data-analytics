@@ -249,18 +249,21 @@ export const DEFAULT_CONFIG = {
   // Short on purpose. One technical line proves you read the thread; the rest
   // goes in the PM, where the other freelancers reading the thread cannot see
   // it. Openers, orderings and closers all vary per thread.
+  // ---- Public forum reply ------------------------------------------------
+  // Short on purpose. One line of proof, one question, then the PM. The tip
+  // already says what we have done, so nothing is added after it.
   templates: {
     seo: `{Hi|Hey} @{{author}},
 
-{{tip}} {We run SEO for agencies and direct clients|We do this work weekly|This is core work for us}.
+{{tip}}
 
 {{question}}
 
-{Sent you a PM with the detail|PM sent with the specifics|Dropped you a PM}.`,
+{PM sent with the detail|Sent you a PM with the specifics|Dropped you a PM}.`,
 
     ads: `{Hi|Hey} @{{author}},
 
-{{tip}} {We manage paid campaigns end to end on Google, Meta and TikTok|Paid is what we run day to day|We handle the build and the ongoing management}.
+{{tip}}
 
 {{question}}
 
@@ -268,7 +271,7 @@ export const DEFAULT_CONFIG = {
 
     design: `{Hi|Hey} @{{author}},
 
-{{tip}} {Our design team produces {{category}} in house|This is what our team turns out daily|In house team, no outsourcing}.
+{{tip}}
 
 {{question}}
 
@@ -276,7 +279,7 @@ export const DEFAULT_CONFIG = {
 
     social: `{Hi|Hey} @{{author}},
 
-{{tip}} {We run and post on accounts every day|Account management is what we do day to day|We handle accounts at volume}.
+{{tip}}
 
 {{question}}
 
@@ -284,7 +287,7 @@ export const DEFAULT_CONFIG = {
 
     web: `{Hi|Hey} @{{author}},
 
-{{tip}} {Builds and landing pages are done in house|We do site work in house|Our developers handle this directly}.
+{{tip}}
 
 {{question}}
 
@@ -292,31 +295,20 @@ export const DEFAULT_CONFIG = {
 
     content: `{Hi|Hey} @{{author}},
 
-{{tip}} {Written by people, briefed against real search intent|Human writers, briefed properly|Written to brief, not spun}.
+{{tip}}
 
 {{question}}
 
 {PM sent with samples|Sent you a PM|Dropped you a PM}.`,
 
-    // Used when no category matched. Kept deliberately open-ended.
     generic: `{Hi|Hey} @{{author}},
 
-{{tip}} {We are a full service agency covering SEO, paid ads, design, web and content, all in house|We cover SEO, ads, design, web and content in house|Full service in house team}.
+{{tip}}
 
 {{question}}
 
 {Sent you a PM|PM sent with the detail|Dropped you a PM}.`
   },
-
-  dmTitle: `{Re: |}{{threadTitle}}`,
-
-  // ---- Private message ---------------------------------------------------
-  // Every PM has the same top and the same bottom; only the middle is the
-  // thread's own. The top says where you found them and links the thread; the
-  // bottom offers samples and the portfolio. In between go the three technical
-  // lines, laid out as a list, as numbers or as prose depending on the thread,
-  // so a run of PMs never shares one skeleton.
-
   // ---- The five closes -------------------------------------------------
   // Claude picks whichever fits the thread and never repeats the one it used
   // last, so a buyer reading two of your PMs does not see the same pitch.
@@ -329,109 +321,136 @@ export const DEFAULT_CONFIG = {
   //   terms    money after delivery, not before
   //   scope    two questions and a fixed price and date back the same day
   //
-  // Each is spintax and is picked per thread, so the wording varies too.
+  // Each is one sentence. The line about starting immediately and the sign-off
+  // come after them, from the template, so no close repeats either.
   offers: {
-    pilot: `{Easiest way in is a small first order|Simplest start is one small order|If it helps, start small}: {one page, one listing, one article, whatever the smallest useful unit is here|a single item at the normal rate}. {You see the actual work before committing to volume|Judge it on that, then scale or walk}.`,
+    pilot: `{Easiest way in is a small first order|Simplest start is one small order|If it helps, start small}: {one page, one listing, one article, whatever the smallest useful unit is here|a single item at the normal rate}, {so you see the actual work before committing to volume|so you can judge it before scaling}.`,
 
-    ready: `{The list and the accounts are already built|We already have the list built and cleaned|The groundwork is already done our side}, so {day one is delivery, not research|there is nothing to wait for|we start on the actual work, not setup}. {Say the word and it moves today|Happy to start today}.`,
+    ready: `{The list and the accounts are already built our side|We already have the list built and cleaned|The groundwork is already done our side}, {so day one is delivery rather than research|so there is nothing to wait for|so we start on the actual work and not the setup}.`,
 
-    formula: `{That is the whole method, in that order|That is the entire approach, and the order matters|Those three, in that order, are the whole method}. {The sequence is the part most people get wrong|Most of the failures we see are that sequence run backwards|Run it out of order and the later work inherits the earlier errors}. {Take it and run it in house if you prefer, no hard feelings|Use it yourself if that suits you better|You are welcome to hand that to whoever you hire}.`,
+    formula: `{That is the whole method, in that order|That is the entire approach, and the order matters|Those three, in that order, are the whole method}. {The sequence is the part most people get wrong|Run it out of order and the later work inherits the earlier errors|Most of the failures we see are that sequence run backwards}.`,
 
-    terms: `{Happy to invoice after the first batch lands|We can do the first batch first and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}. {No deposit|Nothing up front}.`,
+    terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`,
 
-    scope: `{Tell me two things and I will come back today with a fixed price and a date|Send me two details and you will have a fixed price and a date today}: {the target market and the volume you want|the geo and the monthly volume|the market and how much of it you need}. {No call needed|Nothing to book, just reply here}.`
+    scope: `{Tell me the market and the volume you want and I will come back today with a fixed price and a date|Send me the geo and the monthly volume and you will have a fixed price and a date today}. {No call needed|Nothing to book, just reply here}.`
   },
 
-  // {{tips}} is the three technical lines, {{offer}} is the close Claude chose
-  // from the five above, {{url}} is the thread.
+  // ---- Private message ---------------------------------------------------
+  // Fixed shape, every time:
+  //
+  //   Hi <author>,
+  //   Came across your thread on HAF: <link>
+  //   Why We Can Do It:            <- bold in the BHW editor
+  //   1. 2. 3.                     <- what we have done, from Claude
+  //   <one of the five closes>
+  //   We can get started immediately.
+  //   Thanks!!
+  //
+  // Only the numbered lines and the close change between threads. **bold**
+  // renders as bold when the extension types it into BHW; everything that
+  // copies the draft strips the markers.
   dmTemplates: {
-    generic: `{Hi|Hey} {{author}},
+    generic: `Hi {{author}},
 
-{Saw your thread on HAF|Just read your HAF thread|Came across your thread on HAF}: {{url}}
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
 
-{Here is how we would approach it|How we would handle it|What we would do}:
-
-{{tips}}
-
-{{budgetLine}}
-
-{{offer}}`,
-
-    seo: `{Hi|Hey} {{author}},
-
-{Saw your thread on HAF|Just read your HAF thread|Came across your HAF thread}: {{url}}
-
-{Here is how we would approach it|How we would run it|What we would do first}:
+**Why We Can Do It:**
 
 {{tips}}
 
-{{budgetLine}}
+{{offer}}
 
-{{offer}}`,
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
 
-    ads: `{Hi|Hey} {{author}},
+Thanks!!`,
 
-{Saw your HAF thread|Just read your thread on HAF|Came across your HAF thread}: {{url}}
+    seo: `Hi {{author}},
 
-{Here is how we would run it|How we would approach the account|What we would set up}:
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
 
-{{tips}}
-
-{{budgetLine}}
-
-{{offer}}`,
-
-    design: `{Hi|Hey} {{author}},
-
-{Saw your thread on HAF|Just read your HAF thread|Came across your thread}: {{url}}
-
-{Here is how we would handle it|How we would approach it|What we would produce}:
+**Why We Can Do It:**
 
 {{tips}}
 
-{{budgetLine}}
+{{offer}}
 
-{{offer}}`,
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
 
-    social: `{Hi|Hey} {{author}},
+Thanks!!`,
 
-{Saw your HAF thread|Just read your thread on HAF|Came across your HAF thread}: {{url}}
+    ads: `Hi {{author}},
 
-{Here is how we would run it|How we would handle the accounts|What we would do}:
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
 
-{{tips}}
-
-{{budgetLine}}
-
-{{offer}}`,
-
-    web: `{Hi|Hey} {{author}},
-
-{Saw your thread on HAF|Just read your HAF thread|Came across your HAF thread}: {{url}}
-
-{Here is how we would build it|How we would approach the build|What we would do}:
+**Why We Can Do It:**
 
 {{tips}}
 
-{{budgetLine}}
+{{offer}}
 
-{{offer}}`,
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
 
-    content: `{Hi|Hey} {{author}},
+Thanks!!`,
 
-{Saw your HAF thread|Just read your thread on HAF|Came across your thread on HAF}: {{url}}
+    design: `Hi {{author}},
 
-{Here is how we would approach it|How we would handle it|What we would produce}:
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
 
 {{tips}}
 
-{{budgetLine}}
+{{offer}}
 
-{{offer}}`
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+
+Thanks!!`,
+
+    social: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+
+Thanks!!`,
+
+    web: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+
+Thanks!!`,
+
+    content: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{We can get started immediately|We can start on this right away|Ready to start whenever you are}.
+
+Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 17;
+export const CONFIG_VERSION = 18;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -471,6 +490,14 @@ export async function migrateConfig() {
     for (const k of ['dmTitle', 'maxDmsPerDay', 'minMinutesBetweenDms']) {
       if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
     }
+  }
+  if (v < 18) {
+    // The PM gains a bold heading and a fixed sign-off, the public reply drops
+    // the filler after the tip, and the five closes lose their trailing
+    // "we can start today" now that the template carries it once.
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.offers = DEFAULT_CONFIG.offers;
   }
   if (v < 16) {
     // One offer for every PM became five, chosen per thread, and the public

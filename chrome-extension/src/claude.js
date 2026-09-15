@@ -219,9 +219,16 @@ const SYSTEM = [
   'For each thread give three things.',
   '',
   '1. "tips": exactly 3 lines, STRONGEST FIRST.',
+  '   They appear under the heading "Why We Can Do It", so each states what the writer HAS DONE, CAN DO,',
+  '   or KNOWS about this specific job. Every line starts with "We " - "We have", "We can", "We are",',
+  '   "We run", "We handle". Never an instruction to the buyer and never a description of a deliverable',
+  '   in the abstract.',
+  '   Good: "We have handled iGaming ad accounts before, and know the platform restrictions in that vertical."',
+  '   Good: "We can work within the compliance limits for casino creatives across the main networks."',
+  '   Bad:  "Manual submissions to UAE directories." (no subject, not a claim about us)',
+  '   Bad:  "You should fix your categories first." (an instruction, not our capability)',
   '   The first line is used on its own in a short public reply, so it must stand alone and be the single',
-  '   most convincing thing you can say about this specific post. Lines 2 and 3 are used with it in a',
-  '   private message, so they must add something the first did not.',
+  '   most convincing thing you can say about this post. Lines 2 and 3 must add something the first did not.',
   '   Each proves the writer read that specific post.',
   '',
   '2. "question": ONE short question, posted publicly under the reply.',
@@ -242,7 +249,7 @@ const SYSTEM = [
   '- Under 100 characters each. Short is better.',
   '- British or neutral English, lower-key than marketing copy.',
   'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
-  'they get laid out as a list, as numbers or as running prose depending on the thread.',
+  'they are numbered 1. 2. 3. when they are laid out.',
   '',
   'Return ONLY a JSON object mapping each thread id to {"tips":[3 strings],"question":"...","offer":"id"}.',
   'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula"}}'
@@ -317,8 +324,8 @@ export function clean(obj) {
     // Tolerate the older bare-array shape as well as the current object.
     const raw = Array.isArray(v) ? { tips: v } : (v && typeof v === 'object' ? v : {});
     const tips = (Array.isArray(raw.tips) ? raw.tips : [])
-      .map(tidy)
-      .filter((b) => b.length > 15 && b.length <= 160)
+      .map(asClaim)
+      .filter((b) => b.length > 15 && b.length <= 170)
       .filter(allowed)
       .slice(0, MAX_BULLETS);
     if (!tips.length) continue;
@@ -332,6 +339,22 @@ export function clean(obj) {
     out[String(id)] = { tips, question, offer: raw.offer in OFFERS ? raw.offer : '' };
   }
   return out;
+}
+
+/**
+ * The lines sit under "Why We Can Do It", so they have to read as claims about
+ * us. The prompt asks for that; this is what enforces it when a line comes back
+ * as a bare noun phrase or an instruction to the buyer.
+ */
+function asClaim(b) {
+  const t = tidy(b);
+  if (!t) return '';
+  if (/^we\b/i.test(t)) return t.charAt(0).toUpperCase() + t.slice(1);
+  if (/^(you|your)\b/i.test(t)) return '';            // an instruction, not a capability
+  const lower = t.charAt(0).toLowerCase() + t.slice(1);
+  return /^(have|can|are|handle|run|know|do)\b/i.test(lower)
+    ? `We ${lower}`
+    : `We handle ${lower}`;
 }
 
 const tidy = (b) => String(b ?? '')

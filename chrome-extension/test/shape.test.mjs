@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG as cfg } from '../src/config.js';
-import { renderReply, renderDm, renderDmTitle, layTips, offerOf } from '../src/templates.js';
+import { renderReply, renderDm, renderDmTitle, layTips, offerOf, plain } from '../src/templates.js';
 import { lintDraft } from '../src/compliance.js';
 
 let fails = 0;
@@ -10,9 +10,9 @@ const lead = (id, over = {}) => ({
   url: `https://www.blackhatworld.com/threads/x.${id}/`, category: 'seo', categoryLabel: 'SEO', budget: '$400',
   aiSpecifics: {
     tips: [
-      'Manual submissions to directories that index in the UAE',
-      'NAP audit across the profiles you already have before adding more',
-      'GMB categories and service areas fixed first'
+      'We have built citations manually on directories that index in the UAE',
+      'We can audit the NAP across the profiles you already have before adding more',
+      'We are able to fix GMB categories and service areas before anything else'
     ],
     question: 'Do you want citations that survive a manual audit, or volume for a tier 2 layer?',
     offer: 'formula'
@@ -26,7 +26,7 @@ console.log('\n--- public reply ---\n' + r + '\n\n--- private message ---\n' + d
 // Shape of the public reply.
 ok('public reply carries exactly one tip',
   lead('1001').aiSpecifics.tips.filter((t) => r.includes(t)).length === 1);
-ok('public reply is short', r.split('\n').filter(Boolean).length <= 5, String(r.split('\n').filter(Boolean).length));
+ok('public reply is short', r.split('\n').filter(Boolean).length <= 4, String(r.split('\n').filter(Boolean).length));
 ok('public reply asks the question', r.includes('survive a manual audit'));
 ok('the question is the only thing before the PM line', r.indexOf('?') < r.indexOf('PM'));
 ok('the offer is NOT public', !/invoice after|small first order|already done our side/i.test(r));
@@ -36,10 +36,20 @@ ok('public reply does not paste the thread url', !r.includes('blackhatworld.com'
 // Shape of the PM.
 const tips = lead('1001').aiSpecifics.tips;
 ok('PM carries all three tips', tips.every((t) => d.includes(t)));
-ok('PM opens with the thread link', /HAF|thread/i.test(d.split('\n')[2]) && d.includes('blackhatworld.com'));
-ok('PM closes with one of the five offers', /first order|already|whole method|invoice|first batch|fixed price/i.test(d.split('\n').pop()), d.split('\n').pop());
+
+// The exact shape asked for: heading, numbered claims, close, start line, sign-off.
+ok('PM greets, then links the thread', /^Hi buyer1001,/.test(d) && d.includes('blackhatworld.com'));
+ok('PM has the bold heading', d.includes('**Why We Can Do It:**'));
+ok('heading is bold only in the editor, not in the copy', !plain(d).includes('**') && plain(d).includes('Why We Can Do It:'));
+ok('PM numbers the claims', /^1\. We /m.test(d) && /^2\. We /m.test(d) && /^3\. We /m.test(d));
+ok('every claim is about us', d.split('\n').filter((l) => /^\d\. /.test(l)).every((l) => /^\d\. We /.test(l)));
+ok('PM carries one of the five closes', /first order|already built|whole method|invoice|fixed price/i.test(d));
+ok('PM says it can start', /get started immediately|start on this right away|start whenever you are/i.test(d));
+ok('PM signs off', d.trim().endsWith('Thanks!!'));
+ok('the start line appears once', (d.match(/Ready to start|get started|start on this/gi) || []).length === 1, d);
 ok('PM greets the author', d.startsWith('Hi buyer1001') || d.startsWith('Hey buyer1001'), d.slice(0, 20));
-ok('budget mentioned once', (d.match(/\$400/g) || []).length === 1);
+// The requested shape has no budget line, so the PM no longer carries one.
+ok('the PM does not mention the budget', !d.includes('$400'), d);
 
 // No AI tells anywhere.
 const all = [...Array(60)].map((_, i) => renderReply(lead('2' + i), cfg) + '\n' + renderDm(lead('2' + i), cfg));
@@ -55,6 +65,7 @@ ok('openers vary across threads', new Set(openers).size > 4, String(new Set(open
 const dmBodies = [...Array(60)].map((_, i) => renderDm(lead('2' + i), cfg));
 // Numbered always, by request: the lines are steps in an order, not a feature list.
 ok('every PM numbers its lines 1. 2. 3.', dmBodies.every((t) => /^1\. /m.test(t) && /^2\. /m.test(t) && /^3\. /m.test(t)));
+ok('every PM has the heading and the sign-off', dmBodies.every((t) => t.includes('**Why We Can Do It:**') && t.trim().endsWith('Thanks!!')));
 ok('no dash bullets anywhere', !dmBodies.some((t) => /^- /m.test(t)));
 const firstLines = new Set(dmBodies.map((t) => t.split('\n').slice(0, 5).join(' ')));
 ok('no two PMs in 60 share their whole opening', firstLines.size > 10, String(firstLines.size));
@@ -69,12 +80,12 @@ ok('a different thread renders differently', renderDm(lead('1002'), cfg) !== d.r
 const allOffers = Object.keys(cfg.offers);
 ok('there are five closes', allOffers.length === 5, allOffers.join(','));
 const rendered = allOffers.map((o) => renderDm({ ...lead('5' + o), aiSpecifics: { ...lead('1').aiSpecifics, offer: o } }, cfg));
-ok('each close produces a different PM ending', new Set(rendered.map((t) => t.split('\n').pop())).size === 5);
+ok('each close is different', new Set(rendered.map((t) => t.split('\n\n').slice(-3)[0])).size === 5);
 ok('no close offers free work', !rendered.some((t) => /\bfree\b|no charge|at no cost/i.test(t)),
    rendered.find((t) => /\bfree\b/i.test(t))?.slice(-120));
 ok('no close promises a guarantee or a discount', !rendered.some((t) => /guarantee|\d+% off|discount/i.test(t)));
 ok('no close repeats the tips twice', !rendered.some((t) =>
-  (t.match(/Manual submissions to directories/g) || []).length > 1));
+  (t.match(/citations manually on directories/g) || []).length > 1));
 ok('the chosen close is the one that renders',
   /first batch/i.test(renderDm({ ...lead('6'), aiSpecifics: { ...lead('1').aiSpecifics, offer: 'terms' } }, cfg)));
 ok('offerOf reports it', offerOf({ ...lead('6'), aiSpecifics: { ...lead('1').aiSpecifics, offer: 'terms' } }, cfg) === 'terms');
@@ -87,11 +98,11 @@ ok('leads with no offer spread across all five', picked.size === 5, [...picked].
 
 const noAi = renderDm({ ...lead('3001'), aiSpecifics: undefined }, cfg);
 ok('works with no Claude lines', noAi.length > 100 && !/\{\{/.test(noAi));
-ok('and still has the common top and a real close', /blackhatworld.com/.test(noAi) && noAi.split('\n').pop().length > 30);
+ok('and still has the whole shape', /blackhatworld.com/.test(noAi) && noAi.includes('Why We Can Do It') && noAi.trim().endsWith('Thanks!!'));
 
 // One tip only: the reply must not read as a stub.
-const one = renderReply({ ...lead('4001'), aiSpecifics: { tips: ['Manual submissions to UAE directories'], question: 'Audit-safe or volume?' } }, cfg);
-ok('single-tip reply reads whole', one.includes('Manual submissions to UAE directories.') && /PM/.test(one), one);
+const one = renderReply({ ...lead('4001'), aiSpecifics: { tips: ['We have built citations in the UAE'], question: 'Audit-safe or volume?' } }, cfg);
+ok('single-tip reply reads whole', one.includes('We have built citations in the UAE') && /PM/.test(one), one);
 
 ok('layTips handles an empty list', layTips([]) === '');
 ok('layTips of one is a sentence, not a numbered item', layTips(['Just the one thing here']) === 'Just the one thing here.');

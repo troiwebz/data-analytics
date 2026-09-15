@@ -112,6 +112,13 @@ export function renderDm(lead, cfg) {
 /** Which of the five closes a lead uses, for the dashboard. */
 export const offerOf = (lead, cfg) => partsFor(lead, cfg).offer;
 
+/**
+ * Drop the bold markers. The draft keeps them so the BHW editor can render a
+ * real heading; anything copied, shown in a textarea or sent to Telegram wants
+ * the plain words, not the asterisks.
+ */
+export const plain = (text) => String(text ?? '').replace(/\*\*([^*]+)\*\*/g, '$1');
+
 /** Subject line for the DM. */
 export function renderDmTitle(lead, cfg) {
   const t = render(lead, cfg.dmTitle || '{{threadTitle}}', `t${lead.threadId}`).trim();

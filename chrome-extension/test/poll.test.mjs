@@ -55,7 +55,7 @@ globalThis.fetch = async (url, opts) => {
     const ids = JSON.parse(opts.body).messages[0].content.match(/id: (\d+)/g).map((s) => s.slice(4));
     return { ok: true, status: 200, json: async () => ({
       content: [{ type: 'text', text: JSON.stringify(Object.fromEntries(ids.map((id) => [id, {
-        tips: ['Manual submissions to directories that index in the UAE', 'NAP audit across the existing profiles first', 'GMB categories fixed before anything else'],
+        tips: ['We have built citations manually on directories that index in the UAE', 'We can audit the NAP across the existing profiles first', 'We are able to fix GMB categories before anything else'],
         question: 'Audit-safe citations, or volume for a tier 2 layer?', offer: 'formula'
       }]))) }],
       usage: { input_tokens: 800, cache_read_input_tokens: 300, output_tokens: 90 }
@@ -94,12 +94,14 @@ ok('Claude called once for the batch', aiCalls === 1, 'calls=' + aiCalls);
 const leads = store.recentLeads || [];
 ok('leads stored locally', leads.length === 3, String(leads.length));
 const lead = leads[0];
-ok("Claude's lines are in the public reply", lead.draft.includes('Manual submissions to directories'), lead.draft.slice(0, 300));
-ok("Claude's lines are in the PM", lead.dm.includes('Manual submissions to directories'));
+ok("Claude's lines are in the public reply", lead.draft.includes('We have built citations manually'), lead.draft.slice(0, 300));
+ok("Claude's lines are in the PM", lead.dm.includes('We have built citations manually'));
+ok('the PM has the heading and the sign-off', lead.dm.includes('**Why We Can Do It:**') && lead.dm.trim().endsWith('Thanks!!'));
 ok('PM opens with the thread link', /(saw|read|came across) your (HAF )?thread/i.test(lead.dm) && lead.dm.includes(lead.url));
-ok('public reply carries one tip, PM carries three', (lead.draft.match(/Manual submissions/g) || []).length === 1);
+ok('public reply carries one tip only', (lead.draft.match(/We (have built|can audit|are able)/g) || []).length === 1);
+ok('the PM carries all three', (lead.dm.match(/We (have built|can audit|are able)/g) || []).length === 3);
 ok('the public reply asks the question', /tier 2 layer\?/.test(lead.draft), lead.draft);
-ok('the PM closes with the offer Claude chose', /whole method|sequence|order/i.test(lead.dm.split('\n').pop()), lead.dm.split('\n').pop());
+ok('the PM carries the close Claude chose', /whole method|sequence|order/i.test(lead.dm), lead.dm);
 ok('no em dash in the reply', !/[–—]/.test(lead.draft + lead.dm));
 ok('compliance ran', Array.isArray(lead.lint?.problems) || lead.lint != null);
 ok('DM url built', /direct-messages\/add\?to=/.test(lead.dmUrl), lead.dmUrl);
@@ -109,7 +111,8 @@ ok('spend recorded', st.spentToday > 0 && st.leadsToday === 3, JSON.stringify(st
 
 // Telegram fires by itself on a new thread, with no Apps Script involved.
 ok('Telegram got two messages per new thread', tg.length === 6, String(tg.length));
-ok('the public reply went to Telegram', tg.some((m) => /Manual submissions to directories/.test(m.text) && /Public reply/.test(m.text)));
+ok('the public reply went to Telegram', tg.some((m) => /We have built citations manually/.test(m.text) && /Public reply/.test(m.text)));
+ok('Telegram gets the words, not the bold markers', !tg.some((m) => m.text.includes('**')));
 ok('the PM went to Telegram as its own message', tg.some((m) => /PM to buyer0/.test(m.text)));
 ok('everything went to the configured chat', tg.every((m) => m.chat_id === '999'));
 
@@ -126,7 +129,7 @@ ok('rebuild asked Claude again', aiCalls > callsBefore, 'calls=' + aiCalls);
 ok('old leads now carry Claude lines', after.every((l) => l.aiSpecifics?.tips?.length), JSON.stringify(after.map((l) => !!l.aiSpecifics)));
 ok('public reply rebuilt, not just the PM', after.every((l) => l.draft !== 'stale draft'));
 ok('PM rebuilt too', after.every((l) => l.dm !== 'stale dm'));
-ok("rebuilt reply carries Claude's lines", after[0].draft.includes('Manual submissions to directories'), after[0].draft.slice(0, 200));
+ok("rebuilt reply carries Claude's lines", after[0].draft.includes('We have built citations manually'), after[0].draft.slice(0, 200));
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -32,14 +32,37 @@ blocks the finished draft on `free trial`, `free sample`, `free test`,
 `for free`, `no charge`, `free of charge`, `at no cost`, `won't cost you` and
 `free work`. All three layers are covered by tests.
 
-## The question goes in public, the offer goes in the PM
+## The two shapes
 
-The public reply is now:
+**Public reply** - one claim, one question, then the PM:
 
     Hey @buyer,
-    <strongest technical line>  Core work for us.
-    <one question>
-    PM sent with the specifics.
+    We have handled iGaming ad accounts before, and know the platform restrictions in that vertical.
+    Are you after fresh accounts, or keeping the ones you already run alive?
+    PM sent with how we would approach it.
+
+**Private message** - fixed shape, every time:
+
+    Hi buyer,
+    Came across your thread on HAF: <link>
+    Why We Can Do It:                         <- bold in the BHW editor
+    1. We have handled iGaming ad accounts before, and know the platform restrictions in that vertical
+    2. We can work within the compliance limits for casino and betting creatives across networks
+    3. We are familiar with the account stability issues common to iGaming campaigns
+    <one of the five closes>
+    Ready to start whenever you are.
+    Thanks!!
+
+Only the numbered lines and the close change between threads.
+
+The three lines sit under "Why We Can Do It", so each is a claim about **us** -
+what we have done, can do, or know about this job. Every one starts with "We".
+A line that comes back as a bare noun phrase ("Manual submissions to UAE
+directories") is turned into one; a line that instructs the buyer is dropped.
+
+The heading is stored as `**Why We Can Do It:**`. The markers become real bold
+when the extension types the PM into BHW, and are stripped from everything you
+copy - the dashboard boxes, the Copy buttons and Telegram.
 
 The question is the reason to post publicly at all. An answer lands on the
 thread where everyone reading it sees the buyer talking to you, and answering is
