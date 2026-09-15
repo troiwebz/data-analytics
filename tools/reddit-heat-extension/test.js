@@ -557,7 +557,13 @@ console.log("template + ai slots: ok");
   // templates never invent them
   assert.deepStrictEqual(H.huntLocalSlots(p).points, undefined);
   const pr = H.huntSlotPrompt(p, prof);
-  assert.ok(pr.schema.required.includes("points") && pr.schema.properties.points.minItems === 2, "the model must return exactly two");
+  assert.ok(pr.schema.required.includes("points") && /EXACTLY TWO/.test(pr.schema.properties.points.description), "the model is told exactly two");
+  // the API rejects minItems/maxItems above 1 on a structured-output schema
+  const badArray = (o) => !o || typeof o !== "object" ? false : Object.keys(o).some((k) => ((k === "minItems" || k === "maxItems") && o[k] > 1) || badArray(o[k]));
+  assert.ok(!badArray(pr.schema) && !badArray(H.AI_SCHEMA), "no array constraint the API refuses");
+  // more than two come back: the first two are used, the rest dropped
+  const three = H.huntSlotAssemble(p, prof, { ...slots, points: [...slots.points, "a third the model threw in"] });
+  assert.ok(three.dm_short.includes("no-shows") && !three.dm_short.includes("a third the model"), three.dm_short);
   assert.ok(pr.system.includes("no-shows, rebooking rates, stylist adoption"), "the prompt shows what a real market point looks like");
   assert.ok(H.AI_SCHEMA.required.includes("points"), "the full writer supplies them too");
 }

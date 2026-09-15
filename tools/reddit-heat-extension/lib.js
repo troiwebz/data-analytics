@@ -1459,7 +1459,7 @@ HEAT.AI_SCHEMA = {
     public_reply: { type: "string", description: "Exactly two lines separated by one newline. Line one: ONE specific, useful solution or observation for their exact situation, under 25 words, in their own terms. Line two: exactly the text \"Check your DM.\" No links, no prices, no pitch, no greeting." },
     dm_short: { type: "string", description: "70 to 110 words. An introduction, not a letter." },
     dm_long: { type: "string", description: "130 to 190 words. An introduction with one useful thought and how we work; no numbered plan." },
-    points: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, proving you know THIS market from the inside: the metric that decides it, how its real users behave, an integration or rule everyone in it deals with, or how these products usually fail. Lower case start, no full stop, no generic startup advice." },
+    points: { type: "array", items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, proving you know THIS market from the inside: the metric that decides it, how its real users behave, an integration or rule everyone in it deals with, or how these products usually fail. Lower case start, no full stop, no generic startup advice." },
     why: { type: "string", description: "One short phrase: the single most specific thing in the post the replies are built around." },
     fit: { type: "string", enum: ["yes", "no"], description: "yes only if the poster is a founder looking for a co-founder for their own idea or product. no if they are offering themselves, recruiting for a job, selling a service, a student project, or otherwise not someone who would pay a team." },
     fit_reason: { type: "string", description: "Under 15 words: why yes or no." },
@@ -1832,7 +1832,7 @@ HEAT.SLOT_SCHEMA = {
     observation: { type: "string", description: "ONE sentence, under 30 words, about THIS post: a number they gave, the stage they are at, the constraint they named. No advice, no compliment, no marketing words. Must contain a detail nobody else's post would have." },
     move: { type: "string", description: "ONE sentence, under 30 words: the single most useful next step for this exact product and stage. Concrete and doable this week. Never 'find a co-founder'." },
     question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
-    points: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
+    points: { type: "array", items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
     reply_line: { type: "string", description: "The public comment: ONE line under 22 words, a useful specific thought for this post. No greeting, no link, no price, no pitch." },
     phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
   },
@@ -2003,7 +2003,7 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   const proper = /^[A-Z][A-Za-z0-9]*$/.test(product.split(" ")[0]) && product.split(" ").length <= 2;
   const theProduct = proper ? product : "the " + product;   // case kept: "the SaaS for clinics", not "the saas…"
   const move = sentence(slots.move);
-  const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8);
+  const pts = (Array.isArray(slots.points) ? slots.points : []).map((x) => String(x || "").replace(/\s+/g, " ").trim().replace(/[.;,]+$/, "")).filter((x) => x.length > 8).slice(0, 2);
   const base = {
     p1: pts[0] ? pts[0].charAt(0).toLowerCase() + pts[0].slice(1) : "",
     p2: pts[1] ? pts[1].charAt(0).toLowerCase() + pts[1].slice(1) : "",
