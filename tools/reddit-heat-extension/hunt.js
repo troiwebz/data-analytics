@@ -888,6 +888,77 @@ async function drawSchedule() {
   clearTimeout(schedTimer);
   schedTimer = setTimeout(() => { if (!$("table").hidden && $("tableHead").textContent.includes("When")) drawSchedule(); }, 15000);
 }
+// One list, in one order. A post you have finished stays exactly where it
+// sorts, struck out and greyed, with the time it went and which halves went.
+// Moving it to a section at the bottom hid the shape of the day: how many are
+// done, and when they were done.
+let doneToday = [];
+function wireQueueRows() {
+  for (const th of $("tableHead").querySelectorAll("th.colsort")) th.onclick = () => colClick(th.dataset.k);
+  for (const cb of $("tableRows").querySelectorAll("input.rowpick")) {
+    cb.onclick = (e) => { e.stopPropagation(); if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); paintBulk(); };
+  }
+  if ($("pickAll")) $("pickAll").onclick = () => {
+    for (const cb of $("tableRows").querySelectorAll("input.rowpick")) { cb.checked = $("pickAll").checked; if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); }
+    paintBulk();
+  };
+  paintBulk();
+  const openIt = (id) => {
+    const i = queue.findIndex((x) => x.id === id);
+    if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
+    openRow = ""; $("table").hidden = true; $("main").hidden = false; render();
+  };
+  for (const b of $("tableRows").querySelectorAll("button.openfull")) b.onclick = () => openIt(b.dataset.id);
+  for (const b of $("tableRows").querySelectorAll("button.rowskip")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "skip" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
+  for (const b of $("tableRows").querySelectorAll("button.rowbad")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "not_relevant" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
+  for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
+    tr.onclick = (e) => {
+      if (e.target && (e.target.classList.contains("rowpick") || e.target.tagName === "BUTTON" || e.target.tagName === "A")) return;
+      const id = tr.dataset.id;
+      // first click opens a short reading of the post, a second opens it fully
+      if (openRow !== id) { openRow = id; drawQueueRows(); return; }
+      openIt(id);
+    };
+  }
+}
+function drawQueueRows() {
+  const rows = [...queue.map((p) => ({ p, done: null })), ...doneToday.map((d) => ({ p: d, done: d }))];
+  const key = colSort.key && COL_SORT[colSort.key] ? colSort.key : "";
+  if (key) rows.sort((a, b) => COL_SORT[key](a.p, b.p) * colSort.dir);
+  else rows.sort((a, b) => (b.p.created || b.p.firstSeen || b.p.at || 0) - (a.p.created || a.p.firstSeen || a.p.at || 0));
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const html = rows.map(({ p, done }) => {
+    if (done) {
+      const marks = [done.repliedAt ? "reply ✓" : "", done.dmAt ? "DM ✓" : ""].filter(Boolean).join(" · ");
+      return `<tr class="struck"><td></td>`
+        + `<td><b>${esc(p.title || "")}</b><br><span>r/${esc(p.sub || "")} · ${esc(p.author || "")}</span></td>`
+        + `<td class="mark">${esc(marks)}</td><td></td><td></td>`
+        + `<td class="when" style="color:#98a0b3">${esc(clock(done.at))}</td><td></td></tr>`;
+    }
+    const s = huntSynopsis(p);
+    const open = openRow === p.id;
+    const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
+    const row = `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td>`
+      + `<td><b>${esc(p.title)}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td>`
+      + `<td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+    if (!open) return row;
+    const bits = [["Who", s.who], ["Wants", s.wants], ["Where", s.country], ["Stage", s.stage], ["Money", s.money], ["Traction", s.traction || s.revenue], ["Time", s.commit], ["Equity", s.equity]].filter(([, v]) => v);
+    const gist = String(p.body || "").replace(/\s+/g, " ").trim().slice(0, 320);
+    return row + `<tr class="syn-row"><td></td><td colspan="6" style="padding:4px 10px 14px">
+      <div style="color:#98a0b3;font-size:12px;margin-bottom:6px">${bits.map(([k, v]) => `<b style="color:#e8eaf0">${esc(k)}:</b> ${esc(v)}`).join(" &nbsp;·&nbsp; ")}</div>
+      <div style="color:#c9cede">${esc(gist)}${p.body && p.body.length > 320 ? "…" : ""}</div>
+      <div class="row" style="margin:8px 0 0">
+        <button class="primary openfull" data-id="${p.id}">Open this one</button>
+        <button class="ghost rowskip" data-id="${p.id}">Skip</button>
+        <button class="ghost rowbad" data-id="${p.id}">Not relevant</button>
+        <a href="https://www.reddit.com${esc(String(p.permalink || "").replace(/^https?:\/\/[^/]+/, ""))}" target="_blank" rel="noopener" class="foot" style="margin:0">read it on Reddit ↗</a>
+      </div></td></tr>`;
+  }).join("");
+  $("tableRows").innerHTML = html || `<tr><td colspan="7" style="color:#98a0b3">Nobody waiting yet.</td></tr>`;
+  const base = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
+  $("tableTitle").textContent = base + (doneToday.length ? ` · ${doneToday.length} done today` : "");
+  wireQueueRows();
+}
 let tableKind = "";
 let tableDrawing = false;
 function showTable(kind) {
@@ -1016,67 +1087,16 @@ function showTable(kind) {
     $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th>`
       + colHead("post", "Post") + colHead("who", "Who") + colHead("wants", "Wants") + colHead("country", "Country") + colHead("age", "Age") + colHead("fit", "Fit") + `</tr>`;
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
-    $("tableRows").innerHTML = (queue.map((p) => {
-      const s = huntSynopsis(p);
-      const open = openRow === p.id;
-      const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
-      return `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td><td><b>${esc(p.title)}</b>${half}<br><span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}</span></td><td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
-    }).map((row, i) => {
-      const p = queue[i];
-      if (openRow !== p.id) return row;
-      const s2 = huntSynopsis(p);
-      const bits = [["Who", s2.who], ["Wants", s2.wants], ["Where", s2.country], ["Stage", s2.stage], ["Money", s2.money], ["Traction", s2.traction || s2.revenue], ["Time", s2.commit], ["Equity", s2.equity]].filter(([, v]) => v);
-      const gist = String(p.body || "").replace(/\s+/g, " ").trim().slice(0, 320);
-      return row + `<tr class="syn-row"><td></td><td colspan="6" style="padding:4px 10px 14px">
-        <div style="color:#98a0b3;font-size:12px;margin-bottom:6px">${bits.map(([k, v]) => `<b style="color:#e8eaf0">${esc(k)}:</b> ${esc(v)}`).join(" &nbsp;·&nbsp; ")}</div>
-        <div style="color:#c9cede">${esc(gist)}${p.body && p.body.length > 320 ? "…" : ""}</div>
-        <div class="row" style="margin:8px 0 0">
-          <button class="primary openfull" data-id="${p.id}">Open this one</button>
-          <button class="ghost rowskip" data-id="${p.id}">Skip</button>
-          <button class="ghost rowbad" data-id="${p.id}">Not relevant</button>
-          <a href="https://www.reddit.com${esc(String(p.permalink || "").replace(/^https?:\/\/[^/]+/, ""))}" target="_blank" rel="noopener" class="foot" style="margin:0">read it on Reddit ↗</a>
-        </div></td></tr>`;
-    }).join("") || `<tr><td colspan="7" style="color:#98a0b3">Nobody waiting yet.</td></tr>`) + `<tr id="doneRowsAnchor"></tr>`;
-    // today's finished ones stay in the list, struck through, so the day's work is visible
+    // today's finished posts come from the worker, then the list is drawn once
     send({ type: "hunt-done" }).then((r) => {
       const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-      // A post you replied to but have not DM'd is still waiting, so it stays
-      // in the queue above. Listing it down here as well showed the same
-      // thread twice on one screen, which is what "duplicates" was.
+      // a post replied to but not yet DM'd is still waiting above, so it is not
+      // also drawn as finished: that is the duplicate row all over again
       const waiting = new Set(queue.map((x) => x.id));
-      const done = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime()).filter((d) => !waiting.has(d.id));
-      const anchor = $("doneRowsAnchor"); if (!anchor) return;
-      anchor.outerHTML = done.length ? `<tr><td colspan="6" style="color:#98a0b3;padding-top:14px">Done today — ${done.length}</td></tr>` + done.map((d) => `<tr class="done"><td><b>${esc(d.title)}</b><br><span style="color:#98a0b3">r/${esc(d.sub)} · ${esc(d.author)}</span></td><td class="mark">${d.repliedAt ? "reply ✓" : ""}</td><td class="mark">${d.dmAt ? "DM ✓" : ""}</td><td></td><td class="when">${new Date(d.at).toLocaleTimeString()}</td><td></td></tr>`).join("") : "";
-      $("tableTitle").textContent = (queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`) + ` · done today ${done.length}`;
+      doneToday = ((r && r.rows) || []).filter((d) => d.at >= midnight.getTime()).filter((d) => !waiting.has(d.id));
+      if (!$("table").hidden && tableKind === "queue") drawQueueRows();
     });
-    for (const th of $("tableHead").querySelectorAll("th.colsort")) th.onclick = () => colClick(th.dataset.k);
-    for (const cb of $("tableRows").querySelectorAll("input.rowpick")) {
-      cb.onclick = (e) => { e.stopPropagation(); if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); paintBulk(); };
-    }
-    $("pickAll").onclick = () => {
-      for (const cb of $("tableRows").querySelectorAll("input.rowpick")) { cb.checked = $("pickAll").checked; if (cb.checked) picked.add(cb.dataset.id); else picked.delete(cb.dataset.id); }
-      paintBulk();
-    };
-    paintBulk();
-    for (const b of $("tableRows").querySelectorAll("button.openfull")) b.onclick = () => {
-      const i = queue.findIndex((x) => x.id === b.dataset.id);
-      if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
-      openRow = ""; $("table").hidden = true; $("main").hidden = false; render();
-    };
-    for (const b of $("tableRows").querySelectorAll("button.rowskip")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "skip" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
-    for (const b of $("tableRows").querySelectorAll("button.rowbad")) b.onclick = async () => { await send({ type: "hunt-act", id: b.dataset.id, action: "not_relevant" }); openRow = ""; queue = queue.filter((q) => q.id !== b.dataset.id); await refresh(false); showTable("queue"); };
-    for (const tr of $("tableRows").querySelectorAll("tr.pick")) {
-      tr.onclick = (e) => {
-        if (e.target && (e.target.classList.contains("rowpick") || e.target.tagName === "BUTTON" || e.target.tagName === "A")) return;
-        const id = tr.dataset.id;
-        // first click opens a short reading of the post, a second opens it fully
-        if (openRow !== id) { openRow = id; showTable("queue"); return; }
-        const i = queue.findIndex((x) => x.id === id);
-        if (i >= 0) { queue = [queue[i], ...queue.filter((_, j) => j !== i)]; cur = queue[0]; variant = 0; }
-        openRow = "";
-        $("table").hidden = true; $("main").hidden = false; render();
-      };
-    }
+    drawQueueRows();
     return;
   }
   if (kind === "done") {
