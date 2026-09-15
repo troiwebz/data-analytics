@@ -414,7 +414,7 @@ $("testKey").onclick = async () => {
   $("keyMsg").textContent = "checking…";
   const r = await send({ type: "hunt-ai-test" });
   $("keyMsg").textContent = r && r.ok ? "key works ✓" : "key failed: " + ((r && r.error) || "no answer");
-  if (r && r.ok && !profile.aiEngine) { profile.aiEngine = "claude"; await saveSetup(true); for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === "claude"; aiErr = {}; render(); }
+  if (r && r.ok && !profile.aiEngine) { profile.aiEngine = "slots"; await saveSetup(true); for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === "slots"; aiErr = {}; render(); }
 };
 $("cPolish").onchange = () => saveSetup(true);
 $("cLinks").onchange = async () => { await saveSetup(true); for (const q of queue) delete q.ai; if (cur) { delete cur.ai; variant = 0; render(); } };
