@@ -616,7 +616,7 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$(
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), autoWrite: $("cAuto").checked, dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, fitStrict: $("cFit").value || "strict", name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
+  profile = { ...(config.profile || {}), autoWrite: $("cAuto").checked, dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, fitStrict: $("cFit").value || "strict", name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), credit: $("cCredit").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -633,7 +633,7 @@ $("testKey").onclick = async () => {
 $("cPolish").onchange = () => saveSetup(true);
 $("cAuto").onchange = () => { saveSetup(true); render(); };
 $("cLinks").onchange = async () => { await saveSetup(true); for (const q of queue) delete q.ai; if (cur) { delete cur.ai; variant = 0; render(); } };
-for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBook", "cPort", "cKey", "cSrv", "cSrvTok", "cBudget", "cGapMin", "cGapMax", "cDmCap"]) {
+for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBook", "cPort", "cCredit", "cKey", "cSrv", "cSrvTok", "cBudget", "cGapMin", "cGapMax", "cDmCap"]) {
   $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
   $(id).addEventListener("blur", () => saveSetup(true));
 }
@@ -1434,7 +1434,7 @@ document.addEventListener("keydown", (e) => {
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";
-  $("cLi").value = profile.linkedin || ""; $("cBook").value = profile.booking || ""; $("cPort").value = profile.portfolio || ""; $("cLoc").value = profile.location || "";
+  $("cLi").value = profile.linkedin || ""; $("cBook").value = profile.booking || ""; $("cPort").value = profile.portfolio || ""; $("cCredit").value = profile.credit || ""; $("cLoc").value = profile.location || "";
   const eng = engine();
   for (const rb of document.querySelectorAll('input[name="engine"]')) rb.checked = rb.value === eng;
   chromeStatus();

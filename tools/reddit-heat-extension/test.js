@@ -769,7 +769,7 @@ console.log("the long DM is a list, not a wall: ok");
 {
   const p = { id: "gd", sub: "microsaas", author: "Jeet", title: "Left my SDE job to build an AI research agent", body: "could not market it, no paying user" };
   const pr = H.huntGuidePrompt(p, { name: "Noah" });
-  assert.deepStrictEqual(Object.keys(pr.schema.properties), ["opener", "points", "close"]);
+  assert.deepStrictEqual(Object.keys(pr.schema.properties), ["opener", "points", "close", "hook"]);
   assert.ok(/never mention yourself, a team/i.test(pr.system), "the prompt forbids the pitch");
   assert.ok(!/minItems|maxItems/.test(JSON.stringify(pr.schema)), "no array constraint the API refuses");
   const out = { opener: "Four years as an SDE and no paying user says the problem was never the building",
@@ -777,11 +777,26 @@ console.log("the long DM is a list, not a wall: ok");
              "Write down what they ask for in the first call, because that is the product",
              "Charge the third one, even badly, before you write another feature"],
     close: "The first person who pays decides what you build next" };
+  out.hook = "How many of those ten have you actually emailed so far";
   const txt = H.huntGuideBuild(out, { name: "Noah" }, { pointAtDm: true });
   assert.ok(/^1\. Pick the ten/m.test(txt) && /^3\. Charge the third/m.test(txt), "numbered points: " + txt);
   assert.ok(txt.startsWith("Four years as an SDE"), "the opener leads: " + txt);
-  assert.ok(/Sent you a DM as well\.$/.test(txt), "the DM pointer is last: " + txt);
   assert.deepStrictEqual(H.huntGuideChecks(txt), [], "a good comment passes");
+  // the last paragraph is the hook: a question, then the DM
+  const last = txt.split("\n\n").pop();
+  assert.ok(/^How many of those ten have you actually emailed so far\?/.test(last), "it ends on a question to them: " + last);
+  assert.ok(/Sent you a DM with more on that\.$/.test(last), "then the DM: " + last);
+  assert.ok(!/12 person team/.test(txt), "nothing about you unless you wrote it");
+  // your own line goes between the two, and only yours
+  const withCred = H.huntGuideBuild(out, { name: "Noah", credit: "I run a 12 person team in Bangkok that has shipped 40 of these" }, { pointAtDm: true });
+  const credLast = withCred.split("\n\n").pop();
+  assert.ok(/emailed so far\? I run a 12 person team in Bangkok that has shipped 40 of these\. Sent you a DM/.test(credLast), "question, then you, then the DM: " + credLast);
+  assert.deepStrictEqual(H.huntGuideChecks(withCred), [], "your own line is not counted as a pitch");
+  // a comment with no hook still works
+  const noHook = H.huntGuideBuild({ ...out, hook: "" }, { name: "Noah" }, { pointAtDm: true });
+  assert.ok(/Sent you a DM with more on that\.$/.test(noHook) && !/\?/.test(noHook.split("\n\n").pop()), "no hook, no dangling question mark: " + noHook);
+  // the model is told what the question is for
+  assert.ok(/a question they will want to answer in public/i.test(pr.schema.properties.hook.description), "the hook is specified");
   // and the checks catch a pitch, a link and a price
   assert.ok(H.huntGuideChecks("1. My team can build this for you").some((x) => /pitch/.test(x)));
   assert.ok(H.huntGuideChecks("1. See https://example.com").some((x) => /link/.test(x)));

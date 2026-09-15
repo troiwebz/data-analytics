@@ -1548,7 +1548,7 @@ async function huntGuideWrite(id, force) {
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
   const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
   let out; try { out = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
-  const body = huntGuideBuild(out, profile, { pointAtDm: true });
+  const body = huntGuideBuild(out, profile, { pointAtDm: true });   // profile.credit is your line, not the model's
   const checks = huntGuideChecks(body);
   if (!body) return { ok: false, error: "the model gave no usable points" };
   const u = j.usage || {};

@@ -1989,9 +1989,10 @@ HEAT.GUIDE_SCHEMA = {
   properties: {
     opener: { type: "string", description: "ONE sentence, under 25 words, that shows you read THIS post: the number they gave, the stage they are at, the constraint they named. No greeting, no compliment, no 'great question'." },
     points: { type: "array", items: { type: "string" }, description: "THREE to FIVE pieces of real, specific help for this exact post, in order of what matters. Each is one or two sentences, under 40 words, and must be usable this week by someone with no budget. Concrete: name the thing to do, to whom, and what to look at afterwards. No generic startup advice, no 'it depends', no mention of yourself, your team or any offer." },
-    close: { type: "string", description: "ONE short sentence, under 20 words: the one thing that decides it, or the question they should answer next. No offer, no pitch, no call to action about DMs." },
+    close: { type: "string", description: "ONE short sentence, under 20 words: the one thing that decides it. No offer, no pitch, no call to action about DMs." },
+    hook: { type: "string", description: "ONE question, under 20 words, addressed to them, about the single detail that would change your advice: a number they did not give, a choice they have not made, what they tried already. It must be a question they will want to answer in public, specific to this post, and answerable in a line. Never 'does that help', never 'let me know', never about hiring or working together." },
   },
-  required: ["opener", "points", "close"],
+  required: ["opener", "points", "close", "hook"],
   additionalProperties: false,
 };
 HEAT.huntGuidePrompt = function (p, profile = {}) {
@@ -2029,8 +2030,14 @@ HEAT.huntGuideBuild = function (out, profile = {}, opts = {}) {
   const lines = [opener, ""];
   pts.forEach((x, i) => lines.push(`${i + 1}. ${x.charAt(0).toUpperCase() + x.slice(1)}${/[.?]$/.test(x) ? "" : "."}`));
   if (close) lines.push("", close);
-  // the DM pointer is the only thing about us, and only if asked for
-  if (opts.pointAtDm) lines.push("", "Sent you a DM as well.");
+  // The last paragraph is the one doing the work: a question they will want to
+  // answer, one line about you in YOUR words, and only then the DM. The line
+  // about you is never written by the model - it would be inventing a track
+  // record - it is what you typed under Your details, or nothing at all.
+  const hook = clean(out.hook).replace(/\?*$/, "?");
+  const cred = clean(profile.credit).replace(/[.]*$/, ".");
+  const tail = [hook.length > 8 ? hook : "", cred.length > 8 ? cred : "", opts.pointAtDm ? "Sent you a DM with more on that." : ""].filter(Boolean);
+  if (tail.length) lines.push("", tail.join(" "));
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 };
 HEAT.huntGuideChecks = function (text) {
@@ -2041,7 +2048,9 @@ HEAT.huntGuideChecks = function (text) {
   if (/https?:\/\//.test(t)) bad.push("it has a link in it");
   if (/[$€£]\s?\d|\d+\s?%/.test(t)) bad.push("it has a price or a percentage in it");
   if (/[\u2014\u2013]/.test(t)) bad.push("it has a long dash in it");
-  if (/\b(my team|our team|we can|I can build|agency|portfolio|hire us|DM me)\b/i.test(t)) bad.push("it pitches, and a public comment must not");
+  // the closing line about you is your own words, so only the answer is checked
+  const body = t.split(/\n\s*\n/).slice(0, -1).join("\n\n") || t;
+  if (/\b(my team|our team|we can|I can build|agency|portfolio|hire us|DM me)\b/i.test(body)) bad.push("it pitches, and a public comment must not");
   if (t.length > 1800) bad.push("it is too long to be read on a phone");
   return bad;
 };
