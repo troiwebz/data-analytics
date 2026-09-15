@@ -120,6 +120,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "version-check-now") { Promise.all([checkRemoteVersion(), checkVersion()]).then(() => reply({ ok: true })); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
+  if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-slots") { huntSlotWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "inbox-list") { inboxList().then(reply); return true; }
   if (msg.type === "inbox-poll") { inboxPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
@@ -555,6 +556,7 @@ async function huntGet() {
     server: hunt.server || null,
     me: hunt.me || "",
     found: hunt.found || 0,
+    nextDmAt: hunt.nextDmAt || 0,
     sent: Array.isArray(hunt.sent) ? hunt.sent : [],   // fingerprints of the last DMs built, so none repeats
     lastReport: hunt.lastReport || "",
   };
@@ -858,6 +860,7 @@ async function huntAct(id, action, variant) {
     p.dmAt = now;
     const prev = st.contacted[p.author.toLowerCase()];
     st.contacted[p.author.toLowerCase()] = { at: now, id, how: prev && prev.how === "reply" ? "reply+dm" : "dm", sub: p.sub };
+    await dmSent();                      // start the gap before the next one
   }
   if (action === "undo") { delete p.act; delete p.repliedAt; delete p.dmAt; if ((st.contacted[p.author.toLowerCase()] || {}).id === id) delete st.contacted[p.author.toLowerCase()]; }
   p.actAt = now;
@@ -981,7 +984,7 @@ async function huntAiWrite(id, force) {
   const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed = null;
   try { parsed = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
-  const ai = huntAiClean(parsed);
+  const ai = huntAiClean({ ...parsed, public_reply: parsed.public_reply || "x\nCheck your DM." });
   if (ai && ai.tooLong) {
     if (force !== "shorter") return huntAiWrite(id, "shorter");   // one more try, told to be brief
     return { ok: false, error: "the model kept the public reply too long — press rewrite" };
@@ -994,12 +997,16 @@ async function huntAiWrite(id, force) {
     return { ok: false, cancelled: true, reason: p.cancelReason };
   }
   const u = j.usage || {};
+  // the public comment is built here, not paid for
+  const sentL = Array.isArray(st.sent) ? st.sent : [];
+  ai.public_reply = huntPublicLine(p, { ...(config.profile || {}) }, { avoid: sentL.map((x) => x.pl).filter(Boolean) });
   ai.at = Date.now();
   ai.dealV = inbox.dealV || 0;
   ai.model = j.model || model;
   ai.cents = aiCents(model, u);
   ai.cached = u.cache_read_input_tokens || 0;
   await spendAdd(ai.cents);
+  await huntSet({ sent: [{ at: Date.now(), pl: ai.public_reply }, ...sentL].slice(0, 40) });
   // The polish pass: a cheaper model rewrites only the sentences that could
   // have been sent to anyone. Skipped when off, or when it would pass the cap.
   if ((config.profile || {}).aiPolish !== false && spent.cents + ai.cents + 1.5 < spent.budget) {
@@ -1015,6 +1022,29 @@ async function huntAiWrite(id, force) {
 // The template engine: one cheap call fills the slots, the message is built
 // here from your skeleton, and every one is checked against the last forty you
 // sent so no two read alike.
+// Reddit's chat filter reacts to a burst of first messages, so the card holds
+// the DM button between sends: a random gap, and a ceiling for the day.
+const DM_GAP = { min: 60, max: 180, cap: 25 };
+async function dmGate() {
+  const { hunt = {}, config = {} } = await chrome.storage.local.get(["hunt", "config"]);
+  const pr = config.profile || {};
+  const min = Math.max(0, Number(pr.dmGapMin) || DM_GAP.min);
+  const max = Math.max(min, Number(pr.dmGapMax) || Math.max(DM_GAP.max, min));
+  const cap = Math.max(1, Number(pr.dmCap) || DM_GAP.cap);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const sentToday = Object.values(hunt.posts || {}).filter((p) => (p.dmAt || 0) >= today.getTime()).length;
+  const waitMs = Math.max(0, (hunt.nextDmAt || 0) - Date.now());
+  return { ok: waitMs === 0 && sentToday < cap, waitMs, sentToday, cap, min, max };
+}
+async function dmSent() {
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const pr = config.profile || {};
+  const min = Math.max(0, Number(pr.dmGapMin) || DM_GAP.min);
+  const max = Math.max(min, Number(pr.dmGapMax) || Math.max(DM_GAP.max, min));
+  const gap = Math.round(min + Math.random() * (max - min));
+  await huntSet({ nextDmAt: Date.now() + gap * 1000 });
+  return gap;
+}
 async function huntSlotWrite(id, force) {
   const st = await huntGet();
   const p = st.posts[id];
@@ -1051,7 +1081,7 @@ async function huntSlotWrite(id, force) {
     await huntSet({ posts: st.posts });
     return { ok: false, cancelled: true, reason: p.cancelReason };
   }
-  const ai = huntSlotAssemble(p, profile, slots, { avoid: sent.map((x) => x.sh), recentStyles: sent.map((x) => x.style) });
+  const ai = huntSlotAssemble(p, profile, slots, { avoid: sent.map((x) => x.sh), recentStyles: sent.map((x) => x.style), avoidLines: sent.map((x) => x.pl).filter(Boolean) });
   if (!ai.public_reply || ai.dm_short.length < 180) return { ok: false, error: "the slots came back too thin — press rewrite" };
   ai.at = Date.now();
   ai.dealV = inbox.dealV || 0;
@@ -1061,7 +1091,7 @@ async function huntSlotWrite(id, force) {
   const shingles = ai.shingles || [];
   delete ai.shingles;
   p.ai = ai;
-  await huntSet({ posts: st.posts, sent: [{ at: Date.now(), style: ai.style, sh: shingles, line: String(slots.observation || "").split(/\s+/).slice(0, 12).join(" ") }, ...sent].slice(0, 40) });
+  await huntSet({ posts: st.posts, sent: [{ at: Date.now(), style: ai.style, sh: shingles, pl: ai.public_reply, line: String(slots.observation || "").split(/\s+/).slice(0, 12).join(" ") }, ...sent].slice(0, 40) });
   return { ok: true, ai };
 }
 async function huntPolish(key, p, ai) {

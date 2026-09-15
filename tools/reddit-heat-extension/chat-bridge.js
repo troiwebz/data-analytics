@@ -100,80 +100,16 @@
   }
   const roomKey = () => (location.pathname.match(/\/room\/([^/]+)/) || [])[1] || location.pathname;
 
-  // ---- the panel on the page ----------------------------------------------
-  let panel, ta, state, fillBtn, sentBtn, redoBtn, stageEl, noteEl, autoCb, whoEl;
-  function ensurePanel() {
-    if (panel) return;
-    panel = document.createElement("div"); panel.id = "rlt-chat";
-    panel.style.cssText = "position:fixed;right:16px;bottom:96px;width:420px;max-height:70vh;z-index:2147483647;background:#171a21;color:#e8eaf0;border:1px solid #262b36;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:13px/1.5 -apple-system,Segoe UI,sans-serif;padding:12px;display:flex;flex-direction:column;gap:8px";
-    panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="color:#ff5722">Reply</b><span id="rlt-who" style="color:#e8eaf0;font-weight:600"></span><span id="rlt-stage" style="color:#98a0b3;font-size:12px"></span><span id="rlt-state" style="margin-left:auto;font-size:12px;color:#98a0b3"></span><button id="rlt-hide" style="background:none;border:0;color:#98a0b3;cursor:pointer">✕</button></div>
-      <div id="rlt-note" style="color:#98a0b3;font-size:12px"></div>
-      <textarea id="rlt-ta" style="width:100%;height:170px;background:#0d0f14;color:#e8eaf0;border:1px solid #262b36;border-radius:8px;padding:8px;font:13px/1.5 inherit;resize:vertical"></textarea>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <button id="rlt-fill" style="background:#ff5722;border:0;color:#fff;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Fill the box</button>
-        <button id="rlt-sent" style="background:#2ea043;border:0;color:#fff;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Sent ✓</button>
-        <button id="rlt-redo" style="background:#1e222b;border:1px solid #262b36;color:#e8eaf0;padding:7px 10px;border-radius:7px;cursor:pointer">Rewrite</button>
-        <label style="margin-left:auto;font-size:12px;color:#98a0b3;display:flex;gap:4px;align-items:center"><input type="checkbox" id="rlt-auto">auto-fill when I open a chat</label>
-      </div>`;
-    document.body.appendChild(panel);
-    ta = panel.querySelector("#rlt-ta"); state = panel.querySelector("#rlt-state"); whoEl = panel.querySelector("#rlt-who"); fillBtn = panel.querySelector("#rlt-fill"); sentBtn = panel.querySelector("#rlt-sent"); redoBtn = panel.querySelector("#rlt-redo"); stageEl = panel.querySelector("#rlt-stage"); noteEl = panel.querySelector("#rlt-note"); autoCb = panel.querySelector("#rlt-auto");
-    panel.querySelector("#rlt-hide").onclick = () => { panel.style.display = "none"; };
-    fillBtn.onclick = () => {
-      const onScreen = openRoom();
-      if (!onScreen) { state.textContent = "no chat open — open the conversation first, then press Fill"; state.style.color = "#ff8a65"; return; }
-      if (current && onScreen.toLowerCase() !== current.with.toLowerCase()) { state.textContent = `this reply is for ${current.with}, but the open chat is with ${onScreen} — not filling`; state.style.color = "#ff8a65"; return; }
-      fill(ta.value).then(async (r) => {
-        state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65";
-        if (r.ok) await assumeSent();
-      });
-    };
-    sentBtn.onclick = async () => { if (!current) return; await chrome.runtime.sendMessage({ type: "inbox-mine", id: current.id, body: ta.value }); state.textContent = "marked sent"; state.style.color = "#7ee29a"; current = null; };
-    redoBtn.onclick = () => draft(true);
-    chrome.storage.local.get(["chatAutoFill"]).then((x) => { autoCb.checked = !!x.chatAutoFill; });
-    autoCb.onchange = () => chrome.storage.local.set({ chatAutoFill: autoCb.checked });
-  }
-
-  let current = null, lastSig = "", drafting = false;
-  // Option (on by default): once the reply is in the box, count it as sent so
-  // the Inbox strikes the card through. Untick "mark as sent when filled" on
-  // the Inbox page to go back to pressing Sent by hand.
-  async function assumeSent() {
-    const { assumeSent: on = true } = await chrome.storage.local.get(["assumeSent"]);
-    if (on === false || !current) return;
-    await chrome.runtime.sendMessage({ type: "inbox-mine", id: current.id, body: ta.value });
-    state.textContent = "in the box — marked sent; press send"; state.style.color = "#7ee29a";
-  }
-  async function draft(force) {
-    if (!current || drafting) return;
-    drafting = true; ensurePanel(); state.textContent = "writing…"; state.style.color = "#e6c76b";
-    const r = await chrome.runtime.sendMessage({ type: "chat-draft", id: current.id, force: !!force });
-    drafting = false;
-    if (!r || !r.ok) { state.textContent = (r && r.error) || "no draft"; state.style.color = "#ff8a65"; return; }
-    ta.value = r.draft.reply;
-    whoEl.textContent = "to " + current.with;
-    stageEl.textContent = "· " + (r.draft.stageLabel || r.draft.stage) + (r.draft.verdict === "not_interested" ? " · CUT" : r.draft.verdict === "interested" ? " · INTERESTED" : "");
-    stageEl.style.color = r.draft.verdict === "not_interested" ? "#ff8a65" : r.draft.verdict === "interested" ? "#7ee29a" : "#98a0b3";
-    noteEl.textContent = r.draft.note || "";
-    state.textContent = r.draft.engine === "claude" ? "written by Claude" : r.draft.engine === "template" ? "template" : "written";
-    state.style.color = "#7ee29a";
-    panel.style.display = "";
-    const { chatAutoFill } = await chrome.storage.local.get(["chatAutoFill"]);
-    // auto-fill only when the room on screen is this person's and the box is empty
-    const onScreen = openRoom();
-    const c = findComposer();
-    const boxEmpty = c && (c.tagName === "TEXTAREA" ? !c.value.trim() : !text(c).trim());
-    if (chatAutoFill && r.needsReply && onScreen && onScreen.toLowerCase() === current.with.toLowerCase() && boxEmpty) {
-      const f = await fill(ta.value); if (f.ok) { state.textContent = "auto-filled — read it, press send"; await assumeSent(); }
-    } else if (chatAutoFill && !boxEmpty) { state.textContent = "box not empty — not auto-filling"; state.style.color = "#e6c76b"; }
-  }
+  // The reply panel used to live here and drafted answers from whatever the
+  // page happened to show. On a busy Chat page that reads several rooms at
+  // once, so the drafts came out mixed. Drafting now happens only on the
+  // Inbox page, against one stored thread. This script reads the open
+  // conversation and fills a waiting DM; nothing else.
+  let current = null, lastSig = "";
 
   async function observe() {
     const here = openRoom();
-    if (!here) {                       // room list, the new-chat page, nothing open
-      if (panel) panel.style.display = "none";
-      current = null; lastSig = "";
-      return;
-    }
+    if (!here) { current = null; lastSig = ""; return; }
     const msgs = readMessages();
     if (!msgs.length) return;
     const w = roomWith(msgs);
@@ -182,13 +118,7 @@
     if (sig === lastSig) return;
     lastSig = sig;
     const r = await chrome.runtime.sendMessage({ type: "chat-observe", with: w, messages: msgs, url: location.href, v: READER_VERSION });
-    if (r && r.id) {
-      const changed = !current || current.id !== r.id || r.added;
-      current = { id: r.id, with: w };
-      ensurePanel();
-      if (changed) { ta.value = ""; stageEl.textContent = ""; noteEl.textContent = ""; }
-      if (r.needsReply) draft(false); else { state.textContent = "nothing to answer here"; state.style.color = "#98a0b3"; if (r.draft) ta.value = r.draft.reply; }
-    }
+    if (r && r.id) current = { id: r.id, with: w };
   }
 
   function dump() {
@@ -237,8 +167,6 @@
       const inRoom = !!here && (same(here, name) || new RegExp("/user/" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(/|$)", "i").test(location.pathname));
       if (inRoom && findComposer()) {
         const r = await fill(pendingDm.text);
-        ensurePanel(); whoEl.textContent = "to " + name; ta.value = pendingDm.text; stageEl.textContent = "· first DM"; noteEl.textContent = "";
-        state.textContent = r.ok ? "in the box — read it, press send" : r.error; state.style.color = r.ok ? "#7ee29a" : "#ff8a65"; panel.style.display = "";
         say(r.ok ? `DM for ${name} is in the box — press send` : r.error, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);

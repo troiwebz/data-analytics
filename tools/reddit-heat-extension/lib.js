@@ -1069,6 +1069,50 @@ const SHORT_CLOSE = [
 // n distinct 3-line replies for THIS post. Line 1 speaks to their situation,
 // line 2 gives something away, line 3 points at the DM. No link, no price.
 HEAT.PUBLIC_CLOSE = "Check your DM.";
+// The public comment says one thing: there is a DM waiting, about their thing.
+// Built from pools so the same line never appears twice on Reddit.
+const PUB_LINE = [
+  (t) => `Check your DM about ${t}.`,
+  (t) => `Sent you a DM about ${t}.`,
+  (t) => `DM'd you about ${t}.`,
+  (t) => `Just sent you a DM regarding ${t}.`,
+  (t) => `Dropped you a DM about ${t}.`,
+  (t) => `Messaged you about ${t} — check your DM.`,
+  (t) => `Put a note about ${t} in your DMs.`,
+  (t) => `Check your DM — wrote to you about ${t}.`,
+  (t) => `Sent something over about ${t}, it's in your DMs.`,
+  (t) => `Replied in your DMs about ${t}.`,
+  (t) => `There's a DM from me about ${t}.`,
+  (t) => `Wrote to you about ${t} — see your DM.`,
+  (t) => `Your DMs have a note from me about ${t}.`,
+  (t) => `Sent a DM your way about ${t}.`,
+  (t) => `Check the DM I sent about ${t}.`,
+  (t) => `Left you a DM about ${t}.`,
+  (t) => `Have a look at your DM about ${t}.`,
+  (t) => `Reached out in your DMs about ${t}.`,
+  (t) => `Something about ${t} is sitting in your DMs.`,
+  (t) => `Sent my thoughts on ${t} by DM.`,
+];
+const PUB_TAIL = [
+  () => ``,
+  () => ` No rush.`,
+  () => ` Whenever you have a minute.`,
+  () => ` Two minutes to read.`,
+  () => ` Happy to keep it there if it's easier.`,
+  () => ` Short one.`,
+];
+function pubHash(x) { let h = 2166136261; for (let i = 0; i < String(x).length; i += 1) { h ^= String(x).charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); }
+// 20 openings x 6 endings, and never one you used on a recent post
+HEAT.huntPublicLine = function (p, profile = {}, opts = {}) {
+  const thing = HEAT.huntThing(p);
+  const used = new Set(opts.avoid || []);
+  const seed = pubHash(p.id || p.title || "");
+  for (let i = 0; i < PUB_LINE.length * PUB_TAIL.length; i += 1) {
+    const line = PUB_LINE[(seed + i) % PUB_LINE.length](thing) + PUB_TAIL[(seed + i * 7) % PUB_TAIL.length]();
+    if (!used.has(line)) return line;
+  }
+  return PUB_LINE[seed % PUB_LINE.length](thing);
+};
 // One public reply, not a menu: the single most specific useful line for
 // THIS post, then "Check your DM." The context lines win over the role pool.
 HEAT.huntShortOptions = function (p, profile = {}, n = 1) {
@@ -1493,8 +1537,7 @@ Rules that make the reply feel written for THIS post and nobody else:
 - Refer to at least two concrete details from their post in their own words (the product, the stage, the constraint they named, a number they gave, the market, the city). Quote a short phrase of theirs where it is natural.
 - Never use a placeholder or generic noun where they gave a specific one. If they said "a scheduling app for dental clinics", say that, not "your app".
 - Diagnose their real next step from what they wrote, not from a template. If they already have users, do not tell them to get users. If they said they are technical, do not tell them to build.
-- The public reply is exactly two lines. Line one (under 25 words): ONE specific, useful solution or observation for their exact situation — the thing they would act on today — in their own terms. Line two is exactly "Check your DM." Nothing else: no link, no price, no "I'm a developer", no greeting, no second idea.
-- Both DMs: open with the GREETING (below, verbatim), then one line on their situation in their own words, then one specific useful thought (two to four sentences, no numbered plans), then HOW WE WORK (below, adapt the product name), then the CLOSING LINE (below, verbatim), then the SIGN-OFF (below, verbatim). dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
+- Both DMs are exactly TWO paragraphs after the greeting. First: their post and what it means, in their words. Second: the offer, what you would do in the first two weeks, and the offer to send the portfolio and that plan in writing. No sign-off, no dashes of any kind, no bullet points. dm_short is 70 to 110 words; dm_long is 130 to 190 words. Never promise a prototype, a free build, or free work of any kind.
 - ${m.shape.numbers ? "Use the numbers exactly as written in HOW WE WORK; never invent or change a number." : "NO PRICE, NO PERCENTAGE in the DM. The shape is the pitch: " + m.shape.shapeShort + "; they keep the company. Numbers come later, in the conversation, when they ask."}
 - READ THE STAGE. If they already have a working product, users or revenue, never tell them to build a first version or that "v1 is 2 to 4 weeks" — talk about running and growing what exists. Only idea-stage posts get first-version advice.
 - The offer and the contact line are the only pre-written parts. Everything else is written to this post.`;
@@ -1522,10 +1565,9 @@ Hi ${m.name},
 CLOSING LINE (the last sentence of every DM, verbatim)
 Happy to send the portfolio and a short plan for the first block of work if you are ready.
 ${profile.dmLinks && m.contact ? "\nCONTACT LINE (after the closing line)\n" + m.contact + "\n" : ""}
-SIGN-OFF
-${profile.name ? "— " + profile.name : ""}
+(No sign-off. The message ends on the portfolio and plan sentence.)
 
-Write public_reply, dm_short, dm_long and why. Be quick and concrete; no preamble.${compact ? " Keep dm_short about 80 words and dm_long about 220 words with four numbered steps." : ""}`;
+Write dm_short, dm_long, the points and why. Be quick and concrete; no preamble.${compact ? " Keep dm_short about 80 words and dm_long about 220 words with four numbered steps." : ""}`;
   return { system, user, schema: HEAT.AI_SCHEMA };
 };
 
@@ -1833,10 +1875,9 @@ HEAT.SLOT_SCHEMA = {
     move: { type: "string", description: "ONE sentence, under 30 words: the single most useful next step for this exact product and stage. Concrete and doable this week. Never 'find a co-founder'." },
     question: { type: "string", description: "ONE short question about the thing they most need to find out next, in their terms, answerable in a line. Never 'does that work for you'." },
     points: { type: "array", items: { type: "string" }, description: "EXACTLY TWO short clauses, each under 18 words, that prove you know THIS market from the inside: a metric that decides it, a behaviour of its real users, an integration or rule everyone in it deals with, or the way these products usually fail. Something an outsider could not name. Lower case start, no full stop, no generic startup advice, no flattery, no mention of your offer." },
-    reply_line: { type: "string", description: "The public comment: ONE line under 22 words, a useful specific thought for this post. No greeting, no link, no price, no pitch." },
     phrase: { type: "string", description: "One short phrase quoted VERBATIM from the post, 3 to 10 words, that can be dropped into a sentence in quotation marks." },
   },
-  required: ["fit", "fit_reason", "product", "observation", "move", "question", "reply_line", "phrase", "points"],
+  required: ["fit", "fit_reason", "product", "observation", "move", "question", "phrase", "points"],
   additionalProperties: false,
 };
 HEAT.huntSlotPrompt = function (p, profile = {}, opts = {}) {
@@ -1878,93 +1919,73 @@ Fill every slot. Be concrete and quick.`;
 // Each line is a whole sentence. The builder picks one per slot, per style,
 // so the same two DMs never read alike.
 const S_OPEN = [
+  (m) => `Came across your post about ${m.the}.`,
   (m) => `Saw your post about ${m.the}.`,
-  (m) => `Your post about ${m.the} came up in r/${m.sub}.`,
   (m) => `Read your post on ${m.the} this morning.`,
-  (m) => `Came across your post looking for help with ${m.the}.`,
-  (m) => `Your post about ${m.the} is the reason I'm writing.`,
+  (m) => `Your post about ${m.the} came up in r/${m.sub}.`,
   (m) => `Just read what you wrote about ${m.the}.`,
+  (m) => `Your post about ${m.the} is the reason I'm writing.`,
 ];
-// The stance: yes to the co-founder seat, but the split is income and
-// expenses rather than equity, and nobody works for free.
-// The whole claim in one sentence: yes to co-founder, a team comes with me,
-// and we share both what it costs and what it earns.
+// yes to co-founder, a team comes with me, expenses and profit both shared
 const S_STAND = [
-  () => `I can be your co-founder on this: my team works alongside you, and we share the expenses and share the profit.`,
-  () => `Yes, I can take the co-founder seat — team included, expenses shared, profit shared.`,
+  () => `I can co-found this with you: my team joins the work, and the expenses and the profit are both split.`,
+  () => `I can be your co-founder here. My team works alongside you, and we share the expenses and the profit.`,
+  () => `Happy to co-found this with you: shared team, shared expenses, shared profit.`,
   () => `I'd come in as your co-founder with my own team, sharing what it costs to run and what it earns.`,
-  () => `Happy to be your co-founder: shared team, shared expenses, shared profit.`,
-  () => `I can co-found this with you — my team joins the work, and the expenses and the profit are both split.`,
-  () => `I'm offering to be your co-founder, bring my team, and share both the expenses and the profit with you.`,
-  () => `Co-founder, yes: a team comes with me, and we carry the expenses together and split the profit.`,
-  () => `I'd be your co-founder on a shared footing — my team, shared costs, shared profit.`,
+  () => `Yes to the co-founder seat, on a shared footing: my team, shared costs, shared profit.`,
+  () => `I'm offering to co-found this, bring my team, and split both the expenses and the profit with you.`,
+  () => `Co-founder works for me: a team comes along, and we carry the costs together and split the profit.`,
+  () => `I can take the co-founder seat with my team behind me, expenses shared and profit shared.`,
 ];
-// The message ends here: an offer to send more, only if they want it.
+// the plan and the portfolio, offered together, as the last sentence
 const S_PROOF = [
-  () => `Happy to send the portfolio and a short plan for the first block of work if you are ready.`,
-  () => `If you are ready, I'll send the portfolio and a plan for the first piece.`,
-  () => `Portfolio and a one-page plan are yours whenever you want them.`,
-  () => `Say the word and I'll send examples of our work plus how I'd sequence yours.`,
-  () => `If that sounds workable, I'll send the portfolio and how I'd start on this.`,
-  () => `Tell me and the portfolio plus a first-block plan come straight over.`,
-  () => `When you want them, the portfolio and a short plan are ready to send.`,
-  () => `Ready to send work samples and a plan for the first block whenever it helps.`,
+  (m) => `I'll send the portfolio and that plan in writing if you want it.`,
+  (m) => `Portfolio and the written plan are yours whenever you want them.`,
+  (m) => `Say the word and the portfolio plus that plan come straight over.`,
+  (m) => `If you're ready I'll send the portfolio and the plan in writing.`,
+  (m) => `Tell me and I'll send our portfolio together with that plan.`,
+  (m) => `The portfolio and a written version of that plan are ready to send.`,
 ];
-const S_NEXT = [
-  () => `Cheap to test either way.`,
-  () => `Worth an hour before anything bigger.`,
-  () => `That answer usually decides the rest.`,
-  () => `It costs nothing to find out.`,
-  () => `Most of the risk sits in that one answer.`,
+// what we would actually do, from the step the model wrote for this post
+const S_PLAN = [
+  (m) => `First two weeks I'd ${m.moveLower}`,
+  (m) => `The plan I'd start with: ${m.moveLower}`,
+  (m) => `Week one, here is what I'd do: ${m.moveLower}`,
+  (m) => `My first move would be simple: ${m.moveLower}`,
+  (m) => `Straight away I'd ${m.moveLower}`,
 ];
-// The two points, as one paragraph. They come from the model, never from here.
 const S_POINTS = [
-  (m) => `Two things that decide these, from what we've seen: ${m.p1}; and ${m.p2}.`,
-  (m) => `Two details that matter more than people expect here: ${m.p1}, and ${m.p2}.`,
+  (m) => `From building in this space: ${m.p1}, and ${m.p2}.`,
+  (m) => `Two things that decide these: ${m.p1}, and ${m.p2}.`,
+  (m) => `Two details that matter more than people expect: ${m.p1}, and ${m.p2}.`,
   (m) => `What usually decides it: ${m.p1}. And ${m.p2}.`,
   (m) => `Two things I'd be watching: ${m.p1}, and ${m.p2}.`,
-  (m) => `From building in this space: ${m.p1}; ${m.p2}.`,
-  (m) => `The two that bite: ${m.p1}, and ${m.p2}.`,
+  (m) => `In this market: ${m.p1}, and ${m.p2}.`,
 ];
-const S_MOVE_IN = [
-  (m) => `If it were mine this week: ${m.moveLower}`,
-  (m) => `One thing I'd do first: ${m.moveLower}`,
-  (m) => `The step I'd take before anything else: ${m.moveLower}`,
-  (m) => `Worth doing before you bring anyone in: ${m.moveLower}`,
-  (m) => `${m.move}`,
-];
-// A style is a whole shape, not a reworded sentence: the order changes too.
-// Four paragraphs, every time: their post, what I'd do, who I am and on what
-// terms, and an offer to send more. No closing question, no channel line.
-// Their post, who I am and on what terms, an offer to send more. The longer
-// size slips one more paragraph in: what I'd do about it this week.
+// Two paragraphs. One about them, one about the offer, the plan and the
+// portfolio. No sign-off, no dashes.
 const STYLES = [
   { key: "plain", build: (m, pick) => [
-    `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP.`, "",
-    pick(S_PROOF)(),
+    [pick(S_OPEN)(m), m.observation, m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "observation-first", build: (m, pick) => [
-    `${m.observation} ${pick(S_OPEN)(m)}`, "",
-    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP.`, "",
-    pick(S_PROOF)(),
+    [m.observation, pick(S_OPEN)(m), m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
-  { key: "as-for-me", build: (m, pick) => [
-    `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `As for me — ${lower(pick(S_STAND)()).replace(/:/, ",")} ${m.offer} You keep the company and the IP.`, "",
-    pick(S_PROOF)(),
+  { key: "points-led", build: (m, pick) => [
+    [pick(S_OPEN)(m), m.long && m.pts ? pick(S_POINTS)(m) : "", m.observation].filter(Boolean).join(" "), "",
+    [pick(S_STAND)(m), m.offer, "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
+  ] },
+  { key: "plan-led", build: (m, pick) => [
+    [pick(S_OPEN)(m), m.observation, m.long && m.pts ? pick(S_POINTS)(m) : ""].filter(Boolean).join(" "), "",
+    [m.plan, pick(S_STAND)(m), m.offer, "You keep the company and the IP.", pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
   { key: "brief", build: (m, pick) => [
-    `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} You keep the company and the IP.`, "",
-    pick(S_PROOF)(),
-  ] },
-  { key: "one-breath", build: (m, pick) => [
-    `${pick(S_OPEN)(m)} ${m.observation}`, "",
-    `${pick(S_STAND)()} ${m.offer} You keep the company and the IP. ${pick(S_PROOF)()}`,
+    [pick(S_OPEN)(m), m.observation].filter(Boolean).join(" "), "",
+    [pick(S_STAND)(m), "You keep the company and the IP.", m.plan, pick(S_PROOF)(m)].filter(Boolean).join(" "),
   ] },
 ];
-// never turn the pronoun "I" into "i"
 function lower(s) { return /^I\b|^I'/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
 HEAT.SLOT_STYLES = STYLES.map((s) => s.key);
 
@@ -2037,20 +2058,18 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
       ];
       let offer = pick(shapes);
       offer = offer.replace(/;?\s*(you keep the company[^.]*)\.?$/i, "").replace(/\s*(is that (?:shape )?open for you\??)$/i, "").trim().replace(/[.;,]$/, "");
-      const m = { ...base, offer: /[.!?]$/.test(offer) ? offer : offer + "." };
-      let lines = style.build(m, pick);
-      if (opts.long && m.move) {
-        // the longer size adds what I'd do about it this week
-        lines = [...lines.slice(0, 1), "", `${pick(S_MOVE_IN)(m)} ${pick(S_NEXT)()}`, ...lines.slice(1)];
-      }
-      if (m.p1 && m.p2) {
-        // straight after their post: the two specifics that show we know this market
-        lines = [...lines.slice(0, 1), "", pick(S_POINTS)(m), ...lines.slice(1)];
-      }
+      const m = {
+        ...base,
+        long: !!opts.long,
+        pts: !!(base.p1 && base.p2),
+        plan: base.move ? pick(S_PLAN)(base) : "",
+        offer: /[.!?]$/.test(offer) ? offer : offer + ".",
+      };
+      const lines = style.build(m, pick);
       // the channel line only appears if you switched the links on
-      if (profile.dmLinks) { const contact = HEAT.huntContactLine(profile, true); if (contact) lines = [...lines, "", contact]; }
-      const body = lines.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-      const text = `Hi ${base.name},\n\n${body}\n\n${profile.name ? "— " + profile.name : ""}`.trim();
+      const all = profile.dmLinks && HEAT.huntContactLine(profile, true) ? [...lines, "", HEAT.huntContactLine(profile, true)] : lines;
+      const body = all.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      const text = `Hi ${base.name},\n\n${body}`.trim();      // no sign-off: this is a chat, they can see who wrote it
       tries.push({ style: style.key, variant: vi, text: clean(text) });
     }
   }
@@ -2072,6 +2091,8 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
   }
   function clean(s) {
     return s
+      .replace(/\s*[—–]\s*/g, ", ")                                     // no long dashes: they read as a template
+      .replace(/,\s*,/g, ",")
       .replace(profile.dmLinks ? /$^/ : /https?:\/\/\S+/g, "")           // no link in a first message unless you switch them on
       .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")          // no emoji
       .replace(/ {2,}/g, " ")
@@ -2084,11 +2105,11 @@ HEAT.huntSlotBuild = function (p, profile = {}, slots = {}, opts = {}) {
 HEAT.huntSlotAssemble = function (p, profile = {}, slots = {}, opts = {}) {
   const built = HEAT.huntSlotBuild(p, profile, slots, opts);
   const v = HEAT.huntVars(p, profile);
-  const line = String(slots.reply_line || "").replace(/\s+/g, " ").trim().replace(/[.!?]*$/, ".");
+  const line = HEAT.huntPublicLine(p, profile, { avoid: opts.avoidLines || [] });
   const long = HEAT.huntSlotBuild(p, profile, slots, { ...opts, long: true }).text;
   return {
     concept: { product: String(slots.product || ""), customer: "", problem: "", stage_now: "", missing: "", type: "other", phrases: [], biggest_unknown: String(slots.question || "") },
-    public_reply: `${line}\n${HEAT.PUBLIC_CLOSE}`,
+    public_reply: line,
     dm_short: built.text,
     dm_long: long,
     why: String(slots.observation || "").slice(0, 200),

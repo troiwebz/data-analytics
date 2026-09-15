@@ -360,13 +360,34 @@ $("goPost").onclick = async () => {
   const path = cur.permalink.replace(/^https?:\/\/[^/]+/, "");
   window.open("https://www.reddit.com" + path, "_blank");   // new Reddit; prefill-new.js fills the composer there
 };
+// The DM button waits between sends, and stops for the day at your ceiling.
+let gate = { ok: true, waitMs: 0, sentToday: 0, cap: 25 };
+async function gateTick() {
+  const g = await send({ type: "hunt-dm-gate" });
+  if (g) gate = g;
+  paintGate();
+}
+function paintGate() {
+  const b = $("goDm");
+  if (!b) return;
+  const secs = Math.ceil(gate.waitMs / 1000);
+  if (gate.sentToday >= gate.cap) { b.disabled = true; b.textContent = `DM limit for today reached (${gate.sentToday}/${gate.cap})`; }
+  else if (secs > 0) { b.disabled = true; b.textContent = `Next DM in ${secs}s — pacing so Reddit doesn't flag you`; }
+  else { b.disabled = false; b.textContent = "Open the DM, filled in ↗"; }
+  const note = $("dmGateNote");
+  if (note) note.textContent = `${gate.sentToday} of ${gate.cap} sent today${secs > 0 ? ` · next in ${secs}s` : ""}`;
+}
+setInterval(() => { if (gate.waitMs > 0) { gate.waitMs = Math.max(0, gate.waitMs - 1000); paintGate(); } }, 1000);
+setInterval(gateTick, 15000);
+gateTick();
 $("goDm").onclick = async () => {
-  if (!cur) return;
+  if (!cur || $("goDm").disabled) return;
   await copyText($("dm").value);
   // Reddit's "new chat" page; the bridge types the name, opens the chat and fills the box. Nothing is sent by us.
   await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: cur.id, author: cur.author, text: $("dm").value, at: Date.now() } });
   window.open("https://www.reddit.com/chat/room/create", "_blank");
-  if ($("assumeDm").checked) setTimeout(() => act("dm"), 800);   // counts as sent; the post is struck through in Done and never returns
+  if ($("assumeDm").checked) setTimeout(async () => { await act("dm"); gateTick(); }, 800);   // counts as sent; the post is struck through in Done and never returns
+  else setTimeout(gateTick, 1500);
 };
 $("assumeDm").onchange = () => chrome.storage.local.set({ assumeDm: $("assumeDm").checked });
 $("later").onclick = () => act("later");
@@ -374,7 +395,7 @@ $("copyShort").onclick = () => copyText($("short").value, $("copyShort"));
 $("copyDm").onclick = () => copyText($("dm").value, $("copyDm"));
 for (const b of document.querySelectorAll("#sizes button")) b.onclick = () => { dmSize = b.dataset.s; render(); };
 $("didReply").onclick = () => act("replied");
-$("didDm").onclick = () => act("dm");
+$("didDm").onclick = async () => { await act("dm"); gateTick(); };
 $("skip").onclick = () => act("skip");
 $("bad").onclick = () => act("not_relevant");
 $("undo").onclick = async () => { if (lastActed) { await send({ type: "hunt-act", id: lastActed, action: "undo" }); lastActed = null; await refresh(false); } };
@@ -402,7 +423,7 @@ $("openSetup").onclick = () => { $("setup").hidden = !$("setup").hidden; if (!$(
 let saveTimer = null;
 async function saveSetup(quiet) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
-  profile = { ...(config.profile || {}), dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
+  profile = { ...(config.profile || {}), dmGapMin: Number($("cGapMin").value) || 60, dmGapMax: Number($("cGapMax").value) || 180, dmCap: Number($("cDmCap").value) || 25, dmLinks: $("cLinks").checked, aiModel: $("cModel").value, aiBudgetCents: Math.max(0, Math.round((parseFloat($("cBudget").value) || 1) * 100)), aiPolish: $("cPolish").checked, name: $("cName").value.trim(), role: $("cRole").value.trim(), reddit: $("cReddit").value.trim().replace(/^\/?u\//, ""), whatsapp: $("cWa").value.trim(), telegram: $("cTg").value.trim(), linkedin: $("cLi").value.trim(), booking: $("cBook").value.trim(), portfolio: $("cPort").value.trim(), location: $("cLoc").value.trim(), apiKey: $("cKey").value.trim(), aiEngine: profile.aiEngine || "" };
   await chrome.storage.local.set({ config: { ...config, profile } });
   await send({ type: "hunt-me", me: profile.reddit });
   await send({ type: "hunt-server", url: $("cSrv").value.trim(), token: $("cSrvTok").value.trim() });
@@ -418,7 +439,7 @@ $("testKey").onclick = async () => {
 };
 $("cPolish").onchange = () => saveSetup(true);
 $("cLinks").onchange = async () => { await saveSetup(true); for (const q of queue) delete q.ai; if (cur) { delete cur.ai; variant = 0; render(); } };
-for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBook", "cPort", "cKey", "cSrv", "cSrvTok", "cBudget"]) {
+for (const id of ["cName", "cRole", "cReddit", "cWa", "cTg", "cLoc", "cLi", "cBook", "cPort", "cKey", "cSrv", "cSrvTok", "cBudget", "cGapMin", "cGapMax", "cDmCap"]) {
   $(id).addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveSetup(false), 700); });
   $(id).addEventListener("blur", () => saveSetup(true));
 }
@@ -717,6 +738,7 @@ document.addEventListener("keydown", (e) => {
   $("cModel").value = AI_PRICES_UI[profile.aiModel] ? profile.aiModel : "claude-sonnet-5";
   $("cBudget").value = ((Number(profile.aiBudgetCents) > 0 ? profile.aiBudgetCents : 100) / 100).toFixed(2); $("cPolish").checked = profile.aiPolish !== false;
   $("cLinks").checked = !!profile.dmLinks;
+  $("cGapMin").value = profile.dmGapMin || 60; $("cGapMax").value = profile.dmGapMax || 180; $("cDmCap").value = profile.dmCap || 25;
   $("cName").value = profile.name || ""; $("cRole").value = profile.role || "";
   $("cReddit").value = profile.reddit || ""; $("cWa").value = profile.whatsapp || ""; $("cTg").value = profile.telegram || "";
   $("cKey").value = profile.apiKey || "";

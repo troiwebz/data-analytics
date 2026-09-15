@@ -219,7 +219,7 @@ assert.strictEqual(cf("Need a developer co-founder", "I have 10 years in sales. 
 const hp = { title: "Looking for a technical co-founder for my fitness app", body: "x", author: "jane", role: "technical", stage: "idea", equityOnly: true, hasBudget: false, created: Date.now() - 3600000, comments: 4 };
 const short = H.huntShortReply(hp, { name: "Troi" });
 assert.strictEqual(short.split("\n").length, 2, "the public reply is exactly two lines:\n" + short);
-assert.strictEqual(short.split("\n")[1], "Check your DM.");
+assert.strictEqual(short.split("\n")[1], "Check your DM.");   // the old two-line form, kept for the paste engine
 assert.ok(short.length < 420, "the public reply stays short: " + short.length);
 assert.ok(!/https?:\/\//.test(short) && !/\$\d/.test(short), "no links and no price in public");
 const opts = H.huntShortOptions(hp, { name: "Troi" });
@@ -232,11 +232,14 @@ assert.ok(H.huntShortOptions({ ...hp, equityOnly: false, hasBudget: true, stage:
 for (let v = 0; v < 8; v += 1) assert.strictEqual(H.huntShortReply(hp, {}, v).split("\n").length, 2);
 const dm = H.huntDM(hp, { name: "Troi", role: "web developer" });
 assert.ok(dm.length > 400 && dm.length < 1100, "the DM is an introduction, not a letter: " + dm.length);
-assert.ok(dm.startsWith("Hi Jane,") && dm.trim().endsWith("— Troi"), "signed with the name only: " + dm);
-assert.ok(/portfolio|plan for the first|examples of our work/i.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "the last line offers to send more: " + dm);
-assert.ok(!/\?\s*$/.test(dm.split("\n").filter(Boolean).slice(-2)[0]), "no question at the end: " + dm);
+assert.ok(dm.startsWith("Hi Jane,"), dm);
+assert.ok(!/—|–/.test(dm), "no long dashes anywhere: " + dm);
+assert.ok(!/^—/m.test(dm) && !/\n— \w+$/.test(dm.trim()), "no sign-off: " + dm);
+assert.strictEqual(dm.split("\n\n").length, 3, "a greeting and exactly two paragraphs: " + dm);
+assert.ok(/portfolio/i.test(dm), "the portfolio is offered: " + dm);
+assert.ok(!/\?\s*$/.test(dm.trim()), "no question at the end: " + dm);
 assert.ok(/co-founder/i.test(dm), "we answer as the co-founder: " + dm);
-assert.ok(/team/i.test(dm) && /expenses/i.test(dm) && /profit|income/i.test(dm), "the one sentence carries team, expenses and profit: " + dm);
+assert.ok(/team/i.test(dm) && /(costs?|expenses)/i.test(dm) && /profit|income|earns/i.test(dm), "the one sentence carries team, costs and profit: " + dm);
 assert.ok(!/not applying|isn't a co-founder application|won't pitch myself/i.test(dm), "we no longer refuse the co-founder seat: " + dm);
 assert.ok(!/\$\d|\d+%/.test(dm), "no price and no percentage in the first DM: " + dm);
 assert.ok(/share the (?:income|expenses)|split equally|shared expenses/i.test(dm) && /You keep the company and the IP\./.test(dm), "the shape is the pitch: " + dm);
@@ -254,7 +257,7 @@ const dm2 = H.huntDM(hp, prof2);
 assert.ok(/share the (?:income|expenses)|split equally|shared expenses/i.test(dm2) && !/\$\d/.test(dm2), "every DM says how we work, without a price");
 assert.ok(!/wa\.me|t\.me/.test(dm2), "channels set but no links in the DM by default");
 assert.ok(!/WhatsApp or Telegram/.test(dm2), "no channel line in the DM at all now");
-assert.ok(dm2.trim().endsWith("— Troi"));
+assert.ok(!/—/.test(dm2), "no dashes: " + dm2);
 const dmLinks = H.huntDM(hp, { ...prof2, dmLinks: true });
 assert.ok(dmLinks.includes("https://wa.me/919876543210") && dmLinks.includes("https://t.me/troibuilds"), "links appear only when switched on");
 assert.ok(!/wa\.me/.test(H.huntDM(hp, {})), "no channels set, nothing to offer");
@@ -284,9 +287,16 @@ const sizes = ["short", "long", "long"].map((s) => H.huntDM(hp, { name: "Noah", 
 // so the template's short and long are the same three paragraphs on purpose
 assert.strictEqual(sizes[0].length, sizes[2].length, "template sizes match when there is no post-specific step");
 {
-  const withStep = H.huntSlotAssemble({ ...hp, id: "sz" }, { name: "Noah" }, { product: "fitness app", observation: "Four hundred on the waitlist answers the demand question", move: "pre-sell ten gyms a month of the beta", question: "q?", reply_line: "l", phrase: "", fit: "yes" });
-  assert.ok(withStep.dm_long.length > withStep.dm_short.length, "with a written step, long is longer");
-  assert.ok(withStep.dm_long.includes("pre-sell ten gyms") && !withStep.dm_short.includes("pre-sell ten gyms"));
+  // short and long are both two paragraphs; long adds the two market points
+  const withPts = H.huntSlotAssemble({ ...hp, id: "sz" }, { name: "Noah" }, { product: "fitness app", observation: "Four hundred on the waitlist answers the demand question", points: ["gyms churn every January and nobody budgets for it", "the front desk decides adoption, not the owner"], move: "pre-sell ten gyms a month of the beta", question: "q?", phrase: "", fit: "yes" });
+  assert.ok(withPts.dm_long.length > withPts.dm_short.length, "long carries the two points");
+  assert.ok(withPts.dm_long.includes("front desk decides adoption") && !withPts.dm_short.includes("front desk decides adoption"));
+  // the plan and the portfolio are in both sizes
+  for (const d of [withPts.dm_short, withPts.dm_long]) {
+    assert.ok(/pre-sell ten gyms/.test(d), "the plan is in both: " + d);
+    assert.ok(/portfolio/i.test(d), "the portfolio is in both: " + d);
+    assert.strictEqual(d.split("\n\n").length, 3, "two paragraphs: " + d);
+  }
 }
 assert.ok(sizes[0].length < 900, "the short one is actually short: " + sizes[0].length);
 sizes.forEach((d) => { assert.ok(d.startsWith("Hi Jane,")); assert.ok(!/https?:\/\//.test(d), "no links"); assert.ok(!/\$\d/.test(d), "no price in the DM"); });
@@ -314,7 +324,8 @@ console.log("synopsis, names, dm sizes: ok");
 // AI prompt: built from the post, offer and contact line passed through
 const aiP = { title: "Looking for a technical co-founder for my fitness app", body: "I run a gym in Bangalore. 400 people on the waitlist. Equity only.", author: "jane_builds92", sub: "startups", role: "technical", stage: "idea", equityOnly: true, hasBudget: false };
 const pr = H.huntAiPrompt(aiP, { name: "Noah", role: "web developer", whatsapp: "+91 98765 43210" });
-assert.ok(pr.system.includes("Noah") && pr.system.includes("AS a co-founder") && pr.system.includes("exactly two lines"));
+assert.ok(pr.system.includes("Noah") && pr.system.includes("AS a co-founder"));
+assert.ok(!/public reply is exactly two lines/.test(pr.system), "the public comment is built locally, not written by the model");
 assert.ok(pr.user.includes("400 people on the waitlist") && pr.user.includes("r/startups") && pr.user.includes("Hi Jane,") && !pr.system.includes("Jane"));
 assert.ok(pr.user.includes("GREETING (first line of every DM, verbatim)\nHi Jane,"), "the greeting is fixed, in the user turn so the system prompt stays cacheable");
 assert.ok(!/wa\.me|CONTACT LINE/.test(pr.user), "no link and no channel line in a first DM by default");
@@ -333,7 +344,7 @@ assert.strictEqual(H.huntAiClean({ ...good, public_reply: "costs $500\nline two"
 assert.strictEqual(H.huntAiClean({ ...good, dm_long: "short" }), null);
 assert.strictEqual(H.huntAiClean(good).public_reply.split("\n").length, 2);
 assert.strictEqual(H.huntAiClean({ ...good, public_reply: "a\nb\nc" }).public_reply, "a\nCheck your DM.", "extra lines are dropped");
-assert.ok(pr.system.includes('exactly "Check your DM."') && pr.schema.properties.public_reply.description.includes("Check your DM."), "the public reply ends with Check your DM.");
+assert.ok(pr.schema.properties.public_reply.description.includes("Check your DM."), "the model's own line still ends that way when it writes one");
 assert.deepStrictEqual(H.huntAiClean({ ...good, public_reply: ("word ".repeat(45)).trim() + "\nCheck your DM." }), { tooLong: true }, "a long public reply is sent back for a shorter one");
 console.log("ai prompt + cleaner: ok");
 
@@ -504,14 +515,16 @@ console.log("claude in chrome brief + parse: ok");
   assert.strictEqual(H.SLOT_STYLES.length, 5);
   const a = H.huntSlotAssemble(post(0), prof, slots(0));
   assert.ok(a.dm_short.startsWith("Hi User0,") || a.dm_short.startsWith("Hi there,"), a.dm_short.slice(0, 30));
+  assert.strictEqual(a.dm_short.split("\n\n").length, 3, "greeting plus two paragraphs: " + a.dm_short);
+  assert.ok(!/[—–]/.test(a.dm_short) && !/[—–]/.test(a.dm_long), "no dashes");
   assert.ok(!/https?:|[$%]/.test(a.dm_short), "the first DM carries no link, no price, no percentage");
   assert.ok(a.dm_short.length > 300 && a.dm_short.length < 900, "short enough for Reddit's chat filter: " + a.dm_short.length);
   assert.ok(!/https?:\/\//.test(a.dm_long) && !/WhatsApp or Telegram/.test(a.dm_long), "no links and no channel line in either DM by default");
   assert.ok(H.huntSlotAssemble(post(0), { ...prof, dmLinks: true }, slots(0)).dm_long.includes("wa.me"), "links only when switched on");
-  assert.ok(a.dm_long.length > a.dm_short.length, "the long one adds the step and the proof line");
+  assert.ok(a.dm_long.length >= a.dm_short.length, "the long one is never shorter");
   assert.ok(a.dm_short.includes("the gym scheduling app"), "their product in their words, with an article");
   assert.ok(H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("HeySakhi") && !H.huntSlotAssemble(post(3), prof, slots(3)).dm_short.includes("the HeySakhi"), "a product name keeps its own form");
-  assert.strictEqual(a.public_reply.split("\n")[1], H.PUBLIC_CLOSE);
+  assert.ok(/dm/i.test(a.public_reply) && !a.public_reply.includes("\n"), "one line pointing at the DM: " + a.public_reply);
   // the offer follows the deal dropdown, custom offers included
   const own = H.huntSlotAssemble(post(1), { ...prof, deal: { mode: "custom:c1", custom: [{ id: "c1", name: "VA", dm: "we run your day-to-day as your VA team and split income and expenses 50/50" }] } }, slots(1));
   assert.ok(/run your day-to-day as your VA team/i.test(own.dm_short), own.dm_short);
@@ -546,14 +559,13 @@ console.log("template + ai slots: ok");
     question: "q?", reply_line: "l", phrase: "", fit: "yes",
   };
   const a = H.huntSlotAssemble(p, prof, slots);
-  assert.ok(a.dm_short.includes("no-shows quietly eat the margin") && a.dm_short.includes("stylists decide whether it gets used"), a.dm_short);
   const paras = a.dm_long.split("\n\n");   // [0] is the greeting
-  assert.ok(/no-shows/.test(paras[2]), "the points come straight after their post: " + a.dm_long);
-  assert.ok(/interview five/.test(paras[3]), "then what I'd do this week: " + a.dm_long);
-  assert.ok(/co-founder/.test(paras[4]), "then the terms: " + a.dm_long);
-  // one point, or none, means no paragraph at all rather than a half one
-  assert.ok(!/no-shows/.test(H.huntSlotAssemble(p, prof, { ...slots, points: ["only one point here"] }).dm_short));
-  assert.ok(!H.huntSlotAssemble(p, prof, { ...slots, points: [] }).dm_short.includes("that decide"));
+  assert.strictEqual(paras.length, 3, "greeting and two paragraphs: " + a.dm_long);
+  assert.ok(/no-shows/.test(paras[1]) && /stylists decide/.test(paras[1]), "the points sit with their post: " + a.dm_long);
+  assert.ok(/co-found/i.test(paras[2]) && /interview five/.test(paras[2]) && /portfolio/i.test(paras[2]), "the offer, the plan and the portfolio are one paragraph: " + a.dm_long);
+  // one point, or none, means the sentence is left out rather than half-written
+  assert.ok(!/no-shows/.test(H.huntSlotAssemble(p, prof, { ...slots, points: ["only one point here"] }).dm_long));
+  assert.ok(!H.huntSlotAssemble(p, prof, { ...slots, points: [] }).dm_long.includes("that decide"));
   // templates never invent them
   assert.deepStrictEqual(H.huntLocalSlots(p).points, undefined);
   const pr = H.huntSlotPrompt(p, prof);
@@ -563,8 +575,29 @@ console.log("template + ai slots: ok");
   assert.ok(!badArray(pr.schema) && !badArray(H.AI_SCHEMA), "no array constraint the API refuses");
   // more than two come back: the first two are used, the rest dropped
   const three = H.huntSlotAssemble(p, prof, { ...slots, points: [...slots.points, "a third the model threw in"] });
-  assert.ok(three.dm_short.includes("no-shows") && !three.dm_short.includes("a third the model"), three.dm_short);
+  assert.ok(three.dm_long.includes("no-shows") && !three.dm_long.includes("a third the model"), three.dm_long);
   assert.ok(pr.system.includes("no-shows, rebooking rates, stylist adoption"), "the prompt shows what a real market point looks like");
   assert.ok(H.AI_SCHEMA.required.includes("points"), "the full writer supplies them too");
 }
 console.log("two points from their market: ok");
+
+// The public comment: one line, built here, hundreds of them, never repeated.
+{
+  const mk = (id, t) => ({ id, author: "sam", sub: "SaaS", title: t, body: "" });
+  const used = [];
+  for (let i = 0; i < 40; i += 1) {
+    const p = mk("p" + i, ["Marketing co-founder wanted for Konnekt", "Looking for a co-founder for my salon SaaS", "Need a technical co-founder for my gym scheduling app"][i % 3]);
+    const line = H.huntPublicLine(p, {}, { avoid: used });
+    assert.ok(line.length < 120 && !/\n/.test(line), "one short line: " + line);
+    assert.ok(!/https?:|[$%]/.test(line), "no link, no price: " + line);
+    assert.ok(/dm/i.test(line), "it points at the DM: " + line);
+    used.push(line);
+  }
+  assert.strictEqual(new Set(used).size, 40, "forty in a row, none repeated");
+  assert.ok(H.huntPublicLine(mk("z", "Looking for a co-founder for my salon SaaS"), {}).includes("your salon SaaS"), "their thing is named");
+  // the slot engine uses it, and no longer pays the model for a reply line
+  const a = H.huntSlotAssemble(mk("q", "Looking for a co-founder for my salon SaaS"), { name: "Noah" }, { product: "salon SaaS", observation: "o", points: [], move: "", question: "q?", phrase: "", fit: "yes" });
+  assert.ok(/dm/i.test(a.public_reply) && !/\n/.test(a.public_reply), a.public_reply);
+  assert.ok(!H.huntSlotPrompt(mk("q", "t"), {}).schema.required.includes("reply_line"), "the model is not asked for a public line");
+}
+console.log("public one-liner: ok");
