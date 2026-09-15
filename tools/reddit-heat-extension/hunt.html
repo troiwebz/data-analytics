@@ -143,6 +143,7 @@
   <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
   <button id="updNow" class="ghost">Update now</button>
   <button class="stat" id="openInbox" title="opens in its own tab">Inbox ↗ <b id="sInbox">0</b></button>
+  <button id="openCampaign" class="ghost">Campaign</button>
   <button id="openAi" class="ghost">AI writing</button>
   <button id="openSetup" class="ghost">Your details</button>
   <button id="theme" class="ghost">☀ light</button>
@@ -275,6 +276,23 @@
   </div>
 
   <!-- AI writing: which engine writes the replies -->
+  <div id="campaignPanel" class="card" hidden style="margin-bottom:16px">
+    <p class="step" style="margin-bottom:10px"><b>Campaign</b> · a day of first contact, paced across the hours you are awake</p>
+    <div class="dealRow">
+      <div><label>DMs today</label><input type="text" id="kDms" placeholder="15"></div>
+      <div><label>One public comment per</label><input type="text" id="kRatio" placeholder="3"> <span class="foot">DMs</span></div>
+      <div><label>Between (hour)</label><input type="text" id="kFrom" placeholder="9"></div>
+      <div><label>and (hour)</label><input type="text" id="kTo" placeholder="21"></div>
+    </div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap">
+      <button id="planSim" class="ghost">Simulate 5</button>
+      <button id="planDay" class="ghost">Show the plan</button>
+      <button id="planGo" class="primary">Put it on the schedule</button>
+      <span class="foot" id="planMsg" style="margin:0"></span>
+    </div>
+    <p class="foot" style="margin:10px 0 0">A simulation writes nothing, sends nothing and marks nobody: it shows the times, who would be contacted, who would be left out and why. The public comment goes to the busiest thread of each group, where being read is worth something. Anyone you have already contacted is never picked again.</p>
+  </div>
+
   <div id="aiPanel" class="card" hidden style="margin-bottom:16px">
     <p class="step" style="margin-bottom:10px"><b>AI writing</b> · who writes the reply and the DMs for each post</p>
     <div class="engines">

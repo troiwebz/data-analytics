@@ -123,6 +123,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }
+  if (msg.type === "hunt-campaign-plan") { campaignPlan(msg.opts || {}).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-campaign-start") { campaignStart(msg.opts || {}).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-campaign-set") { chrome.storage.local.set({ campaign: msg.campaign || {} }).then(() => reply({ ok: true })); return true; }
+  if (msg.type === "hunt-campaign-get") { campaignSettings().then(reply); return true; }
   if (msg.type === "hunt-reset") { huntReset(msg.mode).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-reset-undo") { huntResetUndo().then(reply); return true; }
   if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
@@ -955,6 +959,98 @@ async function huntBulk(ids, action) {
   }
   return { ok: true, n };
 }
+// ===========================================================================
+// THE CAMPAIGN
+// A day's worth of first contact, paced across the hours you are awake. One
+// public comment per N DMs, because a comment on every thread is what gets a
+// profile flagged; the comment goes to the busiest thread of each group,
+// where being seen is worth something.
+const CAMPAIGN_DEFAULT = { dms: 15, ratio: 3, fromHour: 9, toHour: 21, minGapMin: 4 };
+async function campaignSettings() {
+  const { campaign = {} } = await chrome.storage.local.get(["campaign"]);
+  return { ...CAMPAIGN_DEFAULT, ...campaign };
+}
+function todayAt(hour) { const d = new Date(); d.setHours(hour, 0, 0, 0); return d.getTime(); }
+
+// The plan, as data. Nothing is written until campaignStart takes it.
+async function campaignPlan(opts = {}) {
+  const set = { ...(await campaignSettings()), ...opts };
+  const dms = Math.max(1, Math.min(60, Number(set.dms) || 15));
+  const ratio = Math.max(1, Math.min(10, Number(set.ratio) || 3));
+  const st = await huntGet();
+  const q = await huntQueue(400);
+  const already = new Set((st.schedule || []).filter((x) => !x.state).map((x) => x.id));
+  const gate = await dmGate();
+  const left = Math.max(0, (gate.cap || 25) - (gate.sentToday || 0));
+
+  const skipped = [];
+  const picks = [];
+  for (const p of q.queue) {
+    if (picks.length >= dms) break;
+    if (already.has(p.id)) { skipped.push({ ...p, why: "already on the schedule" }); continue; }
+    if (p.repliedAt || p.dmAt) { skipped.push({ ...p, why: "already contacted" }); continue; }
+    picks.push(p);
+  }
+
+  // the window: from now (or the start hour, if the day has not begun) to the end
+  const now = Date.now();
+  let start = Math.max(now + 60000, todayAt(set.fromHour));
+  let end = todayAt(set.toHour);
+  if (end <= start) end = start + picks.length * set.minGapMin * 60000;   // past the end hour: run on anyway
+  const span = end - start;
+  const evenGap = picks.length > 1 ? span / (picks.length - 1) : 0;
+  const gapMs = Math.max(set.minGapMin * 60000, evenGap);
+
+  // one comment per `ratio` DMs, to the busiest thread in each group
+  const commentIds = new Set();
+  for (let i = 0; i < picks.length; i += ratio) {
+    const group = picks.slice(i, i + ratio);
+    if (!group.length) break;
+    const best = group.reduce((a, b) => ((b.comments || 0) + (b.ups || 0) > (a.comments || 0) + (a.ups || 0) ? b : a));
+    commentIds.add(best.id);
+  }
+
+  let t = start;
+  const rows = picks.map((p, i) => {
+    // +-35% of the gap, so no two waits look alike
+    const jitter = i === 0 ? 0 : Math.round(gapMs * (Math.random() * 0.7 - 0.35));
+    if (i > 0) t += Math.max(60000, gapMs + jitter);
+    return {
+      id: p.id, author: p.author, sub: p.sub, title: p.title, permalink: p.permalink,
+      comments: p.comments || 0, ups: p.ups || 0, written: !!p.ai,
+      dmAt: Math.round(t), replyAt: commentIds.has(p.id) ? Math.round(t - 60000) : 0,
+      reply: commentIds.has(p.id),
+    };
+  });
+  return {
+    ok: true, rows,
+    skipped: skipped.slice(0, 20),
+    dms: rows.length, replies: rows.filter((x) => x.reply).length,
+    asked: dms, inQueue: q.total, capLeft: left,
+    firstAt: rows.length ? rows[0].replyAt || rows[0].dmAt : 0,
+    lastAt: rows.length ? rows[rows.length - 1].dmAt : 0,
+    gapMin: Math.round(gapMs / 60000),
+    costCents: rows.length * 0.5,
+    settings: { dms, ratio, fromHour: set.fromHour, toHour: set.toHour, minGapMin: set.minGapMin },
+  };
+}
+
+// Take a plan and put it on the schedule. The plan is recomputed here rather
+// than trusted from the page, so nothing can be tampered with in between.
+async function campaignStart(opts = {}) {
+  const plan = await campaignPlan(opts);
+  if (!plan.rows.length) return { ok: false, error: "nothing in the queue to schedule" };
+  const st = await huntGet();
+  const list = st.schedule || [];
+  const added = [];
+  for (const r of plan.rows) {
+    if (r.reply) added.push({ id: r.id, at: r.replyAt, kind: "reply" });
+    added.push({ id: r.id, at: r.dmAt, kind: "dm" });
+  }
+  await huntSet({ schedule: [...list, ...added].sort((a, b) => a.at - b.at).slice(-400) });
+  return { ok: true, dms: plan.dms, replies: plan.replies, firstAt: plan.firstAt, lastAt: plan.lastAt, gapMin: plan.gapMin };
+}
+
 // Start again. The posts are thrown away so the next sweep brings the whole
 // window back in, unjudged. Who you have already contacted is kept unless you
 // ask for it too, because losing it is how the same person gets a second DM.

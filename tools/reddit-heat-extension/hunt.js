@@ -784,6 +784,32 @@ function showTable(kind) {
     drawSchedule();
     return;
   }
+  if (kind === "plan") {
+    const r = lastPlan;
+    $("tableTitle").textContent = r
+      ? (r.preview ? `Simulation · the first ${r.rows.length} of ${r.totalDms} DMs and ${r.totalReplies} public comments` : `Simulation · ${r.dms} DMs, ${r.replies} public comments`)
+      : "Simulation";
+    $("tableNote").textContent = "Nothing here has happened. No message is written, nothing is sent and nobody is marked contacted. Press \u201cPut it on the schedule\u201d in the Campaign panel to make it real.";
+    $("tableHead").innerHTML = "<tr><th>When</th><th>Who</th><th>Post</th><th>What goes out</th><th>Thread</th></tr>";
+    if (!r) { $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">Press Simulate 5 or Show the plan.</td></tr>`; return; }
+    const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const rows = r.rows.map((x) => `<tr><td>${esc(clock(x.replyAt || x.dmAt))}</td>`
+      + `<td>${esc(x.author ? "u/" + x.author : "")}<br><span style="color:#98a0b3">r/${esc(x.sub || "")}</span></td>`
+      + `<td>${esc(String(x.title || "").slice(0, 70))}</td>`
+      + `<td>${x.reply ? `<b style="color:#7ee29a">public comment</b> ${esc(clock(x.replyAt))}<br>` : ""}<b>the DM</b> ${esc(clock(x.dmAt))}</td>`
+      + `<td style="color:#98a0b3">${x.comments} comment${x.comments === 1 ? "" : "s"} · ${x.ups} up${x.ups === 1 ? "" : "s"}${x.reply ? " · busiest of its group" : ""}</td></tr>`).join("");
+    const left = r.skipped.length ? `<tr><td colspan="5" style="padding-top:14px"><b>Not included</b></td></tr>`
+      + r.skipped.map((x) => `<tr><td></td><td>${esc(x.author ? "u/" + x.author : "")}</td><td>${esc(String(x.title || "").slice(0, 70))}</td><td colspan="2" style="color:#e6c76b">${esc(x.why)}</td></tr>`).join("") : "";
+    const foot = `<tr><td colspan="5" style="padding-top:14px;color:#98a0b3">`
+      + `${r.preview ? r.totalDms : r.dms} of ${r.inQueue} in the queue · about ${r.gapMin} minutes apart · `
+      + (r.rows.length ? `first ${esc(clock(r.firstAt))}, last ${esc(clock(r.lastAt))} · ` : "")
+      + `writing them costs about ${usd(r.costCents)} · ${r.capLeft} DMs left under today's cap`
+      + (r.preview ? ` · showing the first ${r.rows.length}` : "")
+      + `</td></tr>`;
+    $("tableRows").innerHTML = (rows + left + foot) || `<tr><td colspan="5" style="color:#98a0b3">Nothing in the queue to plan.</td></tr>`;
+    tableText = () => r.rows.map((x) => `${clock(x.replyAt || x.dmAt)} u/${x.author} ${x.reply ? "comment + DM" : "DM"} — ${x.title}`).join("\n");
+    return;
+  }
   if (kind === "skipped") {
     $("tableTitle").textContent = "Put back";
     $("tableNote").textContent = "Everything you set aside: skipped, marked not relevant, or parked until tomorrow. Nothing here was deleted. Tick the ones you want and press Put back in the queue.";
@@ -983,6 +1009,54 @@ chrome.storage.local.get(["autoSend", "autoSendSecs"]).then((x) => {
   $("cAutoSend").checked = x.autoSend !== false;
   $("cSendSecs").value = x.autoSendSecs || 10;
 });
+// ---- the campaign: a day of first contact, paced --------------------------
+let lastPlan = null;
+function campOpts() {
+  return {
+    dms: Math.max(1, Math.min(60, Number($("kDms").value) || 15)),
+    ratio: Math.max(1, Math.min(10, Number($("kRatio").value) || 3)),
+    fromHour: Math.max(0, Math.min(23, Number($("kFrom").value) || 9)),
+    toHour: Math.max(1, Math.min(23, Number($("kTo").value) || 21)),
+  };
+}
+function campSave() { send({ type: "hunt-campaign-set", campaign: campOpts() }); }
+for (const id of ["kDms", "kRatio", "kFrom", "kTo"]) $(id).oninput = campSave;
+$("openCampaign").onclick = () => {
+  const show = $("campaignPanel").hidden;
+  $("campaignPanel").hidden = !show;
+  if (show) { $("aiPanel").hidden = true; $("setup").hidden = true; }
+};
+send({ type: "hunt-campaign-get" }).then((c) => {
+  if (!c) return;
+  $("kDms").value = c.dms; $("kRatio").value = c.ratio; $("kFrom").value = c.fromHour; $("kTo").value = c.toHour;
+});
+async function showPlan(n) {
+  $("planMsg").textContent = "working it out…"; $("planMsg").style.color = "";
+  // a simulation plans the real day and shows the first few, so the rhythm you
+  // are looking at is the rhythm you would get, not five spread over 12 hours
+  const r = await send({ type: "hunt-campaign-plan", opts: campOpts() });
+  if (!r || !r.ok) { $("planMsg").textContent = "could not plan it: " + ((r && r.error) || "no answer"); $("planMsg").style.color = "#ff8a65"; return; }
+  lastPlan = n ? { ...r, rows: r.rows.slice(0, n), preview: n, totalDms: r.dms, totalReplies: r.replies } : r;
+  $("planMsg").textContent = r.rows.length
+    ? (n ? `first ${Math.min(n, r.dms)} of ` : "") + `${r.dms} DMs, ${r.replies} public ${r.replies === 1 ? "comment" : "comments"}, about ${r.gapMin} minutes apart · nothing sent, nothing marked`
+    : "nothing in the queue to plan";
+  $("planMsg").style.color = r.rows.length ? "#7ee29a" : "#e6c76b";
+  showTable("plan");
+}
+$("planSim").onclick = () => showPlan(5);
+$("planDay").onclick = () => showPlan(0);
+$("planGo").onclick = async () => {
+  const o = campOpts();
+  if (!confirm(`Put ${o.dms} DMs and about ${Math.ceil(o.dms / o.ratio)} public comments on today's schedule, between ${o.fromHour}:00 and ${o.toHour}:00?\n\nEach one opens its tab at its time. Sending still runs the countdown you can stop.`)) return;
+  $("planGo").disabled = true; $("planGo").textContent = "scheduling…";
+  const r = await send({ type: "hunt-campaign-start", opts: o });
+  $("planGo").disabled = false; $("planGo").textContent = "Put it on the schedule";
+  if (!r || !r.ok) { $("planMsg").textContent = "could not schedule it: " + ((r && r.error) || "no answer"); $("planMsg").style.color = "#ff8a65"; return; }
+  $("planMsg").textContent = `on the schedule: ${r.dms} DMs and ${r.replies} public comments, first at ${new Date(r.firstAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, last at ${new Date(r.lastAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  $("planMsg").style.color = "#7ee29a";
+  await refresh(false);
+  showTable("schedule");
+};
 $("sSkippedBtn").onclick = () => showTable("skipped");
 async function doReset(mode) {
   const all = mode === "all";
