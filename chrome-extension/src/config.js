@@ -621,6 +621,10 @@ export async function migrateConfig() {
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
+  // Mirror to sync so a new machine starts prefilled. Fire and forget: a full
+  // or switched-off sync must never fail the local save, which is the one that
+  // matters right now.
+  import('./backup.js').then((b) => b.pushConfig(next)).catch(() => {});
   return next;
 }
 

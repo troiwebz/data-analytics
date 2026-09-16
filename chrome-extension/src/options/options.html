@@ -235,6 +235,30 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Moving to another machine <span class="hint">so a new install comes up already set up</span></h2>
+    <div id="backupState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Your settings are mirrored to Chrome's own sync every time you press Save, so signing into the same
+      Chrome on another machine brings them back by itself. The file below is for when that will not help —
+      a different Google account, a different browser, or a machine that is not signed in at all.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="backupNow" class="sec" style="flex:0 0 auto">Back up now</button>
+      <button id="exportCfg" style="flex:0 0 auto">Download settings file</button>
+      <button id="importCfg" class="sec" style="flex:0 0 auto">Restore from a file…</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+    <label class="ck" style="margin-top:10px"><input type="checkbox" id="exportSecrets">
+      Include the Claude key and bot token in the file</label>
+    <div class="hint" style="margin-top:6px;line-height:1.7">
+      Leave that unticked unless you need it. A downloaded file sits in Downloads, where it may be backed up
+      to a cloud, opened by anything, or sent to somebody by accident — and a live key in it is a live key in
+      all of those places. Without it the file still carries every setting; you paste the two keys back by
+      hand on the new machine.
+    </div>
+  </div>
+
+  <div class="c">
     <h2>Staging <span class="hint">strong leads are opened in a background tab with the reply typed in but NOT sent — a 🚀 tap just clicks Submit</span></h2>
     <div class="row">
       <div><label>Stage leads scoring ≥</label><input type="number" id="stageScore" min="0"></div>

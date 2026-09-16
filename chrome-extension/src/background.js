@@ -10,6 +10,7 @@
 // Nothing is ever posted without a 🚀 tap from Telegram.
 
 import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
+import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced } from './backup.js';
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThreads } from './thread.js';
@@ -110,6 +111,10 @@ export async function syncSentPms({ pages = 2 } = {}) {
 // ---------------------------------------------------------------- lifecycle
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  // A fresh install on a new machine: take the settings back from sync before
+  // anything reads them, or the extension comes up looking configured - the
+  // vault has the secrets - with every setting silently back to its default.
+  const back = await restoreIfEmpty().catch(() => ({}));
   const migrated = await migrateConfig();
   // New wording shipped with the code is taken up before anything reads the
   // config, and before setConfig writes it back - otherwise that write would
@@ -119,6 +124,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await setConfig(cfg);
   await scheduleAlarms(cfg);
   await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
+  if (back.restored) await log(`brought ${back.keys} setting(s) back from your other Chrome`);
+  await pushConfig(cfg).catch(() => {});
   // Drafts are written once and stored, so a template change reaches nothing
   // already in the database. Re-render when the wording has moved, rather than
   // waiting for someone to notice and press a button. No network, no cost.
@@ -1294,7 +1301,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'check-update':  sendResponse(await checkForUpdate()); break;
-      default:              sendResponse({ error: 'unknown command' });
+      case 'backup-status': {
+        const synced = await readSynced();
+        sendResponse({ at: synced?.at || 0, keys: synced ? Object.keys(synced.cfg).length : 0 });
+        break;
+      }
+      case 'backup-now':    sendResponse(await pushConfig(await getConfig())); break;
+      case 'backup-export': sendResponse(await exportAll({ secrets: !!msg.secrets })); break;
+      case 'backup-import': {
+        const r = await importAll(msg.data);
+        if (r.ok) { await scheduleAlarms(await getConfig()); await log(`imported ${r.settings} setting(s) from a backup file`); }
+        sendResponse(r);
+        break;
+      }
+      default:
+        // Almost always a version skew rather than a bug: the pages reload the
+        // moment you open them, the service worker only reloads on its own
+        // timer, so a button added in this update can reach a worker from the
+        // last one. "unknown command" gave no way to work that out.
+        sendResponse({ error: `this copy of the extension does not know "${msg.cmd}". `
+          + `The background worker is still running v${chrome.runtime.getManifest().version} while this page `
+          + `is newer. Press More → Install update on the dashboard, or give it a minute to reload itself, `
+          + `then try again.` });
     }
   })();
   return true;

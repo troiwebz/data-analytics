@@ -280,6 +280,60 @@ $('findChat').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Find it for me';
 });
 
+// ---- moving to another machine -------------------------------------------
+async function showBackup() {
+  const r = await ai('backup-status');
+  const el = $('backupState');
+  if (!el) return;
+  el.innerHTML = r?.at
+    ? `<span style="color:#16a34a">✓ ${r.keys} setting(s) mirrored to Chrome sync</span>, last on `
+      + `<b>${new Date(r.at).toLocaleString()}</b>.`
+    : '<span style="color:#b45309">Nothing mirrored yet.</span> Press Save anywhere on this page, or '
+      + '"Back up now", and a new machine signed into this Chrome will come up already set up.';
+}
+
+$('backupNow').addEventListener('click', async () => {
+  const b = $('backupNow');
+  b.disabled = true; b.textContent = 'Backing up…';
+  const r = await ai('backup-now');
+  if (r?.error) status(`Could not mirror to sync: ${r.error}`, true);
+  else status(`Mirrored ${r.saved} setting(s) to Chrome sync.`
+    + (r.tooBig?.length ? ` ${r.tooBig.join(', ')} were too large for sync — use the file for those.` : ''));
+  await showBackup();
+  b.disabled = false; b.textContent = 'Back up now';
+});
+
+$('exportCfg').addEventListener('click', async () => {
+  const withSecrets = $('exportSecrets').checked;
+  if (withSecrets && !confirm('The file will contain your live Claude key and bot token.\n\n'
+      + 'Anyone who opens it can spend your Claude credit and post as your bot. Continue?')) return;
+  const data = await ai('backup-export', { secrets: withSecrets });
+  if (data?.error) return status(data.error, true);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `haf-watcher-settings-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  status(`Saved a settings file${withSecrets ? ' including your keys — keep it somewhere private.' : '.'}`);
+});
+
+$('importCfg').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';                                  // so the same file can be picked twice
+  let data;
+  try { data = JSON.parse(await file.text()); }
+  catch { return status('That file is not readable JSON.', true); }
+  if (!confirm('Restore settings from this file?\n\nEverything on this page is replaced by what is in it.')) return;
+  const r = await ai('backup-import', { data });
+  if (r?.error) return status(r.error, true);
+  status(`Restored ${r.settings} setting(s)${r.secrets?.length ? ` and the ${r.secrets.join(' and ')} key(s)` : ''}.`);
+  fill(await getConfig());
+  refreshTg(); showBackup();
+});
+
 $('unhook').addEventListener('click', async () => {
   const b = $('unhook');
   b.disabled = true; b.textContent = 'Removing…';
@@ -402,4 +456,4 @@ $('testAlert').addEventListener('click', async () => {
 $('playSound').addEventListener('click', () => preview('sound'));
 $('playHot').addEventListener('click', () => preview('soundHot'));
 
-getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg);
+getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup);
