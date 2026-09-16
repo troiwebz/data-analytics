@@ -57,6 +57,31 @@ ok('doing both is still struck through', both.line === 'line-through', JSON.stri
 const plain = await paint('9000');
 ok('an untouched row is not struck', plain.line === 'none', plain.line);
 
+// "I don't find the Regenerate option" - it existed, called something else and
+// buried in the More menu. The button that fixes a wrong draft has to be in
+// plain sight, so this checks it is actually on screen and hittable, not just
+// present in the markup.
+{
+  const p2 = await browser.newPage();
+  await p2.setContent(readFileSync(HTML, 'utf8').replace(/<script[\s\S]*?<\/script>/g, ''));
+  const btn = await p2.$('#regen');
+  ok('the rewrite button exists', !!btn);
+  const seen = btn && await btn.isVisible();
+  ok('and is visible without opening a menu', !!seen, String(seen));
+  const label = btn && (await btn.textContent()).trim();
+  ok('and says what it does', /rewrite/i.test(label || ''), label);
+  const inMenu = await p2.evaluate(() => !!document.querySelector('#regen')?.closest('details'));
+  ok('and is not hidden inside the More menu', !inMenu);
+  // Hit-testing: something overlapping it would make it unclickable.
+  const hit = btn && await p2.evaluate(() => {
+    const b = document.querySelector('#regen').getBoundingClientRect();
+    const el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    return el && (el.id === 'regen' || el.closest('#regen') != null);
+  });
+  ok('and nothing is painted over it', !!hit, String(hit));
+  await p2.close();
+}
+
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall good');
 process.exit(failed ? 1 : 0);

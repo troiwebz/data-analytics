@@ -277,7 +277,7 @@ function detail(l, staged, cfg) {
         ${parts.tips.map((b) => `<span style="opacity:.85">"${esc(b)}"</span>`).join(' ')}
         ${parts.offer ? `<br>Close chosen: <b>${esc(OFFER_LABEL[parts.offer] || parts.offer)}</b>` : ''}</div>`
     : `<div class="sub" style="margin-bottom:8px;color:#b45309">Built-in rules wrote this one, not Claude.
-        Add a key in Settings, then press "Rebuild drafts" to have Claude redo it.</div>`;
+        Add a key in Settings, then press "🔄 Rewrite drafts" at the top to have Claude redo it.</div>`;
   // The buyer's actual post, then who has already pitched against you. Both are
   // what Claude was given, so what you read here is what it read - if a draft
   // looks wrong, this is where you see why.
@@ -516,9 +516,10 @@ $('pmcheck').addEventListener('click', () => busy('pmcheck', 'Reading…', async
     `${r.known} more are with people you have spoken to before.`);
 }));
 
-$('regen').addEventListener('click', () => busy('regen', 'Rebuilding…', async () => {
+$('regen').addEventListener('click', () => busy('regen', 'Reading threads…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'regen' });
-  alert(`Rebuilt ${r?.updated ?? 0} draft(s).` +
+  alert(`Rewrote ${r?.updated ?? 0} draft(s).` +
+    (r?.read ? `\nRead ${r.read} thread(s) for the buyer's actual post and the replies already on them.` : '') +
     (r?.ai ? `\nClaude wrote fresh technical lines for ${r.ai} of them.` : '') +
     (r?.pending ? `\n${r.pending} still on the built-in rules — add a Claude key in Settings, or the daily spend limit was reached.` : ''));
 }));

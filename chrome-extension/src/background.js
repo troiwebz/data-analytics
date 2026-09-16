@@ -348,7 +348,7 @@ export async function rebuildDrafts({ withAi = false } = {}) {
   const stale = (l) => !has(l) || (cfg.readThreads !== false && !l.body);
   const missing = leads.filter((l) => open(l) && stale(l));
 
-  let aiCount = 0;
+  let aiCount = 0, readCount = 0;
   if (withAi && cfg.aiSpecifics && missing.length) {
     for (let i = 0; i < missing.length; i += 8) {
       // Read the threads first: the post is the point, and without it this
@@ -356,6 +356,7 @@ export async function rebuildDrafts({ withAi = false } = {}) {
       const batch = await withThreads(missing.slice(i, i + 8), cfg);
       for (const b of batch) {
         if (!b.body && !b.replies?.length) continue;
+        readCount++;
         await updateLead(b.threadId, { body: b.body || '', replies: b.replies || [] });
         const lead = leads.find((l) => String(l.threadId) === String(b.threadId));
         if (lead) { lead.body = b.body; lead.replies = b.replies; }
@@ -385,8 +386,10 @@ export async function rebuildDrafts({ withAi = false } = {}) {
     await updateLead(l.threadId, patch);
     n++;
   }
-  if (n || aiCount) await log(`rebuilt ${n} draft(s)` + (aiCount ? `, ${aiCount} with fresh Claude lines` : ''));
-  return { ok: true, updated: n, ai: aiCount, pending: missing.length - aiCount };
+  if (n || aiCount) await log(`rewrote ${n} draft(s)`
+    + (readCount ? `, after reading ${readCount} thread(s)` : '')
+    + (aiCount ? `, ${aiCount} with fresh Claude lines` : ''));
+  return { ok: true, updated: n, ai: aiCount, read: readCount, pending: missing.length - aiCount };
 }
 
 /** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
