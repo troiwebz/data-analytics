@@ -31,8 +31,12 @@ const ok = (what, pass, saw = '') => {
   if (!pass) failed++;
 };
 
-const DRAFT = 'Hi @sample_buyer,\n\n**Why We Can Do It:**\n\nManual submissions to directories that '
-            + 'actually index in Dubai/UAE and the UK, not a blast list.\n\nDropped you a PM.';
+// A real public reply, in the shape the extension now produces: no salutation,
+// no @name, the technical line first. The bold markers are there because the
+// PM half of this suite uses the same text and a PM does carry a bold heading.
+const DRAFT = 'We have managed Meta and Google ad accounts in the **peptide** and research chemical '
+            + 'niche before.\n\nAre you running this as direct response on Google search, or mainly '
+            + 'Meta retargeting?\n\nDropped you a PM.';
 
 // A stand-in for BHW's quick reply. The editor keeps its own copy of the
 // content and updates it only from trusted `input` events - which is how a
@@ -95,7 +99,10 @@ for (const wipeOn of ['blur', 'init']) {
   const where = `(${wipeOn} wipe)`;
   ok(`the fill reports success ${where}`, r.reported?.ok === true && r.reported?.staged === true, JSON.stringify(r.reported));
   ok(`the reply is still in the editor 4s later ${where}`, r.text.includes('Dropped you a PM'), JSON.stringify(r.text.slice(0, 70)));
-  ok(`the whole reply is there, not half of it ${where}`, r.text.includes('sample_buyer') && r.text.includes('blast list'), JSON.stringify(r.text.slice(0, 70)));
+  ok(`the whole reply is there, not half of it ${where}`,
+     r.text.includes('We have managed') && r.text.includes('retargeting'), JSON.stringify(r.text.slice(0, 70)));
+  ok(`and it opens with the claim, not by tagging the buyer ${where}`,
+     !r.text.includes('@') && /^We have managed/.test(r.text.trim()), JSON.stringify(r.text.slice(0, 40)));
   ok(`the editor's own copy has it too, so a submit would carry it ${where}`, /Dropped you a PM/.test(r.model), JSON.stringify(r.model.slice(0, 70)));
   ok(`the hidden field the form posts has it ${where}`, /Dropped you a PM/.test(r.hidden), JSON.stringify(r.hidden.slice(0, 70)));
   ok(`bold markers became real bold, not literal asterisks ${where}`, !r.text.includes('**'), JSON.stringify(r.text.slice(0, 70)));
@@ -122,6 +129,26 @@ for (const wipeOn of ['blur', 'init']) {
   await p.waitForTimeout(2500);
   const after = await p.evaluate(() => document.querySelector('.fr-element').textContent.trim());
   ok('clearing it yourself sticks - the hold does not put it back', after === '', JSON.stringify(after.slice(0, 50)));
+  await p.close();
+}
+
+// The caret belongs after the last word, not blinking above the text. Typing
+// is the honest check: whatever you type must land at the end.
+{
+  const p = await browser.newPage();
+  await p.setContent(page('none'));
+  await p.evaluate(() => { window.__sent = []; window.chrome = { runtime: { sendMessage: (m) => window.__sent.push(m) } }; });
+  await p.evaluate(({ draft }) => {
+    globalThis.__HAF_DRAFT__ = draft; globalThis.__HAF_MODE__ = 'stage'; globalThis.__HAF_THREAD_ID__ = '9001';
+  }, { draft: DRAFT });
+  for (const f of ['selectors.js', 'content-lib.js', 'content-post.js']) await p.evaluate(read(f));
+  await p.waitForFunction(() => window.__sent.length > 0, null, { timeout: 15000 });
+  await p.waitForTimeout(1200);                     // past both caret nudges
+
+  await p.keyboard.type('XZ');
+  const text = await p.evaluate(() => document.querySelector('.fr-element').textContent);
+  ok('typing lands at the end of the reply, not the top', text.trim().endsWith('XZ'), JSON.stringify(text.slice(-40)));
+  ok('and nothing was pushed in front of the first line', text.trimStart().startsWith('We have managed'), JSON.stringify(text.slice(0, 40)));
   await p.close();
 }
 
@@ -172,7 +199,7 @@ for (const wipeOn of ['blur', 'init']) {
   const v = await p.evaluate(() => document.querySelector('textarea[name="message"]').value);
   ok('the plain editor gets the reply', v.includes('Dropped you a PM'), JSON.stringify(v.slice(0, 50)));
   ok('and our bold markers become BB code, not literal asterisks',
-     v.includes('[B]Why We Can Do It:[/B]') && !v.includes('**'), JSON.stringify(v.slice(0, 60)));
+     v.includes('[B]peptide[/B]') && !v.includes('**'), JSON.stringify(v.slice(0, 60)));
   await p.close();
 }
 

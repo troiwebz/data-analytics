@@ -264,62 +264,55 @@ export const DEFAULT_CONFIG = {
   // ---- Public forum reply ------------------------------------------------
   // Short on purpose. One technical line proves you read the thread; the rest
   // goes in the PM, where the other freelancers reading the thread cannot see
-  // it. Openers, orderings and closers all vary per thread.
-  // ---- Public forum reply ------------------------------------------------
-  // Short on purpose. One line of proof, one question, then the PM. The tip
-  // already says what we have done, so nothing is added after it.
+  // it.
+  //
+  // No salutation, and no @name. Look at what actually gets posted on HAF and
+  // nobody opens by tagging the buyer - they start with the claim ("I have
+  // over 10 years in Google & Meta Ads...") and end with "check your PM".
+  // Opening every one of our replies with "Hi @buyer," would be a pattern of
+  // its own, and tagging the thread starter pings them for a post they are
+  // already reading. So the tip is the first line.
+  //
+  // What varies per thread: the tip and the question (Claude writes both
+  // against that thread) and the closer below.
   templates: {
-    seo: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    seo: `{{tip}}
 
 {{question}}
 
 {PM sent with the detail|Sent you a PM with the specifics|Dropped you a PM}.`,
 
-    ads: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    ads: `{{tip}}
 
 {{question}}
 
 {Sent you a PM|PM sent with how we would approach it|Dropped you a PM with the detail}.`,
 
-    design: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    design: `{{tip}}
 
 {{question}}
 
 {PM sent|Sent you a PM with examples|Dropped you a PM}.`,
 
-    social: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    social: `{{tip}}
 
 {{question}}
 
 {Sent you a PM|PM sent with the specifics|Dropped you a PM with the detail}.`,
 
-    web: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    web: `{{tip}}
 
 {{question}}
 
 {PM sent|Sent you a PM|Dropped you a PM with the detail}.`,
 
-    content: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    content: `{{tip}}
 
 {{question}}
 
 {PM sent with samples|Sent you a PM|Dropped you a PM}.`,
 
-    generic: `{Hi|Hey} @{{author}},
-
-{{tip}}
+    generic: `{{tip}}
 
 {{question}}
 

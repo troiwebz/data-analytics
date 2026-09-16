@@ -78,6 +78,21 @@ globalThis.HAF_FILL = function (rich, plain, text, opts) {
     return !!head && got.includes(head) && got.includes(tail);
   };
 
+  // The caret belongs after the last word, the way it would be if you had just
+  // finished typing the reply. Focusing a contenteditable drops it at the very
+  // top, which leaves it blinking above the text with nowhere sensible to type.
+  function caretToEnd(el) {
+    try {
+      const doc = el.ownerDocument;
+      const sel = doc.defaultView.getSelection();
+      const r = doc.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);                       // false = to the end
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch (e) { /* no selection available; not worth failing a fill over */ }
+  }
+
   function put(keepFocus) {
     if (plain && !rich) {
       plain.focus();
@@ -101,12 +116,15 @@ globalThis.HAF_FILL = function (rich, plain, text, opts) {
       done = doc.execCommand('insertHTML', false, html);
     } catch (e) { done = false; }
 
+    caretToEnd(rich);
+
     // execCommand can be refused (an editor that blocks it, a document that
     // cannot take the selection). A raw write is worse but better than nothing,
     // and the hold below is what makes it stick either way.
     if (!done || !present()) {
       rich.innerHTML = html;
       fire(rich, 'input', 'keyup', 'change');   // note: no blur
+      caretToEnd(rich);
     }
 
     // XenForo posts the hidden field, and syncs it from the editor itself. Set
@@ -145,6 +163,12 @@ globalThis.HAF_FILL = function (rich, plain, text, opts) {
     }
     for (const t of EDITS) target.addEventListener(t, onEdit, true);
     doc.addEventListener('click', onClick, true);
+
+    // Some editors put the caret back at the top a beat after they finish
+    // initialising. One more nudge, only while you have not touched anything.
+    for (const ms of [250, 900]) {
+      setTimeout(() => { if (timer && rich) caretToEnd(rich); }, ms);
+    }
 
     const until = Date.now() + holdMs;
     timer = setInterval(() => {

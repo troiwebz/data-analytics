@@ -32,6 +32,14 @@ ok('the question is the only thing before the PM line', r.indexOf('?') < r.index
 ok('the offer is NOT public', !/invoice after|small first order|already done our side/i.test(r));
 ok('public reply points at the PM', /\bPM\b/.test(r));
 ok('public reply does not paste the thread url', !r.includes('blackhatworld.com'));
+// No salutation and no @name: that is how replies on HAF actually read, and
+// opening every one of ours with "Hi @buyer," would be a pattern of its own.
+ok('public reply does not tag the buyer', !r.includes('@'), r.split('\n')[0]);
+ok('and does not name them at all', !r.includes(lead('1001').author), r.split('\n')[0]);
+ok('it opens on the technical line', r.trimStart().startsWith(lead('1001').aiSpecifics.tips[0].slice(0, 20)),
+   JSON.stringify(r.slice(0, 50)));
+// The PM is personal, so that one still greets them by name.
+ok('the PM still greets them by name', d.startsWith('Hi ' + lead('1001').author), d.split('\n')[0]);
 
 // Shape of the PM.
 const tips = lead('1001').aiSpecifics.tips;
@@ -65,8 +73,20 @@ ok('never three blank lines', !all.some((t) => /\n{3,}/.test(t)));
 ok('no empty {{vars}} left behind', !all.some((t) => /\{\{|\}\}|\{[^}]*\|/.test(t)));
 
 // Uniqueness across threads.
-const openers = all.map((t) => t.split('\n')[0] + '|' + t.split('\n')[2]);
-ok('openers vary across threads', new Set(openers).size > 4, String(new Set(openers).size));
+//
+// This used to measure the reply's first line, which varied only because it
+// tagged the buyer by name - "Hi @buyer2001," is not real variety, and the
+// salutation is gone now. What genuinely differs between two replies is the
+// technical line and the question, both written by Claude against that
+// specific thread, which fixed test leads cannot show. So what is checked here
+// is the part the templates themselves are responsible for: the closer, and
+// the PM's whole opening.
+const replies = [...Array(60)].map((_, i) => renderReply(lead('2' + i), cfg));
+const closers = new Set(replies.map((t) => t.trim().split('\n').pop()));
+ok('the closing line varies between threads', closers.size > 1, [...closers].join(' / '));
+ok('no reply tags the buyer', !replies.some((t) => t.includes('@')), replies.find((t) => t.includes('@')));
+const pmOpeners = new Set([...Array(60)].map((_, i) => renderDm(lead('2' + i), cfg).split('\n\n')[1]));
+ok('PM openers vary across threads', pmOpeners.size > 1, String(pmOpeners.size));
 const dmBodies = [...Array(60)].map((_, i) => renderDm(lead('2' + i), cfg));
 // Numbered always, by request: the lines are steps in an order, not a feature list.
 ok('every PM numbers its lines 1. 2. 3.', dmBodies.every((t) => /^1\. /m.test(t) && /^2\. /m.test(t) && /^3\. /m.test(t)));
