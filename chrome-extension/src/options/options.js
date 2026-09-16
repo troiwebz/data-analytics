@@ -274,8 +274,17 @@ $('findChat').addEventListener('click', async () => {
   if (r?.error) showTg(null, r.error);
   else {
     $('telegramChatId').value = r.chatId;
+    // Save it here rather than filling the box and waiting for a second click.
+    // A found value is not a typed one, and leaving it unsaved put the page in
+    // a state where the box showed an id and the line under it still read "no
+    // chat id saved" - both true, and impossible to make sense of.
+    await setConfig({ telegramChatId: r.chatId });
+    await chrome.runtime.sendMessage({ cmd: 'reschedule' });
     const who = (r.chats || []).find((c) => c.id === r.chatId);
-    status(`Found chat ${r.chatId}${who?.name ? ` (${who.name})` : ''}. Press Save, then Send a test message.`);
+    status(`Found and saved chat ${r.chatId}${who?.name ? ` (${who.name})` : ''}. `
+         + 'Now press "Send a test message" — your phone should buzz.');
+    await refreshTg();
+    await showBackup();
   }
   b.disabled = false; b.textContent = 'Find it for me';
 });
