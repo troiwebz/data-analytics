@@ -74,6 +74,7 @@
   <span id="say"></span>
   <nav>
     <button data-tab="camp" class="on">Campaign</button>
+    <button data-tab="ideas">Ideas</button>
     <button data-tab="plan">Calendar</button>
     <button data-tab="answer">Answer</button>
     <button data-tab="leads">Leads</button>
@@ -83,6 +84,7 @@
     <button data-tab="offers">Offers</button>
     <button data-tab="fit">Fit</button>
     <button data-tab="targets">Targets</button>
+    <button data-tab="costs">Cost</button>
 
   </nav>
 </header>
@@ -109,6 +111,29 @@
     <div class="note">191 rooms is a menu, not a plan. A campaign is one niche — the rooms its owners actually sit in, the searches that catch them spending money, the questions they ask over and over, and the offers that fit. Pick one and the whole board narrows to it: calendar, scan, answers, boost. Six rooms hit repeatedly beat 191 hit once, because leads compound on the sixth time somebody sees your name.</div>
     <div id="campActive"></div>
     <div class="grid" id="campGrid"></div>
+  </section>
+
+  <section id="ideas">
+    <div class="note">Think out loud first. Say roughly what you want to talk about — or leave it empty and let the campaign decide — and you get eight angles back, each already knowing what shape of post it is and which room it belongs in. Only two of the eight may ask for anything; the rest give something away. Pick one and it goes onto the next free day in a room the rules actually allow, and the post is written up around it.</div>
+    <div class="card">
+      <textarea id="seed" rows="3" placeholder="e.g. I want to talk about why roofers waste money on lead sellers, and offer a free map audit off the back of it"></textarea>
+      <div class="bar" style="margin-top:10px">
+        <button class="act" id="mkIdeas">Give me eight angles</button>
+        <button class="ghost" id="mkIdeas2">Eight different ones</button>
+        <span id="ideaSay" class="faint"></span>
+      </div>
+    </div>
+    <div class="grid" id="ideaGrid"></div>
+  </section>
+
+  <section id="costs">
+    <div class="note">Where the money actually went today. Reading a room's rules or summarising posts we already have is extraction, and runs on the cheapest model; the post that goes out in your name does not. Output is the expensive half — a thousand written tokens cost five times a thousand read ones — so shorter posts and fewer rewrites save more than any prompt trick.</div>
+    <div class="stat" id="costStat"></div>
+    <div class="bar">
+      <label class="f"><input type="checkbox" id="cheapMode"> cheap mode — put <b>every</b> job on the cheapest model</label>
+      <button class="ghost" id="costRefresh">Refresh</button>
+    </div>
+    <div id="costBody"></div>
   </section>
 
   <section id="plan">

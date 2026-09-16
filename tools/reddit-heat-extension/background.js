@@ -989,7 +989,7 @@ async function huntAct(id, action, variant) {
 const AI_URL = "https://api.anthropic.com/v1/messages";
 const AI_MODEL = "claude-opus-5";
 // $ per million tokens: input, output, cache write (1.25x), cache read (0.1x)
-const AI_PRICES = { "claude-opus-5": [5, 25], "claude-sonnet-5": [2, 10] };
+const AI_PRICES = { "claude-opus-5": [5, 25], "claude-sonnet-5": [2, 10], "claude-haiku-4-5": [1, 5] };
 const AI_POLISH_MODEL = "claude-sonnet-5";
 const AI_SLOT_MODEL = "claude-sonnet-5";   // the slots are a small extraction; the shape is written here
 // ---- the daily cap: cents spent today across every call, against the budget in Your details
@@ -1495,12 +1495,15 @@ function aiCents(model, u) {
 // The request body shared by both writers: the static system prompt is cached
 // (a prefix hit costs a tenth), fallbacks only where the model supports them.
 function aiBody(model, system, user, schema, maxTokens) {
-  const body = { model, max_tokens: maxTokens, output_config: { effort: "low", format: { type: "json_schema", schema } }, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] };
-  // Thinking is ON by default on these models and every thinking token is
-  // billed as output. Filling six short slots does not need it, and on Sonnet
-  // turning it off is supported, so these calls cost what they look like.
+  const body = { model, max_tokens: maxTokens, output_config: { format: { type: "json_schema", schema } }, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: user }] };
+  // Haiku takes neither an effort level nor a thinking block: sending either
+  // is an error, and leaving thinking out is already thinking-off there.
+  if (model !== "claude-haiku-4-5") body.output_config.effort = "low";
+  // Thinking is ON by default on the bigger models and every thinking token is
+  // billed as output — at $25 a million on Opus. Filling a handful of slots
+  // does not need it, so these calls cost what they look like.
   if (model === "claude-sonnet-5") body.thinking = { type: "disabled" };
-  if (model === "claude-opus-5") body.fallbacks = "default";
+  if (model === "claude-opus-5") { body.thinking = { type: "disabled" }; body.fallbacks = "default"; }
   return body;
 }
 function aiHeaders(key, model) {

@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, ideas: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -127,12 +127,16 @@ function v2Results(st) {
 }
 
 // ----------------------------------------------------------------- write
-async function v2Ai(system, user, schema, maxTokens, label) {
+// `job` picks the model: extraction goes to the cheapest one that can do it,
+// writing keeps the better one. An explicit model choice raises the writing
+// jobs only — there is nothing to gain from reading a rule with Opus.
+async function v2Ai(system, user, schema, maxTokens, label, job) {
   const key = await huntAiKey();
   if (!key) return { ok: false, error: "no API key saved — put it in Your details", noKey: true };
   const spent = await spendGet();
   if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢)` };
-  const model = await aiModel();
+  const { config: cfg0 = {} } = await chrome.storage.local.get(["config"]);
+  const model = V2.jobModel(job || "post", cfg0.profile || {});
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 120000);
   let r, j;
@@ -151,9 +155,13 @@ async function v2Ai(system, user, schema, maxTokens, label) {
   let parsed = null;
   try { parsed = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
   const u = j.usage || {};
-  const cents = aiCents(model, u);
-  await spendAdd(cents, { kind: label, who: "", what: label, model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
-  return { ok: true, parsed, cents, model };
+  const cents = V2.cents(model, u);
+  // cached tokens are logged apart from fresh ones: if this stays at zero the
+  // system prompt is under the model's minimum cacheable size and we are
+  // paying full price for the same words every time
+  await spendAdd(cents, { kind: label, who: "", what: label, model,
+    in: u.input_tokens || 0, cached: u.cache_read_input_tokens || 0, out: u.output_tokens || 0 });
+  return { ok: true, parsed, cents, model, cached: u.cache_read_input_tokens || 0 };
 }
 
 async function v2Draft(n, force) {
@@ -170,7 +178,8 @@ async function v2Draft(n, force) {
   let out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const shape = ((st.briefs || {})[row.sub] || {}).shape || null;
-    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }), V2.POST_SCHEMA, 3000, "board post");
+    if (row.fromIdea && !extra) extra = "This post was chosen from a brainstorm. Write up this idea in particular — keep its angle, and use this as the title unless it breaks a rule above: \"" + row.fromIdea.title + "\"" + (row.fromIdea.hook ? "\nIts opening line was meant to be: " + row.fromIdea.hook : "");
+    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }), V2.POST_SCHEMA, 3000, "board post", "post");
     if (!res.ok) return res;
     issues = V2.postChecks(res.parsed, target, row.typeKey);
     out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
@@ -377,7 +386,7 @@ async function v2OfferMake(brief) {
   if (!String(brief || "").trim()) return { ok: false, error: "write a line or two about what you do first" };
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const profile = config.profile || {};
-  const res = await v2Ai(V2.offerSystem(profile), V2.offerUser(brief, profile), V2.OFFER_SCHEMA, 4000, "ten offers");
+  const res = await v2Ai(V2.offerSystem(profile), V2.offerUser(brief, profile), V2.OFFER_SCHEMA, 3000, "offers", "offers");
   if (!res.ok) return res;
   const made = (res.parsed.offers || []).slice(0, 10).map((d, i) => {
     const o = V2.offerFromDraft(d, i);
@@ -406,7 +415,7 @@ async function v2RoomOffers(sub, force, extra) {
   const res = await v2Ai(
     V2.roomOfferSystem(profile),
     V2.roomOfferUser(target, camp, profile, { members: checked.members, online: checked.online, rules: checked.rules, extra }),
-    V2.ROOM_OFFER_SCHEMA, 3500, "five offers for r/" + sub);
+    V2.ROOM_OFFER_SCHEMA, 2500, "five offers for a room", "offers");
   if (!res.ok) return res;
   const offers = (res.parsed.offers || []).slice(0, 5).map((d, i) => {
     const o = V2.offerFromDraft(d, i);
@@ -431,7 +440,7 @@ async function v2OfferImprove(key, note) {
   if (!found) return { ok: false, error: "cannot find that offer" };
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const profile = config.profile || {};
-  const res = await v2Ai(V2.improveSystem(profile), V2.improveUser(found.offer, note, found.offer.room || "", profile), V2.IMPROVE_SCHEMA, 2000, "improve an offer");
+  const res = await v2Ai(V2.improveSystem(profile), V2.improveUser(found.offer, note, found.offer.room || "", profile), V2.IMPROVE_SCHEMA, 1400, "improve an offer", "improve");
   if (!res.ok) return res;
   const better = V2.offerFromDraft(res.parsed.offer || {}, 0);
   better.key = found.offer.key;                 // it replaces the original in place
@@ -797,7 +806,7 @@ async function v2RulesRead(sub, force) {
   let extra = "", out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await v2Ai(V2.rulesSystem(), V2.rulesUser(sub, brief.about, brief.rules, brief.precedent) + (extra ? "\n\n" + extra : ""),
-      V2.RULES_SCHEMA, 1600, "read r/" + sub + "'s rules");
+      V2.RULES_SCHEMA, 1200, "read a room's rules", "rules");
     if (!res.ok) return res;
     issues = V2.rulesChecks(res.parsed, brief.rules);
     out = { ...res.parsed, at: Date.now(), cents: res.cents, issues };
@@ -822,7 +831,7 @@ async function v2Shape(sub, force) {
   let extra = "", out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await v2Ai(V2.shapeSystem(config.profile || {}), V2.shapeUser(sub, survived, removed) + (extra ? "\n\n" + extra : ""),
-      V2.SHAPE_SCHEMA, 1800, "what survives in r/" + sub);
+      V2.SHAPE_SCHEMA, 1300, "what survives in a room", "shape");
     if (!res.ok) return res;
     issues = V2.shapeChecks(res.parsed);
     out = { ...res.parsed, at: Date.now(), cents: res.cents, issues, from: survived.length, against: removed.length };
@@ -832,6 +841,77 @@ async function v2Shape(sub, force) {
   brief.shape = out;
   await v2Set({ briefs: { ...(st.briefs || {}), [sub]: brief } });
   return { ok: true, shape: out, issues };
+}
+
+// ------------------------------------------------------------------ ideas
+// Brainstorm first, then let the fit matrix say where each one belongs. The
+// ideas themselves run on the cheapest model — quantity is the point, and the
+// one you pick gets written properly afterwards by the better one.
+async function v2Ideas(seed, force) {
+  const st = await v2Get();
+  v2Apply(st);
+  if ((st.ideas || []).length && !force && !seed) return { ok: true, ideas: st.ideas, seed: st.ideaSeed || "", cached: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const camp = V2.campaign(v2Settings(st).campaign);
+  let extra = "", list = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(V2.ideaSystem(config.profile || {}), V2.ideaUser(seed, camp, config.profile || {}) + (extra ? "\n\n" + extra : ""),
+      V2.IDEA_SCHEMA, 2600, "eight ideas", "ideas");
+    if (!res.ok) return res;
+    list = (res.parsed.ideas || []).slice(0, 8).map(V2.ideaClean);
+    issues = V2.ideaChecks(list);
+    if (!issues.length) { list.cents = res.cents; break; }
+    extra = "Your last set was rejected: " + issues.join("; ") + ".";
+  }
+  if (!list || !list.length) return { ok: false, error: "no ideas came back" };
+  // each idea already knows what kind of room it wants; the matrix says which
+  // actual room that is, and only ever names one we are allowed to post in
+  const ledger = v2Ledger(st);
+  const health = v2Health(st, ledger);
+  const rooms = camp ? V2.campaignRooms(camp) : V2.TARGETS.filter(V2.postable);
+  const picked = v2Settings(st).offers;
+  const offers = (picked && picked.length ? picked : V2.allOffers().map((o) => o.key)).map(V2.offer);
+  for (const idea of list) {
+    const offer = offers.find((o) => (o.channel || "") !== "none") || offers[0];
+    const chain = V2.fitChain(offer, rooms, { briefs: st.briefs || {}, ledger, checked: st.targets || {}, health,
+      campaignRooms: rooms.map((t) => t.sub), campaignNiche: camp ? camp.niche : "" });
+    // prefer a room of the kind the idea asked for, then anything runnable
+    const ok = chain.filter((c) => c.state === "green" || c.state === "grey");
+    const best = ok.find((c) => c.kind === idea.kind) || ok[0] || null;
+    idea.room = best ? best.sub : "";
+    idea.roomState = best ? best.state : "";
+    idea.roomWhy = best ? (best.why || [])[0] || "" : "nothing in this campaign will take a post right now";
+    idea.offerKey = idea.magnet ? offer.key : "";
+  }
+  await v2Set({ ideas: list, ideaSeed: String(seed || st.ideaSeed || ""), ideasAt: Date.now() });
+  return { ok: true, ideas: list, issues, cents: list.cents || 0, campaign: camp ? camp.name : "" };
+}
+
+// Put one idea on the calendar: the next free day, in the room the matrix
+// chose, with the idea's own title carried into the writer.
+async function v2IdeaToPlan(id) {
+  const st = await v2Get();
+  v2Apply(st);
+  const idea = (st.ideas || []).find((x) => x.id === id);
+  if (!idea) return { ok: false, error: "that idea is gone — brainstorm again" };
+  if (!idea.room) return { ok: false, error: "there is no room this can go in yet — read more rooms on the Fit tab" };
+  const now = Date.now();
+  const free = (st.plan || []).find((r) => r.sub && r.state === "planned" && r.at >= now - 86400000 && !st.drafts[r.n]);
+  if (!free) return { ok: false, error: "no free day left on the calendar — build a longer one first" };
+  const type = V2.postType(idea.shape);
+  const room = V2.TARGETS.find((t) => t.sub === idea.room);
+  Object.assign(free, {
+    sub: idea.room, kind: room ? room.kind : free.kind, group: room ? room.kind : free.group,
+    promo: room ? room.promo : free.promo, weekly: room ? room.promo === "weekly" : false,
+    typeKey: type.key, typeName: type.name, magnet: !!type.magnet,
+    offerKey: idea.offerKey || free.offerKey,
+    offerName: idea.offerKey ? V2.offer(idea.offerKey).name : free.offerName,
+    fromIdea: { id: idea.id, title: idea.title, hook: idea.hook, angle: idea.angle },
+    why: "from an idea — " + idea.angle,
+  });
+  delete st.drafts[free.n];
+  await v2Set({ plan: st.plan, drafts: st.drafts });
+  return { ok: true, n: free.n, sub: free.sub, at: free.at, typeName: type.name };
 }
 
 // ------------------------------------------------- reading every room at once
@@ -1050,7 +1130,7 @@ async function v2Answer(id, force) {
   let extra = "";
   let out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const res = await v2Ai(V2.answerSystem(profile), V2.answerUser(p, profile) + (extra ? "\n\n" + extra : ""), V2.ANSWER_SCHEMA, 1600, "public answer");
+    const res = await v2Ai(V2.answerSystem(profile), V2.answerUser(p, profile) + (extra ? "\n\n" + extra : ""), V2.ANSWER_SCHEMA, 1200, "public answer", "answer");
     if (!res.ok) return res;
     issues = V2.answerChecks(res.parsed);
     out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
@@ -1096,6 +1176,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
+    case "v2-ideas": return go(v2Ideas(msg.seed, !!msg.force));
+    case "v2-idea-plan": return go(v2IdeaToPlan(msg.id));
+    case "v2-costs": return go(spendReport().then((r) => chrome.storage.local.get(["spend"]).then(({ spend = {} }) => ({ ok: true, ...r, split: V2.costSplit(spend.day === (new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0") + "-" + String(new Date().getDate()).padStart(2, "0")) ? spend.log || [] : []), jobs: V2.JOBS, prices: V2.PRICES }))));
+    case "v2-cheap": return go(chrome.storage.local.get(["config"]).then(({ config = {} }) => chrome.storage.local.set({ config: { ...config, profile: { ...(config.profile || {}), cheap: !!msg.on } } })).then(() => ({ ok: true })));
     case "v2-shape": return go(v2Shape(msg.sub, !!msg.force));
     case "v2-brief-all": return go(v2BriefAll(msg.subs, !!msg.force));
     case "v2-brief-all-state": return go(chrome.storage.local.get(["v2All"]).then((x) => x.v2All || { running: false }));

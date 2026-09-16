@@ -21,6 +21,8 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "mine") drawMine();
   if (b.dataset.tab === "boost") drawBoost();
   if (b.dataset.tab === "fit") drawFit();
+  if (b.dataset.tab === "ideas") drawIdeas();
+  if (b.dataset.tab === "costs") drawCosts();
 });
 
 // --------------------------------------------------------------- calendar
@@ -606,6 +608,72 @@ $("#readAll").onclick = async () => {
   }, 700);
 };
 $("#readStop").onclick = () => { send({ type: "v2-brief-all-stop" }); say("stopping after this room…"); };
+
+// ------------------------------------------------------------------ ideas
+async function drawIdeas(force, seed) {
+  if (force || seed !== undefined) $("#ideaSay").textContent = "thinking…";
+  const r = await send({ type: "v2-ideas", seed: seed === undefined ? "" : seed, force: !!force });
+  if (!r || !r.ok) { $("#ideaSay").textContent = ""; if (force || seed !== undefined) say((r && r.error) || "could not brainstorm", "var(--warn)"); return; }
+  if (r.seed && !$("#seed").value) $("#seed").value = r.seed;
+  $("#ideaSay").textContent = r.cached ? "the last eight" : `${r.ideas.length} angles · ${r.cents || 0}¢${r.issues && r.issues.length ? " · " + r.issues.join("; ") : ""}`;
+  $("#ideaGrid").innerHTML = (r.ideas || []).map((i) => `<div class="card">
+    <div class="faint">${i.magnet ? `<span class="tag t-magnet">asks</span>` : `<span class="tag t-value">gives</span>`} ${esc(V2.postType(i.shape).name)} · ${esc(i.kind === "ads" ? "already spending" : i.kind === "owner" ? "business owners" : "general business")}</div>
+    <h3 style="margin-top:6px">${esc(i.title)}</h3>
+    <ul class="tight">
+      <li><b>Angle:</b> ${esc(i.angle)}</li>
+      <li><b>They get:</b> ${esc(i.gives)}</li>
+      ${i.hook ? `<li><b>Opens with:</b> ${esc(i.hook)}</li>` : ""}
+      ${i.risk && i.risk !== "none" ? `<li style="color:var(--warn)"><b>Risk:</b> ${esc(i.risk)}</li>` : ""}
+    </ul>
+    <div class="faint" style="margin-top:8px">${i.room ? `goes in <b>r/${esc(i.room)}</b> — ${esc(i.roomWhy)}` : `<span style="color:var(--warn)">${esc(i.roomWhy)}</span>`}</div>
+    <div class="bar" style="margin-top:10px">
+      ${i.room ? `<button class="act" data-idea="${esc(i.id)}">put it on the calendar</button>` : ""}
+      ${i.room ? `<button class="ghost" data-ibrief="${esc(i.room)}">check r/${esc(i.room)}</button>` : ""}
+    </div></div>`).join("") || `<div class="card"><h3>Nothing yet</h3><div class="faint">Press Give me eight angles.</div></div>`;
+  $$("#ideaGrid button[data-idea]").forEach((b) => b.onclick = async () => {
+    const res = await send({ type: "v2-idea-plan", id: b.dataset.idea });
+    if (!res || !res.ok) return say((res && res.error) || "could not place it", "var(--warn)");
+    say(`on day ${res.n}, ${when(res.at)} in r/${res.sub} as a ${res.typeName.toLowerCase()} — writing it now`, "var(--go)");
+    await drawPlan();
+    $$("nav button").find((x) => x.dataset.tab === "plan").click();
+    write(res.n, true);
+  });
+  $$("#ideaGrid button[data-ibrief]").forEach((b) => b.onclick = () => {
+    $$("nav button").find((x) => x.dataset.tab === "plan").click();
+    showBrief(b.dataset.ibrief, false, "#planDraft");
+  });
+}
+$("#mkIdeas").onclick = () => drawIdeas(true, $("#seed").value.trim());
+$("#mkIdeas2").onclick = () => drawIdeas(true, $("#seed").value.trim());
+
+// ------------------------------------------------------------------ cost
+async function drawCosts() {
+  const r = await send({ type: "v2-costs" });
+  if (!r || !r.ok) return;
+  const sp = r.split || { rows: [], cents: 0 };
+  const cfg = await new Promise((res) => chrome.storage.local.get(["config"], (x) => res((x.config || {}).profile || {})));
+  $("#cheapMode").checked = !!cfg.cheap;
+  $("#costStat").innerHTML = [
+    ["Today", (sp.cents || 0).toFixed(1) + "¢"], ["Calls", sp.rows.reduce((n, x) => n + x.calls, 0)],
+    ["Read", (sp.in || 0).toLocaleString()], ["Written", (sp.out || 0).toLocaleString()],
+    ["From cache", (sp.hit || 0) + "%"],
+  ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  const money = (c) => (c || 0).toFixed(2) + "¢";
+  $("#costBody").innerHTML = `
+    ${sp.rows.length ? `<div class="card"><h3>What it went on</h3>
+      <div class="faint">${esc(sp.note)}</div>
+      <table style="margin-top:8px"><thead><tr><th>Job</th><th style="width:80px">Calls</th><th style="width:90px">Read</th><th style="width:100px">Written</th><th style="width:90px">Cost</th><th style="width:96px">Each</th></tr></thead>
+      <tbody>${sp.rows.map((x) => `<tr><td>${esc(x.kind)}</td><td>${x.calls}</td><td class="faint">${x.in.toLocaleString()}</td><td>${x.out.toLocaleString()}</td><td><b>${money(x.cents)}</b></td><td class="faint">${money(x.cents / Math.max(1, x.calls))}</td></tr>`).join("")}</tbody></table>
+      ${sp.hit === 0 && sp.in > 4000 ? `<div class="issue" style="margin-top:8px">⚠ nothing came back from cache today. The repeated part of these prompts is under the model's minimum cacheable size, so the same words are being paid for in full every time.</div>` : ""}
+      </div>` : `<div class="card"><h3>Nothing spent today</h3><div class="faint">The numbers appear here as soon as something is written.</div></div>`}
+    <div class="card"><h3>Which model does which job</h3>
+      <div class="faint">Per million tokens: ${Object.entries(r.prices).map(([m, p]) => `${esc(m.replace("claude-", ""))} $${p[0]} in / $${p[1]} out`).join(" · ")}</div>
+      <table style="margin-top:8px"><thead><tr><th style="width:230px">Job</th><th style="width:170px">Runs on</th><th>Why</th></tr></thead>
+      <tbody>${Object.entries(r.jobs).map(([k, j]) => `<tr><td>${esc(j.name)}</td><td class="faint">${esc(cfg.cheap ? "haiku-4-5 (cheap mode)" : (V2.jobModel(k, cfg) || "").replace("claude-", ""))}</td><td class="faint">${esc(j.why)}</td></tr>`).join("")}</tbody></table>
+      <div class="faint" style="margin-top:8px">Picking a model under Your details only ever raises the writing jobs — there is nothing to gain from reading a rule with the dearest model.</div></div>`;
+}
+$("#costRefresh").onclick = drawCosts;
+$("#cheapMode").onchange = async () => { await send({ type: "v2-cheap", on: $("#cheapMode").checked }); say($("#cheapMode").checked ? "everything on the cheapest model now" : "back to one model per job", "var(--go)"); drawCosts(); };
 
 // --------------------------------------------------------------- results
 function resTable(title, rows, note) {

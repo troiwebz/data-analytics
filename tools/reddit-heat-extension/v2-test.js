@@ -353,6 +353,68 @@ assert.ok(!/What actually survives/.test(V.postUser(V.TARGETS.find((t) => t.sub 
 assert.match(V.shapeUser("medspa", [{ title: "A post", body: "body", score: 5, comments: 9, kind: "case" }], [{ title: "A removed one" }]), /still standing[\s\S]*A post[\s\S]*removed[\s\S]*A removed one/i);
 assert.match(V.shapeUser("medspa", [], []), /No post like ours has survived here/);
 
+
+// ---- what it costs, and which model does which job ----------------------
+assert.deepStrictEqual(Object.keys(V.PRICES).sort(), ["claude-haiku-4-5", "claude-opus-5", "claude-sonnet-5"]);
+// extraction is never worth the expensive model, whatever is picked
+for (const j of ["rules", "shape", "ideas"]) {
+  assert.strictEqual(V.jobModel(j, {}), "claude-haiku-4-5", j + " should be on the cheap model");
+  assert.strictEqual(V.jobModel(j, { aiModel: "claude-opus-5" }), "claude-haiku-4-5", "picking Opus must not raise " + j);
+}
+// the writing jobs follow the picked model, and default to the middle one
+for (const j of ["post", "offers", "answer", "improve"]) {
+  assert.strictEqual(V.jobModel(j, {}), "claude-sonnet-5");
+  assert.strictEqual(V.jobModel(j, { aiModel: "claude-opus-5" }), "claude-opus-5");
+}
+// cheap mode puts everything on the cheapest, even the writing
+for (const j of Object.keys(V.JOBS)) assert.strictEqual(V.jobModel(j, { cheap: true }), "claude-haiku-4-5");
+// a nonsense model choice is ignored rather than sent
+assert.strictEqual(V.jobModel("post", { aiModel: "gpt-9" }), "claude-sonnet-5");
+// the arithmetic: cache reads cost a tenth, writes a quarter more, output five times input
+assert.strictEqual(V.cents("claude-sonnet-5", { input_tokens: 1e6 }), 200);
+assert.strictEqual(V.cents("claude-sonnet-5", { output_tokens: 1e6 }), 1000);
+assert.strictEqual(V.cents("claude-sonnet-5", { cache_read_input_tokens: 1e6 }), 20);
+assert.strictEqual(V.cents("claude-sonnet-5", { cache_creation_input_tokens: 1e6 }), 250);
+assert.strictEqual(V.cents("claude-haiku-4-5", { input_tokens: 1e6, output_tokens: 1e6 }), 600);
+assert.strictEqual(V.cents("claude-opus-5", { input_tokens: 1e6, output_tokens: 1e6 }), 3000);
+// the split says where the money went and which half it was
+const split = V.costSplit([
+  { kind: "board post", cents: 1.2, in: 900, cached: 0, out: 1100 },
+  { kind: "board post", cents: 1.1, in: 200, cached: 700, out: 1000 },
+  { kind: "read a room's rules", cents: 0.2, in: 1400, cached: 0, out: 300 },
+]);
+assert.strictEqual(split.rows[0].kind, "board post", "the split is not sorted by cost");
+assert.strictEqual(split.rows[0].calls, 2);
+assert.strictEqual(split.cents, 2.5);
+assert.strictEqual(split.cached, 700);
+assert.match(split.note, /what the model wrote/);
+assert.match(V.costSplit([{ kind: "x", cents: 1, in: 9000, out: 100 }]).note, /what the model read/);
+assert.strictEqual(V.costSplit([]).cents, 0);
+
+// ---- brainstorming, and where each idea belongs -------------------------
+const isys = V.ideaSystem({ name: "a Bangkok team" });
+for (const t of V.POST_TYPES) assert.ok(isys.includes(t.key), "the idea prompt never mentions " + t.key);
+assert.match(isys, /Only two of the eight may be magnet shapes/);
+assert.match(isys, /Never propose an idea that needs us to claim we work inside the trade/);
+const ideaPrompt = V.ideaUser("free map audits for roofers", V.campaign("trade_lock"), { wins: "12 to 61 calls" });
+assert.match(ideaPrompt, /roofers, HVAC/);
+assert.match(ideaPrompt, /free map audits for roofers/);
+assert.match(ideaPrompt, /12 to 61 calls/);
+assert.match(V.ideaUser("", null, {}), /No particular starting point/);
+// an idea with a shape we do not have falls back rather than breaking
+assert.strictEqual(V.ideaClean({ title: "x", shape: "nonsense", room_kind: "martian" }, 0).shape, "playbook");
+assert.strictEqual(V.ideaClean({ title: "x", shape: "nonsense", room_kind: "martian" }, 0).kind, "biz");
+assert.strictEqual(V.ideaClean({ title: "x", shape: "audit_magnet" }, 0).magnet, true);
+assert.strictEqual(V.ideaClean({ title: "x", shape: "playbook" }, 0).magnet, false);
+const goodIdeas = ["playbook", "result_story", "mistakes", "teardown", "comparison", "question_ask", "audit_magnet", "giveaway"]
+  .map((shape, i) => V.ideaClean({ title: "A specific title about roofing work " + i, shape, room_kind: "owner" }, i));
+assert.deepStrictEqual(V.ideaChecks(goodIdeas), []);
+assert.match(V.ideaChecks(Array.from({ length: 5 }, (_, i) => V.ideaClean({ title: "Free audit for ten roofers now", shape: "audit_magnet" }, i))).join(" | "), /mostly offers is not a brainstorm/);
+assert.match(V.ideaChecks([V.ideaClean({ title: "Go to example.com now please", shape: "playbook" }, 0), ...goodIdeas.slice(1)]).join(" | "), /link in it/);
+assert.match(V.ideaChecks([V.ideaClean({ title: "hi", shape: "playbook" }, 0), ...goodIdeas.slice(1)]).join(" | "), /too short/);
+assert.match(V.ideaChecks([V.ideaClean({ title: "A specific title about roofing 🚀", shape: "playbook" }, 0), ...goodIdeas.slice(1)]).join(" | "), /emoji/);
+assert.deepStrictEqual(V.ideaChecks([]), ["nothing came back"]);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);
@@ -419,4 +481,4 @@ assert.match(bp.room, /Roofing/);
 assert.match(bp.judge, /cost per comment/);
 assert.strictEqual(V.boostPlan(0, 0).daily, 7, "an empty budget falls back to the default");
 
-console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles and " + V.POSTURES.length + " postures, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + V.SEARCHES.length + " money searches");
+console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles and " + V.POSTURES.length + " postures, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + Object.keys(V.JOBS).length + " jobs across " + Object.keys(V.PRICES).length + " models, " + V.SEARCHES.length + " money searches");

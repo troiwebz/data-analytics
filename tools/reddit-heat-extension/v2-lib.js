@@ -1599,3 +1599,142 @@ V2.shapeBlock = function (sh) {
     "Match that shape. Do not match any claim about who the author is — we are an outside marketing team and the post must read as one.",
   ].join("\n");
 };
+
+// ---------------------------------------------------------------- what it costs
+// Not every call needs the same model. Reading rules out of text somebody else
+// wrote is extraction, and the cheapest model does it as well as the dearest.
+// Writing the post that goes out in our name is not, so that one keeps the
+// better model. Prices are per million tokens, in, out.
+V2.PRICES = { "claude-haiku-4-5": [1, 5], "claude-sonnet-5": [2, 10], "claude-opus-5": [5, 25] };
+V2.JOBS = {
+  post: { name: "the post itself", model: "claude-sonnet-5", why: "this one goes out in our name" },
+  offers: { name: "writing offers", model: "claude-sonnet-5", why: "the wording is the product" },
+  improve: { name: "improving an offer", model: "claude-sonnet-5", why: "judgement, not extraction" },
+  answer: { name: "a public answer", model: "claude-sonnet-5", why: "read by strangers for years" },
+  shape: { name: "what survives in a room", model: "claude-haiku-4-5", why: "summarising posts we already have" },
+  rules: { name: "reading a room's rules", model: "claude-haiku-4-5", why: "pulling a quote out of text we supply" },
+  ideas: { name: "brainstorming ideas", model: "claude-haiku-4-5", why: "quantity first; the good ones get written properly after" },
+};
+V2.jobModel = function (job, profile = {}) {
+  const j = V2.JOBS[job] || V2.JOBS.post;
+  if (profile.cheap) return "claude-haiku-4-5";              // everything on the cheapest
+  const pick = profile.aiModel;
+  // an explicit choice only ever raises the writing jobs, never the extraction
+  if (pick && V2.PRICES[pick] && j.model !== "claude-haiku-4-5") return pick;
+  return j.model;
+};
+V2.cents = function (model, u = {}) {
+  const [pin, pout] = V2.PRICES[model] || V2.PRICES["claude-sonnet-5"];
+  const usd = ((u.input_tokens || 0) * pin
+    + (u.cache_creation_input_tokens || 0) * pin * 1.25
+    + (u.cache_read_input_tokens || 0) * pin * 0.1
+    + (u.output_tokens || 0) * pout) / 1e6;
+  return Math.round(usd * 1000) / 10;
+};
+// Output is where the money goes: a thousand written tokens cost five times
+// what a thousand read ones do. This is what the board shows so the number is
+// never a surprise.
+V2.costSplit = function (rows) {
+  const by = {};
+  let cents = 0, cached = 0, inTok = 0, outTok = 0;
+  for (const r of rows || []) {
+    const k = r.kind || "other";
+    const b = (by[k] = by[k] || { kind: k, calls: 0, cents: 0, in: 0, out: 0 });
+    b.calls += 1; b.cents = Math.round((b.cents + (r.cents || 0)) * 100) / 100;
+    b.in += r.in || 0; b.out += r.out || 0;
+    cents += r.cents || 0; cached += r.cached || 0; inTok += r.in || 0; outTok += r.out || 0;
+  }
+  const list = Object.values(by).sort((a, b) => b.cents - a.cents);
+  return {
+    rows: list, cents: Math.round(cents * 100) / 100, in: inTok, out: outTok, cached,
+    hit: inTok ? Math.round((cached / (inTok + cached)) * 100) : 0,
+    worst: list[0] || null,
+    note: outTok > inTok / 3
+      ? "most of this is what the model wrote, not what it read — shorter posts and fewer rewrites are where the savings are"
+      : "most of this is what the model read — caching and shorter prompts are where the savings are",
+  };
+};
+
+// ----------------------------------------------------------------- ideas
+// The thing that was missing between "I have an offer" and "a post went out":
+// somewhere to think out loud. Type a rough idea, get eight angles back, and
+// each one already knows which shape of post it is and which kind of room it
+// belongs in — so the board can put it straight into a green cell.
+V2.IDEA_SCHEMA = {
+  type: "object",
+  properties: {
+    ideas: {
+      type: "array",
+      description: "Eight post ideas, each a different angle on the same business.",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "The Reddit title itself, written as it would be posted. Plain, specific, under 140 characters." },
+          angle: { type: "string", description: "What makes this one different from the other seven, in a few words." },
+          shape: { type: "string", description: "One of: audit_magnet, result_story, teardown, playbook, mistakes, comparison, giveaway, question_ask, ama, local_case." },
+          room_kind: { type: "string", description: "Where it belongs: 'ads' for people already spending, 'owner' for a trade's own room, 'biz' for general business." },
+          gives: { type: "string", description: "What the reader gets out of reading it, concretely." },
+          hook: { type: "string", description: "The first line of the post." },
+          risk: { type: "string", description: "Why a moderator might remove it, or 'none'." },
+        },
+        required: ["title", "angle", "shape", "room_kind", "gives", "hook", "risk"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["ideas"],
+  additionalProperties: false,
+};
+V2.ideaSystem = function (profile = {}) {
+  return [
+    "You brainstorm Reddit post ideas for " + (profile.name || "a small marketing team") + (profile.place ? " in " + profile.place : "") + ". They run paid ads and local search for other people's businesses.",
+    "",
+    "Eight ideas, eight different angles. Quantity and range matter more here than polish — the good ones get written properly afterwards.",
+    "",
+    "Spread them across the shapes rather than writing eight versions of one post:",
+    ...V2.POST_TYPES.map((t) => "- " + t.key + " (" + t.name + "): " + t.shape),
+    "",
+    "Rules:",
+    "- Every title must be one a real person would click, and specific enough that you could only write it if you had done the work. No 'The Ultimate Guide to'.",
+    "- No links, no prices, no agency name, no emoji.",
+    "- Only two of the eight may be magnet shapes (audit_magnet, giveaway, ama). The rest give something away and sell nothing.",
+    "- Say honestly in 'risk' what would get each one removed. 'none' is allowed but rare.",
+    "- We are an outside team. Never propose an idea that needs us to claim we work inside the trade.",
+  ].join("\n");
+};
+V2.ideaUser = function (seed, campaign, profile = {}) {
+  const lines = [];
+  if (campaign) lines.push("The niche: " + campaign.niche, "Why them: " + campaign.why, "",
+    "What they ask over and over:", ...campaign.queries.slice(0, 10).map((q) => "- " + q), "");
+  lines.push(seed ? "What we want to talk about: " + String(seed).slice(0, 1500) : "No particular starting point — find the angles worth taking.");
+  if (profile.credit) lines.push("", "True things about us: " + profile.credit);
+  if (profile.wins) lines.push("Real results we can cite: " + profile.wins);
+  lines.push("", "Give me eight.");
+  return lines.join("\n");
+};
+V2.ideaClean = function (d, i) {
+  const shape = V2.POST_TYPES.some((t) => t.key === d.shape) ? d.shape : "playbook";
+  const kind = ["ads", "owner", "biz"].includes(d.room_kind) ? d.room_kind : "biz";
+  return {
+    id: "idea_" + Date.now().toString(36) + "_" + i,
+    title: String(d.title || "").slice(0, 300),
+    angle: String(d.angle || ""), shape, kind,
+    gives: String(d.gives || ""), hook: String(d.hook || ""),
+    risk: String(d.risk || ""), magnet: !!V2.postType(shape).magnet,
+    at: Date.now(),
+  };
+};
+V2.ideaChecks = function (list) {
+  const bad = [];
+  if (!list || !list.length) return ["nothing came back"];
+  const magnets = list.filter((x) => x.magnet).length;
+  if (magnets > 3) bad.push(magnets + " of them are asking for something — a list that is mostly offers is not a brainstorm");
+  if (new Set(list.map((x) => x.shape)).size < 3) bad.push("they are all the same shape");
+  for (const x of list) {
+    if (x.title.length < 15) bad.push("one title is too short to be real");
+    // the same reading of "a link" the post gate uses, so a bare domain counts
+    if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|co|agency|marketing)\b/i.test(x.title + " " + x.hook)) bad.push("one of them has a link in it");
+    if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(x.title)) bad.push("one title has an emoji");
+  }
+  return Array.from(new Set(bad));
+};
