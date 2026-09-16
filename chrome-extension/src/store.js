@@ -34,6 +34,14 @@ export async function isFirstRun() {
 const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'postUrl', 'decidedAt', 'priorContact', 'staged'];
 
 /**
+ * Bought with a request to the forum, so a later parse that happens not to
+ * carry them must not throw them away - a backfill row would otherwise wipe
+ * the post body a poll had already read, and the next draft would be written
+ * from the title again.
+ */
+const EXPENSIVE = ['body', 'replies', 'aiSpecifics'];
+
+/**
  * One row per thread, ever.
  *
  * "Load last 48h" forgets which threads have been seen and polls again, so
@@ -54,6 +62,13 @@ export async function recordLeads(leads) {
     if (!old) { byId.set(id, l); fresh.push(l); continue; }
     const keep = {};
     for (const k of DECISIONS) if (old[k] !== undefined) keep[k] = old[k];
+    // Only fall back to the old copy where the new parse has nothing: a poll
+    // that did read the thread should win, a backfill that did not should not.
+    for (const k of EXPENSIVE) {
+      const fresh = l[k];
+      const empty = fresh == null || fresh === '' || (Array.isArray(fresh) && !fresh.length);
+      if (empty && old[k] !== undefined) keep[k] = old[k];
+    }
     // A thread already decided on keeps that decision; a fresh find of an
     // untouched thread is allowed to set its own status.
     byId.set(id, { ...l, ...keep, foundAt: old.foundAt || l.foundAt });

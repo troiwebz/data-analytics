@@ -12,6 +12,7 @@
 import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js';
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
+import { fetchThreads } from './thread.js';
 import { matchLead } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
@@ -281,12 +282,41 @@ export function dmUrl(author) {
  * Never throws and never blocks a poll: any failure returns {} and the reply
  * falls back to the built-in specifics rules.
  */
+/**
+ * Read the thread page for each lead and hang the buyer's post and the replies
+ * already on it onto the lead.
+ *
+ * Without this Claude sees a title and, if the feed bothered to carry one, a
+ * description - and a lead found on a listing page has neither. "Crypto
+ * Runner" came back as multi-chain wallet operations because the title was the
+ * entire brief. The replies come along too: they are the other freelancers
+ * bidding for the same job, so they show what the job really is and what has
+ * already been promised.
+ *
+ * Never throws and never blocks a poll: a thread that cannot be read just
+ * leaves the lead as it was.
+ */
+export async function withThreads(leads, cfg) {
+  if (cfg.readThreads === false || !leads.length) return leads;
+  const max = Number(cfg.maxThreadReads) > 0 ? Number(cfg.maxThreadReads) : leads.length;
+  const delayMs = Math.max(0, Number(cfg.secondsBetweenThreadReads ?? 2) * 1000);
+  const got = await fetchThreads(leads, { max, delayMs }).catch(() => ({}));
+  const read = Object.keys(got).length;
+  if (read) {
+    const rivals = Object.values(got).reduce((n, t) => n + (t.replies?.length || 0), 0);
+    await log(`read ${read} thread(s) for the full post${rivals ? ` and ${rivals} reply/replies already on them` : ''}`);
+  }
+  return leads.map((l) => (got[l.threadId] ? { ...l, ...got[l.threadId] } : l));
+}
+
 export async function specificsFor(leads, cfg) {
   if (!cfg.aiSpecifics || !leads.length) return {};
   const payload = leads.map((l) => ({
     threadId: String(l.threadId),
     title: l.title,
     snippet: String(l.snippet || '').slice(0, 800),
+    body: String(l.body || '').slice(0, 1500),
+    replies: (l.replies || []).slice(0, 4).map((r) => ({ text: String(r.text || '').slice(0, 300) })),
     category: l.category || ''
   }));
   const { specifics, note } = await writeSpecifics(payload, cfg);
@@ -304,18 +334,33 @@ export async function specificsFor(leads, cfg) {
  * kept appearing long after it had been deleted from the code, and why this now
  * runs by itself whenever the templates change, not only on a button.
  *
- * withAi also fills in Claude lines for leads found before a key was added.
+ * withAi also fills in Claude lines for leads found before a key was added -
+ * and redoes the ones written before the thread itself was being read. A draft
+ * written from the title alone is the one that answers the wrong job, so it is
+ * worth paying for again; a draft that already had the post to work from is
+ * left alone.
  */
 export async function rebuildDrafts({ withAi = false } = {}) {
   const cfg = await getConfig();
   const leads = await getLeads();
   const has = (l) => l.aiSpecifics?.tips?.length || l.aiSpecifics?.length;
-  const missing = leads.filter((l) => !has(l) && !['POSTED', 'SKIPPED'].includes(l.status));
+  const open = (l) => !['POSTED', 'SKIPPED'].includes(l.status);
+  const stale = (l) => !has(l) || (cfg.readThreads !== false && !l.body);
+  const missing = leads.filter((l) => open(l) && stale(l));
 
   let aiCount = 0;
   if (withAi && cfg.aiSpecifics && missing.length) {
     for (let i = 0; i < missing.length; i += 8) {
-      const fresh = await specificsFor(missing.slice(i, i + 8), cfg);
+      // Read the threads first: the post is the point, and without it this
+      // would just buy the same wrong answer a second time.
+      const batch = await withThreads(missing.slice(i, i + 8), cfg);
+      for (const b of batch) {
+        if (!b.body && !b.replies?.length) continue;
+        await updateLead(b.threadId, { body: b.body || '', replies: b.replies || [] });
+        const lead = leads.find((l) => String(l.threadId) === String(b.threadId));
+        if (lead) { lead.body = b.body; lead.replies = b.replies; }
+      }
+      const fresh = await specificsFor(batch, cfg);
       for (const [id, parts] of Object.entries(fresh)) {
         await updateLead(id, { aiSpecifics: parts });
         const lead = leads.find((l) => String(l.threadId) === String(id));
@@ -408,10 +453,14 @@ export async function pollFeed() {
     })
     .filter((m) => m.score >= cfg.notifyScore);
 
+  // Read each thread before drafting, so the reply answers the post rather than
+  // the title, and knows what the competition has already promised.
+  const full = await withThreads(matched, cfg);
+
   // One batched request for the whole poll, so the instructions are paid for
   // once rather than once per lead. Falls back to the built-in rules.
-  const ai = await specificsFor(matched, cfg);
-  const leads = matched.map((m) => enrich(m, cfg, 'SENT', ai[m.threadId]));
+  const ai = await specificsFor(full, cfg);
+  const leads = full.map((m) => enrich(m, cfg, 'SENT', ai[m.threadId]));
   await markSeen(fresh.map((i) => i.threadId));
 
   if (!leads.length) return { new: fresh.length, matched: 0 };

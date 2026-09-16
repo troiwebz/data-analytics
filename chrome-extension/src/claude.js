@@ -26,7 +26,9 @@ const API = 'https://api.anthropic.com/v1/messages';
 const MODELS_API = 'https://api.anthropic.com/v1/models?limit=1';
 
 export const MAX_LEADS = 8;        // per request
-export const SNIPPET_CHARS = 400;  // enough to see the ask, not the whole post
+export const SNIPPET_CHARS = 700;  // the post itself, not just its first line
+export const MAX_RIVALS = 4;       // the competition already on the thread
+export const RIVAL_CHARS = 220;    // their claim, not their signature
 export const MAX_BULLETS = 3;      // one for the public reply, three for the PM
 
 /** Dollars per million tokens. */
@@ -216,6 +218,20 @@ const SYSTEM = [
   'You write the technical middle of an outreach message about a job post on a freelancer forum.',
   'The greeting, the thread link and the closing offer are already written; you write ONLY the parts below.',
   '',
+  'READ THE POST, NOT THE TITLE. The title is often a two-word label that means something else in',
+  'context. "Crypto Runner" was a buyer wanting someone to run crypto ads without the accounts getting',
+  'suspended - answering it with wallet and multi-chain operations reads as though you never opened the',
+  'thread. Whatever the post says the work is, that is the work. If the post is missing or says nothing,',
+  'stay general and claim less rather than inventing a specialism.',
+  '',
+  'THE REPLIES ALREADY ON THE THREAD, when you are given them, are the other freelancers bidding for this',
+  'same job. Use them twice over.',
+  '- They tell you what the job really is. If three of them talk about ad accounts, it is an ads job.',
+  '- They tell you what has already been promised, and you must not simply repeat it. Say the thing they',
+  '  did not. If they all say "we can run your ads", say what you do about the part they skipped.',
+  'Match their register: short, direct, unadorned. Do not out-market them; out-specify them.',
+  'Never mention them, never compare yourself to them, never imply you read their replies.',
+  '',
   'For each thread give three things.',
   '',
   '1. "tips": exactly 3 lines, STRONGEST FIRST.',
@@ -227,13 +243,15 @@ const SYSTEM = [
   '   Good: "We can work within the compliance limits for casino creatives across the main networks."',
   '   Bad:  "Manual submissions to UAE directories." (no subject, not a claim about us)',
   '   Bad:  "You should fix your categories first." (an instruction, not our capability)',
-  '   The first line is used on its own in a short public reply, so it must stand alone and be the single',
-  '   most convincing thing you can say about this post. Lines 2 and 3 must add something the first did not.',
+  '   The first line IS the public reply, on its own, with nothing after it but "sent you a PM". It has to',
+  '   stand alone, read like something a person typed into the thread, and be the single most convincing',
+  '   thing you can say about this post. Lines 2 and 3 must add something the first did not.',
   '   Each proves the writer read that specific post.',
   '',
-  '2. "question": ONE short question, posted publicly under the reply.',
-  '   It must be answerable in a sentence, must split the job into two real routes that would be built or',
-  '   priced differently, and must make replying easier than ignoring. Never ask for the budget.',
+  '2. "question": ONE short question. It is NOT posted publicly - it is held back for the private',
+  '   message, and only the "scope" offer uses it. Nobody on this forum opens with a question in public;',
+  '   they state what they can do and move to PM. Keep it answerable in a sentence, splitting the job into',
+  '   two routes that would be built or priced differently. Never ask for the budget.',
   '   Example: "Are you after citations that survive a manual audit, or volume for a tier 2 layer?"',
   '',
   '3. "offer": pick the ONE id below that best fits this buyer.',
@@ -299,12 +317,23 @@ export async function writeSpecifics(leads, cfg = {}) {
   }
 
   const batch = leads.slice(0, MAX_LEADS);
-  const threads = batch.map((l) => [
-    `id: ${l.threadId}`,
-    `service area: ${l.category || 'unknown'}`,
-    `title: ${String(l.title || '').slice(0, 200)}`,
-    `post: ${String(l.snippet || '').replace(/\s+/g, ' ').slice(0, SNIPPET_CHARS)}`
-  ].join('\n')).join('\n\n---\n\n');
+  const threads = batch.map((l) => {
+    // The thread page beats the feed description, which beats nothing. A lead
+    // found on a listing page has no description at all, which is how a title
+    // ended up being the whole brief.
+    const post = String(l.body || l.snippet || '').replace(/\s+/g, ' ').slice(0, SNIPPET_CHARS);
+    const lines = [
+      `id: ${l.threadId}`,
+      `service area: ${l.category || 'unknown'}`,
+      `title: ${String(l.title || '').slice(0, 200)}`,
+      `post: ${post || '(not available - go on the title alone and claim less)'}`
+    ];
+    const rivals = (l.replies || []).slice(0, MAX_RIVALS)
+      .map((r) => `- ${String(r.text || '').replace(/\s+/g, ' ').slice(0, RIVAL_CHARS)}`)
+      .filter((x) => x.length > 4);
+    if (rivals.length) lines.push(`already replied by other freelancers (${rivals.length}):`, ...rivals);
+    return lines.join('\n');
+  }).join('\n\n---\n\n');
 
   const body = {
     model: ai.model,

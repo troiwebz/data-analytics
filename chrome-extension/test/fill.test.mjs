@@ -203,6 +203,63 @@ for (const wipeOn of ['blur', 'init']) {
   await p.close();
 }
 
+// Every PM was going out under the same subject.
+//
+// XenForo saves a draft of a conversation you start and do not send, and
+// restores it - title and all - next time you open the compose page. The
+// filler only set the subject when the box was empty, so a PM about Indonesian
+// .id links went out under "INDIA --- Looking to Hire Best And Expert BLACK HAT
+// SEO SPECIALIST", the title of some earlier thread. This is that page.
+{
+  const p = await browser.newPage();
+  await p.setContent(`<form action="/direct-messages/insert">
+    <input name="recipients" value="irdi bardhi">
+    <input name="title" value="INDIA --- Looking to Hire Best And Expert BLACK HAT SEO SPECIALIST">
+    <div class="fr-box"><div class="fr-element fr-view" contenteditable="true">an old draft body</div></div>
+    <textarea class="js-editorInput" name="message_html" style="display:none"></textarea>
+    <button type="submit">Send</button></form>`);
+  await p.evaluate(() => { window.__sent = []; window.chrome = { runtime: { sendMessage: (m) => window.__sent.push(m) } }; });
+  await p.evaluate(({ draft }) => {
+    globalThis.__HAF_DM__ = { author: 'irdi bardhi', title: 'Anyone providing Indonesian .id links', body: draft };
+    globalThis.__HAF_DM_MODE__ = 'fill'; globalThis.__HAF_THREAD_ID__ = '1848226';
+  }, { draft: DRAFT });
+  for (const f of ['selectors.js', 'content-lib.js', 'content-dm.js']) await p.evaluate(read(f));
+  await p.waitForFunction(() => window.__sent.length > 0, null, { timeout: 15000 });
+  const r = await p.evaluate(() => window.__sent[0].result);
+  const st = await p.evaluate(() => ({
+    subject: document.querySelector('input[name="title"]').value,
+    to: document.querySelector('input[name="recipients"]').value,
+    body: document.querySelector('.fr-element').textContent
+  }));
+  ok('a restored draft title is overwritten with THIS thread\'s title',
+     st.subject === 'Anyone providing Indonesian .id links', JSON.stringify(st.subject));
+  ok('no trace of the old subject', !/BLACK HAT SEO SPECIALIST/.test(st.subject), st.subject);
+  ok('the old draft body is replaced too', !st.body.includes('an old draft body'), JSON.stringify(st.body.slice(0, 50)));
+  ok('and it still reports success', r?.ok === true, JSON.stringify(r));
+  ok('the recipient is left as it already was, since it is the right person', st.to === 'irdi bardhi', st.to);
+  await p.close();
+}
+
+// A restored draft addressed to someone else must not send this PM to them.
+{
+  const p = await browser.newPage();
+  await p.setContent(`<form action="/direct-messages/insert">
+    <input name="recipients" value="someone_else">
+    <input name="title" value="old subject">
+    <div class="fr-box"><div class="fr-element fr-view" contenteditable="true"></div></div>
+    <button type="submit">Send</button></form>`);
+  await p.evaluate(() => { window.__sent = []; window.chrome = { runtime: { sendMessage: (m) => window.__sent.push(m) } }; });
+  await p.evaluate(({ draft }) => {
+    globalThis.__HAF_DM__ = { author: 'irdi bardhi', title: 'Anyone providing Indonesian .id links', body: draft };
+    globalThis.__HAF_DM_MODE__ = 'fill'; globalThis.__HAF_THREAD_ID__ = '1848226';
+  }, { draft: DRAFT });
+  for (const f of ['selectors.js', 'content-lib.js', 'content-dm.js']) await p.evaluate(read(f));
+  await p.waitForFunction(() => window.__sent.length > 0, null, { timeout: 15000 });
+  const to = await p.evaluate(() => document.querySelector('input[name="recipients"]').value);
+  ok('a stale recipient is replaced with the right buyer', to === 'irdi bardhi', to);
+  await p.close();
+}
+
 // The PM compose page uses the same editor, so it had the same bug.
 {
   const p = await browser.newPage();

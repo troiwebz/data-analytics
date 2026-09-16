@@ -53,6 +53,17 @@ export const DEFAULT_CONFIG = {
   maxStagedTabs: 3,            // never hold more than this many tabs open
   stageTtlMinutes: 20,         // close a staged tab if you haven't decided by then
 
+  // ---- Reading the thread ----------------------------------------------
+  // The feed gives a title and sometimes a description; a thread found on a
+  // listing page gives a title and nothing else. That is not a brief, and
+  // answering a title you have misread is the worst thing a reply can do.
+  // So the thread page itself is read before drafting: the buyer's post in
+  // full, and the replies already on it from the other freelancers bidding.
+  // Signed in, one thread at a time, at a human pace.
+  readThreads: true,           // off = go on the title and feed description alone
+  maxThreadReads: 8,           // per poll; 0 = no limit
+  secondsBetweenThreadReads: 2,
+
   // ---- Matching -------------------------------------------------------
   // A lead must hit at least one category. The first category it hits picks
   // the reply template. Patterns are case-insensitive regex source strings.
@@ -273,48 +284,40 @@ export const DEFAULT_CONFIG = {
   // its own, and tagging the thread starter pings them for a post they are
   // already reading. So the tip is the first line.
   //
-  // What varies per thread: the tip and the question (Claude writes both
-  // against that thread) and the closer below.
+  // No question either. Nobody on HAF opens a public reply with a question -
+  // they state what they can do and move to PM, and a question posted in the
+  // open invites the other freelancers to answer it for you. The question is
+  // still written; it is held back for the private message.
+  //
+  // So the public reply is two lines: the technical claim, then the PM. What
+  // varies per thread is that claim, which Claude writes against the thread's
+  // own post and the replies already on it, plus the closer below.
   templates: {
     seo: `{{tip}}
-
-{{question}}
 
 {PM sent with the detail|Sent you a PM with the specifics|Dropped you a PM}.`,
 
     ads: `{{tip}}
 
-{{question}}
-
 {Sent you a PM|PM sent with how we would approach it|Dropped you a PM with the detail}.`,
 
     design: `{{tip}}
-
-{{question}}
 
 {PM sent|Sent you a PM with examples|Dropped you a PM}.`,
 
     social: `{{tip}}
 
-{{question}}
-
 {Sent you a PM|PM sent with the specifics|Dropped you a PM with the detail}.`,
 
     web: `{{tip}}
-
-{{question}}
 
 {PM sent|Sent you a PM|Dropped you a PM with the detail}.`,
 
     content: `{{tip}}
 
-{{question}}
-
 {PM sent with samples|Sent you a PM|Dropped you a PM}.`,
 
     generic: `{{tip}}
-
-{{question}}
 
 {Sent you a PM|PM sent with the detail|Dropped you a PM}.`
   },

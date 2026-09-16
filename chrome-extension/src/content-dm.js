@@ -39,12 +39,25 @@
         : 'no direct-message form on this page (DMs disabled, or not logged in)' };
     }
 
-    // The recipient usually arrives prefilled from ?to=; set it if not.
+    // The recipient usually arrives prefilled from ?to=; set it if not, or if
+    // it somehow belongs to someone else.
     const rec = pick(S.dmRecipients, form);
-    if (rec && !rec.value.trim() && author) setInput(rec, author);
+    if (rec && author && !rec.value.toLowerCase().includes(String(author).toLowerCase())) {
+      setInput(rec, author);
+    }
 
+    // The subject is ALWAYS overwritten, never left alone because something is
+    // already in the box.
+    //
+    // XenForo saves a draft of a conversation you started and did not send, and
+    // restores it - title and all - the next time you open the compose page. The
+    // old code only set the subject when the field was empty, so every PM after
+    // the first went out under the first one's title: a message about Indonesian
+    // .id links sitting under "INDIA --- Looking to Hire Best And Expert BLACK
+    // HAT SEO SPECIALIST". We opened this page for this lead, so this lead's
+    // title is the right one, whatever the forum restored.
     const subject = pick(S.dmTitle, form);
-    if (subject && !subject.value.trim()) setInput(subject, title || '');
+    if (subject && title) setInput(subject, title);
 
     // Body: same editor as a thread reply.
     const rich = pick(S.richEditor, form);
@@ -63,6 +76,9 @@
     const landed = (rich && rich.textContent.trim().length > 20) || (plain && plain.value.trim().length > 20);
     if (!landed) return { ok: false, error: 'text did not stick in the DM editor' };
     if (!subject || !subject.value.trim()) return { ok: false, error: 'DM needs a subject and none was set' };
+    if (title && subject.value.trim() !== String(title).trim()) {
+      return { ok: false, error: `the subject did not take - it still says "${subject.value.trim().slice(0, 60)}"` };
+    }
 
     if (mode !== 'send') return { ok: true, filled: true, refilled: hold.held() };
 

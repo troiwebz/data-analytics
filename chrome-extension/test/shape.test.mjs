@@ -27,8 +27,16 @@ console.log('\n--- public reply ---\n' + r + '\n\n--- private message ---\n' + d
 ok('public reply carries exactly one tip',
   lead('1001').aiSpecifics.tips.filter((t) => r.includes(t)).length === 1);
 ok('public reply is short', r.split('\n').filter(Boolean).length <= 4, String(r.split('\n').filter(Boolean).length));
-ok('public reply asks the question', r.includes('survive a manual audit'));
-ok('the question is the only thing before the PM line', r.indexOf('?') < r.indexOf('PM'));
+// The question is written, but held back for the PM. Nobody on HAF opens a
+// public reply with a question, and one asked in the open invites the other
+// freelancers bidding on the thread to answer it for you.
+ok('public reply asks no question', !r.includes('?'), r);
+ok('the question is not leaked into it', !r.includes('survive a manual audit'), r);
+ok('the reply is the claim and the PM line, nothing else',
+   r.trim().split('\n').filter(Boolean).length === 2, JSON.stringify(r));
+// It is still written, because the "scope" close uses it.
+ok('the question is still produced for the PM', !!lead('1001').aiSpecifics.question,
+   lead('1001').aiSpecifics.question);
 ok('the offer is NOT public', !/invoice after|small first order|already done our side/i.test(r));
 ok('public reply points at the PM', /\bPM\b/.test(r));
 ok('public reply does not paste the thread url', !r.includes('blackhatworld.com'));

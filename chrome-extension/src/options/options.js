@@ -5,8 +5,9 @@ import { RATES } from '../claude.js';
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms',
-            'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume'];
-const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled'];
+            'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
+            'maxThreadReads', 'secondsBetweenThreadReads'];
+const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'offers', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 

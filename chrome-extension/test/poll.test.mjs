@@ -59,7 +59,8 @@ globalThis.fetch = async (url, opts) => {
   if (u.includes('api.anthropic.com/v1/models')) return { ok: true, status: 200, json: async () => ({ data: [] }) };
   if (u.includes('api.anthropic.com')) {
     aiCalls++;
-    const ids = JSON.parse(opts.body).messages[0].content.match(/id: (\d+)/g).map((s) => s.slice(4));
+    sentToClaude = JSON.parse(opts.body).messages[0].content;
+    const ids = sentToClaude.match(/id: (\d+)/g).map((s) => s.slice(4));
     return { ok: true, status: 200, json: async () => ({
       content: [{ type: 'text', text: JSON.stringify(Object.fromEntries(ids.map((id) => [id, {
         tips: ['We have built citations manually on directories that index in the UAE', 'We can audit the NAP across the existing profiles first', 'We are able to fix GMB categories before anything else'],
@@ -69,11 +70,26 @@ globalThis.fetch = async (url, opts) => {
     }) };
   }
   if (u.includes('api.telegram.org')) { tg.push(JSON.parse(opts.body)); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) }; }
+  if (/\/threads\//.test(u)) {                       // the thread page itself
+    threadReads.push(u);
+    return { ok: true, status: 200, text: async () => THREAD };
+  }
   if (u.includes('script.google.com')) throw new Error('Apps Script must NOT be called');
   if (u.includes('index.rss')) return { ok: true, status: 200, text: async () => RSS };
   if (u.includes('manifest.json')) return { ok: true, json: async () => ({ version: '0.21.0' }) };
   return { ok: true, status: 200, text: async () => LISTING };
 };
+
+// A thread page: the buyer's post, and one freelancer already pitching.
+const THREAD = `
+<article class="message" data-author="buyer0">
+  <div class="bbWrapper">Need citations for a clinic in Dubai and a second site in Manchester.
+  Budget $400. Must survive a manual audit.</div>
+</article>
+<article class="message" data-author="rival_seo">
+  <div class="bbWrapper">We can do 500 citations cheap, fast delivery.</div>
+</article>`;
+let threadReads = [], sentToClaude = '';
 
 const bg = await import('../src/background.js');
 const { setConfig, getConfig } = await import('../src/config.js');
@@ -85,7 +101,8 @@ const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; c
 await C.saveKey('sk-ant-api03-TESTKEYTESTKEY');
 // No webhookUrl, no sharedSecret: the Apps Script path must never be touched.
 await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0,
-                  telegramEnabled: true, telegramChatId: '999' });
+                  telegramEnabled: true, telegramChatId: '999',
+                  secondsBetweenThreadReads: 0 });   // no need to pace a stub
 const TG = await import('../src/telegram.js');
 await TG.setToken('1234567890:AAtesttoken');
 
@@ -107,7 +124,20 @@ ok('the PM has the heading and the sign-off', lead.dm.includes('**Why We Can Do 
 ok('PM opens with the thread link', /(saw|read|came across) your (HAF )?thread/i.test(lead.dm) && lead.dm.includes(lead.url));
 ok('public reply carries one tip only', (lead.draft.match(/We (have built|can audit|are able)/g) || []).length === 1);
 ok('the PM carries all three', (lead.dm.match(/We (have built|can audit|are able)/g) || []).length === 3);
-ok('the public reply asks the question', /tier 2 layer\?/.test(lead.draft), lead.draft);
+// The question is written but held back for the PM: nobody on HAF opens a
+// public reply with a question, and asking one in the open invites the other
+// freelancers to answer it for you.
+ok('the public reply asks no question', !lead.draft.includes('?'), lead.draft);
+ok('and is just the claim then the PM line', lead.draft.trim().split('\n').filter(Boolean).length === 2, lead.draft);
+
+// The thread page is read before drafting, so Claude answers the post rather
+// than the title - and knows what the competition already promised.
+ok('each thread was opened before drafting', threadReads.length === 3, JSON.stringify(threadReads.length));
+ok('the buyer\'s real post reached the lead', /survive a manual audit/.test(lead.body || ''), JSON.stringify(lead.body));
+ok('and the freelancer already pitching came with it',
+   (lead.replies || []).some((x) => /500 citations cheap/.test(x.text)), JSON.stringify(lead.replies));
+ok('the post went to Claude, not just the title', /survive a manual audit/.test(sentToClaude), sentToClaude.slice(0, 120));
+ok('and so did the competition', /500 citations cheap/.test(sentToClaude), sentToClaude.slice(0, 200));
 ok('the PM carries the close Claude chose', /whole method|sequence|order/i.test(lead.dm), lead.dm);
 ok('no em dash in the reply', !/[–—]/.test(lead.draft + lead.dm));
 ok('compliance ran', Array.isArray(lead.lint?.problems) || lead.lint != null);

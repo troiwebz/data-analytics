@@ -278,8 +278,19 @@ function detail(l, staged, cfg) {
         ${parts.offer ? `<br>Close chosen: <b>${esc(OFFER_LABEL[parts.offer] || parts.offer)}</b>` : ''}</div>`
     : `<div class="sub" style="margin-bottom:8px;color:#b45309">Built-in rules wrote this one, not Claude.
         Add a key in Settings, then press "Rebuild drafts" to have Claude redo it.</div>`;
+  // The buyer's actual post, then who has already pitched against you. Both are
+  // what Claude was given, so what you read here is what it read - if a draft
+  // looks wrong, this is where you see why.
+  const post = l.body || l.snippet || '';
+  const rivals = (l.replies || []).slice(0, 5);
+  const said = rivals.length
+    ? `<div class="rivals"><div class="lbl">Already replied (${rivals.length})</div>
+        ${rivals.map((r) => `<div class="rival"><b>${esc(r.author || 'someone')}</b> ${esc(String(r.text || '').slice(0, 300))}</div>`).join('')}
+       </div>`
+    : '';
   return `<tr class="detail"><td colspan="${COLS.length}">
-    ${l.snippet ? `<div class="snip">${esc(l.snippet)}</div>` : ''}
+    ${post ? `<div class="snip">${esc(post)}</div>` : ''}
+    ${said}
     ${who}
     ${l.priorContact && !l.pmSent ? `<div class="sub" style="margin-bottom:8px;color:#b45309">You have messaged ${esc(l.author || 'them')} before (${esc(l.priorContact)}). Worth a look before pitching again.</div>` : ''}
     ${staged[l.threadId] ? '<div class="sub" style="margin-bottom:8px">⚡ armed in a background tab — Post now fires instantly</div>' : ''}
