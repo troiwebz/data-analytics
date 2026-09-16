@@ -260,61 +260,61 @@ V2.postable = function (t) { return (V2.PROMO[t.promo] || {}).rank >= 1; };
 // these gives something real away first. `ask` is the only thing we want
 // back, and it is never "book a call" on the first touch.
 V2.OFFERS = [
-  { key: "gbp_audit", name: "Free Google Business Profile audit", channel: "local_seo",
+  { key: "gbp_audit", posture: "free", name: "Free Google Business Profile audit", channel: "local_seo",
     who: "any business with a physical location or a service area",
     gift: "where you rank for your main keyword, the three profiles sitting above you, what they have that you do not, and the two things I would fix first",
     ask: "drop your Maps link or business name and city",
-    risk: "posted publicly in the thread — no email, no call, no signup",
+    risk: "posted publicly in the thread — there is nothing to fill in and nobody rings you",
     spots: 10 },
-  { key: "ads_teardown", name: "Free ad account teardown", channel: "meta_ads",
+  { key: "ads_teardown", posture: "free", name: "Free ad account teardown", channel: "meta_ads",
     who: "anyone spending over $1,000 a month on Meta or Google",
     gift: "a walk through your structure, your worst-spending ad set, and the three changes I would make on Monday",
     ask: "share a screenshot of your last 30 days with the account name blurred",
     risk: "I post the teardown in the thread so everyone learns from it",
     spots: 5 },
-  { key: "local_pack", name: "Free local pack report", channel: "local_seo",
+  { key: "local_pack", posture: "free", name: "Free local pack report", channel: "local_seo",
     who: "local service businesses fighting for map positions",
     gift: "a grid of where you actually rank across your city, not just from your own office chair, plus who owns the squares you are losing",
     ask: "business name and city",
     risk: "the report is yours whether or not we ever speak again",
     spots: 10 },
-  { key: "free_build", name: "We build it free, you only pay the ad spend", channel: "meta_ads",
+  { key: "free_build", posture: "guaranteed", name: "We build it free, you only pay the ad spend", channel: "meta_ads",
     who: "businesses that have never run paid ads properly",
     gift: "campaign build, audience, tracking and the first creative set at no cost — you pay the platform, not us",
     ask: "tell me the business and what a new customer is worth to you",
     risk: "if month one does not beat what you are doing now, we stop and you owe nothing",
     spots: 3 },
-  { key: "pay_on_results", name: "Pay per booked lead, no retainer", channel: "google_ads_seo",
+  { key: "pay_on_results", posture: "results", name: "Pay per booked lead, no retainer", channel: "google_ads_seo",
     who: "owners burned by a monthly retainer that produced nothing",
     gift: "we carry the setup and the management cost",
     ask: "agree a price per booked call before we start",
     risk: "no lead, no invoice",
     spots: 3 },
-  { key: "creative_pack", name: "10 ad creatives, free, you run them", channel: "instagram_tiktok",
+  { key: "creative_pack", posture: "swap", name: "10 ad creatives for one case study", channel: "instagram_tiktok",
     who: "brands whose ads have gone stale",
-    gift: "ten scroll-stopping IG and TikTok concepts scripted and edited for your product",
-    ask: "send a link to what you sell",
-    risk: "run them yourself, keep them forever, pay only if you want the next batch",
+    gift: "ten scroll-stopping IG and TikTok concepts scripted and edited for your product, yours to keep and run",
+    ask: "if one of them wins, let us write it up as a named case study",
+    risk: "no cash either way — you owe a case study only if the numbers move, and nothing at all if they do not",
     spots: 5 },
-  { key: "landing_fix", name: "Free landing page teardown", channel: "google_ads_seo",
+  { key: "landing_fix", posture: "credited", name: "Paid page teardown, credited if we build it", channel: "google_ads_seo",
     who: "anyone sending paid traffic to a page that does not convert",
-    gift: "a line-by-line teardown of the page your ads point at and the rewrite I would ship first",
-    ask: "post the URL",
-    risk: "public teardown, no strings",
+    gift: "a line-by-line teardown of the page your ads point at, the rewrite we would ship first, and the numbers we would expect from it",
+    ask: "post the URL and pay the small teardown fee",
+    risk: "the fee is small on purpose and it comes off the first invoice if you ask us to build the page — so it costs nothing if you go ahead, and you keep the document if you do not",
     spots: 10 },
-  { key: "seo_gap", name: "Free competitor keyword gap report", channel: "google_ads_seo",
+  { key: "seo_gap", posture: "swap", name: "Keyword gap report for an honest review", channel: "google_ads_seo",
     who: "businesses being out-ranked and not sure why",
-    gift: "every search your top competitor ranks for that you do not, sorted by what those searches are worth",
-    ask: "your site and one competitor",
-    risk: "you keep the file",
+    gift: "every search your top competitor ranks for that you do not, sorted by what those searches are worth to you",
+    ask: "read it, then leave an honest public review of the report itself — good or bad",
+    risk: "no cash either way, and the review is yours to write however you found it",
     spots: 10 },
-  { key: "dead_leads", name: "We work your dead lead list free", channel: "meta_ads",
+  { key: "dead_leads", posture: "results", name: "We work your dead lead list free", channel: "meta_ads",
     who: "anyone sitting on months of old enquiries that went cold",
     gift: "we write and run the reactivation sequence over your existing list",
     ask: "export the list",
-    risk: "you pay only on jobs booked from it",
+    risk: "you pay per job booked out of it and nothing at all for the work itself — no job, no invoice",
     spots: 3 },
-  { key: "90_day_plan", name: "Free 90-day growth plan, written, no call", channel: "none",
+  { key: "90_day_plan", posture: "free", name: "Free 90-day growth plan, written, no call", channel: "none",
     who: "owners who want the plan without being sold to",
     gift: "a written 90-day plan for your business — channels, budget split, what to do in which week",
     ask: "three lines about the business and the goal",
@@ -341,6 +341,24 @@ V2.OFFER_ANGLES = [
   { key: "comparison", name: "Beat what they have", how: "run against their current setup and let the numbers decide" },
   { key: "unbundle", name: "The one-piece offer", how: "sell the single piece that unblocks them, not a package" },
 ];
+// Not everything has to be free. "Free" is one posture out of five, and it is
+// the weakest one in a room full of people who have been burned by a free
+// audit that turned into a sales call. The others put money in the picture
+// and take the risk anyway, which is a different and often stronger promise.
+V2.POSTURES = [
+  { key: "free", name: "Free up front", money: false,
+    how: "they get the thing for nothing and owe nothing. Strong for a first touch in a cold room, weak where people have seen ten fake free audits." },
+  { key: "guaranteed", name: "Paid, with a guarantee", money: true,
+    how: "they pay, and if a named result does not arrive by a named date they get it back. Attracts people who distrust free things." },
+  { key: "results", name: "Pay only on the result", money: true,
+    how: "no retainer. A price per booked call, per job, per sale. The strongest posture for owners burned by a monthly fee." },
+  { key: "credited", name: "Small fee, credited back", money: true,
+    how: "a real but small charge for the diagnosis, taken off the first invoice if they go ahead. Filters out tyre-kickers without filtering out buyers." },
+  { key: "swap", name: "A swap, not a sale", money: false,
+    how: "the work in exchange for something they already have — a review, a filmed testimonial, a named case study, an introduction. No cash either way." },
+];
+V2.posture = function (k) { return V2.POSTURES.find((p) => p.key === k) || V2.POSTURES[0]; };
+
 V2.OFFER_SCHEMA = {
   type: "object",
   properties: {
@@ -359,8 +377,9 @@ V2.OFFER_SCHEMA = {
           spots: { type: "integer", description: "How many we will do, between 3 and 15." },
           channel: { type: "string", description: "One of local_seo, google_ads_seo, meta_ads, instagram_tiktok, none." },
           why_it_works: { type: "string", description: "One line on why this one is hard to refuse." },
+          posture: { type: "string", description: "One of free, guaranteed, results, credited, swap." },
         },
-        required: ["name", "angle", "who", "gift", "ask", "risk", "spots", "channel", "why_it_works"],
+        required: ["name", "angle", "who", "gift", "ask", "risk", "spots", "channel", "why_it_works", "posture"],
         additionalProperties: false,
       },
     },
@@ -372,12 +391,16 @@ V2.offerSystem = function (profile = {}) {
   return [
     "You write offers for " + (profile.name || "a small paid-ads and local-search team") + (profile.place ? " in " + profile.place : "") + ".",
     "",
-    "An offer is irresistible when three things are true: the value arrives before the invoice, the risk sits on us rather than on them, and the thing we ask back is smaller than the thing we give.",
+    "An offer is irresistible when two things are true: the risk sits on us rather than on them, and the thing we ask back is smaller than the thing we give. It does not have to be free — free is only one of five postures, and in a room full of people who have been burned by a free audit that became a sales call, it is often the weakest.",
+    "",
+    "The five postures. Spread the ten across all of them; no more than three may be free:",
+    ...V2.POSTURES.map((p) => "- " + p.name + ": " + p.how),
     "",
     "Rules for every offer you write:",
     "- The gift must be a concrete deliverable a stranger can picture. 'Where you rank for your main keyword and the three profiles above you' is an offer. 'A free consultation' is not.",
     "- The ask must be one small public thing: a link, a business name, a screenshot. Never a call, never an email address, never a form.",
-    "- No prices, no packages, no discounts, no 'limited time'. Scarcity is a number of spots, nothing else.",
+    "- A free or swap offer names no money at all. A guaranteed, results or credited offer must be explicit about what is paid and what happens if it does not work — that honesty is the whole appeal.",
+    "- No packages, no discounts, no 'limited time'. Scarcity is a number of spots, nothing else.",
     "- No brand name, no domain, no agency language.",
     "- Each of the ten must use a different angle. Do not write the same offer ten ways.",
     "- Aim them at people who already have money moving: a business with customers, a budget, or an agency they are unhappy with.",
@@ -397,19 +420,38 @@ V2.offerUser = function (brief, profile = {}) {
 };
 V2.offerChecks = function (o) {
   const bad = [];
+  const p = V2.posture(o && o.posture);
   const all = [o && o.name, o && o.gift, o && o.ask, o && o.risk].join(" ");
   if (!o || !o.name || o.name.length < 6) bad.push("it has no real name");
   if (!o.gift || o.gift.length < 25) bad.push("the free part is too vague to picture");
   if (!o.ask || o.ask.length < 8) bad.push("there is no ask");
   if (!o.risk || o.risk.length < 12) bad.push("it does not say why saying yes is safe");
-  if (/\$\s?\d|\bprice|\bpackage|\bdiscount|\b\d+% off/i.test(all)) bad.push("it mentions money or a package");
   if (/book a call|hop on a call|schedule a call|jump on a call|free consultation|discovery call/i.test(all)) bad.push("it asks for a call, which is not a small ask");
   if (/email address|your email|sign ?up|fill (in|out) (the|a) form/i.test(all)) bad.push("it asks for an email or a form");
   if (/https?:\/\/|www\./i.test(all)) bad.push("it contains a link");
+  if (/\bpackage|\bdiscount|\b\d+% off|limited time/i.test(all)) bad.push("it talks in packages or discounts");
+  // money is allowed, and required, only where the posture puts it there
+  const money = /\$\s?\d|\bpay\b|\bpaid\b|\bfee\b|\binvoice\b|\bcharge/i.test(all);
+  if (!p.money && /\$\s?\d/.test(all)) bad.push("a " + p.name.toLowerCase() + " offer should not name a price");
+  if (p.money && !money) bad.push("a " + p.name.toLowerCase() + " offer has to say what is paid — that honesty is the appeal");
+  if (p.key === "guaranteed" && !/(back|refund|free|nothing|no charge)/i.test(String(o.risk || ""))) bad.push("a guarantee must say what happens when the result does not arrive");
+  if (p.key === "results" && !/\bper\b|\bonly (when|if)\b|\bno (lead|job|sale|call).*no\b/i.test(all)) bad.push("a pay-on-results offer must say what triggers payment");
+  if (p.key === "credited" && !/credit|taken off|deducted|comes off|knocked off/i.test(all)) bad.push("a credited offer must say the fee comes off the first invoice");
+  if (p.key === "swap" && !/review|testimonial|case study|introduction|intro\b|footage|photos|referral/i.test(all)) bad.push("a swap must name what they give instead of money");
   const spots = Number(o.spots || 0);
   if (!(spots >= 3 && spots <= 15)) bad.push("the number of spots is not believable");
   return bad;
 };
+// A batch of offers that is all one posture is a batch of one idea.
+V2.offerSpread = function (list) {
+  const seen = {};
+  for (const o of list || []) seen[V2.posture(o.posture).key] = (seen[V2.posture(o.posture).key] || 0) + 1;
+  const kinds = Object.keys(seen).length;
+  const free = seen.free || 0;
+  return { kinds, free, counts: seen, ok: kinds >= 3 && free <= Math.ceil((list || []).length / 2),
+    why: kinds < 3 ? "they are all the same kind of offer" : free > Math.ceil((list || []).length / 2) ? "too many of them are simply free" : "a real spread" };
+};
+
 V2.offerFromDraft = function (d, i) {
   return {
     key: "made_" + Date.now().toString(36) + "_" + i,
@@ -419,8 +461,124 @@ V2.offerFromDraft = function (d, i) {
     spots: Math.max(3, Math.min(15, Number(d.spots) || 10)),
     channel: ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"].includes(d.channel) ? d.channel : "none",
     why: String(d.why_it_works || ""),
+    posture: V2.POSTURES.some((x) => x.key === d.posture) ? d.posture : "free",
+    fitHere: String(d.fit_here || ""),
     made: true, at: Date.now(),
   };
+};
+
+// ------------------------------------------- five offers for one room
+// A general offer is a guess. An offer written for r/Roofing knows that its
+// readers price by the job, argue about lead sellers, and have watched three
+// agencies come and go — and an offer for a comments-only room has to be
+// deliverable inside a comment under somebody else's thread, because there
+// will never be a post.
+V2.ROOM_OFFER_SCHEMA = {
+  type: "object",
+  properties: {
+    offers: {
+      type: "array",
+      description: "Five offers for this one subreddit, on five different postures.",
+      items: V2.OFFER_SCHEMA.properties.offers.items,
+    },
+    room_read: { type: "string", description: "One line on what these particular people are actually worried about." },
+  },
+  required: ["offers", "room_read"],
+  additionalProperties: false,
+};
+// the per-room items need one extra field
+V2.ROOM_OFFER_SCHEMA.properties.offers.items = {
+  ...V2.OFFER_SCHEMA.properties.offers.items,
+  properties: {
+    ...V2.OFFER_SCHEMA.properties.offers.items.properties,
+    fit_here: { type: "string", description: "Why this one suits this subreddit in particular, not business owners in general." },
+  },
+  required: [...V2.OFFER_SCHEMA.properties.offers.items.required, "fit_here"],
+};
+
+V2.roomOfferSystem = function (profile = {}) {
+  return [
+    "You write offers for " + (profile.name || "a small paid-ads and local-search team") + (profile.place ? " in " + profile.place : "") + ", aimed at one subreddit at a time.",
+    "",
+    "An offer is irresistible when the risk sits on us and the thing we ask back is smaller than the thing we give. It does not have to be free.",
+    "",
+    "Write exactly five, one on each posture:",
+    ...V2.POSTURES.map((p) => "- " + p.name + ": " + p.how),
+    "",
+    "Every one must be unmistakably about this room's trade. Use the words those people use for their own work, their own unit of money — a job, a case, a patient, a cover, a booking — and the specific thing that goes wrong for them. An offer that would read the same in any other subreddit has failed.",
+    "",
+    "Rules:",
+    "- The gift is a concrete deliverable a stranger can picture.",
+    "- The ask is one small public thing: a link, a business name, a screenshot. Never a call, never an email, never a form.",
+    "- Free and swap offers name no money. Guaranteed, results and credited offers must be explicit about what is paid and what happens if it does not work.",
+    "- No packages, no discounts, no 'limited time'. Scarcity is a number of spots.",
+    "- No brand name, no domain, no agency language, no links.",
+  ].join("\n");
+};
+V2.roomOfferUser = function (target, campaign, profile = {}, opts = {}) {
+  const t = typeof target === "string" ? (V2.TARGETS.find((x) => x.sub === target) || { sub: target, kind: "biz", promo: "value", note: "" }) : target;
+  const promo = V2.PROMO[t.promo] || V2.PROMO.value;
+  const lines = [
+    "Room: r/" + t.sub,
+    "What it is: " + (t.note || "a business subreddit"),
+    "Who is in it: " + (t.kind === "ads" ? "people already spending money on advertising, and complaining about it" : t.kind === "owner" ? "owners of one business, with no marketing team" : "business owners of every kind"),
+    "What it allows: " + promo.name + " — " + promo.why,
+  ];
+  if (opts.members) lines.push("Size: " + opts.members.toLocaleString() + " members" + (opts.online ? ", " + opts.online.toLocaleString() + " online right now" : ""));
+  if (opts.rules && opts.rules.length) lines.push("Its rules: " + opts.rules.slice(0, 8).map((r) => r.name || r.short_name).filter(Boolean).join("; "));
+  if (promo.rank < 1) lines.push("", "This room never allows an offer post. Every one of these five has to work as a comment underneath somebody else's thread — short enough to type into a reply, and offered to one person rather than announced to the room.");
+  if (campaign) lines.push("", "The campaign this belongs to: " + campaign.niche + ". " + campaign.why);
+  if (profile.credit) lines.push("", "True things about us: " + profile.credit);
+  if (profile.wins) lines.push("Real results we can cite: " + profile.wins);
+  if (opts.extra) lines.push("", "Extra instruction: " + opts.extra);
+  lines.push("", "Write the five.");
+  return lines.join("\n");
+};
+
+// ------------------------------------------------------------- improving
+// One offer, made stronger, with the reason it changed. The note is yours:
+// "make it paid", "aim it higher", "too much like a free audit".
+V2.IMPROVE_SCHEMA = {
+  type: "object",
+  properties: {
+    offer: V2.ROOM_OFFER_SCHEMA.properties.offers.items,
+    changed: { type: "string", description: "What you changed and why, in one or two sentences." },
+    weakness: { type: "string", description: "The weakest thing still left in it." },
+  },
+  required: ["offer", "changed", "weakness"],
+  additionalProperties: false,
+};
+V2.improveSystem = function (profile = {}) {
+  return [
+    V2.roomOfferSystem(profile),
+    "",
+    "This time you are given one existing offer and asked to make it stronger. Keep whatever already works. Change what does not.",
+    "The usual weaknesses, in order of how often they are the problem:",
+    "- the gift is a category rather than a thing ('an audit' instead of what the audit contains)",
+    "- the ask is too big, so nobody starts",
+    "- the risk is not really on us, it only sounds like it is",
+    "- it would read identically in any other subreddit",
+    "- it is free when a paid posture would be believed more",
+    "Return one offer, not five.",
+  ].join("\n");
+};
+V2.improveUser = function (offer, note, target, profile = {}) {
+  const lines = ["The offer as it stands:",
+    "Name: " + (offer.name || ""), "Posture: " + V2.posture(offer.posture).name,
+    "Who: " + (offer.who || ""), "They get: " + (offer.gift || ""),
+    "We ask: " + (offer.ask || ""), "Their risk: " + (offer.risk || ""),
+    "Spots: " + (offer.spots || 10)];
+  const issues = V2.offerChecks(offer);
+  if (issues.length) lines.push("", "It currently fails these checks, fix every one: " + issues.join("; "));
+  // String.prototype.sub is a real (deprecated) method, so a bare string here
+  // would print a function rather than the subreddit name
+  const sub = typeof target === "string" ? target : (target && target.sub) || "";
+  if (sub) lines.push("", "It is for r/" + sub + ".");
+  if (note) lines.push("", "What to change, in their words: " + note);
+  else lines.push("", "No instruction was given, so make your own judgement about what is weakest.");
+  if (profile.wins) lines.push("", "Real results we can cite: " + profile.wins);
+  lines.push("", "Rewrite it.");
+  return lines.join("\n");
 };
 
 // -------------------------------------------------------------- post types

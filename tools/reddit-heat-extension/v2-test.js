@@ -92,15 +92,15 @@ assert.strictEqual(V.promoFromRules([{ short_name: "No self-promotion", descript
 // ---- offers written in the studio ---------------------------------------
 assert.strictEqual(V.OFFER_ANGLES.length, 10);
 assert.strictEqual(new Set(V.OFFER_ANGLES.map((a) => a.key)).size, 10);
-const madeOk = { name: "Free local pack report", gift: "a grid of where you rank across your city and who owns the squares you lose", ask: "business name and city", risk: "it is yours whether or not we ever speak again", spots: 10 };
+const madeOk = { posture: "free", name: "Free local pack report", gift: "a grid of where you rank across your city and who owns the squares you lose", ask: "business name and city", risk: "it is yours whether or not we ever speak again", spots: 10 };
 assert.deepStrictEqual(V.offerChecks(madeOk), []);
 assert.match(V.offerChecks({ ...madeOk, ask: "book a call with me" }).join(" | "), /asks for a call/);
 assert.match(V.offerChecks({ ...madeOk, ask: "your email address" }).join(" | "), /email or a form/);
 assert.match(V.offerChecks({ ...madeOk, gift: "a free chat" }).join(" | "), /too vague/);
-assert.match(V.offerChecks({ ...madeOk, name: "Our $500 package" }).join(" | "), /money or a package/);
+assert.match(V.offerChecks({ ...madeOk, name: "Our $500 package" }).join(" | "), /packages|should not name a price/);
 assert.match(V.offerChecks({ ...madeOk, spots: 400 }).join(" | "), /not believable/);
 // an offer written in the studio is usable by the calendar the moment it is kept
-const made = V.offerFromDraft({ name: "Free call-tracking setup", angle: "done_free", who: "roofers", gift: "call tracking installed on your existing ads so you can see which ones ring", ask: "the name of the business", risk: "no invoice until it is running", spots: 5, channel: "google_ads_seo", why_it_works: "nobody knows which ad rings" }, 0);
+const made = V.offerFromDraft({ posture: "free", name: "Free call-tracking setup", angle: "done_free", who: "roofers", gift: "call tracking installed on your existing ads so you can see which ones ring", ask: "the name of the business", risk: "yours to keep running whatever you decide next", spots: 5, channel: "google_ads_seo", why_it_works: "nobody knows which ad rings" }, 0);
 assert.deepStrictEqual(V.offerChecks(made), []);
 V.POOL = [made];
 assert.strictEqual(V.offer(made.key).name, "Free call-tracking setup");
@@ -172,6 +172,60 @@ assert.ok(V.ADS_PLAN.rules.length >= 5);
 assert.ok(V.ADS_PLAN.stages[0].spend === "$0", "the paid plan should start at zero spend");
 
 
+
+// ---- an offer does not have to be free ----------------------------------
+assert.strictEqual(V.POSTURES.length, 5);
+assert.deepStrictEqual(V.POSTURES.map((p) => p.key), ["free", "guaranteed", "results", "credited", "swap"]);
+// the shipped bench must itself pass, and must not be six free audits
+for (const o of V.OFFERS) {
+  assert.ok(o.posture, o.key + " has no posture");
+  assert.deepStrictEqual(V.offerChecks(o), [], o.key + " fails its own checks");
+}
+const shipped = V.offerSpread(V.OFFERS);
+assert.ok(shipped.ok, "the shipped offers are not spread: " + shipped.why);
+assert.ok(shipped.kinds >= 4, "only " + shipped.kinds + " postures across ten offers");
+assert.ok(shipped.free <= 5, shipped.free + " of the ten are simply free");
+// money belongs where the posture puts it, and nowhere else
+const money = { posture: "guaranteed", name: "Rebuild with a guarantee", who: "roofers", gift: "you pay $400 and we rebuild the campaign", ask: "the business name", risk: "if the calls do not rise in 30 days you get every penny back", spots: 5 };
+assert.deepStrictEqual(V.offerChecks(money), []);
+assert.match(V.offerChecks({ ...money, risk: "we will try our best" }).join(" | "), /what happens when the result does not arrive/);
+assert.match(V.offerChecks({ ...money, posture: "free" }).join(" | "), /should not name a price/);
+assert.match(V.offerChecks({ ...madeOk, posture: "guaranteed" }).join(" | "), /has to say what is paid/);
+assert.match(V.offerChecks({ ...madeOk, posture: "results" }).join(" | "), /what triggers payment/);
+assert.match(V.offerChecks({ ...madeOk, posture: "credited" }).join(" | "), /comes off the first invoice/);
+assert.match(V.offerChecks({ ...madeOk, posture: "swap" }).join(" | "), /what they give instead of money/);
+assert.strictEqual(V.offerSpread([{ posture: "free" }, { posture: "free" }, { posture: "free" }]).ok, false);
+
+// ---- five offers written for one room ----------------------------------
+const roomItem = V.ROOM_OFFER_SCHEMA.properties.offers.items;
+assert.ok(roomItem.required.includes("fit_here"));
+assert.ok(roomItem.required.includes("posture"));
+const roomSys = V.roomOfferSystem({ name: "a Bangkok team" });
+assert.match(roomSys, /exactly five/);
+assert.match(roomSys, /It does not have to be free/);
+for (const p of V.POSTURES) assert.ok(roomSys.includes(p.name), "the prompt never mentions " + p.name);
+// a room that never allows an offer is told the offer must live in a comment
+const quiet = V.roomOfferUser("dentistry", V.campaign("chair_time"), {}, {});
+assert.match(quiet, /r\/dentistry/);
+assert.match(quiet, /never allows an offer post/);
+assert.match(quiet, /underneath somebody else's thread/);
+assert.match(quiet, /dental, orthodontic/);
+const loud = V.roomOfferUser("Roofing", V.campaign("trade_lock"), {}, { members: 40000, online: 300 });
+assert.ok(!/never allows an offer post/.test(loud), "a room that takes posts was told it does not");
+assert.match(loud, /40,000 members, 300 online/);
+
+// ---- improving one ------------------------------------------------------
+assert.match(V.improveSystem({}), /Return one offer, not five/);
+const weak = { name: "Free audit", posture: "free", gift: "an audit", ask: "your link", risk: "none", spots: 10 };
+const iu = V.improveUser(weak, "make it paid, free looks cheap", "Roofing", { wins: "12 to 61 calls" });
+assert.match(iu, /It is for r\/Roofing\./, "the subreddit name came out wrong");
+assert.match(iu, /fails these checks/);
+assert.match(iu, /make it paid, free looks cheap/);
+assert.match(iu, /12 to 61 calls/);
+// with no note it still has something to work from
+assert.match(V.improveUser(weak, "", { sub: "medspa" }, {}), /make your own judgement/);
+assert.match(V.improveUser(weak, "", { sub: "medspa" }, {}), /It is for r\/medspa\./);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);
@@ -238,4 +292,4 @@ assert.match(bp.room, /Roofing/);
 assert.match(bp.judge, /cost per comment/);
 assert.strictEqual(V.boostPlan(0, 0).daily, 7, "an empty budget falls back to the default");
 
-console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + V.SEARCHES.length + " money searches");
+console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles and " + V.POSTURES.length + " postures, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + V.SEARCHES.length + " money searches");

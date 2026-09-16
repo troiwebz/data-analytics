@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -374,6 +374,105 @@ async function v2OfferMake(brief) {
   return { ok: true, made, cents: res.cents, clean: made.filter((o) => !o.issues.length).length };
 }
 
+// Five offers written for one room, kept per room so the same five come back
+// instantly when you open that day again.
+async function v2RoomOffers(sub, force, extra) {
+  const st = await v2Get();
+  v2Apply(st);
+  const target = V2.TARGETS.find((t) => t.sub === sub);
+  if (!target) return { ok: false, error: "r/" + sub + " is not in the room list" };
+  const cached = (st.roomOffers || {})[sub];
+  if (cached && !force && !extra) return { ok: true, ...cached, cached: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  const camp = V2.campaign(v2Settings(st).campaign);
+  const checked = (st.targets || {})[sub] || {};
+  const res = await v2Ai(
+    V2.roomOfferSystem(profile),
+    V2.roomOfferUser(target, camp, profile, { members: checked.members, online: checked.online, rules: checked.rules, extra }),
+    V2.ROOM_OFFER_SCHEMA, 3500, "five offers for r/" + sub);
+  if (!res.ok) return res;
+  const offers = (res.parsed.offers || []).slice(0, 5).map((d, i) => {
+    const o = V2.offerFromDraft(d, i);
+    o.key = "room_" + sub + "_" + Date.now().toString(36) + "_" + i;
+    o.room = sub;
+    o.issues = V2.offerChecks(o);
+    return o;
+  });
+  if (!offers.length) return { ok: false, error: "the model returned no offers" };
+  const spread = V2.offerSpread(offers);
+  const roomOffers = { ...(st.roomOffers || {}), [sub]: { offers, read: String(res.parsed.room_read || ""), at: Date.now(), spread } };
+  await v2Set({ roomOffers });
+  return { ok: true, offers, read: roomOffers[sub].read, spread, cents: res.cents };
+}
+
+// Make one offer stronger. The note is the operator's: "make it paid", "aim
+// it higher", "this reads like every other free audit".
+async function v2OfferImprove(key, note) {
+  const st = await v2Get();
+  v2Apply(st);
+  const found = v2FindOffer(st, key);
+  if (!found) return { ok: false, error: "cannot find that offer" };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  const res = await v2Ai(V2.improveSystem(profile), V2.improveUser(found.offer, note, found.offer.room || "", profile), V2.IMPROVE_SCHEMA, 2000, "improve an offer");
+  if (!res.ok) return res;
+  const better = V2.offerFromDraft(res.parsed.offer || {}, 0);
+  better.key = found.offer.key;                 // it replaces the original in place
+  better.room = found.offer.room || "";
+  better.improvedFrom = { name: found.offer.name, posture: found.offer.posture, gift: found.offer.gift, ask: found.offer.ask, risk: found.offer.risk };
+  better.changed = String(res.parsed.changed || "");
+  better.weakness = String(res.parsed.weakness || "");
+  better.issues = V2.offerChecks(better);
+  v2ReplaceOffer(st, found, better);
+  await v2Set({ pool: st.pool, made: st.made, roomOffers: st.roomOffers });
+  return { ok: true, offer: better, was: better.improvedFrom, cents: res.cents };
+}
+// An offer can be sitting in three places at once; find it wherever it is.
+function v2FindOffer(st, key) {
+  const inPool = (st.pool || []).findIndex((o) => o.key === key);
+  if (inPool >= 0) return { where: "pool", i: inPool, offer: st.pool[inPool] };
+  const inMade = (st.made || []).findIndex((o) => o.key === key);
+  if (inMade >= 0) return { where: "made", i: inMade, offer: st.made[inMade] };
+  for (const [sub, bag] of Object.entries(st.roomOffers || {})) {
+    const i = (bag.offers || []).findIndex((o) => o.key === key);
+    if (i >= 0) return { where: "room", sub, i, offer: bag.offers[i] };
+  }
+  const shipped = V2.OFFERS.find((o) => o.key === key);
+  return shipped ? { where: "shipped", offer: { ...shipped } } : null;
+}
+function v2ReplaceOffer(st, found, next) {
+  if (found.where === "pool") st.pool[found.i] = next;
+  else if (found.where === "made") st.made[found.i] = next;
+  else if (found.where === "room") st.roomOffers[found.sub].offers[found.i] = next;
+  else {
+    // a shipped offer is never edited in place; the better one joins the pool
+    next.key = "made_" + Date.now().toString(36);
+    st.pool = [...(st.pool || []), next];
+  }
+}
+
+// Pin one offer to one day on the calendar. The draft for that day is thrown
+// away, because it was written around the offer that is being replaced.
+async function v2RowOffer(n, key) {
+  const st = await v2Get();
+  v2Apply(st);
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false, error: "no such day" };
+  const found = v2FindOffer(st, key);
+  if (!found) return { ok: false, error: "cannot find that offer" };
+  // it has to live somewhere the calendar can resolve it from
+  if (!(st.pool || []).some((o) => o.key === key) && found.where !== "shipped") {
+    st.pool = [...(st.pool || []), { ...found.offer, issues: undefined }];
+  }
+  row.offerKey = key;
+  row.offerName = found.offer.name;
+  delete st.drafts[row.n];
+  if (row.state === "drafted") row.state = "planned";
+  await v2Set({ plan: st.plan, drafts: st.drafts, pool: st.pool });
+  return { ok: true, row, offer: found.offer };
+}
+
 async function v2OfferKeep(key) {
   const st = await v2Get();
   const o = (st.made || []).find((x) => x.key === key);
@@ -401,7 +500,9 @@ async function v2Offers() {
   const st = await v2Get();
   v2Apply(st);
   const s = v2Settings(st);
-  return { ok: true, shipped: V2.OFFERS, pool: st.pool || [], made: st.made || [], brief: st.madeBrief || "", picked: s.offers || [], angles: V2.OFFER_ANGLES };
+  return { ok: true, shipped: V2.OFFERS, pool: st.pool || [], made: st.made || [], brief: st.madeBrief || "",
+    picked: s.offers || [], angles: V2.OFFER_ANGLES, postures: V2.POSTURES,
+    spread: V2.offerSpread((st.made || []).length ? st.made : V2.OFFERS) };
 }
 
 // ------------------------------------------------------------- posting it
@@ -678,6 +779,9 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
+    case "v2-room-offers": return go(v2RoomOffers(msg.sub, !!msg.force, msg.extra));
+    case "v2-offer-improve": return go(v2OfferImprove(msg.key, msg.note));
+    case "v2-row-offer": return go(v2RowOffer(msg.n, msg.key));
     case "v2-offer-make": return go(v2OfferMake(msg.brief));
     case "v2-offer-keep": return go(v2OfferKeep(msg.key));
     case "v2-offer-forget": return go(v2OfferForget(msg.key));

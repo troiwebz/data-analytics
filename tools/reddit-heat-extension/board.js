@@ -54,6 +54,7 @@ async function drawPlan() {
     const btns = r.state === "posted"
       ? `<a href="${esc(r.url || "#")}" target="_blank">open the post</a>`
       : `<button class="ghost" data-w="${r.n}">${r.draft ? "rewrite" : "write it"}</button>
+         <button class="ghost" data-off="${r.n}">5 offers for r/${esc(r.sub)}</button>
          ${r.draft ? `<button class="ghost" data-v="${r.n}">read</button><button class="act" data-o="${r.n}">post it</button><button class="ghost" data-m="${r.n}">it is live</button>` : ""}
          <button class="ghost" data-s="${r.n}">skip</button>`;
     return `<tr class="${cls}">
@@ -65,6 +66,7 @@ async function drawPlan() {
   $$("#planRows button[data-w]").forEach((b) => b.onclick = () => write(+b.dataset.w, !!BOARD.rows.find((r) => r.n === +b.dataset.w).draft));
   $$("#planRows button[data-v]").forEach((b) => b.onclick = () => view(+b.dataset.v));
   $$("#planRows button[data-o]").forEach((b) => b.onclick = () => open_(+b.dataset.o));
+  $$("#planRows button[data-off]").forEach((b) => b.onclick = () => roomOffers(+b.dataset.off, false));
   $$("#planRows button[data-s]").forEach((b) => b.onclick = async () => { await send({ type: "v2-skip", n: +b.dataset.s }); drawPlan(); });
   // if the content script missed the moment the post went live — a full page
   // reload, a crosspost, posting from the phone — mark it here by hand so the
@@ -203,10 +205,82 @@ $("#leadPoll").onclick = $("#leadPoll2").onclick = async () => {
   drawLeads(); drawPlan();
 };
 
+// ------------------------------------------- five offers for one room
+// Written for that subreddit, one on each of the five postures, so the choice
+// is a real choice rather than five versions of a free audit.
+function postureTag(o) {
+  const p = V2.posture(o.posture);
+  const cls = p.key === "free" ? "t-value" : p.key === "swap" ? "t-weekly" : "t-magnet";
+  return `<span class="tag ${cls}">${esc(p.name)}</span>`;
+}
+function offerBody(o) {
+  return `<ul class="tight">
+    <li><b>Who:</b> ${esc(o.who)}</li>
+    <li><b>They get:</b> ${esc(o.gift)}</li>
+    <li><b>We ask for:</b> ${esc(o.ask)}</li>
+    <li><b>Their risk:</b> ${esc(o.risk)}</li>
+    ${o.fitHere ? `<li><b>Why here:</b> ${esc(o.fitHere)}</li>` : ""}
+    ${o.why ? `<li><b>Why it lands:</b> ${esc(o.why)}</li>` : ""}
+    ${o.changed ? `<li style="color:var(--go)"><b>Changed:</b> ${esc(o.changed)}</li>` : ""}
+    ${o.weakness ? `<li class="faint"><b>Still weakest:</b> ${esc(o.weakness)}</li>` : ""}
+  </ul>`;
+}
+async function roomOffers(n, force, extra) {
+  const row = (BOARD.rows || []).find((r) => r.n === n);
+  if (!row) return;
+  say(`writing five offers for r/${row.sub}…`);
+  const r = await send({ type: "v2-room-offers", sub: row.sub, force: !!force, extra: extra || "" });
+  if (!r || !r.ok) return say((r && r.error) || "could not write them", "var(--warn)");
+  say(r.cached ? `the five already written for r/${row.sub}` : `five written · ${r.cents}¢ · ${esc(r.spread.why)}`, "var(--go)");
+  $("#planDraft").innerHTML = `<div class="card">
+    <h3>Five offers for r/${esc(row.sub)}</h3>
+    <div class="faint">${esc(r.read || "")}</div>
+    ${r.spread && !r.spread.ok ? `<div class="issue">⚠ ${esc(r.spread.why)} — press Write five different ones</div>` : ""}
+    <div class="grid" style="margin-top:12px">${r.offers.map((o) => `<div class="card" style="margin:0">
+      <h3>${esc(o.name)}</h3>
+      <div class="faint">${postureTag(o)} · ${o.spots} spots</div>
+      ${(o.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("")}
+      ${offerBody(o)}
+      <div class="bar" style="margin-top:8px">
+        <button class="act" data-use="${esc(o.key)}">use this on day ${n}</button>
+        <button class="ghost" data-imp="${esc(o.key)}">improve it</button>
+      </div></div>`).join("")}</div>
+    <div class="bar" style="margin-top:12px">
+      <button class="ghost" id="roAgain">Write five different ones</button>
+      <button class="ghost" id="roSteer">Write five with an instruction…</button>
+    </div></div>`;
+  $$("#planDraft button[data-use]").forEach((b) => b.onclick = async () => {
+    const res = await send({ type: "v2-row-offer", n, key: b.dataset.use });
+    if (!res || !res.ok) return say((res && res.error) || "could not pin it", "var(--warn)");
+    say(`day ${n} now carries "${res.offer.name}" — write the post and it will be built around it`, "var(--go)");
+    $("#planDraft").innerHTML = "";
+    await drawPlan();
+    write(n, true);
+  });
+  $$("#planDraft button[data-imp]").forEach((b) => b.onclick = () => improve(b.dataset.imp, () => roomOffers(n, false)));
+  $("#roAgain").onclick = () => roomOffers(n, true);
+  $("#roSteer").onclick = () => {
+    const note = prompt("What should be different about these five?\n\ne.g. make them paid, aim them at bigger businesses, less like a free audit");
+    if (note) roomOffers(n, true, note);
+  };
+  $("#planDraft").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// One offer, made stronger, with the before and after side by side.
+async function improve(key, after) {
+  const note = prompt("What should change about this offer?\n\ne.g. make it paid, free looks cheap · aim it higher · it reads like every other audit\n\nLeave it empty and Claude picks the weakest part itself.");
+  if (note === null) return;
+  say("rewriting it…");
+  const r = await send({ type: "v2-offer-improve", key, note });
+  if (!r || !r.ok) return say((r && r.error) || "could not improve it", "var(--warn)");
+  say(`rewritten · ${r.cents}¢ · ${esc(r.offer.changed)}`, "var(--go)");
+  if (typeof after === "function") await after();
+};
+
 // ------------------------------------------------------------ offer studio
 let OFF = null;
 function offerCard(o, mode) {
-  const issues = (o.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("");
+  const issues = (o.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join();
   const picked = OFF && (OFF.picked || []).includes(o.key);
   const head = mode === "made"
     ? `<button class="ghost" data-keep="${esc(o.key)}">keep this one</button>`
@@ -214,16 +288,10 @@ function offerCard(o, mode) {
       (o.made ? ` <button class="ghost" data-forget="${esc(o.key)}">remove</button>` : "");
   return `<div class="card">
     <h3>${esc(o.name)}</h3>
-    <div class="faint">${esc(o.spots)} spots · ${esc(String(o.channel || "none").replace(/_/g, " "))}${o.angle ? " · " + esc(o.angle) : ""}${o.made ? " · yours" : ""}</div>
-    ${issues}
-    <ul class="tight">
-      <li><b>Who:</b> ${esc(o.who)}</li>
-      <li><b>They get:</b> ${esc(o.gift)}</li>
-      <li><b>We ask for:</b> ${esc(o.ask)}</li>
-      <li><b>Their risk:</b> ${esc(o.risk)}</li>
-      ${o.why ? `<li><b>Why it lands:</b> ${esc(o.why)}</li>` : ""}
-    </ul>
-    <div class="bar" style="margin-top:10px">${head}</div></div>`;
+    <div class="faint">${postureTag(o)} · ${esc(o.spots)} spots · ${esc(String(o.channel || "none").replace(/_/g, " "))}${o.room ? " · for r/" + esc(o.room) : ""}${o.made && !o.room ? " · yours" : ""}</div>
+    ${(o.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("")}
+    ${offerBody(o)}
+    <div class="bar" style="margin-top:10px">${head}<button class="ghost" data-imp2="${esc(o.key)}">improve it</button></div></div>`;
 }
 async function drawOffers() {
   OFF = await send({ type: "v2-offers" });
@@ -241,6 +309,9 @@ async function drawOffers() {
   });
   $$("#offerGrid button[data-forget]").forEach((b) => b.onclick = async () => { await send({ type: "v2-offer-forget", key: b.dataset.forget }); drawOffers(); });
   $$("#offerGrid input[data-pick]").forEach((cb) => cb.onchange = pickOffers);
+  $$("#offers button[data-imp2]").forEach((b) => b.onclick = () => improve(b.dataset.imp2, drawOffers));
+  const sp = OFF.spread || {};
+  if (sp.counts) $("#pickSay").textContent += ` · ${Object.entries(sp.counts).map(([k, v]) => v + " " + V2.posture(k).name.toLowerCase()).join(", ")}`;
 }
 async function pickOffers() {
   const boxes = $$("#offerGrid input[data-pick]");
