@@ -38,6 +38,17 @@ ok('no token: sends nothing, throws nothing', (await T.sendLeads([lead('1')], cf
 await T.setToken('1234567890:AAtesttoken');
 ok('token stored in the vault', (await V.getSecret('telegram')) === '1234567890:AAtesttoken');
 
+// "HAF Watcher is my bot name ah?" - no, that is the extension. The bot is
+// whatever it was called in BotFather, and a masked token cannot tell you. So
+// Settings asks Telegram and shows the real @name.
+{
+  const st = await T.status({ telegramChatId: '', telegramEnabled: true });
+  ok('the status names the bot itself', st.bot === 'haf_bot', JSON.stringify(st));
+  const before = sent.length;
+  await T.status({ telegramChatId: '', telegramEnabled: true });
+  ok('and does not ask Telegram again every time', sent.length === before, `${sent.length} vs ${before}`);
+}
+
 sent = [];
 await T.sendLeads([lead('1')], cfg);
 ok('two messages per lead', sent.length === 2, String(sent.length));

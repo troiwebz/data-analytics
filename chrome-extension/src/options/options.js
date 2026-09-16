@@ -212,15 +212,21 @@ function showTg(r, err) {
   // sent without it - so it is said just as loudly. Buried in grey as "no chat
   // id yet" it read like a detail, and every send failed with nothing on
   // screen to explain it.
+  // Name the bot. The extension is called HAF Watcher; the bot is whatever you
+  // called it in @BotFather, and you cannot search Telegram for a name you do
+  // not know.
+  const who = r.bot
+    ? `<span style="color:#16a34a">✓ Token stored</span> for <b>@${esc(r.bot)}</b> — that is the bot to `
+      + `search for in Telegram. <a href="https://t.me/${esc(r.bot)}" target="_blank" rel="noopener">Open it</a>.`
+    : `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)`;
   if (!r.chatId) {
     el.style.color = '#b45309';
-    el.innerHTML = `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)<br>`
-      + '<b>No chat id saved, so nothing can be sent.</b> Open Telegram, message '
-      + '<b>@userinfobot</b>, and paste the number it replies with into the box above. Then press Save.';
+    el.innerHTML = who + '<br><b>No chat id saved, so nothing can be sent.</b> '
+      + `Open ${r.bot ? `<b>@${esc(r.bot)}</b>` : 'your bot'} in Telegram, send it any message, `
+      + 'then press <b>Find it for me</b> above.';
     return;
   }
-  el.innerHTML = `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)` +
-    ` · chat id <b>${esc(r.chatId)}</b><br>` +
+  el.innerHTML = who + ` · chat id <b>${esc(r.chatId)}</b><br>` +
     (r.enabled ? 'New threads are sent here automatically as they are found.'
                : '<span style="color:#b45309">Sending is switched off - tick the box above and Save.</span>');
 }

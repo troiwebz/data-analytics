@@ -229,7 +229,22 @@ export async function test(cfg) {
 
 export async function status(cfg) {
   const v = await vault.info('telegram');
-  return { ...v, chatId: cfg.telegramChatId || '', enabled: !!cfg.telegramEnabled };
+  // Ask Telegram what the bot is actually called. You cannot message a bot you
+  // cannot name, and "what is my bot called?" is not answerable from a token
+  // that is shown masked. Cached so the Settings page does not ask every time.
+  let bot = '';
+  if (v.stored) {
+    const cached = (await chrome.storage.local.get('tgBot')).tgBot;
+    if (cached?.hint === v.hint) bot = cached.username;
+    else {
+      try {
+        const me = await call('getMe', {});
+        bot = me?.username || '';
+        if (bot) await chrome.storage.local.set({ tgBot: { hint: v.hint, username: bot } });
+      } catch { /* offline or a bad token; status still tells you what it knows */ }
+    }
+  }
+  return { ...v, bot, chatId: cfg.telegramChatId || '', enabled: !!cfg.telegramEnabled };
 }
 
 /**
