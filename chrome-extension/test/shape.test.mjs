@@ -34,30 +34,40 @@ ok('public reply asks no question', !r.includes('?'), r);
 ok('the question is not leaked into it', !r.includes('survive a manual audit'), r);
 ok('the reply is the claim and the PM line, nothing else',
    r.trim().split('\n').filter(Boolean).length === 2, JSON.stringify(r));
-// The "scope" close asks this thread's own question instead of demanding the
-// market and the volume from every buyer whatever they posted.
+// No close asks the thread's technical question. "Is the filter setup using
+// URL parameters or a JS layer?" dropped into a quote reads as an
+// interrogation before a price, which is not what a buyer who has just posted
+// wants. The question is still written, for the reply you send once they
+// answer; it just is not in the opening message.
 {
   const scoped = { ...lead('5001'), aiSpecifics: { ...lead('5001').aiSpecifics, offer: 'scope' } };
   const d2 = renderDm(scoped, cfg);
-  ok('the scope close asks the thread\'s own question',
-     d2.includes(scoped.aiSpecifics.question), d2.split('\n\n').slice(-3)[0]);
+  ok('the scope close does not interrogate them', !d2.includes(scoped.aiSpecifics.question),
+     d2.split('\n\n').slice(-3)[0]);
+  ok('and asks nothing at all', !d2.includes('?'), (d2.match(/[^.\n]*\?/) || [''])[0]);
+  ok('it still promises a price and a date', /fixed price and a date/i.test(d2), d2.split('\n\n').slice(-3)[0]);
   ok('and no longer demands the market and the volume',
-     !/market and the volume|geo and the monthly volume/i.test(d2), d2.split('\n\n').slice(-3)[0]);
+     !/market and the volume|geo and the monthly volume/i.test(d2));
   ok('no template slot is left showing', !/\{\{|\}\}/.test(d2), (d2.match(/\{\{\w+\}\}/) || [''])[0]);
 
-  // With no question there is nothing to ask, so it must not ship a hole.
+  // Every close works with no question, because none of them uses it now.
   const noQ = { ...scoped, aiSpecifics: { ...scoped.aiSpecifics, question: '' } };
-  const d3 = renderDm(noQ, cfg);
-  ok('with no question it falls back to another close instead of a hole',
-     !/One thing before I price it|One question and I can price it|Quick one so I can price it/.test(d3),
-     d3.split('\n\n').slice(-3)[0]);
-  ok('and that close is a real one', /start small|smallest useful unit|single item/i.test(d3),
-     d3.split('\n\n').slice(-3)[0]);
-  ok('still no empty slot', !/\{\{|\}\}/.test(d3), d3);
+  ok('a lead with no question still renders a whole PM', !/\{\{|\}\}/.test(renderDm(noQ, cfg)));
 }
 
-// It is still written, because the "scope" close uses it.
-ok('the question is still produced for the PM', !!lead('1001').aiSpecifics.question,
+// Every PM offers real samples and a short plan on reply, which is what gets
+// an answer - and is a portfolio, not free work, so the linter allows it.
+for (const offer of ['pilot', 'ready', 'formula', 'terms', 'scope']) {
+  const l = { ...lead('6001'), aiSpecifics: { ...lead('6001').aiSpecifics, offer } };
+  const d = renderDm(l, cfg);
+  ok(`the ${offer} PM offers real samples`, /real samples/i.test(d), d.split('\n\n').slice(-2)[0]);
+  ok(`the ${offer} PM offers a short plan`, /short plan/i.test(d), d.split('\n\n').slice(-2)[0]);
+  ok(`the ${offer} PM still asks for a reply`, /reply/i.test(d), d.split('\n\n').slice(-2)[0]);
+  ok(`the ${offer} PM offers nothing free`, !/\bfree\b|no charge|no cost/i.test(d), d);
+}
+
+// Still written - it is what you ask once they reply - just not sent.
+ok('the question is still produced, for the reply you send next', !!lead('1001').aiSpecifics.question,
    lead('1001').aiSpecifics.question);
 ok('the offer is NOT public', !/invoice after|small first order|already done our side/i.test(r));
 ok('public reply points at the PM', /\bPM\b/.test(r));
@@ -85,11 +95,15 @@ ok('PM carries one of the five closes', /first order|already built|whole method|
 // Every close must sit happily in front of the reply line, not repeat it.
 ok('no close asks for a reply itself, which would say it twice',
    !Object.values(cfg.offers).some((t) => /(send|drop) a reply|just reply here/i.test(t)));
+// It asks for a reply AND says what replying gets them. "Reply and we can get
+// started" asked for the reply and offered nothing for it.
 ok('PM asks for a reply rather than announcing availability',
-   /(send|drop) a reply|reply here/i.test(d) && /get (started|going)|make a start/i.test(d), d.split('\n\n').slice(-2)[0]);
+   /(send|drop) a reply|reply here/i.test(d), d.split('\n\n').slice(-2)[0]);
+ok('and gives a reason to send one', /real samples/i.test(d) && /short plan/i.test(d),
+   d.split('\n\n').slice(-2)[0]);
 ok('the old "say the word" close is gone', !/say the word|ready to start today/i.test(d));
 ok('PM signs off', d.trim().endsWith('Thanks!!'));
-ok('the reply line appears once', (d.match(/get started|get going|make a start/gi) || []).length === 1, d);
+ok('the reply line appears once', (d.match(/real samples/gi) || []).length === 1, d);
 ok('PM greets the author', d.startsWith('Hi buyer1001') || d.startsWith('Hey buyer1001'), d.slice(0, 20));
 // The requested shape has no budget line, so the PM no longer carries one.
 ok('the PM does not mention the budget', !d.includes('$400'), d);

@@ -357,16 +357,13 @@ export const DEFAULT_CONFIG = {
 
     terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`,
 
-    // The one close that asks something. It asks Claude's own question about
-    // THIS thread - "mainstream German news sites or niche editorial outlets?",
-    // "one chain and exchange pair, or multi chain?" - rather than demanding
-    // the market and the volume from every buyer regardless of what they
-    // posted. Same close, a question worth answering.
-    //
-    // {{question}} is filled per thread. If Claude did not run there is no
-    // question to ask, and renderDm falls back to another close rather than
-    // leaving a dangling "One thing:".
-    scope: `{One thing before I price it|One question and I can price it|Quick one so I can price it properly}: {{question}} {Answer that and I will come back today with a fixed price and a date|Tell me and you will have a fixed price and a date today}. {No call needed|Nothing to book}.`
+    // This one used to carry Claude's technical question about the thread -
+    // "is the filter setup using URL parameters or a JS layer?" - which read as
+    // an interrogation dropped into a quote. A buyer who has just written a
+    // post does not want a quiz before a price; they want to know they will get
+    // a price. The question is still written and still useful, but it belongs
+    // in the reply you type when they answer, not in the opening message.
+    scope: `{Tell me the shape you want and it is priced the same day|Say how you want it scoped and you will have a price the same day}: {per item or as one job, whichever suits|priced per item or as one job, your call}, {with a fixed price and a date, no call needed|fixed price and a date, nothing to book}.`
   },
 
   // ---- Private message ---------------------------------------------------
@@ -394,7 +391,7 @@ export const DEFAULT_CONFIG = {
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -408,7 +405,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -422,7 +419,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -436,7 +433,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -450,7 +447,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -464,7 +461,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
 
@@ -478,7 +475,7 @@ Thanks!!`,
 
 {{offer}}
 
-{Just send a reply and we can get started|Send a reply and we can get going|Reply here and we can get started|Drop a reply and we can make a start}.
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`
   }

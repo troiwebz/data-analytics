@@ -142,10 +142,30 @@ export async function updateReplyCounts(counts) {
   if (changed) await chrome.storage.local.set({ [LEADS_KEY]: next });
 }
 
+/**
+ * Change one lead.
+ *
+ * The id is compared as a string, like every other lookup in the codebase.
+ * This was the one place using ===, and a caller handing it a number - or a
+ * string where the row held a number - silently matched nothing: no error, no
+ * change, and a row that stays on the to-do list after you have posted it.
+ * A Telegram tap arrives as a string out of callback_data, which is exactly
+ * how that gets hit.
+ *
+ * Returns whether it found the lead, so a caller can tell "updated" from
+ * "quietly did nothing".
+ */
 export async function updateLead(threadId, patch) {
   const leads = await getLeads();
-  const next = leads.map((l) => (l.threadId === threadId ? { ...l, ...patch } : l));
-  await chrome.storage.local.set({ [LEADS_KEY]: next });
+  const want = String(threadId);
+  let found = false;
+  const next = leads.map((l) => {
+    if (String(l.threadId) !== want) return l;
+    found = true;
+    return { ...l, ...patch };
+  });
+  if (found) await chrome.storage.local.set({ [LEADS_KEY]: next });
+  return found;
 }
 
 function today() { return new Date().toLocaleDateString('en-CA'); }

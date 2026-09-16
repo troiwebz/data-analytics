@@ -104,12 +104,10 @@ export function renderDm(lead, cfg) {
   const seed = `d${lead.threadId}`;
   const t = cfg.dmTemplates || {};
   const { tips, offer, question } = partsFor(lead, cfg);
-  // The "scope" close asks this thread's own question rather than demanding
-  // the market and the volume from everyone. With no question - Claude did not
-  // run, or wrote nothing - there is nothing to ask, so it falls back rather
-  // than shipping a close with a hole in it.
-  const use = offer === 'scope' && !String(question || '').trim() ? 'pilot' : offer;
-  const offerText = spin(cfg.offers?.[use] || '', `o${lead.threadId}`);
+  // No close carries the question any more - it read as an interrogation
+  // dropped into a quote. The substitution below still runs twice and question
+  // is still passed, so a template of your own can use it if you want it.
+  const offerText = spin(cfg.offers?.[offer] || '', `o${lead.threadId}`);
   return render({ ...lead, tips: layTips(tips.slice(0, 3)), question, offer: offerText },
     t[lead.category] || t.generic || Object.values(t)[0], seed);
 }

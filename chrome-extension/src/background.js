@@ -882,7 +882,8 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
 
   if (result.ok) {
     await recordPost();
-    await updateLead(lead.threadId, { status: 'POSTED', postUrl: result.postUrl, draft: lead.draft, staged: false, error: '' });
+    const marked = await updateLead(lead.threadId, { status: 'POSTED', postUrl: result.postUrl, draft: lead.draft, staged: false, error: '' });
+    if (!marked) await log(`posted "${lead.title}" but could not find its row to mark (id ${lead.threadId})`, 'error');
     await reportResult(cfg, lead.threadId, 'POSTED', result.postUrl || '').catch(() => {});
   } else {
     await updateLead(lead.threadId, { status: 'FAILED', error: result.error, staged: false });
