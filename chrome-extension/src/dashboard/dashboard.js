@@ -461,9 +461,18 @@ async function rowAction(btn) {
     const r = await chrome.runtime.sendMessage({ cmd: 'tg-send', threadId: id });
     btn.disabled = false;
     const got = (r?.sent || []).join(' and ');
-    return say(id, r?.error
-      ? `${got ? `Sent the ${got}. ` : ''}Telegram refused the rest — ${r.error}`
-      : `Sent the ${got || 'lead'} to Telegram.`, !r?.error);
+    if (!r?.error) return say(id, `Sent the ${got || 'lead'} to Telegram.`, true);
+    // "Telegram refused the rest" read as though something went, when in fact
+    // nothing had. Say which of the two it is, and for the setup mistakes say
+    // where to fix them rather than only quoting Telegram back.
+    const fix = /chat id/i.test(r.error)
+      ? ' Settings → Telegram → Chat id. Message @userinfobot on Telegram and it replies with yours.'
+      : /bot token/i.test(r.error)
+        ? ' Settings → Telegram → paste the bot token from @BotFather.'
+        : ' Settings → Telegram → "Why is nothing arriving?" will say which part is wrong.';
+    return say(id, got
+      ? `Sent the ${got}. Telegram refused the rest — ${r.error}${fix}`
+      : `Nothing was sent — ${r.error}${fix}`, false);
   }
   if (act === 'senddm') {
     // No confirm box. Pressing a button labelled "Send PM now" IS the decision;

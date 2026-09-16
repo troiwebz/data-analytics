@@ -208,8 +208,19 @@ function showTg(r, err) {
                  + 'Open Telegram, message <b>@BotFather</b>, send <b>/newbot</b>, and paste the token it gives you above.';
     return;
   }
+  // A missing chat id is exactly as fatal as a missing token - nothing can be
+  // sent without it - so it is said just as loudly. Buried in grey as "no chat
+  // id yet" it read like a detail, and every send failed with nothing on
+  // screen to explain it.
+  if (!r.chatId) {
+    el.style.color = '#b45309';
+    el.innerHTML = `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)<br>`
+      + '<b>No chat id saved, so nothing can be sent.</b> Open Telegram, message '
+      + '<b>@userinfobot</b>, and paste the number it replies with into the box above. Then press Save.';
+    return;
+  }
   el.innerHTML = `<span style="color:#16a34a">✓ Token stored</span> (<b>${esc(r.hint)}</b>)` +
-    (r.chatId ? ` · chat id <b>${esc(r.chatId)}</b>` : ' · <span style="color:#b45309">no chat id yet</span>') + '<br>' +
+    ` · chat id <b>${esc(r.chatId)}</b><br>` +
     (r.enabled ? 'New threads are sent here automatically as they are found.'
                : '<span style="color:#b45309">Sending is switched off - tick the box above and Save.</span>');
 }
