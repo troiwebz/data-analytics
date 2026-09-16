@@ -39,7 +39,7 @@ const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'postUrl', 'decided
  * the post body a poll had already read, and the next draft would be written
  * from the title again.
  */
-const EXPENSIVE = ['body', 'replies', 'aiSpecifics'];
+const EXPENSIVE = ['body', 'replies', 'aiSpecifics', 'aiFrom'];
 
 /**
  * One row per thread, ever.

@@ -225,12 +225,27 @@ const SYSTEM = [
   'stay general and claim less rather than inventing a specialism.',
   '',
   'THE REPLIES ALREADY ON THE THREAD, when you are given them, are the other freelancers bidding for this',
-  'same job. Use them twice over.',
+  'same job. Read the thread as one conversation and answer the conversation, not just the first post.',
   '- They tell you what the job really is. If three of them talk about ad accounts, it is an ads job.',
-  '- They tell you what has already been promised, and you must not simply repeat it. Say the thing they',
-  '  did not. If they all say "we can run your ads", say what you do about the part they skipped.',
+  '- Taken together they show what the buyer is being offered, and therefore what is now table stakes.',
+  '- Each of them saw something in the post. Take the useful parts of what several of them noticed and',
+  '  carry them into one line, rather than echoing any single reply.',
   'Match their register: short, direct, unadorned. Do not out-market them; out-specify them.',
   'Never mention them, never compare yourself to them, never imply you read their replies.',
+  '',
+  'You may be given a short analysis of the thread under "thread so far". It is worked out mechanically',
+  'from the words used, so treat it as a pointer and not as gospel.',
+  '- "all of them are already promising X" means X is now worth nothing. Do NOT lead with X.',
+  '- "STILL UNANSWERED" is the part of the buyer\'s own request that nobody has addressed. That is the',
+  '  opening, and it is usually where the job is won. Lead with it if you can honestly claim it.',
+  '  On a thread asking to run crypto ads "and make sure they do not get suspended", three people offered',
+  '  to run the ads and none of them answered suspension. The line that answers suspension wins.',
+  '',
+  'HONESTY. What a rival claims is evidence about the JOB, never evidence about you. Never repeat a',
+  'capability back just because a rival offered it. If the unanswered part is something you have no',
+  'grounds to claim - nothing in the post, and nothing in what the writer says about themselves,',
+  'supports it - do not claim it. Answer the strongest part you can actually stand behind instead.',
+  'A line you cannot deliver loses the client at the first question.',
   '',
   'For each thread give three things.',
   '',
@@ -332,6 +347,7 @@ export async function writeSpecifics(leads, cfg = {}) {
       .map((r) => `- ${String(r.text || '').replace(/\s+/g, ' ').slice(0, RIVAL_CHARS)}`)
       .filter((x) => x.length > 4);
     if (rivals.length) lines.push(`already replied by other freelancers (${rivals.length}):`, ...rivals);
+    if (l.rivalBrief) lines.push('thread so far:', l.rivalBrief);
     return lines.join('\n');
   }).join('\n\n---\n\n');
 

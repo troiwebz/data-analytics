@@ -13,6 +13,7 @@ import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThreads } from './thread.js';
+import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
@@ -309,20 +310,38 @@ export async function withThreads(leads, cfg) {
   return leads.map((l) => (got[l.threadId] ? { ...l, ...got[l.threadId] } : l));
 }
 
-export async function specificsFor(leads, cfg) {
+export async function specificsFor(leads, cfg, { force = false } = {}) {
   if (!cfg.aiSpecifics || !leads.length) return {};
-  const payload = leads.map((l) => ({
+
+  // Claude is only asked when there is an upgrade in it. A lead whose post and
+  // whose competition have not changed since its lines were written would come
+  // back with the same answer, so asking again is money for nothing.
+  const wanted = force ? leads.map((l) => ({ l, why: 'asked for directly' }))
+                       : leads.map((l) => ({ l, why: upgradeReason(l) })).filter((x) => x.why);
+  const skipped = leads.length - wanted.length;
+  if (!wanted.length) {
+    if (skipped) await log(`Claude not needed: ${skipped} draft(s) already answer the thread as it stands`);
+    return {};
+  }
+
+  const payload = wanted.map(({ l }) => ({
     threadId: String(l.threadId),
     title: l.title,
     snippet: String(l.snippet || '').slice(0, 800),
     body: String(l.body || '').slice(0, 1500),
     replies: (l.replies || []).slice(0, 4).map((r) => ({ text: String(r.text || '').slice(0, 300) })),
+    // Worked out locally and free: what the thread already promises, and the
+    // part of the buyer's ask nobody has answered.
+    rivalBrief: rivalBrief(l.body || l.snippet || '', l.replies || []),
     category: l.category || ''
   }));
   const { specifics, note } = await writeSpecifics(payload, cfg);
   const n = Object.keys(specifics).length;
-  if (n) await log(`Claude wrote specifics for ${n}/${leads.length} lead(s)`);
-  else if (note) await log(`Claude stood down (${note}); using built-in rules`);
+  if (n) {
+    const why = wanted.slice(0, 3).map((x) => x.why).join('; ');
+    await log(`Claude wrote specifics for ${n}/${wanted.length} lead(s) (${why})`
+      + (skipped ? `; ${skipped} skipped, nothing new to say` : ''));
+  } else if (note) await log(`Claude stood down (${note}); using built-in rules`);
   return specifics;
 }
 
@@ -343,17 +362,20 @@ export async function specificsFor(leads, cfg) {
 export async function rebuildDrafts({ withAi = false } = {}) {
   const cfg = await getConfig();
   const leads = await getLeads();
-  const has = (l) => l.aiSpecifics?.tips?.length || l.aiSpecifics?.length;
   const open = (l) => !['POSTED', 'SKIPPED'].includes(l.status);
-  const stale = (l) => !has(l) || (cfg.readThreads !== false && !l.body);
-  const missing = leads.filter((l) => open(l) && stale(l));
+  const candidates = leads.filter(open);
 
-  let aiCount = 0, readCount = 0;
-  if (withAi && cfg.aiSpecifics && missing.length) {
-    for (let i = 0; i < missing.length; i += 8) {
-      // Read the threads first: the post is the point, and without it this
-      // would just buy the same wrong answer a second time.
-      const batch = await withThreads(missing.slice(i, i + 8), cfg);
+  let aiCount = 0, readCount = 0, missing = [];
+  if (withAi && cfg.aiSpecifics && candidates.length) {
+    // Read the threads FIRST, then decide whether Claude is worth calling.
+    //
+    // The order matters. Reading is a request to a forum you are already
+    // signed in to and costs nothing; the Claude call is the expensive part,
+    // and it is the only thing worth gating. Gating on the stored copy instead
+    // would mean a new reply on a thread could never be noticed, because
+    // noticing it is exactly what the read is for.
+    for (let i = 0; i < candidates.length; i += 8) {
+      const batch = await withThreads(candidates.slice(i, i + 8), cfg);
       for (const b of batch) {
         if (!b.body && !b.replies?.length) continue;
         readCount++;
@@ -361,11 +383,18 @@ export async function rebuildDrafts({ withAi = false } = {}) {
         const lead = leads.find((l) => String(l.threadId) === String(b.threadId));
         if (lead) { lead.body = b.body; lead.replies = b.replies; }
       }
-      const fresh = await specificsFor(batch, cfg);
+      // Now the gate, on what the thread actually says today.
+      const worth = batch.filter((b) => upgradeReason(b));
+      missing = missing.concat(worth);
+      if (!worth.length) continue;
+
+      const fresh = await specificsFor(worth, cfg);
       for (const [id, parts] of Object.entries(fresh)) {
-        await updateLead(id, { aiSpecifics: parts });
+        const from = worth.find((b) => String(b.threadId) === String(id));
+        const aiFrom = from ? sourceOf(from) : undefined;
+        await updateLead(id, { aiSpecifics: parts, aiFrom });
         const lead = leads.find((l) => String(l.threadId) === String(id));
-        if (lead) lead.aiSpecifics = parts;
+        if (lead) { lead.aiSpecifics = parts; lead.aiFrom = aiFrom; }
         aiCount++;
       }
       if (!Object.keys(fresh).length) break;        // stood down; stop asking
@@ -463,7 +492,11 @@ export async function pollFeed() {
   // One batched request for the whole poll, so the instructions are paid for
   // once rather than once per lead. Falls back to the built-in rules.
   const ai = await specificsFor(full, cfg);
-  const leads = full.map((m) => enrich(m, cfg, 'SENT', ai[m.threadId]));
+  const leads = full.map((m) => {
+    const lead = enrich(m, cfg, 'SENT', ai[m.threadId]);
+    if (ai[m.threadId]) lead.aiFrom = sourceOf(m);
+    return lead;
+  });
   await markSeen(fresh.map((i) => i.threadId));
 
   if (!leads.length) return { new: fresh.length, matched: 0 };

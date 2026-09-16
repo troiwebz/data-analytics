@@ -81,7 +81,7 @@ globalThis.fetch = async (url, opts) => {
 };
 
 // A thread page: the buyer's post, and one freelancer already pitching.
-const THREAD = `
+let THREAD = `
 <article class="message" data-author="buyer0">
   <div class="bbWrapper">Need citations for a clinic in Dubai and a second site in Manchester.
   Budget $400. Must survive a manual audit.</div>
@@ -138,6 +138,16 @@ ok('and the freelancer already pitching came with it',
    (lead.replies || []).some((x) => /500 citations cheap/.test(x.text)), JSON.stringify(lead.replies));
 ok('the post went to Claude, not just the title', /survive a manual audit/.test(sentToClaude), sentToClaude.slice(0, 120));
 ok('and so did the competition', /500 citations cheap/.test(sentToClaude), sentToClaude.slice(0, 200));
+
+// The thread is read locally first - for nothing - and what it found is what
+// Claude is pointed at: what everyone is already promising, and the part of the
+// buyer's ask nobody has answered.
+ok('the reading of the thread went with it', /thread so far:/.test(sentToClaude), sentToClaude.slice(0, 400));
+ok('including what nobody has answered', /STILL UNANSWERED/.test(sentToClaude), sentToClaude.slice(0, 400));
+ok('the audit requirement is the opening here', /STILL UNANSWERED[^\n]*audit/.test(sentToClaude),
+   (sentToClaude.match(/STILL UNANSWERED[^\n]*/) || [''])[0]);
+ok('the lead remembers what its lines were written from', !!lead.aiFrom, JSON.stringify(lead.aiFrom));
+
 ok('the PM carries the close Claude chose', /whole method|sequence|order/i.test(lead.dm), lead.dm);
 ok('no em dash in the reply', !/[–—]/.test(lead.draft + lead.dm));
 ok('compliance ran', Array.isArray(lead.lint?.problems) || lead.lint != null);
@@ -172,6 +182,25 @@ ok('old leads now carry Claude lines', after.every((l) => l.aiSpecifics?.tips?.l
 ok('public reply rebuilt, not just the PM', after.every((l) => l.draft !== 'stale draft'));
 ok('PM rebuilt too', after.every((l) => l.dm !== 'stale dm'));
 ok("rebuilt reply carries Claude's lines", after[0].draft.includes('We have built citations manually'), after[0].draft.slice(0, 200));
+
+
+
+
+// Claude is not asked again when nothing about the thread has changed.
+const callsAtRest = aiCalls;
+await bg.rebuildDrafts({ withAi: true });
+ok('a second rewrite with nothing new costs nothing', aiCalls === callsAtRest, `calls=${aiCalls} was=${callsAtRest}`);
+
+// A new reply on the thread is new information, so it is worth asking again.
+// It has to appear on the thread itself, not just in the stored row: the
+// rewrite re-reads the page, and the live thread is what counts.
+THREAD += `
+<article class="message" data-author="latecomer">
+  <div class="bbWrapper">We also handle the manual audit side.</div>
+</article>`;
+await bg.rebuildDrafts({ withAi: true });
+ok('a new reply on the thread does buy another call', aiCalls > callsAtRest, `calls=${aiCalls} was=${callsAtRest}`);
+ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), sentToClaude.slice(0, 300));
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

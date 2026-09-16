@@ -4,6 +4,7 @@
 import { getConfig } from '../config.js';
 import { stamp, partsIn, todayKey } from '../timefmt.js';
 import { renderDm, partsFor, offerOf, plain } from '../templates.js';
+import { readRivals } from '../rivals.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -283,8 +284,16 @@ function detail(l, staged, cfg) {
   // looks wrong, this is where you see why.
   const post = l.body || l.snippet || '';
   const rivals = (l.replies || []).slice(0, 5);
+  // The same reading of the thread Claude was given: what they are all
+  // promising, and the part of the ask nobody has answered. Worked out here,
+  // for nothing, so you can see what the draft was aiming at.
+  let read = { crowded: [], gap: [] };
+  try { read = readRivals(post, l.replies || []); } catch { /* shown without it */ }
+  const chips = (list, cls) => list.slice(0, 5).map((t) => `<span class="chip ${cls}">${esc(t.term)}</span>`).join('');
   const said = rivals.length
     ? `<div class="rivals"><div class="lbl">Already replied (${rivals.length})</div>
+        ${read.crowded.length ? `<div class="reading">Everyone is promising ${chips(read.crowded, 'dull')}</div>` : ''}
+        ${read.gap.length ? `<div class="reading">Nobody has answered ${chips(read.gap, 'open')} <span class="sub">— the opening</span></div>` : ''}
         ${rivals.map((r) => `<div class="rival"><b>${esc(r.author || 'someone')}</b> ${esc(String(r.text || '').slice(0, 300))}</div>`).join('')}
        </div>`
     : '';
