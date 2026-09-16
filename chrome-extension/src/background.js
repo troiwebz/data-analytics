@@ -24,7 +24,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, log,
-  getStaged, setStaged, removeStagedByTab
+  getStaged, setStaged, removeStagedByTab, dedupeLeads
 } from './store.js';
 
 const FEED_ALARM = 'poll-feed';
@@ -115,6 +115,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // already in the database. Re-render when the wording has moved, rather than
   // waiting for someone to notice and press a button. No network, no cost.
   await refreshIfTemplatesChanged(cfg);
+  // Rows duplicated before leads were keyed by thread id.
+  const d = await dedupeLeads().catch(() => null);
+  if (d?.removed) await log(`removed ${d.removed} duplicate row(s)`);
 });
 
 /** A cheap fingerprint of everything that decides how a draft reads. */
@@ -366,8 +369,8 @@ export async function pollFeed() {
   // the lead is already saved, so it is never lost to a network blip.
   try {
     const t = await telegram.sendLeads(leads, cfg);
-    if (t.error) await log(`Telegram: ${t.sent} of ${leads.length} sent, then ${t.error}`, 'error');
-    else if (t.sent) await log(`Telegram: sent ${t.sent} lead(s)`);
+    if (t.error) await log(`Telegram: ${t.sent}/${leads.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
+    else if (t.sent) await log(`Telegram: ${t.sent} lead(s) as ${t.parts} message(s)`);
   } catch (e) { await log(`Telegram failed: ${e.message}`, 'error'); }
 
   if (cfg.webhookUrl) {
@@ -834,11 +837,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'tg-clear-token': await telegram.clearToken(); sendResponse(await telegram.status(await getConfig())); break;
       case 'tg-test':     sendResponse(await telegram.test(await getConfig()).catch((e) => ({ error: e.message }))); break;
-      case 'tg-send': {                              // resend one lead by hand
+      case 'tg-send': {                              // send one lead by hand
         const cfg = await getConfig();
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         if (!lead) { sendResponse({ error: 'lead not found' }); break; }
-        sendResponse(await telegram.sendLead(lead, cfg).then(() => ({ ok: true })).catch((e) => ({ error: e.message })));
+        const done = [];
+        sendResponse(await telegram
+          .sendLead(lead, { ...cfg, telegramEnabled: true }, { onPart: (n, e) => !e && done.push(n) })
+          .then(() => ({ ok: true, sent: done }))
+          .catch((e) => ({ error: e.message, sent: done })));
         break;
       }
       case 'test-alert': {                           // prove the banner and the sound work

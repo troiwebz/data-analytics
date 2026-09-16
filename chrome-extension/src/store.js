@@ -30,10 +30,63 @@ export async function isFirstRun() {
   return Object.keys(await getSeen()).length === 0;
 }
 
+/** What you decided about a lead. Re-finding a thread must never undo it. */
+const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'postUrl', 'decidedAt', 'priorContact', 'staged'];
+
+/**
+ * One row per thread, ever.
+ *
+ * "Load last 48h" forgets which threads have been seen and polls again, so
+ * everything already in the table came back as a second row - same thread,
+ * same time, listed twice. Leads are keyed by thread id now: a thread already
+ * known keeps what you decided about it and takes the newer parse of
+ * everything else.
+ */
 export async function recordLeads(leads) {
   const { [LEADS_KEY]: prev } = await chrome.storage.local.get(LEADS_KEY);
-  const next = [...leads, ...(prev || [])].slice(0, 500);
+  const byId = new Map();
+  for (const l of prev || []) byId.set(String(l.threadId), l);
+
+  const fresh = [];
+  for (const l of leads) {
+    const id = String(l.threadId);
+    const old = byId.get(id);
+    if (!old) { byId.set(id, l); fresh.push(l); continue; }
+    const keep = {};
+    for (const k of DECISIONS) if (old[k] !== undefined) keep[k] = old[k];
+    // A thread already decided on keeps that decision; a fresh find of an
+    // untouched thread is allowed to set its own status.
+    byId.set(id, { ...l, ...keep, foundAt: old.foundAt || l.foundAt });
+  }
+
+  // Newest first, by when we found it, and capped as before.
+  const next = [...byId.values()]
+    .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0))
+    .slice(0, 500);
   await chrome.storage.local.set({ [LEADS_KEY]: next });
+  return { added: fresh.length, merged: leads.length - fresh.length };
+}
+
+/** Collapse rows already duplicated before the keying above existed. */
+export async function dedupeLeads() {
+  const { [LEADS_KEY]: prev } = await chrome.storage.local.get(LEADS_KEY);
+  const rows = prev || [];
+  const byId = new Map();
+  for (const l of rows) {
+    const id = String(l.threadId);
+    const old = byId.get(id);
+    if (!old) { byId.set(id, l); continue; }
+    // Keep whichever copy carries a decision, so a duplicate cannot lose one.
+    const merged = { ...old, ...l };
+    for (const k of DECISIONS) {
+      if (old[k] !== undefined && old[k] !== '' && old[k] !== false) merged[k] = old[k];
+      if (l[k] !== undefined && l[k] !== '' && l[k] !== false) merged[k] = l[k];
+    }
+    byId.set(id, merged);
+  }
+  const next = [...byId.values()].sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+  if (next.length !== rows.length) await chrome.storage.local.set({ [LEADS_KEY]: next });
+  return { before: rows.length, after: next.length, removed: rows.length - next.length };
 }
 
 export async function getLeads() {

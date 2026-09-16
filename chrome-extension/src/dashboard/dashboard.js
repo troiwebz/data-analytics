@@ -296,6 +296,7 @@ function detail(l, staged, cfg) {
           <button class="go" data-act="senddm" data-id="${id}">✉️ Send PM now</button>
           `}
           <button data-act="copydm" data-id="${id}">📋 Copy</button>
+          <button data-act="tg" data-id="${id}" title="Send this lead to Telegram now, and say exactly what happened">✈️ Telegram</button>
           <button data-act="opendm" data-id="${id}">📝 Open filled</button>
           ${l.pmSent ? '' : `<button data-act="pmsent" data-id="${id}">✅ I sent it</button>`}
         </div>
@@ -421,6 +422,16 @@ async function rowAction(btn) {
   }
   if (act === 'undo')   { await chrome.runtime.sendMessage({ cmd: 'unmark', threadId: id }); return render(); }
   if (act === 'undopm') { await chrome.runtime.sendMessage({ cmd: 'unmark-pm', threadId: id }); return render(); }
+  if (act === 'tg') {
+    btn.disabled = true;
+    say(id, 'Sending to Telegram…', true);
+    const r = await chrome.runtime.sendMessage({ cmd: 'tg-send', threadId: id });
+    btn.disabled = false;
+    const got = (r?.sent || []).join(' and ');
+    return say(id, r?.error
+      ? `${got ? `Sent the ${got}. ` : ''}Telegram refused the rest — ${r.error}`
+      : `Sent the ${got || 'lead'} to Telegram.`, !r?.error);
+  }
   if (act === 'senddm') {
     if (!confirm(`Send this DM to ${lead.author} now?\n\nUnsolicited PMs are what BHW moderators act on — keep the volume low.`)) return;
     btn.disabled = true;

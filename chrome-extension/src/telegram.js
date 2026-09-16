@@ -82,31 +82,63 @@ const replyMessage = (lead) => {
  * failure on the second swallowed the first and the batch stopped - which is
  * why a lead could arrive as the public reply alone with nothing explaining it.
  */
-export async function sendLead(lead, cfg) {
+export async function sendLead(lead, cfg, { onPart } = {}) {
   const chatId = cfg.telegramChatId;
   if (!chatId) throw new Error('No Telegram chat id saved.');
   const what = cfg.telegramSend || 'both';
 
   const parts = [];
-  if (what !== 'reply') parts.push(pmMessage(lead));
-  if (what !== 'pm') parts.push(replyMessage(lead));
+  if (what !== 'reply') parts.push(['PM', pmMessage(lead)]);
+  if (what !== 'pm') parts.push(['public reply', replyMessage(lead)]);
 
-  let failure = null;
-  for (const text of parts.filter(Boolean)) {
+  const failed = [];
+  for (const [name, text] of parts) {
+    if (!text) continue;
     try {
       await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true });
-    } catch (e) { failure = failure || e; }
+      onPart?.(name, null);
+      continue;
+    } catch (e) {
+      // Telegram rejects a whole message over one bad tag. Losing half of a
+      // lead silently is how "it only sends the public reply" happened and
+      // stayed invisible, so say which half went and what Telegram said.
+      if (/pars|entit|tag|markup/i.test(e.message)) {
+        try {
+          // Better a PM with no formatting than no PM.
+          await call('sendMessage', { chat_id: chatId, text: stripTags(text), disable_web_page_preview: true });
+          onPart?.(name, null);
+          continue;
+        } catch { /* fall through to reporting the original */ }
+      }
+      failed.push(`${name}: ${e.message}`);
+      onPart?.(name, e);
+    }
   }
-  if (failure) throw failure;
+  if (failed.length) throw new Error(failed.join(' | '));
 }
+
+/** Last resort when Telegram will not accept the markup: send the words. */
+const stripTags = (html) => String(html)
+  .replace(/<\/?(b|i|u|s|a|code|pre|tg-spoiler|blockquote)\b[^>]*>/gi, '')
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+  .slice(0, LIMIT);
 
 export async function sendLeads(leads, cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId || !(await getToken())) return { sent: 0 };
-  let sent = 0, error = '';
+  let sent = 0, parts = 0;
+  const errors = [];
   for (const lead of leads.slice(0, MAX_PER_POLL)) {
-    try { await sendLead(lead, cfg); sent++; }
-    catch (e) { error = e.message; break; }        // one failure means stop, not retry
+    try {
+      await sendLead(lead, cfg, { onPart: () => parts++ });
+      sent++;
+    } catch (e) {
+      // One lead failing no longer stops the rest: they are unrelated, and
+      // stopping hid the failure behind "nothing else arrived".
+      errors.push(`"${String(lead.title || lead.threadId).slice(0, 40)}" ${e.message}`);
+      if (errors.length >= 3) break;               // systemic; stop hammering
+    }
   }
+  const error = errors.join(' · ');
   const skipped = Math.max(0, leads.length - MAX_PER_POLL);
   if (skipped) {
     try {
@@ -114,7 +146,7 @@ export async function sendLeads(leads, cfg) {
         text: `…and ${skipped} more on the dashboard.`, parse_mode: 'HTML' });
     } catch { /* the count is a nicety */ }
   }
-  return { sent, error, skipped };
+  return { sent, parts, error, skipped };
 }
 
 /** Prove the token and chat id work, from the Settings page. */

@@ -121,5 +121,39 @@ await T.setToken('1234567890:AAtesttoken');
 await C.clearKey();
 ok('removing the Claude key keeps the bot token', !!(await V.getSecret('telegram')) && !(await V.getKey()));
 
+// Telegram rejecting the PM used to lose it silently and stop the batch, so
+// only the public reply ever arrived. Both halves must be accounted for.
+globalThis.fetch = async (url, opts) => {
+  const body = JSON.parse(opts.body);
+  sent.push({ url: String(url), body });
+  // Refuse the PM once, the way Telegram refuses a message over one bad tag.
+  if (/PM to/.test(body.text) && body.parse_mode === 'HTML') {
+    return { ok: false, status: 400, json: async () => ({ ok: false, description: "Bad Request: can't parse entities" }) };
+  }
+  return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+};
+sent = [];
+const r2 = await T.sendLeads([lead('20')], cfg);
+ok('a refused PM is retried without formatting', sent.filter((m) => /PM to/.test(m.body.text)).length === 2,
+   String(sent.filter((m) => /PM to/.test(m.body.text)).length));
+ok('and the retry carries no parse mode', sent.filter((m) => /PM to/.test(m.body.text))[1].body.parse_mode === undefined);
+ok('the PM still arrives', /Portfolio and samples/.test(sent.filter((m) => /PM to/.test(m.body.text))[1].body.text));
+ok('and the lead counts as sent', r2.sent === 1 && !r2.error, JSON.stringify(r2));
+
+// A PM that fails even as plain text must be reported, and must not stop the rest.
+globalThis.fetch = async (url, opts) => {
+  const body = JSON.parse(opts.body);
+  sent.push({ url: String(url), body });
+  if (/PM to/.test(body.text)) return { ok: false, status: 400, json: async () => ({ ok: false, description: 'Forbidden: bot blocked' }) };
+  return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+};
+sent = [];
+const r3 = await T.sendLeads([lead('21'), lead('22')], cfg);
+ok('a hard failure names which half went wrong', /PM:/.test(r3.error), r3.error);
+ok('and says what Telegram said', /bot blocked/.test(r3.error), r3.error);
+ok('the public reply still goes out', sent.some((m) => /Public reply/.test(m.body.text)));
+ok('and the next lead is still attempted', sent.filter((m) => /Public reply/.test(m.body.text)).length === 2,
+   String(sent.filter((m) => /Public reply/.test(m.body.text)).length));
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
