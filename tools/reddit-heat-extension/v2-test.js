@@ -493,6 +493,72 @@ for (const s2 of V.AUDIT_KIT.steps) for (const f of ["do", "find", "note"]) asse
 assert.ok(!/\$|price|charge|email/i.test(JSON.stringify(V.AUDIT_KIT.report)), "the report template asks for money or an email");
 assert.match(V.AUDIT_KIT.rules.join(" "), /thread, not in a DM/);
 
+
+// ---- does this offer fit these people -----------------------------------
+const GBP = V.offer("gbp_audit");        // local search
+const CREATIVE = V.offer("creative_pack"); // instagram / tiktok
+const PLAN = V.offer("90_day_plan");     // channel "none", takes anyone
+const aRoom = (x) => V.TARGETS.find((t) => t.sub === x) || { sub: x, kind: "biz" };
+// the one that started this: founders have no Google Business Profile
+assert.strictEqual(V.audienceOf("roastmystartup"), "founder");
+assert.strictEqual(V.audienceFit(GBP, aRoom("roastmystartup")).ok, false);
+assert.match(V.audienceFit(GBP, aRoom("roastmystartup")).why, /founders and makers/);
+for (const s2 of ["SideProject", "indiehackers", "startups", "Business_Ideas"]) {
+  assert.strictEqual(V.audienceFit(GBP, aRoom(s2)).ok, false, "a local offer was allowed into r/" + s2);
+}
+// marketers are never a market, whatever the offer
+for (const o of [GBP, CREATIVE, PLAN]) {
+  for (const s2 of ["PPC", "SEO", "marketing", "GoogleAds", "agency"]) {
+    const f = V.audienceFit(o, aRoom(s2));
+    assert.strictEqual(f.ok, false, o.key + " was allowed into r/" + s2);
+    assert.match(f.why, /marketers and agencies/);
+  }
+}
+// a local offer does not belong to online stores or B2B either
+assert.strictEqual(V.audienceFit(GBP, aRoom("shopify")).ok, false);
+assert.strictEqual(V.audienceFit(GBP, aRoom("msp")).ok, false);
+// but it does belong everywhere a business has an address
+for (const s2 of ["Roofing", "medspa", "dentistry", "Contractor", "sweatystartup", "smallbusiness"]) {
+  assert.strictEqual(V.audienceFit(GBP, aRoom(s2)).ok, true, "a local offer was blocked from r/" + s2);
+}
+// a creative pack suits stores as well as local; a plain plan suits anyone
+assert.strictEqual(V.audienceFit(CREATIVE, aRoom("shopify")).ok, true);
+assert.strictEqual(V.audienceFit(PLAN, aRoom("msp")).ok, true);
+assert.strictEqual(V.audienceFit(PLAN, aRoom("shopify")).ok, true);
+// and the gate is a gate: it outranks every score the matrix could give
+const wrong = V.fitScore(GBP, aRoom("roastmystartup"), { brief: { verdict: { blocked: false }, counts: { survivedOffer: 9 } }, members: 500000 });
+assert.strictEqual(wrong.state, "red");
+assert.strictEqual(wrong.headline, "Wrong people");
+assert.ok(!V.fitChain(GBP, ["roastmystartup", "PPC", "shopify", "Roofing"].map(aRoom), {}).filter((c) => c.state !== "red").some((c) => c.sub !== "Roofing"), "a wrong-audience room reached the runnable list");
+
+// ---- finding rooms from the evidence ------------------------------------
+assert.ok(V.offerPhrases(GBP).some((p2) => /google business profile/i.test(p2)));
+assert.ok(V.offerPhrases(CREATIVE).some((p2) => /instagram|tiktok|creative/i.test(p2)));
+assert.ok(V.offerPhrases(GBP, true).length > V.offerPhrases(GBP).length, "widening added nothing");
+const disc = V.discoverRank([
+  { sub: "smallbusiness", survived: true, comments: 40, author: "a", permalink: "/1", title: "t1" },
+  { sub: "smallbusiness", survived: true, comments: 22, author: "b", permalink: "/2", title: "t2" },
+  { sub: "Roofing", survived: true, comments: 12, author: "a", permalink: "/3", title: "t3" },
+  { sub: "juststart", removed: true, author: "c", title: "t4" },
+  { sub: "juststart", removed: true, author: "c", title: "t5" },
+  { sub: "BrandNewRoom", survived: true, comments: 18, author: "e", permalink: "/6", title: "t6" },
+]);
+assert.strictEqual(disc.rows[0].sub, "smallbusiness", "ranked wrong: " + disc.rows.map((r) => r.sub).join(","));
+assert.strictEqual(disc.rows[0].posts, 2);
+assert.strictEqual(disc.rows[0].authors, 2);
+assert.strictEqual(disc.rows[0].rate, 100);
+// a room where every one was removed ranks below every room where one stood
+assert.strictEqual(disc.rows[disc.rows.length - 1].sub, "juststart");
+assert.ok(disc.rows.find((r) => r.sub === "juststart").score < 0);
+// rooms nobody listed are marked, and only suggested when something survived
+assert.deepStrictEqual(disc.newRooms, ["BrandNewRoom"]);
+assert.strictEqual(disc.rows.find((r) => r.sub === "BrandNewRoom").known, false);
+assert.strictEqual(disc.rows.find((r) => r.sub === "Roofing").known, true);
+// the best surviving post is kept per room, and a removed one never is
+assert.strictEqual(disc.rows[0].best.comments, 40);
+assert.strictEqual(disc.rows.find((r) => r.sub === "juststart").best, null);
+assert.match(V.discoverRank([]).verdict, /nobody has posted anything like this/);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);

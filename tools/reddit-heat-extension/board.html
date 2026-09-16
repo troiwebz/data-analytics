@@ -259,6 +259,7 @@
   </section>
 
   <section id="fit">
+    <div class="note"><b>Where has this already worked?</b> searches Reddit for the exact offer you mean to make, groups what comes back by room, and ranks by how many of those posts are <b>still standing</b> — not by how many were posted. Rooms nobody thought to put on a list show up marked <b>new</b>, and one click adds them. Evidence beats any list I could write.</div>
     <div class="note">Every offer against every room in this campaign. <b>Green</b> means the rules allow it, the room has let posts like it stand, and we have not been there with this offer. <b>Amber</b> means we already ran it there, or everything like it was removed. <b>Red</b> means the rules block us, the room takes no posts at all, or this offer has been pulled too often to keep running. A day whose room turns out to be closed walks along its offer's row to the next green cell instead of being lost.</div>
     <div class="bar">
       <button class="act" id="readAll">Read every room in this campaign</button>
@@ -266,6 +267,14 @@
       <label class="f"><input type="checkbox" id="readForce"> re-read ones already done</label>
       <span id="readLive" class="faint"></span>
     </div>
+    <div class="bar">
+      <label class="f">find rooms for <select id="findOffer"></select></label>
+      <button class="act" id="findGo">Where has this already worked?</button>
+      <button class="ghost" id="findStop" style="display:none">Stop</button>
+      <label class="f"><input type="checkbox" id="findWide"> widen it with generic phrases</label>
+      <span id="findLive" class="faint"></span>
+    </div>
+    <div id="findBody"></div>
     <div id="fitBody"></div>
   </section>
 

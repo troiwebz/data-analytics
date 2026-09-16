@@ -1438,6 +1438,12 @@ V2.fitScore = function (offer, room, opts = {}) {
   }
   if (!V2.postable(room)) return { state: "red", score: 0, allowed: false, why: ["this room does not take an offer post at all"], headline: "Answer here, never post" };
 
+  // 1b. do these people even own the thing the offer is about. This is a gate
+  // and not a score, because no amount of word overlap makes a Google Business
+  // Profile audit meaningful to a room full of startup founders.
+  const aud = V2.audienceFit(offer, room);
+  if (!aud.ok) return { state: "red", score: 0, allowed: false, why: [aud.why], headline: "Wrong people" };
+
   // 2. have we already been here with this offer
   if (used) {
     if (used.removed) return { state: "red", score: 0, allowed: false, why: ["we ran this offer here and it was removed"], headline: "Removed here before" };
@@ -1989,4 +1995,129 @@ V2.tierScore = function (p, opts = {}) {
   const c = V2.countryOf([p.title, p.body, p.text].filter(Boolean).join(" \n "), p.sub);
   const only = opts.tier1Only;
   return { ...c, keep: !only || c.tier1 === true || (c.tier1 === null && !opts.strict) };
+};
+
+// ------------------------------------------ does this offer fit these people
+// A Google Business Profile audit offered to r/roastmystartup is nonsense:
+// those are founders with a product and no shopfront, and not one of them has
+// a profile to audit. Word overlap never catches that, so the audience is now
+// a gate of its own — asked before any score is calculated.
+V2.AUDIENCES = {
+  local: { name: "a business with an address or a service area", has: "a Google Business Profile, a map pin and a catchment" },
+  ecom: { name: "an online store", has: "a catalogue, a cart and paid traffic" },
+  b2b: { name: "a business selling to other businesses", has: "long cycles, few large contracts, no walk-ins" },
+  founder: { name: "founders and makers", has: "a product, an idea, and usually no customers yet" },
+  pro: { name: "marketers and agencies", has: "accounts of their own, and nothing to sell us" },
+  mixed: { name: "a bit of everything", has: "no single shape" },
+};
+// The rooms whose audience is not what their kind would suggest.
+V2.ROOM_AUDIENCE = {
+  roastmystartup: "founder", SideProject: "founder", indiehackers: "founder", startups: "founder",
+  Business_Ideas: "founder", SaaS: "b2b", microsaas: "founder", buildinpublic: "founder",
+  ecommerce: "ecom", shopify: "ecom", shopifystore: "ecom", dropship: "ecom", Etsy: "ecom",
+  FulfillmentByAmazon: "ecom", AmazonSeller: "ecom", AmazonPPC: "ecom", EcommerceMarketing: "ecom", ecommercemarketing: "ecom",
+  msp: "b2b", sysadmin: "b2b", ITManagers: "b2b", staffing: "b2b", recruiting: "b2b", consulting: "b2b",
+  logistics: "b2b", Manufacturing: "b2b", humanresources: "b2b", B2BForHire: "b2b", CommercialCleaning: "b2b",
+  PPC: "pro", GoogleAds: "pro", FacebookAds: "pro", adwords: "pro", SEO: "pro", bigseo: "pro", TechSEO: "pro",
+  marketing: "pro", DigitalMarketing: "pro", advertising: "pro", AskMarketing: "pro", agency: "pro",
+  copywriting: "pro", adops: "pro", programmatic: "pro", GrowthHacking: "pro", socialmedia: "pro",
+  SocialMediaMarketing: "pro", content_marketing: "pro", Affiliatemarketing: "pro", juststart: "pro",
+  freelance: "pro", webdev: "pro", analyticsengineering: "pro", BusinessIntelligence: "pro", juniordev: "pro",
+  LocalSEO: "pro", GoogleBusinessProfile: "mixed", smallbusiness: "mixed", smallbusinessadvice: "mixed",
+  sweatystartup: "local", growmybusiness: "mixed", solopreneur: "mixed", business: "mixed",
+  Entrepreneur: "mixed", EntrepreneurRideAlong: "mixed", Entrepreneurship: "mixed", Franchising: "local",
+  smallbusinessUK: "mixed", smallbusinesscanada: "mixed", AusSmallBusiness: "mixed",
+  forhire: "mixed", DoneDirtCheap: "mixed", Slavelabour: "mixed", hiring: "mixed", jobbit: "mixed",
+  conversionoptimization: "pro", landingpage: "pro", landingpages: "pro", Emailmarketing: "pro",
+  Emailmarketinghelp: "pro", Emailmarketingtips: "pro", MarketingAutomation: "pro", hubspot: "pro",
+  YouTubeAds: "pro", TikTokAds: "pro", InstagramMarketing: "pro", FacebookAdvertising: "pro",
+  PPCHelp: "pro", PPCMastery: "pro", SEOhelp: "pro", seogrowth: "pro", analytics: "pro",
+  GoogleAnalytics: "pro", GoogleTagManager: "pro", Wordpress: "mixed", InsuranceProfessional: "local",
+};
+V2.audienceOf = function (room) {
+  if (!room) return "mixed";
+  const sub = typeof room === "string" ? room : room.sub;
+  if (V2.ROOM_AUDIENCE[sub]) return V2.ROOM_AUDIENCE[sub];
+  const kind = typeof room === "string" ? (V2.TARGETS.find((t) => t.sub === sub) || {}).kind : room.kind;
+  return kind === "owner" ? "local" : kind === "ads" ? "pro" : "mixed";
+};
+// What an offer needs its reader to own. Anything not listed will take anyone.
+V2.OFFER_NEEDS = {
+  local_seo: ["local", "mixed"],
+  meta_ads: ["local", "ecom", "mixed", "b2b"],
+  instagram_tiktok: ["local", "ecom", "mixed"],
+  google_ads_seo: ["local", "ecom", "b2b", "mixed"],
+  none: null,
+};
+V2.audienceFit = function (offer, room) {
+  const aud = V2.audienceOf(room);
+  const needs = V2.OFFER_NEEDS[(offer && offer.channel) || "none"];
+  const sub = typeof room === "string" ? room : room.sub;
+  if (aud === "pro") {
+    return { ok: false, aud,
+      why: "r/" + sub + " is marketers and agencies — they run their own accounts and are not going to hire us. Answer there, never offer." };
+  }
+  if (!needs) return { ok: true, aud, why: "" };
+  if (needs.includes(aud)) return { ok: true, aud, why: "" };
+  const has = (V2.AUDIENCES[aud] || {}).has || "";
+  const wants = (offer.channel || "").replace(/_/g, " ");
+  return { ok: false, aud,
+    why: "r/" + sub + " is " + (V2.AUDIENCES[aud] || {}).name + (has ? " — " + has : "") + ", so a " + wants + " offer has nothing to land on there" };
+};
+
+// ------------------------------------ finding the rooms from the evidence
+// Better than any list we could write: search Reddit for the offer we intend
+// to make, see where people have already made it, and count how many of
+// those posts are still standing. The rooms that come back are the rooms
+// where this works — including ones nobody thought to put on a list.
+V2.OFFER_PHRASES = {
+  local_seo: ["free google business profile audit", "free GBP audit", "free local seo audit", "free google maps audit",
+    "drop your google maps link", "free map pack audit", "I will audit your google business profile"],
+  google_ads_seo: ["free google ads audit", "free ppc audit", "free adwords audit", "free seo audit",
+    "free landing page teardown", "free landing page review", "drop your website and I will"],
+  meta_ads: ["free facebook ads audit", "free meta ads audit", "free ad account audit",
+    "free ad account teardown", "I will review your facebook ads"],
+  instagram_tiktok: ["free instagram audit", "free tiktok audit", "free ad creative review",
+    "free creatives for your brand", "I will review your instagram"],
+  none: ["free marketing plan", "free growth plan", "free 90 day plan", "free marketing audit"],
+};
+V2.GENERIC_PHRASES = ["free audit", "drop your link and I will", "I will audit", "offering free audits", "free teardown"];
+V2.offerPhrases = function (offer, wide) {
+  const own = V2.OFFER_PHRASES[(offer && offer.channel) || "none"] || V2.OFFER_PHRASES.none;
+  return wide ? own.concat(V2.GENERIC_PHRASES) : own;
+};
+// Group what came back by room, and rank by what survived rather than by how
+// many were posted — ten removed posts is a warning, not a recommendation.
+V2.discoverRank = function (hits, known) {
+  const by = {};
+  for (const h of hits || []) {
+    if (!h || !h.sub) continue;
+    const b = (by[h.sub] = by[h.sub] || { sub: h.sub, posts: 0, survived: 0, removed: 0, comments: 0, best: null, authors: {} });
+    b.posts += 1;
+    if (h.removed) b.removed += 1;
+    if (h.survived) b.survived += 1;
+    b.comments += h.comments || 0;
+    if (h.author) b.authors[h.author] = 1;
+    if (!h.removed && (!b.best || (h.comments || 0) > (b.best.comments || 0))) b.best = h;
+  }
+  const rows = Object.values(by).map((b) => {
+    const t = V2.TARGETS.find((x) => x.sub.toLowerCase() === b.sub.toLowerCase());
+    return {
+      ...b, authors: Object.keys(b.authors).length,
+      known: !!t, kind: t ? t.kind : "", promo: t ? t.promo : "",
+      audience: V2.audienceOf(t || b.sub),
+      rate: b.posts ? Math.round((b.survived / b.posts) * 100) : 0,
+      avg: b.posts ? Math.round(b.comments / b.posts) : 0,
+      score: b.survived * 10 + Math.min(b.comments, 200) / 4 - b.removed * 6 + Object.keys(b.authors).length * 2,
+    };
+  });
+  rows.sort((a, b) => b.score - a.score);
+  return {
+    rows,
+    found: rows.length,
+    newRooms: rows.filter((r) => !r.known && r.survived > 0).map((r) => r.sub),
+    verdict: rows.length
+      ? rows.filter((r) => r.survived > 0).length + " rooms have let a post like this stand, and " + rows.filter((r) => !r.known && r.survived > 0).length + " of them are not in the room list yet"
+      : "nobody has posted anything like this anywhere Reddit will show us — which is either an opening or a warning",
+  };
 };

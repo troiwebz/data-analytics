@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, ideas: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, ideas: [], extraRooms: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -23,6 +23,12 @@ function v2Settings(st) {
 // same pass applies whatever the rules scraper learned about each room.
 function v2Apply(st) {
   V2.POOL = Array.isArray(st.pool) ? st.pool : [];
+  // rooms found by searching for the offer itself, added by hand from the Fit
+  // tab. They behave exactly like the shipped ones once they are in.
+  for (const r of st.extraRooms || []) {
+    if (!r || !r.sub || V2.TARGETS.some((t) => t.sub.toLowerCase() === r.sub.toLowerCase())) continue;
+    V2.TARGETS.push({ sub: r.sub, kind: r.kind || "biz", promo: r.promo || "value", note: r.note || "found by searching for this offer", found: true });
+  }
   for (const [sub, info] of Object.entries(st.targets || {})) {
     if (!info || !info.promo) continue;
     const t = V2.TARGETS.find((x) => x.sub === sub);
@@ -995,6 +1001,59 @@ async function v2IdeaToPlan(id) {
   return { ok: true, n: free.n, sub: free.sub, at: free.at, typeName: type.name };
 }
 
+// ------------------------------------- finding rooms from the evidence
+// Rather than trusting a list, search Reddit for the offer we intend to make
+// and see where people have already made it. Groups by room, counts what
+// survived, and marks the ones nobody thought to put on a list.
+async function v2Discover(offerKey, wide) {
+  const st = await v2Get();
+  v2Apply(st);
+  const offer = V2.offer(offerKey);
+  const phrases = V2.offerPhrases(offer, !!wide);
+  const hits = [];
+  const seen = {};
+  let i = 0;
+  await chrome.storage.local.set({ v2Find: { running: true, total: phrases.length, done: 0, where: "", stop: false } });
+  for (const q of phrases) {
+    const { v2Find: f = {} } = await chrome.storage.local.get(["v2Find"]);
+    if (f.stop) break;
+    i += 1;
+    await chrome.storage.local.set({ v2Find: { running: true, total: phrases.length, done: i, where: '"' + q + '"', stop: false } });
+    for (const t of ["year", "all"]) {
+      try {
+        const j = await huntFetch(`https://old.reddit.com/search.json?q=${encodeURIComponent('"' + q + '"')}&sort=top&t=${t}&limit=100&raw_json=1`);
+        for (const c of ((j && j.data && j.data.children) || [])) {
+          const d = (c && c.data) || {};
+          if (!d.id || seen[d.id]) continue;
+          seen[d.id] = 1;
+          const hit = V2.classifyPromoPost(d, Date.now());
+          if (hit) hits.push({ ...hit, phrase: q });
+        }
+      } catch (_) { /* one window failing is not the run failing */ }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+  await chrome.storage.local.set({ v2Find: { running: false, total: phrases.length, done: i, where: "", stop: false } });
+  const out = V2.discoverRank(hits);
+  const finds = { ...(st.finds || {}), [offer.key]: { ...out, at: Date.now(), phrases, offer: offer.name, read: hits.length } };
+  await v2Set({ finds });
+  return { ok: true, offer: offer.name, key: offer.key, read: hits.length, phrases: phrases.length, ...out };
+}
+
+// Put a discovered room into the list so the calendar can use it.
+async function v2AddRoom(sub, kind, promo, note) {
+  const st = await v2Get();
+  const clean = String(sub || "").replace(/^\/?r\//, "").trim();
+  if (!clean) return { ok: false, error: "no room named" };
+  v2Apply(st);
+  if (V2.TARGETS.some((t) => t.sub.toLowerCase() === clean.toLowerCase())) return { ok: true, already: true };
+  const extraRooms = [...(st.extraRooms || []), { sub: clean, kind: kind || "biz", promo: promo || "value", note: note || "found by searching for this offer" }];
+  await v2Set({ extraRooms });
+  // read it straight away, so it is never used on a guess
+  try { await v2RoomBrief(clean, true); } catch (_) { /* the Fit tab will say it is unread */ }
+  return { ok: true, sub: clean, total: extraRooms.length };
+}
+
 // ------------------------------------------------- reading every room at once
 // One room takes about twelve seconds. Sixteen is three minutes, once, and
 // after that nobody has to wonder which of them were never going to work.
@@ -1276,6 +1335,11 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-brief-all": return go(v2BriefAll(msg.subs, !!msg.force));
     case "v2-brief-all-state": return go(chrome.storage.local.get(["v2All"]).then((x) => x.v2All || { running: false }));
     case "v2-brief-all-stop": return go(chrome.storage.local.get(["v2All"]).then((x) => chrome.storage.local.set({ v2All: { ...(x.v2All || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-discover": return go(v2Discover(msg.key, !!msg.wide));
+    case "v2-discover-state": return go(chrome.storage.local.get(["v2Find"]).then((x) => x.v2Find || { running: false }));
+    case "v2-discover-stop": return go(chrome.storage.local.get(["v2Find"]).then((x) => chrome.storage.local.set({ v2Find: { ...(x.v2Find || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-discover-last": return go(v2Get().then((st) => ({ ok: true, find: (st.finds || {})[msg.key] || null })));
+    case "v2-add-room": return go(v2AddRoom(msg.sub, msg.kind, msg.promo, msg.note));
     case "v2-fit": return go(v2Fit(msg.key, msg.opts || {}));
     case "v2-matrix": return go(v2Matrix());
     case "v2-fallback-all": return go(v2FallbackAll());

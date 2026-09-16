@@ -612,6 +612,7 @@ $("#checkStop").onclick = () => { send({ type: "v2-check-stop" }); say("stopping
 // ------------------------------------------------------------- the fit matrix
 const CELL_TITLE = (c) => `r/${c.sub} — ${c.headline}${c.why && c.why.length ? ": " + c.why.join("; ") : ""}`;
 async function drawFit() {
+  await fillFindOffers();
   const m = await send({ type: "v2-matrix" });
   if (!m || !m.ok) return;
   if (!m.rows.length) { $("#fitBody").innerHTML = `<div class="card"><h3>No offers ticked</h3><div class="faint">Tick some on the Offers tab.</div></div>`; return; }
@@ -642,6 +643,61 @@ $("#readAll").onclick = async () => {
   }, 700);
 };
 $("#readStop").onclick = () => { send({ type: "v2-brief-all-stop" }); say("stopping after this room…"); };
+
+// ----------------------------- where has this offer already worked
+async function fillFindOffers() {
+  const o = await send({ type: "v2-offers" });
+  if (!o || !o.ok) return;
+  const all = (o.shipped || []).concat(o.pool || []);
+  const cur = $("#findOffer").value;
+  $("#findOffer").innerHTML = all.map((x) => `<option value="${esc(x.key)}" ${x.key === cur ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+}
+function drawFind(f) {
+  if (!f) { $("#findBody").innerHTML = ""; return; }
+  const row = (r) => `<tr class="${r.survived ? "" : "done"}">
+    <td><a href="https://www.reddit.com/r/${esc(r.sub)}/" target="_blank">r/${esc(r.sub)}</a>
+      ${r.known ? "" : `<span class="tag t-magnet" style="margin-left:6px">new</span>`}</td>
+    <td><b style="color:${r.survived ? "var(--go)" : "var(--warn)"}">${r.survived}</b> of ${r.posts}</td>
+    <td class="faint">${r.rate}%</td>
+    <td>${r.avg}</td>
+    <td class="faint">${r.authors}</td>
+    <td class="faint">${esc(r.audience === "pro" ? "marketers — answer only" : (V2.AUDIENCES[r.audience] || {}).name || r.audience)}</td>
+    <td>${r.best ? `<a href="${esc(r.best.permalink)}" target="_blank">${esc(String(r.best.title).slice(0, 70))}</a><div class="faint">${r.best.comments} comments</div>` : `<span class="faint">none stood</span>`}</td>
+    <td>${r.known ? `<button class="ghost" data-fb="${esc(r.sub)}">read it</button>` : r.survived > 0 ? `<button class="act" data-add="${esc(r.sub)}">add it</button>` : ""}</td></tr>`;
+  $("#findBody").innerHTML = `<div class="card">
+    <h3>${esc(f.offer || "")} — ${esc(f.verdict)}</h3>
+    <div class="faint">${f.read} posts read across ${f.phrases ? f.phrases.length || f.phrases : "several"} phrases. Ranked by what is still standing, not by how many were posted.</div>
+    ${f.rows.length ? `<table style="margin-top:10px"><thead><tr><th style="width:190px">Room</th><th style="width:96px">Stood</th><th style="width:70px">Rate</th><th style="width:90px">Avg comm</th><th style="width:76px">People</th><th style="width:210px">Who is in there</th><th>Best one still up</th><th style="width:96px"></th></tr></thead>
+      <tbody>${f.rows.map(row).join("")}</tbody></table>`
+      : `<div class="faint" style="margin-top:8px">Nothing came back. Either this offer is genuinely untried on Reddit, or the phrasing is too narrow — tick <b>widen it</b> and run it again.</div>`}
+    </div>`;
+  $$("#findBody button[data-add]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    say(`adding r/${b.dataset.add} and reading its rules…`);
+    const r = await send({ type: "v2-add-room", sub: b.dataset.add, note: "found by searching for this offer" });
+    say(r && r.ok ? (r.already ? "already in the list" : `r/${r.sub} added and read — it is in the matrix now`) : "could not add it", "var(--go)");
+    drawFit(); drawFind(f);
+  });
+  $$("#findBody button[data-fb]").forEach((b) => b.onclick = () => showBrief(b.dataset.fb, false, "#findBody"));
+}
+$("#findGo").onclick = async () => {
+  const key = $("#findOffer").value;
+  if (!key) return say("pick an offer first", "var(--warn)");
+  $("#findGo").disabled = true; $("#findStop").style.display = "";
+  send({ type: "v2-discover", key, wide: $("#findWide").checked }).then((r) => {
+    $("#findGo").disabled = false; $("#findStop").style.display = "none"; $("#findLive").textContent = "";
+    if (!r || !r.ok) return say((r && r.error) || "could not search", "var(--warn)");
+    say(r.verdict, r.newRooms.length ? "var(--go)" : "var(--dim)");
+    drawFind(r);
+  });
+  const tick = setInterval(async () => {
+    const st = await send({ type: "v2-discover-state" });
+    if (!st || !st.running) { clearInterval(tick); return; }
+    $("#findLive").textContent = `${esc(st.where)} · ${st.done} of ${st.total}`;
+  }, 700);
+};
+$("#findStop").onclick = () => { send({ type: "v2-discover-stop" }); say("stopping…"); };
+$("#findOffer").onchange = async () => { const r = await send({ type: "v2-discover-last", key: $("#findOffer").value }); drawFind(r && r.find); };
 
 // ------------------------------------------------------------------ ideas
 async function drawIdeas(force, seed, engine) {
