@@ -16,7 +16,7 @@ async function v2Set(patch) {
   return next;
 }
 function v2Settings(st) {
-  return { auto: false, campaign: "", perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, dailyBudget: 7, ...(st.settings || {}) };
+  return { auto: false, campaign: "", perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, dailyBudget: 7, engine: "free", tier1Only: true, ...(st.settings || {}) };
 }
 // Offers written in the studio live in storage, not in the shipped list, so
 // they are merged back onto V2 before anything resolves an offer key. The
@@ -164,7 +164,7 @@ async function v2Ai(system, user, schema, maxTokens, label, job) {
   return { ok: true, parsed, cents, model, cached: u.cache_read_input_tokens || 0 };
 }
 
-async function v2Draft(n, force) {
+async function v2Draft(n, force, engine) {
   const st = await v2Get();
   v2Apply(st);
   const row = (st.plan || []).find((r) => r.n === Number(n));
@@ -173,6 +173,20 @@ async function v2Draft(n, force) {
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const profile = config.profile || {};
   const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub, kind: row.kind, promo: row.promo, note: "" };
+  const how = engine || v2Settings(st).engine;
+  // the free engine assembles the post from templates and the offer, costs
+  // nothing, and is checked by exactly the same gate as the written one
+  if (how === "free") {
+    const camp = V2.campaign(v2Settings(st).campaign);
+    const seed = row.sub + "|" + row.typeKey + "|" + row.offerKey + "|" + (force === true ? Date.now() : (st.drafts[n] ? st.drafts[n].at : 0));
+    const made = V2.freePost({ room: target, offer: V2.offer(row.offerKey), type: row.typeKey, profile, campaign: camp, seed });
+    const out = { ...made, why_this_sub: "assembled for this room from the template bank", risk: "none", at: Date.now(), model: "free", cents: 0 };
+    out.issues = V2.postChecks(out, target, row.typeKey);
+    st.drafts[n] = out;
+    if (row.state !== "posted") row.state = "drafted";
+    await v2Set({ drafts: st.drafts, plan: st.plan });
+    return { ok: true, draft: out, issues: out.issues, free: true };
+  }
   const system = V2.postSystem(profile);
   let extra = typeof force === "string" && force !== "true" ? force : "";
   let out = null, issues = [];
@@ -606,7 +620,9 @@ async function v2LeadPoll() {
       const body = String(d.body || "").replace(/\s+/g, " ").trim();
       const buyer = V2.classifyBuyer(body, "", p.sub);
       if (st.leads[id]) { st.leads[id].body = body || st.leads[id].body; continue; }
+      const where = V2.tierScore({ title: "", body, sub: p.sub }, {});
       st.leads[id] = { id, author, body, at: (d.created_utc || 0) * 1000 || Date.now(), postN: p.n, sub: p.sub, offerKey: p.offerKey,
+        country: where.key || "", countryName: where.name || "", tier1: where.tier1 === true,
         permalink: "https://www.reddit.com" + String(d.permalink || ""), tier: buyer.tier, badge: buyer.badge || "raised hand", why: buyer.why, state: "new" };
       added += 1;
     }
@@ -843,16 +859,75 @@ async function v2Shape(sub, force) {
   return { ok: true, shape: out, issues };
 }
 
+// ------------------------------------------- writing it somewhere else
+// The cheapest model is the one already paid for. These two hand the exact
+// prompt out to be pasted into a Claude conversation, and take the answer
+// back — same checks, same gate, no API call at all.
+async function v2Prompt(n) {
+  const st = await v2Get();
+  v2Apply(st);
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row || !row.sub) return { ok: false, error: "that day is not on the plan" };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub };
+  const shape = ((st.briefs || {})[row.sub] || {}).shape || null;
+  const extra = row.fromIdea ? "This post was chosen from a brainstorm. Write up this idea in particular, keeping its angle, and use this as the title unless it breaks a rule above: \"" + row.fromIdea.title + "\"" : "";
+  const text = [
+    V2.postSystem(profile),
+    "",
+    "---",
+    "",
+    V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }),
+    "",
+    "---",
+    "",
+    "Answer with nothing but JSON in exactly this shape:",
+    JSON.stringify({ title: "", body: "", first_comment: "", why_this_sub: "", risk: "" }, null, 2),
+  ].join("\n");
+  return { ok: true, text, n: row.n, sub: row.sub };
+}
+async function v2Paste(n, text) {
+  const st = await v2Get();
+  v2Apply(st);
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false, error: "no such day" };
+  const raw = String(text || "").trim();
+  // a pasted answer usually arrives wrapped in a code fence or a sentence
+  const body = raw.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const start = body.indexOf("{"), end = body.lastIndexOf("}");
+  let parsed = null;
+  try { parsed = JSON.parse(start >= 0 && end > start ? body.slice(start, end + 1) : body); } catch (_) {
+    return { ok: false, error: "that did not contain JSON — copy the whole answer, braces and all" };
+  }
+  if (!parsed || !parsed.title || !parsed.body) return { ok: false, error: "the JSON has no title or body in it" };
+  const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub };
+  const out = { title: String(parsed.title), body: String(parsed.body), first_comment: String(parsed.first_comment || ""),
+    why_this_sub: String(parsed.why_this_sub || ""), risk: String(parsed.risk || ""), at: Date.now(), model: "pasted", cents: 0 };
+  out.issues = V2.postChecks(out, target, row.typeKey);
+  st.drafts[row.n] = out;
+  if (row.state !== "posted") row.state = "drafted";
+  await v2Set({ drafts: st.drafts, plan: st.plan });
+  return { ok: true, draft: out, issues: out.issues };
+}
+
 // ------------------------------------------------------------------ ideas
 // Brainstorm first, then let the fit matrix say where each one belongs. The
 // ideas themselves run on the cheapest model — quantity is the point, and the
 // one you pick gets written properly afterwards by the better one.
-async function v2Ideas(seed, force) {
+async function v2Ideas(seed, force, engine) {
   const st = await v2Get();
   v2Apply(st);
   if ((st.ideas || []).length && !force && !seed) return { ok: true, ideas: st.ideas, seed: st.ideaSeed || "", cached: true };
   const { config = {} } = await chrome.storage.local.get(["config"]);
   const camp = V2.campaign(v2Settings(st).campaign);
+  const how = engine || v2Settings(st).engine;
+  if (how === "free") {
+    const list = V2.freeIdeas(camp, String(seed || "") + "|" + (force ? Date.now() : ""));
+    await v2IdeaRooms(st, list, camp);
+    await v2Set({ ideas: list, ideaSeed: String(seed || st.ideaSeed || ""), ideasAt: Date.now() });
+    return { ok: true, ideas: list, issues: V2.ideaChecks(list), cents: 0, free: true, campaign: camp ? camp.name : "" };
+  }
   let extra = "", list = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await v2Ai(V2.ideaSystem(config.profile || {}), V2.ideaUser(seed, camp, config.profile || {}) + (extra ? "\n\n" + extra : ""),
@@ -864,27 +939,33 @@ async function v2Ideas(seed, force) {
     extra = "Your last set was rejected: " + issues.join("; ") + ".";
   }
   if (!list || !list.length) return { ok: false, error: "no ideas came back" };
-  // each idea already knows what kind of room it wants; the matrix says which
-  // actual room that is, and only ever names one we are allowed to post in
+  await v2IdeaRooms(st, list, camp);
+  await v2Set({ ideas: list, ideaSeed: String(seed || st.ideaSeed || ""), ideasAt: Date.now() });
+  return { ok: true, ideas: list, issues, cents: list.cents || 0, campaign: camp ? camp.name : "" };
+}
+
+// Each idea already knows what kind of room it wants; the matrix says which
+// actual room that is, and only ever names one we are allowed to post in.
+async function v2IdeaRooms(st, list, camp) {
   const ledger = v2Ledger(st);
   const health = v2Health(st, ledger);
   const rooms = camp ? V2.campaignRooms(camp) : V2.TARGETS.filter(V2.postable);
   const picked = v2Settings(st).offers;
   const offers = (picked && picked.length ? picked : V2.allOffers().map((o) => o.key)).map(V2.offer);
+  const offer = offers.find((o) => (o.channel || "") !== "none") || offers[0];
+  const chain = V2.fitChain(offer, rooms, { briefs: st.briefs || {}, ledger, checked: st.targets || {}, health,
+    campaignRooms: rooms.map((t) => t.sub), campaignNiche: camp ? camp.niche : "" });
+  const ok = chain.filter((c) => c.state === "green" || c.state === "grey");
+  const used = new Set();
   for (const idea of list) {
-    const offer = offers.find((o) => (o.channel || "") !== "none") || offers[0];
-    const chain = V2.fitChain(offer, rooms, { briefs: st.briefs || {}, ledger, checked: st.targets || {}, health,
-      campaignRooms: rooms.map((t) => t.sub), campaignNiche: camp ? camp.niche : "" });
-    // prefer a room of the kind the idea asked for, then anything runnable
-    const ok = chain.filter((c) => c.state === "green" || c.state === "grey");
-    const best = ok.find((c) => c.kind === idea.kind) || ok[0] || null;
+    const want = ok.filter((c) => !used.has(c.sub));
+    const best = want.find((c) => c.kind === idea.kind) || want[0] || ok.find((c) => c.kind === idea.kind) || ok[0] || null;
+    if (best) used.add(best.sub);
     idea.room = best ? best.sub : "";
     idea.roomState = best ? best.state : "";
     idea.roomWhy = best ? (best.why || [])[0] || "" : "nothing in this campaign will take a post right now";
     idea.offerKey = idea.magnet ? offer.key : "";
   }
-  await v2Set({ ideas: list, ideaSeed: String(seed || st.ideaSeed || ""), ideasAt: Date.now() });
-  return { ok: true, ideas: list, issues, cents: list.cents || 0, campaign: camp ? camp.name : "" };
 }
 
 // Put one idea on the calendar: the next free day, in the room the matrix
@@ -1094,10 +1175,14 @@ async function v2Scan(force) {
       if (queue[d.id]) continue;
       const cls = V2.classifyBuyer(d.title, d.selftext, d.subreddit);
       if (!cls.keep) continue;
+      // a lead is only worth having if the money behind it is
+      const where = V2.tierScore({ title: d.title, body: d.selftext, sub: d.subreddit }, { tier1Only: v2Settings(st).tier1Only });
+      if (!where.keep) continue;
       queue[d.id] = { id: d.id, author: d.author, sub: d.subreddit, title: String(d.title || "").slice(0, 300), body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 4000),
         permalink: "https://www.reddit.com" + String(d.permalink || ""), created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0,
         tier: cls.tier + (u.question ? 1 : 0), badge: cls.badge, why: u.question ? "one of the questions this niche asks over and over — holding the top answer here pays for months" : cls.why,
-        amount: cls.amount || "", found: u.why, question: !!u.question, state: "new" };
+        amount: cls.amount || "", found: u.why, question: !!u.question, state: "new",
+        country: where.key || "", countryName: where.name || "", tier1: where.tier1 === true };
       found += 1;
     }
     await new Promise((r) => setTimeout(r, force ? 700 : 1200));
@@ -1117,7 +1202,9 @@ async function v2QueueList(limit) {
     .sort((a, b) => (b.tier - a.tier) || (b.created - a.created))
     .slice(0, limit || 60);
   const all = Object.values(st.queue || {});
-  return { ok: true, rows, total: all.length, tiers: { spending: all.filter((p) => p.badge === "spending").length, owner: all.filter((p) => p.badge === "owner").length, asking: all.filter((p) => p.badge === "asking").length }, lastScan: st.lastScan || 0 };
+  return { ok: true, rows, total: all.length,
+    tiers: { spending: all.filter((p) => p.badge === "spending").length, owner: all.filter((p) => p.badge === "owner").length, asking: all.filter((p) => p.badge === "asking").length },
+    tier1: all.filter((p) => p.tier1).length, lastScan: st.lastScan || 0, tier1Only: v2Settings(st).tier1Only };
 }
 
 async function v2Answer(id, force) {
@@ -1161,7 +1248,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-board": return go(v2Board());
     case "v2-plan": return go(v2Plan(msg.opts || {}));
     case "v2-settings": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), ...(msg.settings || {}) } })).then(() => ({ ok: true })));
-    case "v2-draft": return go(v2Draft(msg.n, msg.force));
+    case "v2-draft": return go(v2Draft(msg.n, msg.force, msg.engine));
     case "v2-draft-save": return go(v2DraftSave(msg.n, msg.patch || {}));
     case "v2-open": return go(v2Open(msg.n, !!msg.force));
     case "v2-pending": return go(v2Pending().then((p) => p || { none: true }));
@@ -1176,7 +1263,12 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
-    case "v2-ideas": return go(v2Ideas(msg.seed, !!msg.force));
+    case "v2-engine": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), engine: msg.engine === "ai" ? "ai" : "free" } })).then(() => ({ ok: true })));
+    case "v2-tier1": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), tier1Only: !!msg.on } })).then(() => ({ ok: true })));
+    case "v2-audit-kit": return go(Promise.resolve({ ok: true, kit: V2.AUDIT_KIT }));
+    case "v2-prompt": return go(v2Prompt(msg.n));
+    case "v2-paste": return go(v2Paste(msg.n, msg.text));
+    case "v2-ideas": return go(v2Ideas(msg.seed, !!msg.force, msg.engine));
     case "v2-idea-plan": return go(v2IdeaToPlan(msg.id));
     case "v2-costs": return go(spendReport().then((r) => chrome.storage.local.get(["spend"]).then(({ spend = {} }) => ({ ok: true, ...r, split: V2.costSplit(spend.day === (new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0") + "-" + String(new Date().getDate()).padStart(2, "0")) ? spend.log || [] : []), jobs: V2.JOBS, prices: V2.PRICES }))));
     case "v2-cheap": return go(chrome.storage.local.get(["config"]).then(({ config = {} }) => chrome.storage.local.set({ config: { ...config, profile: { ...(config.profile || {}), cheap: !!msg.on } } })).then(() => ({ ok: true })));

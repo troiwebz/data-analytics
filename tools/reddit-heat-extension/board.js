@@ -23,6 +23,7 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "fit") drawFit();
   if (b.dataset.tab === "ideas") drawIdeas();
   if (b.dataset.tab === "costs") drawCosts();
+  if (b.dataset.tab === "audit") drawAudit();
 });
 
 // --------------------------------------------------------------- calendar
@@ -58,6 +59,7 @@ async function drawPlan() {
     : `<div class="note" style="border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.08);color:#f6d79b">${r8.posts} posts but only ${r8.comments} public answers. ${esc(r8.why)}.</div>`;
   const s = BOARD.settings || {};
   $("#days").value = s.days || 30; $("#kinds").value = s.kinds || "all";
+  if ($("#engine")) $("#engine").value = s.engine || "free";
   $("#perDay").value = String(s.perDay || 3);
   $("#magnetEvery").value = s.magnetEvery || 2; $("#cool").value = s.subCoolDays || 14;
   let lastDay = null;
@@ -114,6 +116,7 @@ async function drawPlan() {
   });
 }
 
+$("#engine").onchange = async () => { await send({ type: "v2-engine", engine: $("#engine").value }); say($("#engine").value === "free" ? "posts are built from templates now — nothing to pay" : "posts are written by the model now", "var(--go)"); };
 $("#mkPlan").onclick = async () => {
   say("building…");
   const r = await send({ type: "v2-plan", opts: { days: +$("#days").value, perDay: +$("#perDay").value, kinds: $("#kinds").value, magnetEvery: +$("#magnetEvery").value, subCoolDays: +$("#cool").value } });
@@ -127,7 +130,7 @@ async function write(n, force) {
   say("writing day " + n + "…");
   const r = await send({ type: "v2-draft", n, force: force ? true : false });
   if (!r || !r.ok) return say((r && r.error) || "could not write it", "var(--warn)");
-  say(r.issues && r.issues.length ? "written, but " + r.issues.length + " thing(s) to fix" : "written — read it before it goes out", r.issues && r.issues.length ? "var(--warn)" : "var(--go)");
+  say((r.issues && r.issues.length ? "written, but " + r.issues.length + " thing(s) to fix" : "written — read it before it goes out") + (r.free ? " · free" : ""), r.issues && r.issues.length ? "var(--warn)" : "var(--go)");
   await drawPlan();
   view(n);
 }
@@ -147,14 +150,42 @@ async function view(n) {
     <div class="bar" style="margin-top:12px">
       <button class="act" id="dOpen">Open Reddit and fill it</button>
       <button class="ghost" id="dAgain">Write a different one</button>
+      <button class="ghost" id="dElse">Write it elsewhere</button>
       <button class="ghost" id="dCopy">Copy the body</button>
-      <span class="faint">${(d.cents || 0)}¢</span>
+      <span class="faint">${d.model === "free" ? "free" : d.model === "pasted" ? "pasted in, free" : (d.cents || 0) + "¢"}</span>
     </div></div>`;
   $("#dOpen").onclick = () => open_(n);
   $("#dAgain").onclick = () => write(n, true);
   $("#dCopy").onclick = async () => { await navigator.clipboard.writeText(d.body); say("copied", "var(--go)"); };
+  $("#dElse").onclick = () => writeElsewhere(n);
   $("#planDraft").scrollIntoView({ behavior: "smooth", block: "start" });
 }
+// The cheapest model is the one already paid for: hand the prompt out, paste
+// the answer back, and it goes through exactly the same checks.
+async function writeElsewhere(n) {
+  const p = await send({ type: "v2-prompt", n });
+  if (!p || !p.ok) return say((p && p.error) || "could not build the prompt", "var(--warn)");
+  try { await navigator.clipboard.writeText(p.text); } catch (_) { /* shown below anyway */ }
+  $("#planDraft").innerHTML = `<div class="card">
+    <h3>Day ${n} · r/${esc(p.sub)} — written somewhere else</h3>
+    <div class="faint">The whole prompt is on your clipboard. Paste it into a Claude conversation you already pay for, copy the JSON it answers with, and paste that back here. Same checks, nothing billed.</div>
+    <div class="draft" style="max-height:200px">${esc(p.text.slice(0, 1200))}${p.text.length > 1200 ? "\n…" : ""}</div>
+    <textarea id="pasteBack" rows="6" placeholder="paste the JSON answer here"></textarea>
+    <div class="bar" style="margin-top:10px">
+      <button class="act" id="pasteGo">Use this</button>
+      <button class="ghost" id="pasteCopy">Copy the prompt again</button>
+    </div></div>`;
+  $("#planDraft").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#pasteCopy").onclick = async () => { await navigator.clipboard.writeText(p.text); say("copied", "var(--go)"); };
+  $("#pasteGo").onclick = async () => {
+    const r = await send({ type: "v2-paste", n, text: $("#pasteBack").value });
+    if (!r || !r.ok) return say((r && r.error) || "could not read that", "var(--warn)");
+    say(r.issues.length ? `in, but ${r.issues.length} thing(s) to fix` : "in, and it passes every check — free", r.issues.length ? "var(--warn)" : "var(--go)");
+    await drawPlan();
+    view(n);
+  };
+}
+
 async function open_(n) {
   const r = await send({ type: "v2-open", n });
   if (r && r.blocked) {
@@ -299,7 +330,7 @@ async function drawQueue() {
     .map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
   $("#qRows").innerHTML = (q.rows || []).map((p) => `<tr>
     <td><span class="tag t-${esc(p.badge)}">${esc(p.badge)}</span>${p.amount ? `<div class="faint">${esc(p.amount)}</div>` : ""}</td>
-    <td class="faint">r/${esc(p.sub)}</td>
+    <td class="faint">r/${esc(p.sub)}${p.countryName ? `<div style="color:${p.tier1 ? "var(--go)" : "var(--faint)"}">${esc(p.countryName)}</div>` : ""}</td>
     <td><a href="${esc(p.permalink)}" target="_blank">${esc(p.title)}</a><div class="faint">${esc(p.why)}</div></td>
     <td class="faint">${ago(p.created)}</td>
     <td><button class="ghost" data-a="${esc(p.id)}">write an answer</button><button class="ghost" data-d="${esc(p.id)}">drop</button></td></tr>`).join("")
@@ -307,6 +338,8 @@ async function drawQueue() {
   $$("#qRows button[data-a]").forEach((b) => b.onclick = () => answer(b.dataset.a));
   $$("#qRows button[data-d]").forEach((b) => b.onclick = async () => { await send({ type: "v2-queue-act", id: b.dataset.d, action: "drop" }); drawQueue(); });
   $("#scanLive").textContent = q.lastScan ? "last scan " + ago(q.lastScan) + " ago" : "";
+  $("#tier1").checked = q.tier1Only !== false;
+  if (q.tier1) $("#qStat").innerHTML += `<div><b style="color:var(--go)">${q.tier1}</b><span>US/UK/CA/AU</span></div>`;
 }
 async function answer(id) {
   say("writing an answer…");
@@ -343,6 +376,7 @@ $("#scan").onclick = async () => {
   }, 900);
 };
 $("#scanStop").onclick = () => { send({ type: "v2-scan-stop" }); say("stopping…"); };
+$("#tier1").onchange = async () => { await send({ type: "v2-tier1", on: $("#tier1").checked }); say($("#tier1").checked ? "scanning tier-one markets only from now on" : "scanning everywhere", "var(--go)"); };
 
 // ----------------------------------------------------------------- leads
 async function drawLeads() {
@@ -610,12 +644,12 @@ $("#readAll").onclick = async () => {
 $("#readStop").onclick = () => { send({ type: "v2-brief-all-stop" }); say("stopping after this room…"); };
 
 // ------------------------------------------------------------------ ideas
-async function drawIdeas(force, seed) {
+async function drawIdeas(force, seed, engine) {
   if (force || seed !== undefined) $("#ideaSay").textContent = "thinking…";
-  const r = await send({ type: "v2-ideas", seed: seed === undefined ? "" : seed, force: !!force });
+  const r = await send({ type: "v2-ideas", seed: seed === undefined ? "" : seed, force: !!force, engine });
   if (!r || !r.ok) { $("#ideaSay").textContent = ""; if (force || seed !== undefined) say((r && r.error) || "could not brainstorm", "var(--warn)"); return; }
   if (r.seed && !$("#seed").value) $("#seed").value = r.seed;
-  $("#ideaSay").textContent = r.cached ? "the last eight" : `${r.ideas.length} angles · ${r.cents || 0}¢${r.issues && r.issues.length ? " · " + r.issues.join("; ") : ""}`;
+  $("#ideaSay").textContent = r.cached ? "the last eight" : `${r.ideas.length} angles · ${r.free ? "free" : (r.cents || 0) + "¢"}${r.issues && r.issues.length ? " · " + r.issues.join("; ") : ""}`;
   $("#ideaGrid").innerHTML = (r.ideas || []).map((i) => `<div class="card">
     <div class="faint">${i.magnet ? `<span class="tag t-magnet">asks</span>` : `<span class="tag t-value">gives</span>`} ${esc(V2.postType(i.shape).name)} · ${esc(i.kind === "ads" ? "already spending" : i.kind === "owner" ? "business owners" : "general business")}</div>
     <h3 style="margin-top:6px">${esc(i.title)}</h3>
@@ -644,7 +678,29 @@ async function drawIdeas(force, seed) {
   });
 }
 $("#mkIdeas").onclick = () => drawIdeas(true, $("#seed").value.trim());
-$("#mkIdeas2").onclick = () => drawIdeas(true, $("#seed").value.trim());
+$("#mkIdeasAi").onclick = () => drawIdeas(true, $("#seed").value.trim(), "ai");
+
+// ------------------------------------------------------------ audit kit
+async function drawAudit() {
+  const r = await send({ type: "v2-audit-kit" });
+  if (!r || !r.ok) return;
+  const k = r.kit;
+  $("#auditBody").innerHTML = `
+    <div class="card"><h3>What you need from them</h3><div class="faint">${esc(k.need)} — nothing else, and never an email address.</div></div>
+    <div class="card"><h3>The ${k.steps.length} steps, about ${k.minutes} minutes</h3>
+      <table style="margin-top:8px"><thead><tr><th style="width:44px">#</th><th style="width:320px">Do this</th><th style="width:300px">Write down</th><th>Why it earns its place</th></tr></thead>
+      <tbody>${k.steps.map((s2, i) => `<tr><td>${i + 1}</td><td>${esc(s2.do)}</td><td class="faint">${esc(s2.find)}</td><td class="faint">${esc(s2.note)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="card"><h3>The report you post back</h3>
+      <div class="faint">Seven lines. Fill the brackets, post it in the thread as a reply to them.</div>
+      <div class="draft" style="font:13px/1.7 -apple-system,Segoe UI,sans-serif">${k.report.map((l, i) => `${i + 1}. ${esc(l)}`).join("\n")}</div>
+      <div class="bar" style="margin-top:10px"><button class="ghost" id="auditCopy">Copy the template</button></div></div>
+    <div class="card"><h3>Rules for delivering it</h3><ul class="tight">${k.rules.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      <div class="faint" style="margin-top:8px">Then reply to them once: “${esc(k.reply)}”</div></div>`;
+  $("#auditCopy").onclick = async () => {
+    await navigator.clipboard.writeText(k.report.map((l, i) => (i + 1) + ". " + l).join("\n"));
+    say("copied — fill the brackets and post it under their comment", "var(--go)");
+  };
+}
 
 // ------------------------------------------------------------------ cost
 async function drawCosts() {

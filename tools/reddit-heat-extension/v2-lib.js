@@ -1738,3 +1738,255 @@ V2.ideaChecks = function (list) {
   }
   return Array.from(new Set(bad));
 };
+
+// ------------------------------------------------- writing it for nothing
+// A post is mostly structure. The only parts that have to come from a model
+// are the few facts nobody could guess — and even those you already know,
+// because they are your own numbers. So the free engine assembles the post
+// from templates and the offer you picked, deterministically, and costs
+// nothing at all. The model becomes an upgrade rather than a dependency.
+V2.fnv = function (s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < String(s).length; i += 1) { h ^= String(s).charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  // murmur3 fmix, so two nearly identical seeds land far apart
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+};
+V2.pick = function (list, seed, salt) { return list[V2.fnv(String(seed) + "|" + String(salt)) % list.length]; };
+
+// What the people in a room call their own work.
+V2.TRADE = {
+  Roofing: ["roofing company", "roof", "roofs"], HVAC: ["HVAC company", "job", "jobs"], Plumbing: ["plumbing company", "callout", "callouts"],
+  Electricians: ["electrical company", "job", "jobs"], Contractor: ["contracting business", "job", "jobs"], Construction: ["construction firm", "project", "projects"],
+  Painting: ["painting company", "job", "jobs"], landscaping: ["landscaping company", "job", "jobs"], PressureWashing: ["pressure washing round", "job", "jobs"],
+  JunkRemoval: ["junk removal company", "pickup", "pickups"], PestControl: ["pest control round", "treatment", "treatments"], Roofing2: ["roofing company", "roof", "roofs"],
+  dentistry: ["practice", "new patient", "new patients"], Dentists: ["practice", "new patient", "new patients"], Orthodontics: ["practice", "case", "cases"],
+  optometry: ["practice", "patient", "patients"], Chiropractic: ["clinic", "patient", "patients"], physicaltherapy: ["clinic", "patient", "patients"],
+  medspa: ["med spa", "consult", "consults"], Esthetician: ["studio", "booking", "bookings"], Hairstylist: ["salon", "booking", "bookings"],
+  Barber: ["shop", "booking", "bookings"], massage: ["practice", "booking", "bookings"],
+  Lawyertalk: ["firm", "case", "cases"], LawFirm: ["firm", "case", "cases"], Accounting: ["practice", "client", "clients"], Bookkeeping: ["practice", "client", "clients"],
+  InsuranceAgent: ["agency", "policy", "policies"], realtors: ["business", "listing", "listings"], restaurateur: ["restaurant", "cover", "covers"],
+  Moving: ["moving company", "move", "moves"], AutoDetailing: ["detailing business", "booking", "bookings"], msp: ["MSP", "contract", "contracts"],
+  ecommerce: ["store", "order", "orders"], shopify: ["store", "order", "orders"], PPC: ["account", "lead", "leads"], GoogleAds: ["account", "lead", "leads"],
+  FacebookAds: ["account", "lead", "leads"],
+};
+// "business" + "s" is "businesss". One line, and it keeps every title honest.
+V2.plural = function (w) {
+  const x = String(w || "");
+  if (/(s|x|z|ch|sh)$/i.test(x)) return x + "es";
+  if (/[^aeiou]y$/i.test(x)) return x.slice(0, -1) + "ies";
+  return x + "s";
+};
+V2.tradeOf = function (sub, campaign) {
+  if (V2.TRADE[sub]) return { biz: V2.TRADE[sub][0], unit: V2.TRADE[sub][1], units: V2.TRADE[sub][2] };
+  const c = campaign && campaign.key;
+  if (c === "chair_time") return { biz: "practice", unit: "new patient", units: "new patients" };
+  if (c === "glow_local") return { biz: "studio", unit: "booking", units: "bookings" };
+  if (c === "case_load") return { biz: "firm", unit: "case", units: "cases" };
+  if (c === "cart_lift") return { biz: "store", unit: "order", units: "orders" };
+  if (c === "ticket_desk") return { biz: "business", unit: "contract", units: "contracts" };
+  if (c === "trade_lock") return { biz: "business", unit: "job", units: "jobs" };
+  return { biz: "business", unit: "enquiry", units: "enquiries" };
+};
+
+// The parts. Each is a list, and the seed decides which one is used, so the
+// same room never gets the same sentence twice in a row.
+V2.FREE_OPEN = [
+  "I do this for a living and the same three things come up every time, so here they are in full.",
+  "Spent this week going through these one by one. Writing down what I found in case it saves someone a month.",
+  "This comes up here constantly and the answers are usually half right, so this is the whole thing.",
+  "Nobody enjoys reading a long post, so the short version is at the top and the detail is underneath.",
+  "I have been doing this long enough to have made all of these mistakes myself. Here is the list.",
+];
+V2.FREE_CLOSE = [
+  "That is the whole method. Nothing held back.",
+  "None of this needs anyone else to do it. It is a weekend of work.",
+  "Take it or leave it, but that is what the numbers keep saying.",
+  "It is not clever. It is just the order things have to be done in.",
+];
+V2.FREE_ASK = [
+  "What is the one thing that keeps not working for you?",
+  "Which of these have you already tried?",
+  "What am I missing here?",
+  "What would you add to this?",
+  "Where does yours break down?",
+];
+V2.FREE_POINTS = {
+  local: [
+    ["Your categories are probably wrong", "The primary category decides most of what you rank for and almost nobody changes theirs after the first week. Look at whoever is above you, note their primary category, and ask yourself honestly whether it beats yours."],
+    ["You are judged from where the searcher stands, not from your desk", "Searching your own name from your own office tells you nothing. Move a mile away and search again. Most people find they vanish three streets from their own door."],
+    ["Photos are a ranking signal and a conversion one", "A profile with fresh photos every month behaves differently to one with eight from 2019. Put a recurring reminder in and take five on a phone."],
+    ["Reviews matter less than the replies to them", "Volume is table stakes. What moves things is a reply under every one, with the service and the town written into the reply like a human would say them."],
+    ["The services list is empty on nearly every profile I open", "Every service you offer is a thing people type. If it is not listed, you are not in the running for it."],
+  ],
+  paid: [
+    ["Search terms first, everything else second", "Open the search terms report, sort by cost, and look only at the rows with no conversions. That list is your month's savings and it takes ten minutes."],
+    ["One conversion action, not nine", "Counting every click as a conversion teaches the machine to buy clicks. Pick the one that means money and turn the others into secondary."],
+    ["The landing page is usually the problem", "Cold traffic to a homepage converts badly no matter how good the targeting is. One page, one job, one form."],
+    ["Broad match without a strong signal is a donation", "It works when the account already has conversion history to learn from. Before that it is an experiment you are paying full price for."],
+    ["Track calls or you are guessing", "If the phone rings and nothing records it, half your results are invisible and you will switch off the thing that was working."],
+  ],
+  social: [
+    ["The first second decides the rest", "Everything after the opening frame only matters if the opening frame stopped somebody. Shoot ten openings, use one."],
+    ["Boosting a post that already worked beats a new ad", "The audience has already told you which one they liked. Pay to widen that, not to test a new guess."],
+    ["Faces outperform product shots almost every time", "Especially on a small budget, a person talking to camera about the problem beats a polished shot of the thing."],
+    ["Frequency kills more campaigns than targeting does", "The same three creatives for six weeks is why performance fell off, not the algorithm."],
+    ["What works is in the comments", "Read every comment on your best post. The words people use there are the words your next ad should use."],
+  ],
+};
+V2.freePost = function (opts = {}) {
+  const room = opts.room || { sub: "smallbusiness" };
+  const offer = opts.offer || V2.OFFERS[0];
+  const type = V2.postType(opts.type || "playbook");
+  const profile = opts.profile || {};
+  const t = V2.tradeOf(room.sub, opts.campaign);
+  const seed = String(opts.seed || (room.sub + "|" + type.key + "|" + offer.key));
+  const bank = /local_seo/.test(offer.channel) ? "local" : /instagram|tiktok/.test(offer.channel) ? "social" : "paid";
+  const pts = V2.FREE_POINTS[bank];
+  const n = type.magnet ? 3 : 5;
+  const start = V2.fnv(seed + "|pt") % pts.length;
+  const points = Array.from({ length: n }, (_, i) => pts[(start + i) % pts.length]);
+  const credit = profile.credit ? String(profile.credit).trim().replace(/\.$/, "") : "";
+  const win = profile.wins ? String(profile.wins).trim().replace(/\.$/, "") : "";
+  const open = V2.pick(V2.FREE_OPEN, seed, "open");
+  const close = V2.pick(V2.FREE_CLOSE, seed, "close");
+  const ask = V2.pick(V2.FREE_ASK, seed, "ask");
+
+  if (type.magnet) {
+    const title = `I will do ${offer.spots} of these for free this week — ${offer.name.replace(/^Free /, "").toLowerCase()} for any ${t.biz}`;
+    const body = [
+      `Doing this in the open so nobody has to take my word for it.`,
+      credit ? `${credit.charAt(0).toUpperCase() + credit.slice(1)}.` : "",
+      "",
+      `Here is what you get:`,
+      `1. ${offer.gift.charAt(0).toUpperCase() + offer.gift.slice(1)}.`,
+      `2. The two things I would fix first, in the order I would do them.`,
+      `3. Posted back into this thread, so everyone reading learns from it too.`,
+      "",
+      `What I need from you: ${offer.ask}. That is all — ${offer.risk}.`,
+      "",
+      `${offer.spots} spots. When they are gone I will say so in the comments and stop taking them.`,
+      "",
+      `While I am here, the thing I see most often on these is this. ${points[0][0]}. ${points[0][1]}`,
+      "",
+      `Drop yours below and I will work through them in order. ${ask}`,
+    ].filter(Boolean).join("\n");
+    return { title, body, first_comment: `One more that did not fit: ${points[1][0].toLowerCase()} — ${points[1][1]} Anyone seen that on theirs?`, from: "free" };
+  }
+
+  const titles = [
+    `${n} things I keep finding wrong on ${t.biz} accounts, and what I do about each`,
+    `The ${bank === "local" ? "local search" : bank === "paid" ? "paid ads" : "social"} checklist I run on every ${t.biz}, written out in full`,
+    `What actually moved the ${t.units} for the ${V2.plural(t.biz)} I work with this year`,
+    `If I had one afternoon to fix a ${t.biz}'s ${t.units}, this is the order I would do it in`,
+  ];
+  const title = V2.pick(titles, seed, "title");
+  const body = [
+    open,
+    credit ? `${credit.charAt(0).toUpperCase() + credit.slice(1)}, so this is from opening a lot of them rather than from theory.` : "",
+    win ? `The one I point at when people ask whether any of it matters: ${win}.` : "",
+    "",
+    ...points.flatMap(([h, d], i) => [`**${i + 1}. ${h}**`, d, ""]),
+    close,
+    "",
+    ask,
+  ].filter((x) => x !== undefined).join("\n");
+  return { title, body, first_comment: `Happy to go deeper on any one of these if it is the one biting you. ${ask}`, from: "free" };
+};
+
+// Eight ideas, also for nothing: the shapes we have, crossed with the
+// questions this campaign's rooms ask over and over.
+V2.freeIdeas = function (campaign, seed) {
+  const qs = (campaign && campaign.queries) || ["How do I get more customers", "Is an agency worth it", "Why did my leads drop", "What should I spend a month"];
+  const t = V2.tradeOf("", campaign);
+  const shapes = ["playbook", "mistakes", "result_story", "question_ask", "comparison", "teardown", "audit_magnet", "giveaway"];
+  const s = String(seed || (campaign ? campaign.key : "all"));
+  return shapes.map((shape, i) => {
+    const q = qs[(V2.fnv(s + "|q" + i)) % qs.length];
+    const type = V2.postType(shape);
+    const title = shape === "question_ask" ? q + "?"
+      : shape === "mistakes" ? `Five things I keep seeing ${V2.plural(t.biz)} get wrong, and the fix for each`
+      : shape === "result_story" ? `What changed the ${t.units} for one ${t.biz} this year, with the numbers`
+      : shape === "comparison" ? `${q} — what I have actually seen across a lot of these`
+      : shape === "teardown" ? `Pull apart one ${t.biz}'s setup with me, anonymised`
+      : shape === "audit_magnet" ? `Free look at your ${t.biz}, a few of them this week`
+      : shape === "giveaway" ? `The checklist I run on every ${t.biz}, pasted in full below`
+      : `${q} — the whole answer, written out`;
+    return V2.ideaClean({
+      title, angle: q, shape,
+      room_kind: type.magnet ? "owner" : i % 2 ? "ads" : "owner",
+      gives: "the method, in full, for nothing",
+      hook: "", risk: type.magnet ? "it is an offer, so it needs a room that allows one" : "none",
+    }, i);
+  });
+};
+
+// ------------------------------------------------------- where they are
+// Reddit does not hand out a country, but people give themselves away in
+// every other line. This is free and deterministic, and it is what keeps the
+// queue to the places where a lead is worth having.
+V2.COUNTRY = {
+  us: { name: "United States", tier1: true, re: /\b(zip ?code|\d{5}(-\d{4})?\b|LLC\b|S-?corp|realtor|sidewalk|gasoline|HOA\b|IRS\b|W-?2\b|1099\b|DMV\b|401k)\b|\$\s?\d|\b(texas|florida|california|ohio|georgia|arizona|colorado|michigan|illinois|nevada|virginia|tennessee|oregon|utah|kansas|iowa)\b/i },
+  uk: { name: "United Kingdom", tier1: true, re: /\bpost ?code\b|\bLtd\b|\bVAT\b|\bHMRC\b|\bcompanies house\b|\bhigh street\b|\bcouncil\b|\blimited company\b|£\s?\d|\b(london|manchester|birmingham|leeds|glasgow|bristol|liverpool|sheffield|edinburgh|cardiff|belfast|nottingham)\b/i },
+  ca: { name: "Canada", tier1: true, re: /\bpostal code\b|\bGST\b|\bHST\b|\bCRA\b|\bprovince\b|\bloonie\b|\bCAD\b|C\$\s?\d|\b(toronto|vancouver|calgary|edmonton|ottawa|montreal|winnipeg|mississauga|hamilton|halifax|saskatoon)\b|\b(ontario|alberta|quebec|manitoba|saskatchewan|nova scotia|british columbia)\b/i },
+  au: { name: "Australia", tier1: true, re: /\bABN\b|\bGST\b.*\baustralia|\bBAS\b|\bsuburb\b|\bAUD\b|A\$\s?\d|\b(sydney|melbourne|brisbane|perth|adelaide|canberra|gold coast|newcastle)\b|\b(nsw|qld|vic|wa|sa|nt|act)\b/i },
+  low: { name: "somewhere with a small budget", tier1: false, re: /\b(₹|rs\.? ?\d|inr\b|lakh|crore|pkr\b|ngn\b|naira|bdt\b|taka|php\b|peso|idr\b|rupiah|vnd\b|dong)\b|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b/i },
+};
+V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca" };
+V2.countryOf = function (text, sub) {
+  const t = String(text || "");
+  if (sub && V2.COUNTRY_SUB[sub]) return { key: V2.COUNTRY_SUB[sub], ...V2.COUNTRY[V2.COUNTRY_SUB[sub]], why: "r/" + sub + " is a country's own room", sure: true };
+  const hits = [];
+  for (const [key, c] of Object.entries(V2.COUNTRY)) if (c.re.test(t)) hits.push({ key, ...c });
+  if (!hits.length) return { key: "", name: "", tier1: null, why: "nothing in it says where they are", sure: false };
+  // a currency or a tax office beats a place name, and a low-budget market
+  // signal is never overridden by an incidental dollar sign
+  const low = hits.find((h) => h.key === "low");
+  const pick = low || hits[0];
+  return { ...pick, why: low ? "the money and the places named are not a tier-one market" : "reads as " + pick.name, sure: hits.length === 1 };
+};
+
+// ------------------------------------------------------- the audit itself
+// The offer is only free if producing it is free. Twenty audits written by a
+// model is the cost back again, so this is the audit as a fixed shape a
+// person fills in from Google Maps in a few minutes. Everything in it is
+// public and takes no tool to read.
+V2.AUDIT_KIT = {
+  minutes: 6,
+  need: "their business name and town, or the Maps link",
+  steps: [
+    { do: "Search their main service plus the town in an incognito window", find: "where they sit in the three-pack, or that they are not in it", note: "screenshot it — the screenshot is the whole proof" },
+    { do: "Note the three profiles above them", find: "each one's primary category, review count and average", note: "this is the comparison that makes the audit land" },
+    { do: "Open their profile and read the primary category", find: "whether it matches what the winners use", note: "the single most common fixable mistake" },
+    { do: "Count their services and products listed", find: "how many of the things they sell are not listed at all", note: "every missing one is a search they cannot appear for" },
+    { do: "Look at photo count and the date of the newest", find: "whether anything has been added this quarter", note: "easy, visible, and they can do it themselves" },
+    { do: "Read the last ten reviews and count the replies", find: "reply rate, and whether replies name the service and the town", note: "the fix costs nothing and works" },
+    { do: "Check the site the profile points at", find: "whether it loads fast on a phone and has the town in the title", note: "one line of advice, no redesign talk" },
+  ],
+  report: [
+    "Where you rank right now for [their main service] in [town]: position N, or not in the pack.",
+    "The three above you, and the one thing each has that you do not.",
+    "Your primary category versus theirs.",
+    "How many of your services are unlisted: N of M.",
+    "Photos: N, newest [month].",
+    "Reviews: N at X average, Y of the last ten answered.",
+    "The two things I would fix first, in order, with why.",
+  ],
+  rules: [
+    "Post it in the thread, not in a DM. The public one is the advertisement.",
+    "Never say what you would charge. If they ask, answer in DM.",
+    "Give the fixes away fully. Somebody doing it themselves is a person telling others where they got it.",
+    "One screenshot beats three paragraphs.",
+    "If the profile is already good, say so plainly and do not invent a problem. That one earns more trust than the rest.",
+  ],
+  reply: "Done — posted above. The two fixes are the category and the unlisted services, in that order. Anything there you want me to go deeper on?",
+};
+
+// A lead is only worth having if the money behind it is worth having.
+V2.tierScore = function (p, opts = {}) {
+  const c = V2.countryOf([p.title, p.body, p.text].filter(Boolean).join(" \n "), p.sub);
+  const only = opts.tier1Only;
+  return { ...c, keep: !only || c.tier1 === true || (c.tier1 === null && !opts.strict) };
+};

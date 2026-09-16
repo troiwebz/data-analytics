@@ -415,6 +415,84 @@ assert.match(V.ideaChecks([V.ideaClean({ title: "hi", shape: "playbook" }, 0), .
 assert.match(V.ideaChecks([V.ideaClean({ title: "A specific title about roofing 🚀", shape: "playbook" }, 0), ...goodIdeas.slice(1)]).join(" | "), /emoji/);
 assert.deepStrictEqual(V.ideaChecks([]), ["nothing came back"]);
 
+
+// ---- writing it for nothing ---------------------------------------------
+const FREE_ROOM = V.TARGETS.find((t) => t.sub === "Roofing");
+const FREE_PROFILE = { credit: "we run ads for 11 clinics and trades", wins: "12 calls a month to 61 in four months" };
+for (const shape of ["audit_magnet", "playbook", "mistakes", "result_story", "giveaway"]) {
+  const made = V.freePost({ room: FREE_ROOM, offer: V.offer("gbp_audit"), type: shape, campaign: V.campaign("trade_lock"), profile: FREE_PROFILE });
+  assert.deepStrictEqual(V.postChecks(made, FREE_ROOM, shape), [], shape + " fails the same gate a written post has to pass");
+  assert.ok(made.first_comment.length > 20, shape + " has no first comment");
+  assert.ok(/roofing/i.test(made.title + made.body), shape + " never names the trade");
+}
+// no profile at all still produces something postable
+assert.deepStrictEqual(V.postChecks(V.freePost({ room: FREE_ROOM, offer: V.offer("gbp_audit"), type: "playbook" }), FREE_ROOM, "playbook"), []);
+// deterministic, and different seeds give different posts
+const a1 = V.freePost({ room: FREE_ROOM, offer: V.offer("gbp_audit"), type: "playbook", seed: "a" });
+const a2 = V.freePost({ room: FREE_ROOM, offer: V.offer("gbp_audit"), type: "playbook", seed: "a" });
+const b1 = V.freePost({ room: FREE_ROOM, offer: V.offer("gbp_audit"), type: "playbook", seed: "b" });
+assert.deepStrictEqual(a1, a2, "the free engine is not deterministic");
+assert.notDeepStrictEqual(a1.body, b1.body, "two seeds produced the same post");
+// the offer's own words reach the magnet post
+const mag = V.freePost({ room: FREE_ROOM, offer: V.offer("local_pack"), type: "audit_magnet", profile: FREE_PROFILE });
+assert.ok(mag.body.includes("business name and city"), "the magnet never states the ask");
+assert.ok(/\b10 spots\b/.test(mag.body), "the magnet never states the number of spots");
+// a trade the bank does not know still reads as a business
+assert.match(V.freePost({ room: { sub: "Welding", kind: "owner", promo: "value", note: "" }, offer: V.offer("gbp_audit"), type: "playbook" }).title, /business|welding/i);
+// "business" + "s" is not a word
+assert.strictEqual(V.plural("business"), "businesses");
+assert.strictEqual(V.plural("practice"), "practices");
+assert.strictEqual(V.plural("company"), "companies");
+assert.strictEqual(V.plural("firm"), "firms");
+assert.strictEqual(V.plural("med spa"), "med spas");
+for (const room of ["Roofing", "Contractor", "dentistry", "medspa", "Lawyertalk", "ecommerce"]) {
+  const r = V.TARGETS.find((t) => t.sub === room);
+  for (const shape of ["playbook", "mistakes", "result_story"]) {
+    const made = V.freePost({ room: r, offer: V.offer("gbp_audit"), type: shape, campaign: V.campaign("trade_lock") });
+    assert.ok(!/\bsss?\b|businesss|practicess/i.test(made.title + made.body), room + "/" + shape + " has a mangled plural: " + made.title);
+  }
+}
+for (const c of V.CAMPAIGNS) for (const i of V.freeIdeas(c, "x")) assert.ok(!/businesss|sss/i.test(i.title), c.name + " has a mangled plural: " + i.title);
+
+// eight free ideas, spread, and they pass the same idea checks
+const fi = V.freeIdeas(V.campaign("trade_lock"), "seed");
+assert.strictEqual(fi.length, 8);
+assert.deepStrictEqual(V.ideaChecks(fi), []);
+assert.strictEqual(new Set(fi.map((x) => x.shape)).size, 8);
+assert.deepStrictEqual(V.freeIdeas(V.campaign("trade_lock"), "seed"), fi, "free ideas are not deterministic");
+
+// ---- which country the money is in --------------------------------------
+const co = (t, sub) => V.countryOf(t, sub);
+assert.strictEqual(co("Spending $4k a month, my zip code area is competitive").key, "us");
+assert.strictEqual(co("Ltd company in Manchester, VAT registered").key, "uk");
+assert.strictEqual(co("Toronto, Ontario — what is a good postal code radius").key, "ca");
+assert.strictEqual(co("Sydney, NSW, ABN registered").key, "au");
+for (const k of ["us", "uk", "ca", "au"]) assert.strictEqual(V.COUNTRY[k].tier1, true);
+// a low-budget market is recognised even when a dollar sign is in the text
+assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").key, "low");
+assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").tier1, false);
+// a country's own room settles it outright
+assert.strictEqual(co("no clues at all", "smallbusinessUK").key, "uk");
+assert.strictEqual(co("no clues at all", "smallbusinessUK").sure, true);
+// and silence is unknown, not a guess
+assert.strictEqual(co("what colour should my logo be").key, "");
+assert.strictEqual(co("what colour should my logo be").tier1, null);
+// the filter keeps tier one, drops the rest, and keeps unknowns unless strict
+assert.strictEqual(V.tierScore({ title: "spending $5k, zip code" }, { tier1Only: true }).keep, true);
+assert.strictEqual(V.tierScore({ title: "20000 INR budget in India" }, { tier1Only: true }).keep, false);
+assert.strictEqual(V.tierScore({ title: "no clues" }, { tier1Only: true }).keep, true);
+assert.strictEqual(V.tierScore({ title: "no clues" }, { tier1Only: true, strict: true }).keep, false);
+assert.strictEqual(V.tierScore({ title: "20000 INR budget in India" }, {}).keep, true, "the filter must do nothing when it is off");
+
+// ---- the audit, produced for nothing ------------------------------------
+assert.ok(V.AUDIT_KIT.steps.length >= 6);
+assert.ok(V.AUDIT_KIT.report.length >= 6);
+assert.ok(V.AUDIT_KIT.rules.length >= 4);
+for (const s2 of V.AUDIT_KIT.steps) for (const f of ["do", "find", "note"]) assert.ok(s2[f] && s2[f].length > 10, "an audit step is missing " + f);
+// nothing in it asks for money or an email
+assert.ok(!/\$|price|charge|email/i.test(JSON.stringify(V.AUDIT_KIT.report)), "the report template asks for money or an email");
+assert.match(V.AUDIT_KIT.rules.join(" "), /thread, not in a DM/);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);

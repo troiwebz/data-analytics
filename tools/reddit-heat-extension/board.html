@@ -84,6 +84,7 @@
     <button data-tab="offers">Offers</button>
     <button data-tab="fit">Fit</button>
     <button data-tab="targets">Targets</button>
+    <button data-tab="audit">Audit kit</button>
     <button data-tab="costs">Cost</button>
 
   </nav>
@@ -118,12 +119,17 @@
     <div class="card">
       <textarea id="seed" rows="3" placeholder="e.g. I want to talk about why roofers waste money on lead sellers, and offer a free map audit off the back of it"></textarea>
       <div class="bar" style="margin-top:10px">
-        <button class="act" id="mkIdeas">Give me eight angles</button>
-        <button class="ghost" id="mkIdeas2">Eight different ones</button>
+        <button class="act" id="mkIdeas">Give me eight angles — free</button>
+        <button class="ghost" id="mkIdeasAi">Eight written by the model</button>
         <span id="ideaSay" class="faint"></span>
       </div>
     </div>
     <div class="grid" id="ideaGrid"></div>
+  </section>
+
+  <section id="audit">
+    <div class="note">The offer is only free if producing it is free. Twenty audits written by a model is the cost back again, so this is the audit as a fixed shape a person fills in from Google Maps. Everything in it is public, nothing needs a tool, and it takes about six minutes.</div>
+    <div id="auditBody"></div>
   </section>
 
   <section id="costs">
@@ -156,6 +162,13 @@
       <label class="f">same room every <input type="number" id="cool" value="14" min="3" max="90" style="width:52px"> days</label>
       <button class="ghost" id="leadPoll">Pull comments on my posts</button>
     </div>
+    <div class="bar">
+      <label class="f">writing <select id="engine">
+        <option value="free">free — built from templates, costs nothing</option>
+        <option value="ai">paid — written by the model</option>
+      </select></label>
+      <span class="faint">or press <b>write it elsewhere</b> on any day to use a Claude conversation you already pay for</span>
+    </div>
     <table><thead><tr>
       <th style="width:120px">When</th><th style="width:104px">Lane</th><th style="width:170px">Room</th><th style="width:140px">Shape</th><th>What goes out</th><th style="width:250px"></th>
     </tr></thead><tbody id="planRows"></tbody></table>
@@ -168,6 +181,7 @@
     <div class="bar">
       <button class="act" id="scan">Scan for buyers</button>
       <button class="ghost" id="scanStop" style="display:none">Stop</button>
+      <label class="f"><input type="checkbox" id="tier1"> United States, UK, Canada and Australia only</label>
       <span id="scanLive" class="faint"></span>
     </div>
     <table><thead><tr>
