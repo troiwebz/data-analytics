@@ -9,7 +9,7 @@
 //
 // Nothing is ever posted without a 🚀 tap from Telegram.
 
-import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js';
+import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThreads } from './thread.js';
@@ -34,6 +34,7 @@ const FEED_ALARM = 'poll-feed';
 const APPROVAL_ALARM = 'poll-approvals';
 const UPDATE_ALARM = 'check-update';
 const PM_ALARM = 'sync-pms';
+const TAP_ALARM = 'telegram-taps';
 
 // ---------------------------------------------------------------- sound
 
@@ -110,13 +111,19 @@ export async function syncSentPms({ pages = 2 } = {}) {
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   const migrated = await migrateConfig();
-  const cfg = await getConfig();
+  // New wording shipped with the code is taken up before anything reads the
+  // config, and before setConfig writes it back - otherwise that write would
+  // freeze the old wording in again, which is the whole bug this fixes.
+  const adopt = await adoptNewTemplates().catch(() => ({}));
+  let cfg = await getConfig();
   await setConfig(cfg);
   await scheduleAlarms(cfg);
   await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
   // Drafts are written once and stored, so a template change reaches nothing
   // already in the database. Re-render when the wording has moved, rather than
   // waiting for someone to notice and press a button. No network, no cost.
+  if (adopt.adopted) await log('took up the new draft wording from this update');
+  else if (adopt.yours) await log('kept your own template wording; this update shipped different defaults');
   await refreshIfTemplatesChanged(cfg);
   // Rows duplicated before leads were keyed by thread id.
   const d = await dedupeLeads().catch(() => null);
@@ -219,6 +226,14 @@ export async function scheduleAlarms(cfg) {
   // Hourly is plenty: it is a safety net for PMs sent elsewhere, and the
   // button on the dashboard covers wanting it now.
   chrome.alarms.create(PM_ALARM, { periodInMinutes: 60, delayInMinutes: 2 });
+
+  // Your taps on the Telegram buttons. Chrome clamps alarms to 30 seconds, so
+  // anything faster than that is the same as 30 seconds - the setting says so.
+  await chrome.alarms.clear(TAP_ALARM);
+  if (cfg.telegramApprovals) {
+    const secs = Math.max(30, Number(cfg.telegramPollSeconds) || 30);
+    chrome.alarms.create(TAP_ALARM, { periodInMinutes: secs / 60, delayInMinutes: 0.1 });
+  }
 }
 
 /**
@@ -252,6 +267,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       await pollFeed();
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
+    if (alarm.name === TAP_ALARM) await pollTaps();
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
     if (alarm.name === PM_ALARM) await syncSentPms().catch((e) => log(`PM check: ${e.message}`, 'error'));
   } catch (e) {
@@ -654,6 +670,90 @@ export async function expireStaged() {
       await setStaged(threadId, null);
       await updateLead(threadId, { staged: false });
     }
+  }
+}
+
+/**
+ * Your taps on the Telegram buttons, acted on here.
+ *
+ * Tap "Send this PM" on your phone and Chrome opens the compose page, types it
+ * in and sends it. Tap "Post this reply" and it posts. The message on your
+ * phone is then edited to say what happened, buttons gone, so the same lead
+ * cannot be fired twice from the same card.
+ *
+ * Two things this refuses to do:
+ *
+ *  - Act on a tap from anywhere but your own chat. The bot token is a bearer
+ *    token; anyone who got hold of it could otherwise make your signed-in
+ *    browser post to the forum under your name. A tap whose chat does not
+ *    match the configured chat id is dropped and logged.
+ *  - Skip the daily caps and spacing. An approval is permission, not an
+ *    override: if you are at your own limit it says so on the message and
+ *    posts nothing.
+ *
+ * Never throws: a poll must not die on a bad tap.
+ */
+export async function pollTaps() {
+  const cfg = await getConfig();
+  if (!cfg.telegramApprovals || !cfg.telegramChatId) return { skipped: 'off' };
+
+  let taps;
+  try { taps = await telegram.pendingTaps(); }
+  catch (e) { await log(`Telegram taps could not be read: ${e.message}`, 'error'); return { error: e.message }; }
+  if (!taps.length) return { taps: 0 };
+
+  let done = 0;
+  for (const tap of taps) {
+    if (tap.chatId && String(tap.chatId) !== String(cfg.telegramChatId)) {
+      await log(`ignored a Telegram tap from chat ${tap.chatId}, which is not yours`, 'error');
+      await telegram.ackTap(tap.id, 'Not your chat.');
+      continue;
+    }
+    const lead = (await getLeads()).find((l) => String(l.threadId) === String(tap.threadId));
+    if (!lead) {
+      await telegram.ackTap(tap.id, 'That lead is no longer in the table.');
+      continue;
+    }
+    await telegram.ackTap(tap.id, 'Working on it…');
+    const line = await runTap(tap, lead, cfg);
+    await telegram.settleTap(tap, line);
+    await log(`Telegram tap on "${lead.title}": ${line}`);
+    done++;
+  }
+  return { taps: taps.length, done };
+}
+
+/** One tap. Returns the line that goes back on the message. */
+async function runTap(tap, lead, cfg) {
+  try {
+    if (tap.action === 's') {
+      await updateLead(lead.threadId, { status: 'SKIPPED', decidedAt: new Date().toISOString() });
+      return '⏭ Skipped.';
+    }
+
+    // Both of these go through the same functions the dashboard buttons use.
+    // They already count the send against your daily cap and mark the row, so
+    // doing it again here would charge you twice for one PM.
+    if (tap.action === 'd') {
+      if (lead.pmSent) return '✉️ Already sent - not sending it twice.';
+      const gate = await checkDmLimit(cfg);
+      if (!gate.ok) return `✋ Held: ${gate.reason}`;
+      const r = await sendDm(lead, cfg, { mode: 'send' });
+      return r?.ok && r?.sent ? '✉️ PM sent.' : `❌ Could not send it: ${r?.error || 'unknown'}`;
+    }
+
+    if (tap.action === 'p') {
+      if (lead.status === 'POSTED') return '🚀 Already posted - not posting it twice.';
+      const gate = await checkRateLimit(cfg);
+      if (!gate.ok) return `✋ Held: ${gate.reason}`;
+      const r = await postLead(lead, cfg);
+      return r?.ok ? `🚀 Posted.${r.postUrl ? ` ${r.postUrl}` : ''}`
+                   : `❌ Could not post it: ${r?.error || 'unknown'}`;
+    }
+
+    return `Did not recognise that button (${tap.action}).`;
+  } catch (e) {
+    return `❌ ${e.message}`;
   }
 }
 

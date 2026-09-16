@@ -6,8 +6,9 @@ const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
-            'maxThreadReads', 'secondsBetweenThreadReads'];
-const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads'];
+            'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds'];
+const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
+             'telegramApprovals'];
 const JSONF = ['categories', 'boosts', 'excludes', 'templates', 'offers', 'dmTemplates', 'compliance', 'specifics'];
 const $ = (id) => document.getElementById(id);
 

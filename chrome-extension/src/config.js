@@ -36,6 +36,19 @@ export const DEFAULT_CONFIG = {
   telegramChatId: '',          // from @userinfobot
   telegramSend: 'both',        // 'both' (PM first, then the reply) | 'pm' | 'reply'
 
+  // Approval buttons under each Telegram message. Tapping one on your phone
+  // makes Chrome do it: send the PM, or post the public reply.
+  //
+  // This is the ONLY thing in the extension that posts by itself, and it does
+  // so only because you tapped. Nothing is ever posted or sent on a timer, on
+  // a score, or because a lead looked good. No tap, nothing leaves.
+  //
+  // It needs no server. Chrome asks Telegram "any taps?" on a timer, which
+  // means CHROME HAS TO BE RUNNING - a tap while the Mac is asleep is acted on
+  // when Chrome wakes, not lost.
+  telegramApprovals: false,    // off until you turn it on
+  telegramPollSeconds: 30,     // Chrome clamps alarms to 30s, so lower is the same
+
   webhookUrl: '',              // Apps Script /exec URL (optional, legacy relay)
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
 
@@ -344,7 +357,16 @@ export const DEFAULT_CONFIG = {
 
     terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`,
 
-    scope: `{Tell me the market and the volume you want and I will come back today with a fixed price and a date|Send me the geo and the monthly volume and you will have a fixed price and a date today}. {No call needed|Nothing to book}.`
+    // The one close that asks something. It asks Claude's own question about
+    // THIS thread - "mainstream German news sites or niche editorial outlets?",
+    // "one chain and exchange pair, or multi chain?" - rather than demanding
+    // the market and the volume from every buyer regardless of what they
+    // posted. Same close, a question worth answering.
+    //
+    // {{question}} is filled per thread. If Claude did not run there is no
+    // question to ask, and renderDm falls back to another close rather than
+    // leaving a dangling "One thing:".
+    scope: `{One thing before I price it|One question and I can price it|Quick one so I can price it properly}: {{question}} {Answer that and I will come back today with a fixed price and a date|Tell me and you will have a fixed price and a date today}. {No call needed|Nothing to book}.`
   },
 
   // ---- Private message ---------------------------------------------------
@@ -462,7 +484,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 25;
+export const CONFIG_VERSION = 26;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -582,9 +604,62 @@ export async function migrateConfig() {
     if (!next.templates.social) next.templates.social = DEFAULT_CONFIG.templates.social;
     if (!next.dmTemplates?.social) next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates, ...(next.dmTemplates || {}) };
   }
+  if (v < 26) {
+    // Every template change shipped since the first time Save was pressed was
+    // invisible. setConfig writes the WHOLE merged config, so pressing Save
+    // once froze a copy of the templates into storage, and from then on the
+    // stored copy beat anything the code shipped. The public reply kept its
+    // "Hi @buyer," salutation and its question for exactly that reason - both
+    // were removed in the source and neither reached the browser.
+    //
+    // This resets the wording to what the code now ships. It is a one-time
+    // reset and it does discard hand-edited template text; from here on the
+    // fingerprint below makes this automatic and only for wording nobody has
+    // touched, so it will not need doing again.
+    for (const k of TEXT_KEYS) next[k] = DEFAULT_CONFIG[k];
+  }
+  next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
   return next;
+}
+
+/**
+ * The wording of a draft, as opposed to your settings. These are the keys the
+ * code owns unless you have deliberately rewritten them.
+ */
+const TEXT_KEYS = ['templates', 'dmTemplates', 'offers', 'specifics', 'dmTitle'];
+
+/** A cheap fingerprint of just that wording. */
+export function textStamp(cfg) {
+  const src = JSON.stringify(TEXT_KEYS.map((k) => cfg[k] ?? null));
+  let h = 2166136261 >>> 0;
+  for (const ch of src) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return h.toString(36);
+}
+
+/**
+ * Take new wording from the code, unless you have written your own.
+ *
+ * `templateDefaults` records the fingerprint of the defaults that were in
+ * force when the config was last written. If the stored wording still matches
+ * that fingerprint you never edited it, so a new version's wording is yours to
+ * have. If it does not match, you changed something and it is left alone.
+ */
+export async function adoptNewTemplates() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config) return { adopted: false };
+  const shipped = textStamp(DEFAULT_CONFIG);
+  const stored = textStamp(config);
+  if (stored === shipped) return { adopted: false };            // already current
+  if (config.templateDefaults && config.templateDefaults !== stored) {
+    return { adopted: false, yours: true };                     // you rewrote it; keep it
+  }
+  const next = { ...config };
+  for (const k of TEXT_KEYS) next[k] = DEFAULT_CONFIG[k];
+  next.templateDefaults = shipped;
+  await chrome.storage.local.set({ config: next });
+  return { adopted: true };
 }
 
 export async function getConfig() {
@@ -595,6 +670,11 @@ export async function getConfig() {
 export async function setConfig(patch) {
   const current = await getConfig();
   const next = { ...current, ...patch, configVersion: CONFIG_VERSION };
+  // Record which defaults this wording came from, so a later version can tell
+  // untouched wording from wording you wrote yourself.
+  next.templateDefaults = textStamp(next) === textStamp(DEFAULT_CONFIG)
+    ? textStamp(DEFAULT_CONFIG)          // still the shipped wording
+    : current.templateDefaults;          // yours, or not yet known - do not invent one
   await chrome.storage.local.set({ config: next });
   return next;
 }

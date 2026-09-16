@@ -34,6 +34,28 @@ ok('public reply asks no question', !r.includes('?'), r);
 ok('the question is not leaked into it', !r.includes('survive a manual audit'), r);
 ok('the reply is the claim and the PM line, nothing else',
    r.trim().split('\n').filter(Boolean).length === 2, JSON.stringify(r));
+// The "scope" close asks this thread's own question instead of demanding the
+// market and the volume from every buyer whatever they posted.
+{
+  const scoped = { ...lead('5001'), aiSpecifics: { ...lead('5001').aiSpecifics, offer: 'scope' } };
+  const d2 = renderDm(scoped, cfg);
+  ok('the scope close asks the thread\'s own question',
+     d2.includes(scoped.aiSpecifics.question), d2.split('\n\n').slice(-3)[0]);
+  ok('and no longer demands the market and the volume',
+     !/market and the volume|geo and the monthly volume/i.test(d2), d2.split('\n\n').slice(-3)[0]);
+  ok('no template slot is left showing', !/\{\{|\}\}/.test(d2), (d2.match(/\{\{\w+\}\}/) || [''])[0]);
+
+  // With no question there is nothing to ask, so it must not ship a hole.
+  const noQ = { ...scoped, aiSpecifics: { ...scoped.aiSpecifics, question: '' } };
+  const d3 = renderDm(noQ, cfg);
+  ok('with no question it falls back to another close instead of a hole',
+     !/One thing before I price it|One question and I can price it|Quick one so I can price it/.test(d3),
+     d3.split('\n\n').slice(-3)[0]);
+  ok('and that close is a real one', /start small|smallest useful unit|single item/i.test(d3),
+     d3.split('\n\n').slice(-3)[0]);
+  ok('still no empty slot', !/\{\{|\}\}/.test(d3), d3);
+}
+
 // It is still written, because the "scope" close uses it.
 ok('the question is still produced for the PM', !!lead('1001').aiSpecifics.question,
    lead('1001').aiSpecifics.question);

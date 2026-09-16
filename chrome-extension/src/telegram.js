@@ -78,6 +78,28 @@ const replyMessage = (lead) => {
 };
 
 /**
+ * The approval buttons.
+ *
+ * Tapping one of these on your phone makes Chrome do the thing: the PM button
+ * sends the private message, the reply button posts the public reply. Nothing
+ * is ever sent without a tap.
+ *
+ * callback_data has a hard 64-byte limit, so it is one letter and the thread
+ * id: d=send the PM, p=post the reply, s=skip this lead.
+ */
+export const ACTIONS = { d: 'send the PM', p: 'post the public reply', s: 'skip this lead' };
+
+function keyboard(lead, kind, cfg) {
+  if (!cfg.telegramApprovals) return undefined;
+  const id = String(lead.threadId || '');
+  if (!id || id === 'sample') return undefined;        // a sample must never post
+  const row = kind === 'PM'
+    ? [{ text: '✉️ Send this PM', callback_data: `d:${id}` }]
+    : [{ text: '🚀 Post this reply', callback_data: `p:${id}` }];
+  return { inline_keyboard: [row, [{ text: '⏭ Skip', callback_data: `s:${id}` }]] };
+}
+
+/**
  * Both parts are sent independently. They used to share one try block, so a
  * failure on the second swallowed the first and the batch stopped - which is
  * why a lead could arrive as the public reply alone with nothing explaining it.
@@ -95,7 +117,8 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
   for (const [name, text] of parts) {
     if (!text) continue;
     try {
-      await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+      await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true,
+                                  reply_markup: keyboard(lead, name, cfg) });
       onPart?.(name, null);
       continue;
     } catch (e) {
@@ -165,4 +188,94 @@ export async function test(cfg) {
 export async function status(cfg) {
   const v = await vault.info('telegram');
   return { ...v, chatId: cfg.telegramChatId || '', enabled: !!cfg.telegramEnabled };
+}
+
+// --------------------------------------------------------------- your taps
+//
+// How a tap on your phone reaches Chrome, with no server anywhere.
+//
+// Telegram offers two ways to hear about a button press. A webhook needs a
+// public URL, which means a server - the Apps Script we got rid of. The other
+// is getUpdates, where the client asks Telegram "anything new?". An extension
+// can do that itself, so that is what this does: an alarm wakes the service
+// worker, it asks Telegram for taps it has not seen, acts on them, and edits
+// the message on your phone to say what happened.
+//
+// The cost of having no server is honest and worth stating plainly: CHROME HAS
+// TO BE RUNNING. Tap Post while your Mac is asleep and nothing happens until
+// Chrome is awake again - then it catches up, because Telegram holds updates
+// for 24 hours and the offset below means none are missed, only delayed.
+
+const OFFSET_KEY = 'tgOffset';
+
+const getOffset = async () => (await chrome.storage.local.get(OFFSET_KEY))[OFFSET_KEY] || 0;
+const setOffset = (n) => chrome.storage.local.set({ [OFFSET_KEY]: n });
+
+/**
+ * Taps waiting for us. Returns [] and never throws when Telegram is not set
+ * up, so a poll is never lost to it.
+ *
+ * `offset` is Telegram's own acknowledgement mechanism: asking for update N+1
+ * is what tells it update N was handled, so nothing is delivered twice and
+ * nothing is dropped if Chrome is closed mid-batch.
+ */
+export async function pendingTaps() {
+  if (!(await getToken())) return [];
+  const offset = await getOffset();
+  let updates;
+  try {
+    updates = await call('getUpdates', {
+      offset, timeout: 0, allowed_updates: ['callback_query']
+    });
+  } catch (e) {
+    // A webhook set on this bot makes getUpdates illegal. Say which it is
+    // rather than failing silently every 30 seconds forever.
+    if (/webhook/i.test(e.message)) {
+      throw new Error('this bot has a webhook set, so it cannot be polled. '
+        + 'Delete it (open api.telegram.org/bot<token>/deleteWebhook once) and this will start working.');
+    }
+    throw e;
+  }
+  if (!updates?.length) return [];
+  await setOffset(updates[updates.length - 1].update_id + 1);
+
+  return updates.map((u) => u.callback_query).filter(Boolean).map((q) => {
+    const [action, threadId] = String(q.data || '').split(':');
+    return {
+      id: q.id,
+      action,
+      threadId,
+      chatId: String(q.message?.chat?.id ?? ''),
+      fromId: String(q.from?.id ?? ''),
+      messageId: q.message?.message_id,
+      text: q.message?.text || ''
+    };
+  });
+}
+
+/** Stop the spinner on the button. Telegram wants this within a few seconds. */
+export async function ackTap(id, text = '') {
+  try { await call('answerCallbackQuery', { callback_query_id: id, text: text.slice(0, 190) }); }
+  catch { /* the tap is already being acted on; a failed ack must not undo it */ }
+}
+
+/**
+ * Say what happened, on the message you tapped, and take the buttons away so
+ * the same lead cannot be posted twice from the same card.
+ */
+export async function settleTap(tap, line) {
+  const stamp = `\n\n${line}`;
+  try {
+    await call('editMessageText', {
+      chat_id: tap.chatId,
+      message_id: tap.messageId,
+      text: stripTags(tap.text).slice(0, LIMIT - stamp.length) + stamp,
+      disable_web_page_preview: true
+    });
+  } catch {
+    // Editing can fail (too old, unchanged). The outcome still has to reach
+    // you, so fall back to a new message rather than leaving a dead button.
+    try { await call('sendMessage', { chat_id: tap.chatId, text: line, disable_web_page_preview: true }); }
+    catch { /* nothing more we can do from here */ }
+  }
 }

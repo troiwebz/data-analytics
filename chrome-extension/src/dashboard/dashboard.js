@@ -466,7 +466,9 @@ async function rowAction(btn) {
       : `Sent the ${got || 'lead'} to Telegram.`, !r?.error);
   }
   if (act === 'senddm') {
-    if (!confirm(`Send this DM to ${lead.author} now?\n\nUnsolicited PMs are what BHW moderators act on — keep the volume low.`)) return;
+    // No confirm box. Pressing a button labelled "Send PM now" IS the decision;
+    // asking again straight afterwards was a second approval for the same one.
+    // The daily cap and the spacing between PMs are still enforced underneath.
     btn.disabled = true;
     say(id, 'Sending…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'send-dm', lead: { ...lead, dm }, mode: 'send' });
@@ -476,7 +478,7 @@ async function rowAction(btn) {
     return render();
   }
   if (act === 'post') {
-    if (!confirm(`Post this reply to "${lead.title}" now?`)) return;
+    // Same here: "Post now" is the decision, not the request to decide.
     btn.disabled = true; say(id, 'Posting…', true);
     const r = await chrome.runtime.sendMessage({ cmd: 'post-direct', lead: { ...lead, draft }, edited: draft !== lead.draft });
     btn.disabled = false;
