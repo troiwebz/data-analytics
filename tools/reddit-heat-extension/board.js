@@ -484,9 +484,109 @@ async function drawBoost() {
 }
 $("#saveBudget").onclick = async () => { await send({ type: "v2-budget", daily: +$("#budget").value }); say("budget saved", "var(--go)"); drawBoost(); };
 
+// ------------------------------------------------------------- updating
+// Three numbers matter: what Chrome is running, what is sitting in the folder
+// on disk, and what is on GitHub. The folder is filled by update.sh — by the
+// two-minute background job, or by this button through the native host — and
+// the worker reloads the extension by itself within a minute of the folder
+// changing. So the pill narrates, and the button only exists for the times
+// the background job is not running on this machine.
+const HOST = "com.redditleadthreads.updater";
+let onHostMessage = null, remoteAheadSince = 0;
+function hostPort(cmd) {
+  return new Promise((resolve) => {
+    let port;
+    try { port = chrome.runtime.connectNative(HOST); } catch (e) { return resolve({ error: String(e.message || e), missing: true }); }
+    const got = [];
+    port.onMessage.addListener((m) => { got.push(m); if (onHostMessage) onHostMessage(m); });
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError && chrome.runtime.lastError.message;
+      if (!got.length && err) return resolve({ error: err, missing: /not found|Specified native messaging host|forbidden/i.test(err) });
+      resolve({ messages: got });
+    });
+    port.postMessage({ cmd });
+  });
+}
+function updShow(title, pct, cls) {
+  $("#updPanel").hidden = false;
+  $("#updTitle").textContent = title;
+  $("#updFill").style.width = pct + "%";
+  $("#updFill").parentElement.className = "track " + (cls || "");
+}
+function updLine(t) { const el = $("#updLog"); el.textContent += (el.textContent ? "\n" : "") + t; el.scrollTop = el.scrollHeight; }
+function updCmdText() { return `cd "$HOME/Downloads/reddit-heat-extension 7" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
+async function updBackground() {
+  const r = await hostPort("status");
+  const st = r.messages && r.messages.find((m) => m.status);
+  $("#updBg").textContent = st
+    ? `background updater: ${st.scheduler === "off" ? "OFF — run the command below once and it turns itself on" : st.scheduler + ", every 2 min"} · folder has v${st.onDisk}`
+    : "";
+}
+$("#updNow").onclick = async () => {
+  $("#updLog").textContent = ""; $("#updConnect").hidden = true;
+  updShow("Updating…", 5, "");
+  onHostMessage = (m) => {
+    if (m.line !== undefined) {
+      updLine(m.line);
+      if (/Downloading/.test(m.line)) updShow("Downloading from GitHub…", 35, "");
+      if (/Now on:/.test(m.line) && $("#updLog").textContent.split("Now on:").length > 2) updShow("Copying the files in…", 75, "");
+    }
+    if (m.done) {
+      if (m.code === 0) { updShow(`v${m.onDisk} is in the folder. The extension reloads itself in a moment…`, 100, "ok"); setTimeout(showVersion, 900); }
+      else updShow("The update failed — the log is below", 100, "bad");
+      updBackground();
+    }
+  };
+  const r = await hostPort("update");
+  onHostMessage = null;
+  if (r.error) {
+    updShow(r.missing ? "One-time setup needed on this machine" : "Could not run the updater", 100, "bad");
+    updLine(r.error);
+    $("#updConnect").hidden = false;
+    $("#updCmd").textContent = updCmdText();
+  }
+};
+$("#updClose").onclick = () => { $("#updPanel").hidden = true; };
+$("#updCopy").onclick = async () => { try { await navigator.clipboard.writeText(updCmdText()); $("#updCopy").textContent = "copied"; setTimeout(() => { $("#updCopy").textContent = "Copy the command"; }, 1500); } catch (_) { /* select it by hand */ } };
+$("#ver").onclick = async () => {
+  const v = await send({ type: "version-state" });
+  if (v && v.diskAhead) { await send({ type: "reload-now" }); setTimeout(() => location.reload(), 1200); }
+  else { await send({ type: "version-check-now" }); showVersion(); }
+};
+async function showVersion() {
+  const v = await send({ type: "version-state" });
+  if (!v) return;
+  const pill = $("#ver"), b = $("#updNow");
+  const hot = !!(v.diskAhead || v.remoteAhead);
+  b.classList.toggle("updhot", hot);
+  b.title = v.diskAhead ? `v${v.onDisk} is already in the folder — click the pill to reload` : hot ? `v${v.remote} is out and you are on v${v.onDisk}` : "check GitHub for a new version";
+  if (v.diskAhead) {
+    pill.className = "pill go";
+    pill.textContent = `v${v.onDisk} downloaded · reloading…`;
+    // nothing on this page is lost: the calendar, leads and boosts live in storage
+    if (!v.busy && !document.querySelector("textarea:focus, input:focus")) { await send({ type: "reload-now" }); setTimeout(() => location.reload(), 1500); }
+    return;
+  }
+  if (v.remoteAhead) {
+    remoteAheadSince = remoteAheadSince || Date.now();
+    const waited = Math.round((Date.now() - remoteAheadSince) / 60000);
+    pill.className = "pill hot";
+    pill.textContent = waited >= 6
+      ? `v${v.remote} is out and nothing has arrived in ${waited} min — press Update now`
+      : `v${v.remote} is out · arriving by itself (≤2 min)`;
+    return;
+  }
+  remoteAheadSince = 0;
+  pill.className = "pill";
+  pill.textContent = `v${v.running} · latest`;
+  pill.title = v.remoteCheckedAt ? "GitHub checked " + ago(v.remoteCheckedAt) + " ago" : "GitHub not checked yet";
+}
+
 // ------------------------------------------------------------------- boot
 (async function boot() {
   try { $("#ver").textContent = "v" + chrome.runtime.getManifest().version; } catch (_) { /* opened as a file */ }
+  showVersion();
+  setInterval(showVersion, 30000);
   await drawPlan();
   const tab = (location.hash || "#camp").slice(1);
   const b = $$("nav button").find((x) => x.dataset.tab === tab);

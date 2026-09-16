@@ -52,11 +52,23 @@
   a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
   ul.tight{margin:6px 0 0;padding-left:18px}ul.tight li{margin:3px 0}
   #say{font-size:12px;color:var(--dim);min-height:17px}
+  button.upd{background:#161a22;border:1px solid var(--line);color:var(--dim);padding:5px 11px;border-radius:8px;cursor:pointer;font-size:12px}
+  button.upd.updhot{background:#d62d20;border-color:#d62d20;color:#fff;font-weight:700;animation:rltPulse 1.25s ease-in-out infinite}
+  button.upd.updhot:hover{background:#ef3b2d;border-color:#ef3b2d}
+  @keyframes rltPulse{0%,100%{opacity:1}50%{opacity:.45}}
+  @media (prefers-reduced-motion:reduce){button.upd.updhot{animation:none}}
+  .pill.go{background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.4);color:var(--go)}
+  .pill.hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.4);color:var(--warn)}
+  .track{height:6px;background:#1a1f28;border-radius:4px;overflow:hidden;margin:10px 0}
+  .track>div{height:100%;width:0;background:var(--blue);transition:width .3s}
+  .track.ok>div{background:var(--go)}.track.bad>div{background:#d62d20}
+  #updLog,#updCmd{background:#0f1218;border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap;max-height:220px;overflow:auto;margin:8px 0 0}
 </style>
 
 <header>
   <h1>Growth <span>Board</span></h1>
-  <span class="pill" id="ver">v2</span>
+  <span class="pill" id="ver" title="click to check GitHub">v2</span>
+  <button id="updNow" class="upd">Update now</button>
   <span id="say"></span>
   <nav>
     <button data-tab="camp" class="on">Campaign</button>
@@ -71,6 +83,23 @@
 
   </nav>
 </header>
+
+<div id="updPanel" hidden>
+  <div class="card" style="margin:14px 22px 0">
+    <div style="display:flex;align-items:center;gap:10px">
+      <b id="updTitle">Updating…</b>
+      <span id="updBg" class="faint" style="margin-left:auto"></span>
+      <button class="ghost" id="updClose">close</button>
+    </div>
+    <div class="track"><div id="updFill"></div></div>
+    <pre id="updLog"></pre>
+    <div id="updConnect" hidden>
+      <div class="faint">This machine has never been connected to the updater. Open Terminal, paste this once, press enter. After that this button works on its own and the extension updates itself every couple of minutes.</div>
+      <pre id="updCmd"></pre>
+      <button class="ghost" id="updCopy">Copy the command</button>
+    </div>
+  </div>
+</div>
 
 <main>
   <section id="camp" class="on">
