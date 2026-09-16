@@ -322,7 +322,8 @@ ok('all set up reads as fine', d.ok === true, JSON.stringify(d.checks));
 
 d = await T.diagnose({ telegramChatId: '', telegramEnabled: true });
 ok('a missing chat id is named', !d.ok && says(d, /No chat id saved/), JSON.stringify(d.checks));
-ok('and it says where to get one', says(d, /userinfobot/), JSON.stringify(d.checks));
+ok('and it points at the button that fills it in', says(d, /Find it for me/), JSON.stringify(d.checks));
+ok('naming the actual bot to message', says(d, /@haf_bot/), JSON.stringify(d.checks));
 
 // The bot cannot message you until you press Start on it - the commonest one.
 canned = { sendChatAction: { ok: false, description: 'Forbidden: bot can\'t initiate conversation with a user' } };

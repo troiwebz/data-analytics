@@ -274,7 +274,10 @@ export async function diagnose(cfg) {
   }
 
   if (!cfg.telegramChatId) {
-    out.push(['✗', 'No chat id saved. Message @userinfobot on Telegram, it replies with your id.']);
+    // There is a button for this two inches away, so point at it rather than
+    // sending you to a third-party bot.
+    out.push(['✗', `No chat id saved. Open @${me.username} in Telegram, send it any message, `
+      + `then press "Find it for me" next to the chat id box above.`]);
     return { ok: false, checks: out };
   }
   try {
