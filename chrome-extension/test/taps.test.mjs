@@ -98,10 +98,19 @@ tgCalls = [];
 await T.sendLead(lead('1'), { telegramChatId: '999', telegramSend: 'both', telegramApprovals: true });
 const sends = tgCalls.filter((c) => c.method === 'sendMessage');
 ok('both messages carry buttons', sends.every((c) => !!c.body.reply_markup), JSON.stringify(sends.map((c) => !!c.body.reply_markup)));
+// The same four on every message, so whichever one is in front of you can do
+// the whole job rather than sending you hunting for the other card.
+for (const c of sends) {
+  const t = c.body.reply_markup.inline_keyboard.flat().map((b) => b.text);
+  ok('a message offers Post Public Now', t.some((x) => /Post Public Now/.test(x)), t.join(' | '));
+  ok('and Post DM Now', t.some((x) => /Post DM Now/.test(x)), t.join(' | '));
+  ok('and Edit Post', t.some((x) => /Edit Post/.test(x)), t.join(' | '));
+  ok('and Edit DM', t.some((x) => /Edit DM/.test(x)), t.join(' | '));
+  ok('and Skip', t.some((x) => /Skip/.test(x)), t.join(' | '));
+  ok('but no "I posted it" - that is applied when the reply really lands',
+     !t.some((x) => /I posted/i.test(x)), t.join(' | '));
+}
 const labels = sends.flatMap((c) => c.body.reply_markup.inline_keyboard.flat().map((b) => b.text));
-ok('the PM message offers to send the PM', labels.some((t) => /Send this PM/.test(t)), labels.join(' | '));
-ok('the reply message offers to post it', labels.some((t) => /Post this reply/.test(t)), labels.join(' | '));
-ok('and both offer Skip', labels.filter((t) => /Skip/.test(t)).length === 2, labels.join(' | '));
 const datas = sends.flatMap((c) => c.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data));
 ok('every button fits Telegram\'s 64-byte limit', datas.every((d) => d.length <= 64), JSON.stringify(datas));
 ok('and names the thread it belongs to', datas.every((d) => d.endsWith(':1')), JSON.stringify(datas));
@@ -199,12 +208,14 @@ store.recentLeads = [...(await getLeads()), lead('9')];
 tgCalls = [];
 updates = [tap('e:9')];
 await bg.pollTaps();
-const prompt = tgCalls.find((c) => c.method === 'sendMessage' && /Send the new public reply/.test(c.body.text || ''));
-ok('tapping Rewrite asks for the new wording', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
+const prompt = tgCalls.find((c) => c.method === 'sendMessage' && /Editing the post/.test(c.body.text || ''));
+ok('Edit Post opens an edit box', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
 ok('and opens the reply box on your phone', prompt?.body.reply_markup?.force_reply === true,
    JSON.stringify(prompt?.body.reply_markup));
-ok('showing what it says now, so you can see what you are replacing',
-   /We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 120));
+ok('with the post itself in front of you to edit',
+   /We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 140));
+ok('and it says Post Public Now comes back after', /Post Public Now/.test(prompt?.body.text || ''),
+   (prompt?.body.text || '').slice(0, 200));
 
 // The reply you type. force_reply means it comes back pointing at the prompt.
 const reply = (body, replyTo) => ({
@@ -218,9 +229,11 @@ await bg.pollTaps();
 let l9 = (await getLeads()).find((x) => x.threadId === '9');
 ok('what you typed becomes the draft', l9.draft === 'My own wording, written on the train.', l9.draft);
 ok('and it is marked as yours, so a staged tab is retyped not reused', l9.draftEdited === true);
-ok('the lead comes back with its buttons, ready to approve',
-   tgCalls.some((c) => c.method === 'sendMessage' && c.body.reply_markup?.inline_keyboard),
-   JSON.stringify(tgCalls.map((c) => c.method)));
+const back = tgCalls.find((c) => c.method === 'sendMessage' && c.body.reply_markup?.inline_keyboard);
+ok('the edited lead comes straight back', !!back, JSON.stringify(tgCalls.map((c) => c.method)));
+ok('with Post Public Now on it, so one more tap posts your version',
+   (back?.body.reply_markup.inline_keyboard.flat() || []).some((b) => /Post Public Now/.test(b.text)),
+   JSON.stringify((back?.body.reply_markup.inline_keyboard.flat() || []).map((b) => b.text)));
 ok('and the message it sends back is the wording you typed',
    tgCalls.some((c) => /written on the train/.test(c.body.text || '')),
    JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 40))));
@@ -239,8 +252,9 @@ ok('and the posted draft is the one you wrote', l9.draft === 'My own wording, wr
 tgCalls = [];
 updates = [tap('m:2')];
 await bg.pollTaps();
-const pmPrompt = tgCalls.find((c) => /Send the new PM/.test(c.body.text || ''));
-ok('the PM can be rewritten as well', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+const pmPrompt = tgCalls.find((c) => /Editing the DM/.test(c.body.text || ''));
+ok('Edit DM opens an edit box too', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+ok('with the DM in front of you', /lines/.test(pmPrompt?.body.text || ''), (pmPrompt?.body.text || '').slice(0, 140));
 updates = [reply('A PM in my own words.', 1)];
 await bg.pollTaps();
 ok('and what you typed becomes the PM',
@@ -302,6 +316,12 @@ canned = { getWebhookInfo: { ok: true, result: { url: 'https://script.google.com
 d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
 ok('a leftover webhook is named', !d.ok && says(d, /webhook is set/), JSON.stringify(d.checks));
 ok('and it says how to remove it', says(d, /deleteWebhook/), JSON.stringify(d.checks));
+ok('an Apps Script webhook is called what it is',
+   says(d, /old Apps Script relay/) && says(d, /Post now \/ I posted it \/ Skip/), JSON.stringify(d.checks));
+
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://example.com/hook' } } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a webhook that is not Apps Script is not blamed on it', !says(d, /Apps Script/), JSON.stringify(d.checks));
 
 canned = {};
 d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApprovals: false });

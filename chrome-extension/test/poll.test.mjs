@@ -173,9 +173,10 @@ ok('everything went to the configured chat', tg.every((m) => m.chat_id === '999'
 ok('every new thread arrives with approval buttons',
    tg.length === 6 && tg.every((m) => !!m.reply_markup), JSON.stringify(tg.map((m) => !!m.reply_markup)));
 const btns = tg.flatMap((m) => m.reply_markup.inline_keyboard.flat().map((b) => b.text));
-ok('the PM messages can be sent from the phone', btns.filter((t) => /Send this PM/.test(t)).length === 3, btns.join(' | '));
-ok('the reply messages can be posted from the phone', btns.filter((t) => /Post this reply/.test(t)).length === 3, btns.join(' | '));
-ok('and every one of them can be rewritten first', btns.filter((t) => /Rewrite/.test(t)).length === 6, String(btns.filter((t) => /Rewrite/.test(t)).length));
+ok('every message can post the public reply', btns.filter((t) => /Post Public Now/.test(t)).length === 6, btns.join(' | '));
+ok('and send the DM', btns.filter((t) => /Post DM Now/.test(t)).length === 6, btns.join(' | '));
+ok('and edit either of them first', btns.filter((t) => /Edit Post|Edit DM/.test(t)).length === 12,
+   String(btns.filter((t) => /Edit/.test(t)).length));
 ok('nothing was posted by the check itself - a thread only goes out when you tap',
    (store.recentLeads || []).every((l) => l.status !== 'POSTED'),
    JSON.stringify((store.recentLeads || []).map((l) => l.status)));

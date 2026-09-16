@@ -96,12 +96,20 @@ export function keyboard(lead, kind, cfg) {
   if (!cfg.telegramApprovals) return undefined;
   const id = String(lead.threadId || '');
   if (!id || id === 'sample') return undefined;        // a sample must never post
-  const send = kind === 'PM'
-    ? [{ text: '✉️ Send this PM', callback_data: `d:${id}` },
-       { text: '✏️ Rewrite', callback_data: `m:${id}` }]
-    : [{ text: '🚀 Post this reply', callback_data: `p:${id}` },
-       { text: '✏️ Rewrite', callback_data: `e:${id}` }];
-  return { inline_keyboard: [send, [{ text: '⏭ Skip', callback_data: `s:${id}` }]] };
+
+  // The same four on both messages, so whichever one you happen to be looking
+  // at can do the whole job. There is no "I posted it" button: a reply is
+  // marked posted when it actually lands on the thread, whether you tapped it
+  // here or pressed Post reply in the browser yourself.
+  return {
+    inline_keyboard: [
+      [{ text: '🚀 Post Public Now', callback_data: `p:${id}` },
+       { text: '✉️ Post DM Now', callback_data: `d:${id}` }],
+      [{ text: '✏️ Edit Post', callback_data: `e:${id}` },
+       { text: '✏️ Edit DM', callback_data: `m:${id}` }],
+      [{ text: '⏭ Skip', callback_data: `s:${id}` }]
+    ]
+  };
 }
 
 /**
@@ -267,8 +275,14 @@ export async function diagnose(cfg) {
   try {
     const hook = await call('getWebhookInfo', {});
     if (hook?.url) {
-      out.push(['✗', `A webhook is set on this bot (${hook.url}), so your taps cannot be read. `
-        + `Open api.telegram.org/bot<your token>/deleteWebhook once in a tab, then try again.`]);
+      const script = /script\.google\.com/.test(hook.url);
+      out.push(['✗', `A webhook is set on this bot (${hook.url}), so your taps cannot be read.`
+        + (script
+          ? ` That is the old Apps Script relay - it is still running, still sending you its own cards with`
+            + ` "Post now / I posted it / Skip", and it is holding your taps. Turn it off first: in the Apps`
+            + ` Script project, Triggers, delete the triggers, then Deploy, Manage deployments, Archive.`
+          : '')
+        + ` Then open api.telegram.org/bot<your token>/deleteWebhook once in a tab and try again.`]);
       return { ok: false, checks: out };
     }
     out.push(['✓', 'No webhook in the way, so button taps can be read.']);

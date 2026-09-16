@@ -778,15 +778,19 @@ async function takeRewrite(ev, cfg) {
 async function runTap(tap, lead, cfg) {
   try {
     if (tap.action === 'e' || tap.action === 'm') {
-      const which = tap.action === 'm' ? 'PM' : 'public reply';
+      const which = tap.action === 'm' ? 'DM' : 'post';
       const current = tap.action === 'm' ? lead.dm : lead.draft;
+      // The whole text goes in the prompt so it is in front of you to edit:
+      // on a phone, hold the quoted text, copy, change what you want, send.
+      // What comes back replaces it, and the lead reappears with its buttons.
       const promptId = await telegram.askFor(cfg.telegramChatId,
-        `✏️ Send the new ${which} for "${String(lead.title).slice(0, 60)}".\n\n`
-        + `Reply to this message with the whole thing - what you send replaces it.\n\n`
-        + `Now:\n${plain(current || '(empty)').slice(0, 900)}`);
-      if (!promptId) return '❌ Could not open the rewrite box.';
+        `✏️ Editing the ${which} for "${String(lead.title).slice(0, 60)}".\n\n`
+        + `Here it is. Reply to this message with the version you want - what you send replaces it, `
+        + `and the lead comes back with Post ${which === 'DM' ? 'DM' : 'Public'} Now on it.\n\n`
+        + `${plain(current || '(empty)').slice(0, 2500)}`);
+      if (!promptId) return '❌ Could not open the edit box.';
       await setEdit(String(promptId), { threadId: String(lead.threadId), field: tap.action === 'm' ? 'dm' : 'draft' });
-      return `✏️ Waiting for your new ${which} - reply to the message below.`;
+      return `✏️ Editing the ${which} - reply to the message below with your version.`;
     }
 
     if (tap.action === 's') {
