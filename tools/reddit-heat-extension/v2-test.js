@@ -233,6 +233,57 @@ assert.match(iu, /12 to 61 calls/);
 assert.match(V.improveUser(weak, "", { sub: "medspa" }, {}), /make your own judgement/);
 assert.match(V.improveUser(weak, "", { sub: "medspa" }, {}), /It is for r\/medspa\./);
 
+
+// ---- reading a room before posting in it --------------------------------
+const NOWB = Date.UTC(2026, 5, 1, 12);
+const post = (o) => V.classifyPromoPost({ id: "x", author: "a", subreddit: "s", permalink: "/p", score: 5, num_comments: 3, created_utc: (NOWB - (o.ageH || 100) * 3600000) / 1000, ...o }, NOWB);
+assert.strictEqual(post({ title: "Free Google audit for 10 roofers, drop your link" }).kind, "offer");
+assert.strictEqual(post({ title: "Free Google audit for 10 roofers, drop your link" }).survived, true);
+assert.strictEqual(post({ title: "Free audit", selftext: "[removed]" }).removed, true);
+assert.strictEqual(post({ title: "Free audit", selftext: "[removed]" }).survived, false);
+assert.strictEqual(post({ title: "Free audit", author: "[deleted]" }).removed, true);
+assert.strictEqual(post({ title: "Free audit", removed_by_category: "moderator" }).removed, true);
+// a post from an hour ago has not survived anything yet
+assert.strictEqual(post({ title: "Free audit for ten of you", ageH: 2 }).tooNew, true);
+assert.strictEqual(post({ title: "Free audit for ten of you", ageH: 2 }).survived, false);
+assert.strictEqual(post({ title: "What four months of SEO did to one clinic", selftext: "we went from 12 to 61 calls" }).kind, "case");
+assert.strictEqual(post({ title: "I run a marketing agency in Leeds, AMA" }).kind, "ama");
+assert.strictEqual(post({ title: "Slow month, anyone else?", selftext: "our agency has been quiet" }).kind, "service");
+assert.strictEqual(post({ title: "Best drill for roofing?" }), null, "an ordinary post is not precedent");
+assert.ok(V.PROBE_QUERIES.length >= 10);
+
+// the verdict: rules outrank precedent, always
+const V1 = V.briefVerdict({ rule: { promo: "no", why: "its own rules ban marketing agencies unless you are an approved vendor" },
+  precedent: { offer: 8, survivedOffer: 8, removedOffer: 0, case: 0, survivedCase: 0 } });
+assert.strictEqual(V1.verdict, "never");
+assert.strictEqual(V1.blocked, true, "an agency ban must block posting even when eight such posts survived");
+assert.strictEqual(V.briefVerdict({ rule: { promo: "no", why: "no self-promotion" }, precedent: {} }).verdict, "comments");
+assert.strictEqual(V.briefVerdict({ rule: { promo: "no", why: "no self-promotion" }, precedent: {} }).blocked, true);
+assert.strictEqual(V.briefVerdict({ rule: { promo: "weekly", why: "weekly thread" }, precedent: {} }).verdict, "weekly");
+assert.strictEqual(V.briefVerdict({ rule: { promo: "weekly", why: "weekly thread" }, precedent: {} }).blocked, false);
+assert.strictEqual(V.briefVerdict({ precedent: { offer: 5, survivedOffer: 4, removedOffer: 1, case: 2, survivedCase: 2 } }).verdict, "ok");
+assert.strictEqual(V.briefVerdict({ precedent: { offer: 3, survivedOffer: 0, removedOffer: 3 } }).verdict, "risky");
+assert.match(V.briefVerdict({ precedent: { offer: 1, survivedOffer: 0, removedOffer: 1 } }).reasons.join(" "), /one was removed/);
+assert.strictEqual(V.briefVerdict({ precedent: {} }).verdict, "untested");
+assert.match(V.briefVerdict({ precedent: {} }).reasons[0], /no precedent/);
+
+// ---- what Claude is asked, and what it is not allowed to get away with --
+assert.match(V.rulesSystem(), /approved vendors only/);
+assert.match(V.rulesSystem(), /Quote the deciding sentence exactly/);
+const RULES = [{ name: "No Marketing Agencies", what: "Agencies may not post unless they are approved vendors." }, { name: "Be civil", what: "No personal attacks." }];
+const ru = V.rulesUser("medspa", { title: "MedSpa owners", members: 3300, submitText: "Read the rules first" }, RULES, [post({ title: "Free audit", selftext: "[removed]" })]);
+assert.match(ru, /r\/medspa/);
+assert.match(ru, /Agencies may not post/);
+assert.match(ru, /Read the rules first/);
+assert.match(ru, /\[REMOVED\]/);
+assert.match(V.rulesUser("x", {}, [], []), /publishes no rules/);
+assert.match(V.rulesUser("x", {}, RULES, []), /Nothing like our post has been tried/);
+// a quote that is not in the rules we sent is an invention, not a rule
+assert.deepStrictEqual(V.rulesChecks({ may_post: "no", quote: "Agencies may not post unless they are approved vendors.", plain: "Agencies cannot post here at all unless the moderators have approved them as a vendor.", shape: "Answer questions in the comments instead.", watch: "rule one" }, RULES), []);
+assert.match(V.rulesChecks({ may_post: "no", quote: "No promotion of any kind is permitted at any time", plain: "x".repeat(40), shape: "y".repeat(30), watch: "z" }, RULES).join(" | "), /paraphrased or invented/);
+assert.match(V.rulesChecks({ may_post: "maybe", quote: "", plain: "x".repeat(40), shape: "y".repeat(30), watch: "z" }, RULES).join(" | "), /whether we may post/);
+assert.deepStrictEqual(V.rulesChecks({ may_post: "yes", quote: "", plain: "x".repeat(40), shape: "y".repeat(30), watch: "z" }, RULES), [], "an empty quote is allowed when no rule addresses it");
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);

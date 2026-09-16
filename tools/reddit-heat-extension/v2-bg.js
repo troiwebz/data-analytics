@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -510,11 +510,16 @@ async function v2Offers() {
 // room, typed into the real composer — that is what a human account looks
 // like, and it is the difference between a board that runs for a year and an
 // account that is gone in a fortnight.
-async function v2Open(n) {
+async function v2Open(n, force) {
   const st = await v2Get();
   const row = (st.plan || []).find((r) => r.n === Number(n));
   const draft = st.drafts[n];
   if (!row || !draft) return { ok: false, error: "write the post first" };
+  // a room whose own rules ban us is never opened by accident
+  const brief = (st.briefs || {})[row.sub];
+  if (brief && brief.verdict && brief.verdict.blocked && !force) {
+    return { ok: false, blocked: true, verdict: brief.verdict, error: brief.verdict.headline + " — " + brief.verdict.reasons[0] };
+  }
   await chrome.storage.local.set({ v2Pending: { n: row.n, sub: row.sub, title: draft.title, body: draft.body, first_comment: draft.first_comment || "", weekly: !!row.weekly, at: Date.now() } });
   const url = row.weekly
     ? `https://www.reddit.com/r/${encodeURIComponent(row.sub)}/`      // the weekly thread lives in the sub, find it by hand
@@ -661,6 +666,133 @@ async function v2Rooms(picked) {
   return { ok: true, picked: (picked || []).length };
 }
 
+// ------------------------------------------------ the pre-flight brief
+// Before anything is posted: what the rules say, and what the room has
+// actually let stand. Both, because they disagree more often than not.
+async function v2RoomBrief(sub, force) {
+  const st = await v2Get();
+  v2Apply(st);
+  const target = V2.TARGETS.find((t) => t.sub === sub);
+  const cached = (st.briefs || {})[sub];
+  if (cached && !force && Date.now() - (cached.at || 0) < 7 * 86400000) return { ok: true, ...cached, cached: true };
+
+  const brief = { sub, at: Date.now(), rules: [], about: {}, precedent: [], rivals: [], counts: {}, errors: [] };
+  const step = async (n, total, where) => chrome.storage.local.set({ v2Brief: { running: true, sub, done: n, total, where, stop: false } });
+  const probes = V2.PROBE_QUERIES;
+  const total = probes.length + 3;
+  let i = 0;
+
+  await step(++i, total, "what r/" + sub + " is");
+  try {
+    const j = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`);
+    const d = (j && j.data) || {};
+    brief.about = { title: String(d.title || d.public_description || "").slice(0, 200), members: d.subscribers || 0, online: d.accounts_active || d.active_user_count || 0,
+      type: d.submission_type || "any", restricted: d.subreddit_type !== "public", quarantined: !!d.quarantine,
+      submitText: String(d.submit_text || "").slice(0, 2000), description: String(d.description || d.public_description || "").slice(0, 4000) };
+  } catch (e) { brief.errors.push("could not read what the room is"); }
+
+  await step(++i, total, "its rules");
+  try {
+    const rj = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(sub)}/about/rules.json?raw_json=1`);
+    brief.rules = ((rj && rj.rules) || []).map((r) => ({ name: String(r.short_name || "").slice(0, 160), what: String(r.description || "").replace(/\s+/g, " ").slice(0, 1200), kind: r.kind || "" }));
+  } catch (e) { brief.errors.push("this room does not publish its rules as data"); }
+  brief.rule = V2.promoFromRules(brief.rules, brief.about.submitText, brief.about.description);
+  if (brief.about.restricted) brief.rule = { promo: "no", why: "the room is restricted — only approved users may post" };
+  if (brief.about.type === "link") brief.rule = { promo: "no", why: "it does not take text posts" };
+
+  // how often anything at all gets removed here
+  await step(++i, total, "what is on its front page");
+  const seen = {};
+  const eat = (children) => {
+    for (const c of children || []) {
+      const d = (c && c.data) || {};
+      if (!d.id || seen[d.id]) continue;
+      seen[d.id] = 1;
+      const hit = V2.classifyPromoPost(d, Date.now());
+      if (hit) brief.precedent.push(hit);
+    }
+  };
+  try {
+    const nj = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(sub)}/new.json?limit=100&raw_json=1`);
+    const kids = ((nj && nj.data && nj.data.children) || []);
+    brief.counts.recent = kids.length;
+    brief.counts.recentRemoved = kids.filter((c) => { const d = c.data || {}; return !!d.removed_by_category || /^\[(removed|deleted)\]$/i.test(String(d.selftext || "").trim()); }).length;
+    eat(kids);
+  } catch (e) { brief.errors.push("could not read its recent posts"); }
+
+  // and every shape of promotional post anyone has tried here in a year
+  for (const q of probes) {
+    const { v2Brief: b = {} } = await chrome.storage.local.get(["v2Brief"]);
+    if (b.stop) break;
+    await step(++i, total, '"' + q + '"');
+    try {
+      const j = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(sub)}/search.json?q=${encodeURIComponent(q)}&restrict_sr=on&sort=new&t=year&limit=25&raw_json=1`);
+      eat((j && j.data && j.data.children) || []);
+    } catch (e) { /* one probe failing is not fatal */ }
+    await new Promise((r) => setTimeout(r, 650));
+  }
+
+  brief.precedent.sort((a, b) => b.created - a.created);
+  const by = (k, f) => brief.precedent.filter((p) => p.kind === k && f(p)).length;
+  brief.counts = {
+    ...brief.counts,
+    offer: brief.precedent.filter((p) => p.kind === "offer").length,
+    survivedOffer: by("offer", (p) => p.survived),
+    removedOffer: by("offer", (p) => p.removed),
+    case: brief.precedent.filter((p) => p.kind === "case").length,
+    survivedCase: by("case", (p) => p.survived),
+    removedCase: by("case", (p) => p.removed),
+    ama: brief.precedent.filter((p) => p.kind === "ama").length,
+    removedAll: brief.precedent.filter((p) => p.removed).length,
+  };
+
+  // who else is selling in here, and how it went for them
+  const byAuthor = {};
+  for (const p of brief.precedent) {
+    if (!p.author || p.author === "[deleted]") continue;
+    const a = (byAuthor[p.author] = byAuthor[p.author] || { author: p.author, posts: 0, removed: 0, survived: 0, service: false, best: null });
+    a.posts += 1;
+    if (p.removed) a.removed += 1;
+    if (p.survived) a.survived += 1;
+    if (p.service) a.service = true;
+    if (!a.best || (p.comments || 0) > (a.best.comments || 0)) a.best = p;
+  }
+  brief.rivals = Object.values(byAuthor)
+    .filter((a) => a.posts >= 2 || a.service)
+    .sort((a, b) => (b.survived - a.survived) || (b.posts - a.posts))
+    .slice(0, 12);
+
+  brief.verdict = V2.briefVerdict({ rule: brief.rule, precedent: brief.counts });
+  const briefs = { ...(st.briefs || {}), [sub]: brief };
+  await chrome.storage.local.set({ v2Brief: { running: false, sub, done: i, total, where: "", stop: false } });
+  await v2Set({ briefs });
+  return { ok: true, ...brief };
+}
+
+// Claude reads the rule text as a person would, and must quote the sentence
+// it based the answer on — a quote that is not in the rules we sent is
+// rejected, so a confident paraphrase cannot pass for a rule.
+async function v2RulesRead(sub, force) {
+  const st = await v2Get();
+  const brief = (st.briefs || {})[sub];
+  if (!brief) return { ok: false, error: "read the room first" };
+  if (brief.read && !force) return { ok: true, read: brief.read, cached: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  let extra = "", out = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(V2.rulesSystem(), V2.rulesUser(sub, brief.about, brief.rules, brief.precedent) + (extra ? "\n\n" + extra : ""),
+      V2.RULES_SCHEMA, 1600, "read r/" + sub + "'s rules");
+    if (!res.ok) return res;
+    issues = V2.rulesChecks(res.parsed, brief.rules);
+    out = { ...res.parsed, at: Date.now(), cents: res.cents, issues };
+    if (!issues.length) break;
+    extra = "Your last answer was rejected: " + issues.join("; ") + ". The quote must be copied word for word from the rules above.";
+  }
+  brief.read = out;
+  await v2Set({ briefs: { ...(st.briefs || {}), [sub]: brief } });
+  return { ok: true, read: out, issues };
+}
+
 // -------------------------------------------------- the buyer hunt (v2)
 // v1 hunted intent. This hunts money: a post only enters the queue if
 // somebody in it has a budget, an agency, or a business of their own.
@@ -766,7 +898,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-settings": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), ...(msg.settings || {}) } })).then(() => ({ ok: true })));
     case "v2-draft": return go(v2Draft(msg.n, msg.force));
     case "v2-draft-save": return go(v2DraftSave(msg.n, msg.patch || {}));
-    case "v2-open": return go(v2Open(msg.n));
+    case "v2-open": return go(v2Open(msg.n, !!msg.force));
     case "v2-pending": return go(v2Pending().then((p) => p || { none: true }));
     case "v2-posted": return go(v2MarkPosted(msg.n, msg.url));
     case "v2-skip": return go(v2Skip(msg.n, msg.why));
@@ -779,6 +911,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
+    case "v2-brief": return go(v2RoomBrief(msg.sub, !!msg.force));
+    case "v2-brief-state": return go(chrome.storage.local.get(["v2Brief"]).then((x) => x.v2Brief || { running: false }));
+    case "v2-brief-stop": return go(chrome.storage.local.get(["v2Brief"]).then((x) => chrome.storage.local.set({ v2Brief: { ...(x.v2Brief || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-rules-read": return go(v2RulesRead(msg.sub, !!msg.force));
     case "v2-room-offers": return go(v2RoomOffers(msg.sub, !!msg.force, msg.extra));
     case "v2-offer-improve": return go(v2OfferImprove(msg.key, msg.note));
     case "v2-row-offer": return go(v2RowOffer(msg.n, msg.key));

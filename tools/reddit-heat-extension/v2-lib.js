@@ -1254,3 +1254,152 @@ V2.boostCost = function (b) {
     stop: (got > 0 && per > 6) || (got === 0 && spent >= 15),
   };
 };
+
+// ------------------------------------------------- reading a room properly
+// Rules are what the moderators wrote. Precedent is what they actually
+// enforce, and the two disagree more often than not: a room whose sidebar
+// forbids self-promotion may be full of surviving free-audit posts, and a
+// room with no rule against it may quietly remove every one. So the brief
+// reads both — the rule text, and the last year of posts that tried the same
+// thing we are about to try, marked by whether they are still standing.
+V2.PROBE_QUERIES = [
+  "free audit", "I'll review", "I will build", "drop your link", "giving away",
+  "AMA", "teardown", "roast my", "for free", "no charge",
+  "case study", "here's what we did", "spots left", "offering free",
+];
+V2.PROMO_RE = /\bfree\b[^.?!]{0,30}\b(audit|review|teardown|report|build|setup|check|analysis|look)\b|\bi'?ll (build|make|do|review|audit|write|design|set up|look at)\b|\bdrop (your|the) (link|url|site|website|name)\b|\bgiving (it )?away\b|\bno charge\b|\bfor free\b|\b\d+ spots?\b|\boffering\b[^.?!]{0,25}\bfree\b/i;
+V2.CASE_RE = /\bcase study\b|\bhere'?s (what|how) (we|i) (did|built|ran|grew)\b|\bwent from\b[^.?!]{0,40}\bto\b|\b\d+ ?(x|%)\b[^.?!]{0,30}\b(growth|increase|more)\b|\bwhat (\d+ )?(months?|weeks?|years?) of\b/i;
+V2.AMA_RE = /\bAMA\b|\bask me anything\b/i;
+V2.SERVICE_RE = /\bmy agency\b|\bour agency\b|\bwe run ads\b|\bwe (manage|handle|do) (ads|seo|marketing)\b|\bour (clients|team)\b|\bfreelance(r)?\b|\bconsultant\b|\bi run a (marketing|digital|seo|ads) \w+\b|\bdm me (for|if)\b/i;
+
+// A post is "removed" when Reddit says so, or when its body has been replaced
+// by the usual tombstones. A post that is still standing after a day has
+// survived the moderators, which is the only evidence that counts.
+V2.classifyPromoPost = function (d, now) {
+  const at = now || Date.now();
+  const title = String(d.title || "");
+  const body = String(d.selftext || "");
+  const text = title + "\n" + body;
+  const removed = !!d.removed_by_category || /^\[(removed|deleted)\]$/i.test(body.trim()) || String(d.author || "") === "[deleted]";
+  let kind = "";
+  if (V2.AMA_RE.test(title)) kind = "ama";
+  else if (V2.PROMO_RE.test(text)) kind = "offer";
+  else if (V2.CASE_RE.test(text)) kind = "case";
+  else if (V2.SERVICE_RE.test(text)) kind = "service";
+  if (!kind) return null;
+  const created = (d.created_utc || 0) * 1000;
+  const ageH = (at - created) / 3600000;
+  return {
+    id: d.id, kind, removed,
+    survived: !removed && ageH > 24,
+    tooNew: !removed && ageH <= 24,
+    author: String(d.author || ""),
+    title: title.slice(0, 200),
+    sub: String(d.subreddit || ""),
+    permalink: "https://www.reddit.com" + String(d.permalink || ""),
+    created, score: d.score || 0, comments: d.num_comments || 0,
+    service: V2.SERVICE_RE.test(text),
+  };
+};
+
+// The verdict a person actually needs before pressing Post: may we, and what
+// is the evidence either way. The rule text outranks the precedent — a room
+// that bans agencies bans us even if ten agency posts are still standing,
+// because those authors may be approved vendors and we are not.
+V2.briefVerdict = function (opts = {}) {
+  const rule = opts.rule || null;                 // from promoFromRules
+  // every count defaulted: a missing field must not turn a sum into NaN and
+  // quietly report a room as untested when three posts were removed in it
+  const n = (x) => Number(x) || 0;
+  const raw = opts.precedent || {};
+  const p = { offer: n(raw.offer), survivedOffer: n(raw.survivedOffer), removedOffer: n(raw.removedOffer),
+    case: n(raw.case), survivedCase: n(raw.survivedCase), removedCase: n(raw.removedCase) };
+  const reasons = [];
+  let verdict = "ok";
+  if (rule && /approved vendor/.test(rule.why || "")) {
+    verdict = "never";
+    reasons.push("its own rules ban marketing agencies unless you are an approved vendor — ask the moderators first, do not post");
+  } else if (rule && rule.promo === "no") {
+    verdict = "comments";
+    reasons.push("its own rules forbid self-promotion, so the only thing that goes in here is an answer under somebody else's thread");
+  } else if (rule && rule.promo === "weekly") {
+    verdict = "weekly";
+    reasons.push("its own rules send promotion to a weekly or pinned thread — find that thread rather than making a post");
+  }
+  // precedent, which can soften a guess but never overrule a written ban
+  if (p.offer + p.case > 0) {
+    const survived = p.survivedOffer + p.survivedCase;
+    const removed = p.removedOffer + p.removedCase;
+    if (survived >= 3) reasons.push(survived + " posts like ours are still standing here, so this shape of post does get through");
+    else if (survived > 0) reasons.push("only " + survived + " post like ours is still standing — thin evidence, go carefully");
+    if (removed > 0) reasons.push(removed === 1 ? "one was removed, so the moderators do act on this" : removed + " were removed, so the moderators do act on this");
+    if (removed > 0 && survived === 0 && verdict === "ok") { verdict = "risky"; reasons.push("every one that tried was taken down"); }
+  } else {
+    reasons.push("nothing like our post has been tried here in the last year, so there is no precedent either way");
+    if (verdict === "ok") verdict = "untested";
+  }
+  const say = {
+    never: "Do not post here",
+    comments: "Answer here, never post",
+    weekly: "Only in its weekly thread",
+    risky: "Risky — posts like ours get removed here",
+    untested: "No precedent — be the first, carefully",
+    ok: "Safe to post",
+  };
+  return { verdict, headline: say[verdict], reasons, blocked: verdict === "never" || verdict === "comments" };
+};
+
+// What Claude is asked to do with the rule text: read it as a person would
+// and say plainly what it forbids, in its own words, with the line it comes
+// from — not a summary, a quotation, so the judgement can be checked.
+V2.RULES_SCHEMA = {
+  type: "object",
+  properties: {
+    may_post: { type: "string", description: "'yes', 'no' or 'weekly' — whether an offer post is allowed here at all." },
+    quote: { type: "string", description: "The exact sentence from the rules that decides it, copied verbatim. Empty if no rule addresses it." },
+    plain: { type: "string", description: "What the rules forbid, in two or three plain sentences a person can act on." },
+    shape: { type: "string", description: "How a post has to be shaped to be welcome here, given these rules and what has survived." },
+    watch: { type: "string", description: "The single rule most likely to catch us out, and why." },
+  },
+  required: ["may_post", "quote", "plain", "shape", "watch"],
+  additionalProperties: false,
+};
+V2.rulesSystem = function () {
+  return [
+    "You read a subreddit's rules and tell a marketer what they may and may not do there.",
+    "",
+    "You are cautious on their behalf. If a rule could reasonably be read as forbidding what they want to do, say so — a removed post costs them the room, and sometimes the account.",
+    "Quote the deciding sentence exactly as written. Never paraphrase it into the quote field. If no rule addresses promotion at all, leave the quote empty and say so.",
+    "Treat 'no advertising', 'no self-promotion', 'no agencies', 'approved vendors only' and 'vendors must be approved' as forbidding it. An 'except approved vendors' carve-out does not help someone who is not an approved vendor.",
+    "Do not soften a rule because posts like theirs are still standing — those authors may have permission they do not have.",
+  ].join("\n");
+};
+V2.rulesUser = function (target, about, rules, precedent) {
+  const lines = ["Room: r/" + (typeof target === "string" ? target : target.sub)];
+  if (about && about.title) lines.push("What it says it is: " + about.title);
+  if (about && about.members) lines.push("Size: " + about.members.toLocaleString() + " members");
+  lines.push("", "Its rules, as published:");
+  if (!(rules || []).length) lines.push("(this room publishes no rules)");
+  for (const r of rules || []) lines.push("- " + (r.name || r.short_name || "") + (r.what || r.description ? ": " + (r.what || r.description) : ""));
+  if (about && about.submitText) lines.push("", "What it shows people about to post: " + about.submitText);
+  if (precedent && precedent.length) {
+    lines.push("", "Posts like ours that have been tried here, newest first:");
+    for (const p of precedent.slice(0, 14)) lines.push(`- [${p.removed ? "REMOVED" : p.survived ? "still up" : "too new to tell"}] ${p.kind}: ${p.title} (${p.score} points, ${p.comments} comments)`);
+  } else {
+    lines.push("", "Nothing like our post has been tried here in the last year.");
+  }
+  lines.push("", "We want to make a post that gives something away and asks people to comment. Read the rules and answer.");
+  return lines.join("\n");
+};
+V2.rulesChecks = function (r, rules) {
+  const bad = [];
+  if (!r) return ["nothing came back"];
+  if (!["yes", "no", "weekly"].includes(String(r.may_post || "").toLowerCase())) bad.push("it did not say plainly whether we may post");
+  if (!r.plain || r.plain.length < 30) bad.push("the plain reading is too thin to act on");
+  if (!r.shape || r.shape.length < 20) bad.push("it did not say how to shape the post");
+  // a quote has to be a quote: it must actually appear in the rules we sent
+  const hay = (rules || []).map((x) => [x.name, x.short_name, x.what, x.description].filter(Boolean).join(" ")).join(" \n ").toLowerCase();
+  const q = String(r.quote || "").trim().toLowerCase();
+  if (q && hay && !hay.includes(q.slice(0, Math.min(40, q.length)))) bad.push("the quoted rule is not in the rules it was given — it was paraphrased or invented");
+  return bad;
+};

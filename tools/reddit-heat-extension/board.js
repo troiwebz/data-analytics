@@ -54,7 +54,8 @@ async function drawPlan() {
     const btns = r.state === "posted"
       ? `<a href="${esc(r.url || "#")}" target="_blank">open the post</a>`
       : `<button class="ghost" data-w="${r.n}">${r.draft ? "rewrite" : "write it"}</button>
-         <button class="ghost" data-off="${r.n}">5 offers for r/${esc(r.sub)}</button>
+         <button class="ghost" data-brief="${esc(r.sub)}">check r/${esc(r.sub)}</button>
+         <button class="ghost" data-off="${r.n}">5 offers</button>
          ${r.draft ? `<button class="ghost" data-v="${r.n}">read</button><button class="act" data-o="${r.n}">post it</button><button class="ghost" data-m="${r.n}">it is live</button>` : ""}
          <button class="ghost" data-s="${r.n}">skip</button>`;
     return `<tr class="${cls}">
@@ -67,6 +68,7 @@ async function drawPlan() {
   $$("#planRows button[data-v]").forEach((b) => b.onclick = () => view(+b.dataset.v));
   $$("#planRows button[data-o]").forEach((b) => b.onclick = () => open_(+b.dataset.o));
   $$("#planRows button[data-off]").forEach((b) => b.onclick = () => roomOffers(+b.dataset.off, false));
+  $$("#planRows button[data-brief]").forEach((b) => b.onclick = () => showBrief(b.dataset.brief, false, "#planDraft"));
   $$("#planRows button[data-s]").forEach((b) => b.onclick = async () => { await send({ type: "v2-skip", n: +b.dataset.s }); drawPlan(); });
   // if the content script missed the moment the post went live — a full page
   // reload, a crosspost, posting from the phone — mark it here by hand so the
@@ -123,8 +125,114 @@ async function view(n) {
 }
 async function open_(n) {
   const r = await send({ type: "v2-open", n });
+  if (r && r.blocked) {
+    const row = (BOARD.rows || []).find((x) => x.n === n) || {};
+    say(r.error, "var(--warn)");
+    await showBrief(row.sub, false, "#planDraft");
+    // an override exists, because a moderator may have approved you since
+    if (confirm(`${r.verdict.headline}\n\n${r.verdict.reasons.join("\n")}\n\nOpen Reddit anyway? Only do this if the moderators have told you it is allowed.`)) {
+      const again = await send({ type: "v2-open", n, force: true });
+      if (again && again.ok) say("opened anyway — it is on you now", "var(--warn)");
+    }
+    return;
+  }
   if (!r || !r.ok) return say((r && r.error) || "could not open it", "var(--warn)");
   say(r.weekly ? "that room takes offers only in its weekly thread — find it, then paste" : "Reddit is open and the form is being filled. You press Post.", "var(--go)");
+}
+
+// ------------------------------------------------- read the room first
+// The rules as published, in full, and every post anyone has made here that
+// tried what we are about to try — marked by whether it is still standing.
+const VERDICT_STYLE = {
+  never: ["#d62d20", "rgba(214,45,32,.10)", "rgba(214,45,32,.45)"],
+  comments: ["var(--warn)", "rgba(245,158,11,.08)", "rgba(245,158,11,.4)"],
+  weekly: ["var(--warn)", "rgba(245,158,11,.08)", "rgba(245,158,11,.4)"],
+  risky: ["var(--warn)", "rgba(245,158,11,.08)", "rgba(245,158,11,.4)"],
+  untested: ["var(--blue)", "rgba(96,165,250,.07)", "rgba(96,165,250,.3)"],
+  ok: ["var(--go)", "rgba(74,222,128,.08)", "rgba(74,222,128,.4)"],
+};
+async function showBrief(sub, force, into) {
+  const box = $(into || "#planDraft");
+  box.innerHTML = `<div class="card"><h3>Reading r/${esc(sub)}…</h3><div class="faint" id="briefLive">its rules, then a year of posts like ours</div></div>`;
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  const tick = setInterval(async () => {
+    const st = await send({ type: "v2-brief-state" });
+    const el = $("#briefLive");
+    if (el && st && st.running) el.textContent = `${st.where} · ${st.done} of ${st.total}`;
+    if (!st || !st.running) clearInterval(tick);
+  }, 600);
+  const b = await send({ type: "v2-brief", sub, force: !!force });
+  clearInterval(tick);
+  if (!b || !b.ok) { box.innerHTML = `<div class="card"><h3>Could not read r/${esc(sub)}</h3><div class="issue">${esc((b && b.error) || "no answer")}</div></div>`; return; }
+  drawBrief(b, box);
+}
+function drawBrief(b, box) {
+  const v = b.verdict || { verdict: "ok", headline: "", reasons: [] };
+  const [fg, bg, br] = VERDICT_STYLE[v.verdict] || VERDICT_STYLE.ok;
+  const c = b.counts || {};
+  const stand = b.precedent.filter((p) => p.survived), gone = b.precedent.filter((p) => p.removed);
+  const row = (p) => `<tr class="${p.removed ? "done" : ""}">
+    <td>${p.removed ? `<span class="tag t-weekly">removed</span>` : p.survived ? `<span class="tag t-magnet">still up</span>` : `<span class="tag t-asking">too new</span>`}</td>
+    <td class="faint">${esc(p.kind)}</td>
+    <td><a href="${esc(p.permalink)}" target="_blank">${esc(p.title)}</a></td>
+    <td class="faint">u/${esc(p.author)}</td>
+    <td>${p.score}</td><td>${p.comments}</td><td class="faint">${ago(p.created)}</td></tr>`;
+  box.innerHTML = `<div class="card" style="border-color:${br};background:${bg}">
+      <h3 style="color:${fg}">r/${esc(b.sub)} — ${esc(v.headline)}</h3>
+      <ul class="tight">${v.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+      <div class="faint" style="margin-top:8px">${b.about.members ? b.about.members.toLocaleString() + " members, " + (b.about.online || 0).toLocaleString() + " online" : ""}${c.recent ? ` · ${c.recentRemoved} of its last ${c.recent} posts have been removed` : ""}</div>
+      <div class="bar" style="margin-top:10px">
+        <button class="ghost" id="bRead">Have Claude read the rules</button>
+        <button class="ghost" id="bAgain">Read the room again</button>
+        <a href="https://www.reddit.com/r/${esc(b.sub)}/about/rules/" target="_blank" style="align-self:center">open the rules on Reddit</a>
+      </div>
+      <div id="bReadOut"></div>
+    </div>
+
+    <div class="card"><h3>Its rules, in full</h3>
+      ${b.rules.length ? `<ol class="tight">${b.rules.map((r) => `<li><b>${esc(r.name)}</b>${r.what ? `<div class="faint">${esc(r.what)}</div>` : ""}</li>`).join("")}</ol>`
+        : `<div class="faint">This room publishes no rules as data. Open it on Reddit and read the sidebar before posting.</div>`}
+      ${b.about.submitText ? `<div style="margin-top:10px"><b class="faint">What it shows you as you post:</b><div class="draft" style="font:12px/1.6 -apple-system,Segoe UI,sans-serif">${esc(b.about.submitText)}</div></div>` : ""}
+    </div>
+
+    <div class="card"><h3>Has anyone tried this here?</h3>
+      <div class="stat" style="margin:6px 0 10px">
+        <div><b>${c.offer || 0}</b><span>offer posts</span></div>
+        <div><b style="color:var(--go)">${c.survivedOffer || 0}</b><span>still standing</span></div>
+        <div><b style="color:var(--warn)">${c.removedOffer || 0}</b><span>removed</span></div>
+        <div><b>${c.case || 0}</b><span>result posts</span></div>
+        <div><b>${c.ama || 0}</b><span>AMAs</span></div>
+      </div>
+      ${b.precedent.length ? `<table><thead><tr><th style="width:96px">Fate</th><th style="width:70px">Kind</th><th>Post</th><th style="width:130px">Who</th><th style="width:60px">Pts</th><th style="width:74px">Comm</th><th style="width:64px">Age</th></tr></thead>
+        <tbody>${stand.slice(0, 12).map(row).join("")}${gone.slice(0, 8).map(row).join("")}${b.precedent.filter((p) => p.tooNew).slice(0, 4).map(row).join("")}</tbody></table>`
+        : `<div class="faint">Nothing like our post has been tried here in the last year. That is not permission — it may simply mean the moderators remove them fast enough that none survive to be found.</div>`}
+    </div>
+
+    ${b.rivals.length ? `<div class="card"><h3>Who else is selling in here</h3>
+      <div class="faint">Read their best post before writing yours — whatever they did, this room tolerated it.</div>
+      <table style="margin-top:8px"><thead><tr><th style="width:150px">Who</th><th style="width:70px">Posts</th><th style="width:90px">Still up</th><th style="width:90px">Removed</th><th>Their best one</th></tr></thead>
+      <tbody>${b.rivals.map((a) => `<tr>
+        <td><a href="https://www.reddit.com/user/${esc(a.author)}" target="_blank">u/${esc(a.author)}</a>${a.service ? `<div class="faint">sells a service</div>` : ""}</td>
+        <td>${a.posts}</td><td style="color:var(--go)">${a.survived}</td><td style="color:${a.removed ? "var(--warn)" : "var(--dim)"}">${a.removed}</td>
+        <td>${a.best ? `<a href="${esc(a.best.permalink)}" target="_blank">${esc(a.best.title)}</a><div class="faint">${a.best.comments} comments</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${(b.errors || []).length ? `<div class="card"><div class="issue">${b.errors.map(esc).join(" · ")}</div></div>` : ""}`;
+  $("#bAgain").onclick = () => showBrief(b.sub, true, "#" + box.id);
+  $("#bRead").onclick = async () => {
+    $("#bReadOut").innerHTML = `<div class="faint" style="margin-top:8px">reading…</div>`;
+    const r = await send({ type: "v2-rules-read", sub: b.sub });
+    if (!r || !r.ok) { $("#bReadOut").innerHTML = `<div class="issue">${esc((r && r.error) || "could not read them")}</div>`; return; }
+    const d = r.read;
+    const may = String(d.may_post || "").toLowerCase();
+    $("#bReadOut").innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <b style="color:${may === "yes" ? "var(--go)" : may === "weekly" ? "var(--warn)" : "#d62d20"}">May we post here? ${esc(d.may_post)}</b>
+      ${(d.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("")}
+      ${d.quote ? `<div class="draft" style="font:12px/1.6 -apple-system,Segoe UI,sans-serif;margin-top:8px">“${esc(d.quote)}”</div>` : `<div class="faint" style="margin-top:8px">No rule here addresses promotion directly.</div>`}
+      <ul class="tight" style="margin-top:8px">
+        <li><b>In plain words:</b> ${esc(d.plain)}</li>
+        <li><b>Shape it like this:</b> ${esc(d.shape)}</li>
+        <li><b>Most likely to catch us:</b> ${esc(d.watch)}</li>
+      </ul></div>`;
+  };
 }
 
 // ------------------------------------------------------------ buyer queue
@@ -367,12 +475,13 @@ function drawTargetTable() {
     const why = c && c.promoWhy ? `<div class="rules" style="color:var(--warn)">${esc(c.promoWhy)}</div>` : "";
     return `<tr>
       <td><input type="checkbox" data-sub="${esc(t.sub)}" ${picked.has(t.sub) || !picked.size ? "checked" : ""}></td>
-      <td><a href="https://www.reddit.com/r/${esc(t.sub)}/" target="_blank">r/${esc(t.sub)}</a>${c && c.ok && c.over18 ? ' <span class="tag t-weekly">18+</span>' : ""}</td>
+      <td><a href="https://www.reddit.com/r/${esc(t.sub)}/" target="_blank">r/${esc(t.sub)}</a>${c && c.ok && c.over18 ? ' <span class="tag t-weekly">18+</span>' : ""}<div><button class="ghost" data-brief2="${esc(t.sub)}" style="padding:3px 8px;font-size:11px;margin-top:4px">read it</button></div></td>
       <td class="faint">${kind}</td><td class="faint">${esc(promo)}${scraped}</td>
       <td>${members}</td><td>${online}</td>
       <td class="faint">${esc(c && c.title ? c.title : t.note)}${rules}${why}</td></tr>`;
   }).join("") || `<tr><td colspan="7" class="faint">Nothing matches those filters.</td></tr>`;
   $$("#tRows input[data-sub]").forEach((cb) => cb.onchange = pickRooms);
+  $$("#tRows button[data-brief2]").forEach((b) => b.onclick = () => showBrief(b.dataset.brief2, false, "#tBrief"));
   const on = $$("#tRows input[data-sub]").filter((b) => b.checked).length;
   $("#tSay").textContent = `${list.length} shown · ${(TGT.picked || []).length || "all"} picked for the calendar`;
 }
