@@ -712,6 +712,18 @@ export async function pollTaps() {
 
     if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
 
+    // The self-test button belongs to no lead. Answer it here, before anything
+    // tries to look one up.
+    if (ev.action === 't') {
+      await telegram.ackTap(ev.id, 'Got it.');
+      await chrome.storage.local.set({ tgSelfTestAt: Date.now() });
+      await telegram.settleTap(ev, '✅ Your taps reach Chrome. Everything is connected - '
+        + 'Post Public Now, Post DM Now and the Edit buttons will all work.');
+      await log('Telegram self-test passed: a tap reached Chrome');
+      done++;
+      continue;
+    }
+
     const lead = (await getLeads()).find((l) => String(l.threadId) === String(ev.threadId));
     if (!lead) {
       await telegram.ackTap(ev.id, 'That lead is no longer in the table.');
@@ -1182,6 +1194,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .sendLead(lead, { ...cfg, telegramEnabled: true }, { onPart: (n, e) => !e && done.push(n) })
           .then(() => ({ ok: true, sent: done, usedClaude: !!ai[m.threadId] }))
           .catch((e) => ({ error: e.message, sent: done, usedClaude: !!ai[m.threadId] })));
+        break;
+      }
+      case 'tg-selftest': {                          // the whole chain, end to end
+        const cfg = await getConfig();
+        const out = await telegram.diagnose(cfg).catch((e) => ({ ok: false, checks: [['✗', e.message]] }));
+
+        // What version is actually running, and whether a pull is waiting to
+        // be picked up - "is it up to date" is half the question.
+        const running = chrome.runtime.getManifest().version;
+        let onDisk = running;
+        try { onDisk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version; }
+        catch { /* reported as unknown below */ }
+        out.checks.unshift(onDisk === running
+          ? ['✓', `Running v${running}, which is what is in the folder.`]
+          : ['!', `Running v${running} but v${onDisk} is in the folder - it reloads within a minute, or press More → Install update.`]);
+
+        // Is the tap poller actually armed?
+        const alarm = await chrome.alarms.get('telegram-taps').catch(() => null);
+        out.checks.push(cfg.telegramApprovals && alarm
+          ? ['✓', `Checking for your taps every ${Math.max(30, Number(cfg.telegramPollSeconds) || 30)}s.`]
+          : cfg.telegramApprovals
+            ? ['✗', 'Approvals are on but the checker is not running. Press Save on this page to arm it.']
+            : ['!', 'Approval buttons are off, so nothing will have buttons to tap.']);
+
+        if (out.ok) {
+          try {
+            await telegram.selfTest(cfg);
+            out.checks.push(['✓', 'Test message sent. Tap the button on your phone to finish the test.']);
+            out.awaitingTap = true;
+          } catch (e) { out.ok = false; out.checks.push(['✗', `Could not send the test message: ${e.message}`]); }
+        }
+        const { tgSelfTestAt } = await chrome.storage.local.get('tgSelfTestAt');
+        out.lastTapAt = tgSelfTestAt || 0;
+        sendResponse(out);
+        break;
+      }
+      case 'tg-selftest-seen': {                     // has the test button been tapped yet
+        const { tgSelfTestAt } = await chrome.storage.local.get('tgSelfTestAt');
+        sendResponse({ at: tgSelfTestAt || 0 });
         break;
       }
       case 'tg-findchat': {                          // read your own chat id off the bot

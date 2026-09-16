@@ -283,6 +283,25 @@ tgCalls = [];
 r = await bg.pollTaps();
 ok('with approvals off nothing is polled at all', r.skipped === 'off' && !tgCalls.length, JSON.stringify(r));
 
+const postedCountBefore = (await getLeads()).filter((l) => l.status === 'POSTED').length;
+await setConfig({ telegramApprovals: true });      // the block above turned them off
+
+// --- the self-test button ---------------------------------------------------
+// Tapping it belongs to no lead, so it must be answered before anything tries
+// to look one up - otherwise the one button whose whole job is proving the
+// chain works would fall through as "that lead is no longer in the table".
+tgCalls = [];
+updates = [tap('t:selftest')];
+r = await bg.pollTaps();
+ok('the self-test tap is acted on', r.done === 1, JSON.stringify(r));
+ok('and answered on the phone',
+   tgCalls.some((c) => c.method === 'editMessageText' && /taps reach Chrome/.test(c.body.text)),
+   JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+ok('and recorded, so Settings can see it landed', (store.tgSelfTestAt || 0) > 0, String(store.tgSelfTestAt));
+ok('it posts nothing to the forum',
+   (await getLeads()).filter((l) => l.status === 'POSTED').length === postedCountBefore,
+   JSON.stringify((await getLeads()).map((l) => l.status)));
+
 // --- "the Telegram button does nothing" -------------------------------------
 // Every one of these looks identical from the outside. The diagnostic has to
 // name which it actually is.

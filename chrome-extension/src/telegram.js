@@ -429,6 +429,21 @@ export async function findChatId() {
   return { chats, chatId: chats[chats.length - 1].id };
 }
 
+/**
+ * The one thing no amount of checking from this side can prove: that a tap on
+ * your phone reaches Chrome. Sends a message with a single button; tapping it
+ * closes the loop, and the reply you get back is the proof.
+ */
+export async function selfTest(cfg) {
+  const m = await call('sendMessage', {
+    chat_id: cfg.telegramChatId,
+    text: '🧪 HAF Watcher self-test.\n\nThis message arriving proves Chrome can send to you.\n'
+        + 'Tap the button below to prove your taps reach Chrome. Nothing is posted to the forum.',
+    reply_markup: { inline_keyboard: [[{ text: '✅ Tap me to finish the test', callback_data: 't:selftest' }]] }
+  });
+  return { messageId: m?.message_id };
+}
+
 /** A plain acknowledgement in the chat, for things with no button to edit. */
 export async function say(chatId, text) {
   try { await call('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true }); }

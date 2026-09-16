@@ -274,6 +274,38 @@ $('findChat').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Find it for me';
 });
 
+$('selfTest').addEventListener('click', async () => {
+  const b = $('selfTest');
+  b.disabled = true; b.textContent = 'Testing…';
+  const before = Date.now();
+  const r = await ai('tg-selftest');
+  const lines = (r?.checks || []).map(([m, t]) => `${m} ${t}`);
+  $('tgStatus').innerHTML = lines.join('<br>') || 'No answer from the service worker.';
+  $('tgStatus').style.color = r?.ok ? '#334155' : '#b45309';
+
+  // The tap is the only half this side cannot prove, so wait for it rather
+  // than declaring success on a message having gone out.
+  if (r?.awaitingTap) {
+    b.textContent = 'Waiting for your tap…';
+    for (let i = 0; i < 40; i++) {                 // ~2 minutes
+      await new Promise((s) => setTimeout(s, 3000));
+      const t = await ai('tg-taps');
+      const seen = await ai('tg-selftest-seen');
+      if (seen?.at > before) {
+        $('tgStatus').innerHTML = lines.concat('✓ <b>Your tap reached Chrome. Everything works.</b>').join('<br>');
+        $('tgStatus').style.color = '#15803d';
+        break;
+      }
+      if (i === 39) {
+        $('tgStatus').innerHTML = lines.concat(
+          '✗ <b>No tap came back in two minutes.</b> The message went out, so sending works and receiving '
+          + 'does not — usually a webhook on the bot. Press "Why is nothing arriving?".').join('<br>');
+      }
+    }
+  }
+  b.disabled = false; b.textContent = '🧪 Test everything';
+});
+
 $('tgCheck').addEventListener('click', async () => {
   const b = $('tgCheck');
   b.disabled = true; b.textContent = 'Checking…';
