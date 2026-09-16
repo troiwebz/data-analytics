@@ -13,6 +13,7 @@ import { getConfig, setConfig, migrateConfig, DEFAULT_CONFIG } from './config.js
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { matchLead } from './matcher.js';
+import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
@@ -837,6 +838,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'tg-clear-token': await telegram.clearToken(); sendResponse(await telegram.status(await getConfig())); break;
       case 'tg-test':     sendResponse(await telegram.test(await getConfig()).catch((e) => ({ error: e.message }))); break;
+      case 'tg-sample': {                            // a full example, end to end
+        const cfg = await getConfig();
+        // Built through the real pipeline - the same matcher, templates,
+        // closes, compliance linter and card a genuine thread goes through -
+        // so what arrives is exactly what a real lead will look like, not a
+        // hand-written mock that could look right while the real one is broken.
+        const sample = sampleThread();
+        const m = matchLead(sample, cfg) || unscored(sample);
+        const ai = await specificsFor([m], cfg).catch(() => ({}));
+        const lead = enrich(m, cfg, 'SENT', ai[m.threadId]);
+
+        const done = [];
+        sendResponse(await telegram
+          .sendLead(lead, { ...cfg, telegramEnabled: true }, { onPart: (n, e) => !e && done.push(n) })
+          .then(() => ({ ok: true, sent: done, usedClaude: !!ai[m.threadId] }))
+          .catch((e) => ({ error: e.message, sent: done, usedClaude: !!ai[m.threadId] })));
+        break;
+      }
       case 'tg-send': {                              // send one lead by hand
         const cfg = await getConfig();
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));

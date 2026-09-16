@@ -228,6 +228,20 @@ $('clearTg').addEventListener('click', async () => {
   showTg(await ai('tg-clear-token'));
 });
 
+$('sampleTg').addEventListener('click', async () => {
+  const b = $('sampleTg');
+  b.disabled = true; b.textContent = 'Building and sending…';
+  const r = await ai('tg-sample');
+  if (r?.error) {
+    showTg(null, `Sent the ${(r.sent || []).join(' and ') || 'nothing'}. Telegram refused the rest: ${r.error}`);
+  } else {
+    status(`Sent the ${(r.sent || []).join(' and ')} to Telegram` +
+      (r.usedClaude ? ', with lines written by Claude for that thread.' : '. Claude did not run, so the built-in rules wrote it.'));
+    refreshTg();
+  }
+  b.disabled = false; b.textContent = 'Send a sample lead';
+});
+
 $('testTg').addEventListener('click', async () => {
   $('testTg').disabled = true; $('testTg').textContent = 'Sending…';
   const r = await ai('tg-test');

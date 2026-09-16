@@ -132,23 +132,22 @@ ok('Copy copies the reply', copied.includes('Bulk GMB'), copied.slice(0, 40));
 ok('Copy did not close the row', !!$('rows').querySelector('tr.detail'));
 
 // A posted lead keeps its struck-through title.
-// Struck through once actioned, and the colour says which action it was.
-const struck = (id) => {
-  const el = $('rows').querySelector(`tr[data-row="${id}"] .t`);
-  const cs = window.getComputedStyle(el);
-  return { line: cs.textDecoration, colour: cs.textDecorationColor };
-};
+// Which rows carry the strike-through classes. What those classes actually
+// paint - line-through, green for a reply, blue for a PM - is proved in
+// strike.test.mjs, because jsdom resolves the `text-decoration` shorthand by
+// source order rather than specificity and would report "none" for a row
+// Chrome strikes right through.
+const struck = (id) => $('rows').querySelector(`tr[data-row="${id}"]`).className;
 ok('posted rows are still marked', $('rows').querySelector('tr[data-row="9002"]').className.includes('posted'));
 const flashOf = (id) => $('rows').querySelector(`#msg-${id}`)?.textContent.trim() || '';
 const tagOf = (id) => $('rows').querySelector(`tr[data-row="${id}"] .done`)?.textContent.trim() || '';
 ok('a posted reply says so next to the title', tagOf('9002') === '✓ reply posted', tagOf('9002'));
-ok('a posted reply is struck through in green',
-   /line-through/.test(struck('9002').line) && struck('9002').colour === 'rgb(22, 163, 74)', JSON.stringify(struck('9002')));
+ok('a posted reply is struck through in green', /\bposted\b/.test(struck('9002')), struck('9002'));
 
 leads[0].pmSent = true; leads[0].status = 'SENT';
 await render();
-ok('a PM sent is struck through too', /line-through/.test(struck('9001').line), JSON.stringify(struck('9001')));
-ok('and in blue, so the two are distinguishable', struck('9001').colour === 'rgb(37, 99, 235)', struck('9001').colour);
+ok('a PM sent is struck through too', /\bpmdone\b/.test(struck('9001')), struck('9001'));
+ok('and by a different class, so the two get different colours', !/\bposted\b/.test(struck('9001')), struck('9001'));
 ok('a PM sent says so next to the title', tagOf('9001') === '✓ PM sent', tagOf('9001'));
 
 leads[0].status = 'POSTED';
@@ -158,7 +157,7 @@ leads[0].status = 'SENT';
 
 leads[0].pmSent = false; leads[0].status = 'SENT';
 await render();
-ok('an untouched row is not struck', !/line-through/.test(struck('9001').line), struck('9001').line);
+ok('an untouched row is not struck', !/\b(posted|pmdone)\b/.test(struck('9001')), struck('9001'));
 ok('and carries no label', tagOf('9001') === '', tagOf('9001'));
 
 // Header buttons still wired.
