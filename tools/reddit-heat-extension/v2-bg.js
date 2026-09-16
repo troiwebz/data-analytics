@@ -1,0 +1,371 @@
+// v2-bg.js — the Growth Board's engine. Loaded into the same service worker
+// as v1, so it shares the API key, the spend ledger and the Reddit fetcher
+// and changes nothing that v1 depends on.
+
+const V2_STORE = "v2";
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, lastPlan: 0, lastLeads: 0, lastScan: 0 };
+
+async function v2Get() {
+  const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
+  return { ...V2_EMPTY, ...v2 };
+}
+async function v2Set(patch) {
+  const st = await v2Get();
+  const next = { ...st, ...patch };
+  await chrome.storage.local.set({ [V2_STORE]: next });
+  return next;
+}
+function v2Settings(st) {
+  return { auto: false, perDay: 1, subCoolDays: 14, magnetEvery: 4, kinds: "all", days: 30, subs: [], offers: [], types: [], ...(st.settings || {}) };
+}
+const v2Key = (r) => r.sub + "|" + r.typeKey + "|" + r.offerKey;
+
+// ------------------------------------------------------------------ plan
+async function v2Plan(opts = {}) {
+  const st = await v2Get();
+  const s = { ...v2Settings(st), ...opts };
+  const history = Object.values(st.posts || {}).map((p) => ({ sub: p.sub, at: p.at || 0 }));
+  const built = V2.plan({ days: s.days, perDay: s.perDay, subCoolDays: s.subCoolDays, magnetEvery: s.magnetEvery, kinds: s.kinds, subs: s.subs, offers: s.offers, types: s.types, history, start: opts.start || Date.now() });
+  if (built.error) return { ok: false, error: built.error };
+  // a row already posted keeps its place; a draft already written is carried
+  // over to the row that asks for the same thing, so replanning never throws
+  // away work you have paid for
+  const posted = (st.plan || []).filter((r) => r.state === "posted");
+  const drafts = {};
+  for (const r of built.rows) {
+    const old = (st.plan || []).find((o) => o.sub && v2Key(o) === v2Key(r) && st.drafts[o.n]);
+    if (old) { drafts[r.n] = st.drafts[old.n]; r.state = "drafted"; }
+  }
+  const rows = built.rows;
+  for (const p of posted) { const hit = rows.find((r) => r.sub === p.sub && r.typeKey === p.typeKey); if (hit) Object.assign(hit, { state: "posted", url: p.url, postId: p.postId, postedAt: p.postedAt }); }
+  await v2Set({ plan: rows, drafts, settings: s, lastPlan: Date.now() });
+  return { ok: true, rows, magnets: built.magnets, values: built.values, rooms: built.rooms, skipped: built.skipped };
+}
+
+async function v2Board() {
+  const st = await v2Get();
+  const s = v2Settings(st);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const rows = (st.plan || []).map((r) => ({ ...r, draft: st.drafts[r.n] ? { title: st.drafts[r.n].title, words: String(st.drafts[r.n].body || "").split(/\s+/).length, issues: st.drafts[r.n].issues || [], risk: st.drafts[r.n].risk || "" } : null }));
+  const due = rows.find((r) => r.sub && r.state !== "posted" && r.at <= today.getTime() + 86400000);
+  const leads = Object.values(st.leads || {});
+  return {
+    ok: true, rows, settings: s,
+    due: due || null,
+    counts: {
+      planned: rows.filter((r) => r.state === "planned").length,
+      drafted: rows.filter((r) => r.state === "drafted").length,
+      posted: rows.filter((r) => r.state === "posted").length,
+      leads: leads.length,
+      newLeads: leads.filter((l) => l.state === "new").length,
+    },
+    lastLeads: st.lastLeads || 0, lastScan: st.lastScan || 0,
+    targets: st.targets || {},
+  };
+}
+
+// ----------------------------------------------------------------- write
+async function v2Ai(system, user, schema, maxTokens, label) {
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no API key saved — put it in Your details", noKey: true };
+  const spent = await spendGet();
+  if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢)` };
+  const model = await aiModel();
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 120000);
+  let r, j;
+  try {
+    r = await fetch(AI_URL, { method: "POST", signal: ctl.signal, headers: aiHeaders(key, model), body: JSON.stringify(aiBody(model, system, user, schema, maxTokens)) });
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than two minutes" : "could not reach api.anthropic.com: " + String(e.message || e) };
+  } finally { clearTimeout(timer); }
+  if (!r.ok) {
+    const msg = (j.error && j.error.message) || ("HTTP " + r.status);
+    return { ok: false, error: r.status === 401 ? "the API key was rejected" : r.status === 429 ? "rate limited, try again in a minute" : msg };
+  }
+  if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this one" };
+  const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
+  const u = j.usage || {};
+  const cents = aiCents(model, u);
+  await spendAdd(cents, { kind: label, who: "", what: label, model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
+  return { ok: true, parsed, cents, model };
+}
+
+async function v2Draft(n, force) {
+  const st = await v2Get();
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row || !row.sub) return { ok: false, error: "that day is not on the plan" };
+  if (st.drafts[n] && !force) return { ok: true, draft: st.drafts[n], cached: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub, kind: row.kind, promo: row.promo, note: "" };
+  const system = V2.postSystem(profile);
+  let extra = typeof force === "string" && force !== "true" ? force : "";
+  let out = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra), V2.POST_SCHEMA, 3000, "board post");
+    if (!res.ok) return res;
+    issues = V2.postChecks(res.parsed, target, row.typeKey);
+    out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
+    if (!issues.length) break;
+    extra = "Your last draft was rejected for these reasons, fix every one of them: " + issues.join("; ");
+  }
+  st.drafts[n] = out;
+  row.state = row.state === "posted" ? "posted" : "drafted";
+  await v2Set({ drafts: st.drafts, plan: st.plan });
+  return { ok: true, draft: out, issues };
+}
+
+async function v2DraftSave(n, patch) {
+  const st = await v2Get();
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false, error: "no such day" };
+  const d = { ...(st.drafts[n] || {}), ...patch, editedAt: Date.now() };
+  const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub };
+  d.issues = V2.postChecks(d, target, row.typeKey);
+  st.drafts[n] = d;
+  if (row.state === "planned") row.state = "drafted";
+  await v2Set({ drafts: st.drafts, plan: st.plan });
+  return { ok: true, draft: d };
+}
+
+// ------------------------------------------------------------- posting it
+// The board fills Reddit's own submit form and stops. One post a day, in one
+// room, typed into the real composer — that is what a human account looks
+// like, and it is the difference between a board that runs for a year and an
+// account that is gone in a fortnight.
+async function v2Open(n) {
+  const st = await v2Get();
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  const draft = st.drafts[n];
+  if (!row || !draft) return { ok: false, error: "write the post first" };
+  await chrome.storage.local.set({ v2Pending: { n: row.n, sub: row.sub, title: draft.title, body: draft.body, first_comment: draft.first_comment || "", weekly: !!row.weekly, at: Date.now() } });
+  const url = row.weekly
+    ? `https://www.reddit.com/r/${encodeURIComponent(row.sub)}/`      // the weekly thread lives in the sub, find it by hand
+    : `https://www.reddit.com/r/${encodeURIComponent(row.sub)}/submit/?type=TEXT`;
+  const tab = await chrome.tabs.create({ url });
+  return { ok: true, tabId: tab.id, weekly: !!row.weekly };
+}
+
+async function v2Pending() {
+  const { v2Pending: p = null } = await chrome.storage.local.get(["v2Pending"]);
+  if (!p || Date.now() - (p.at || 0) > 3600000) return null;
+  return p;
+}
+
+async function v2MarkPosted(n, url) {
+  const st = await v2Get();
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false, error: "no such day" };
+  const id = (String(url || "").match(/\/comments\/([a-z0-9]+)/i) || [])[1] || "";
+  Object.assign(row, { state: "posted", url: url || "", postId: id, postedAt: Date.now() });
+  st.posts[row.n] = { n: row.n, sub: row.sub, typeKey: row.typeKey, offerKey: row.offerKey, url: url || "", postId: id, at: Date.now(), title: (st.drafts[n] || {}).title || "" };
+  await v2Set({ plan: st.plan, posts: st.posts });
+  await chrome.storage.local.remove(["v2Pending"]);
+  return { ok: true, postId: id };
+}
+
+async function v2Skip(n, why) {
+  const st = await v2Get();
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false };
+  row.state = "skipped"; row.skippedWhy = why || "";
+  await v2Set({ plan: st.plan });
+  return { ok: true };
+}
+
+// ------------------------------------------------------------- the leads
+// Everyone who comments on one of our posts is a lead: they read an offer,
+// they raised a hand, and they did it in public. This is the whole point of
+// the magnet posts, and it is the opposite of a cold DM.
+async function v2LeadPoll() {
+  const st = await v2Get();
+  const mine = ((await chrome.storage.local.get(["config"])).config || {}).profile || {};
+  const me = String(mine.redditUser || "").replace(/^u\//, "").toLowerCase();
+  const posts = Object.values(st.posts || {}).filter((p) => p.postId);
+  let added = 0, read = 0;
+  for (const p of posts) {
+    let j = null;
+    try { j = await huntFetch(`https://old.reddit.com/comments/${p.postId}.json?limit=200&sort=new&raw_json=1`); } catch (_) { continue; }
+    const listing = Array.isArray(j) ? j[1] : null;
+    const kids = ((listing && listing.data && listing.data.children) || []);
+    for (const c of kids) {
+      const d = c && c.data;
+      if (!d || d.kind === "more" || !d.author) continue;
+      const author = String(d.author);
+      if (author === "[deleted]" || /^automoderator$/i.test(author)) continue;
+      if (me && author.toLowerCase() === me) continue;
+      read += 1;
+      const id = p.postId + "|" + author;
+      const body = String(d.body || "").replace(/\s+/g, " ").trim();
+      const buyer = V2.classifyBuyer(body, "", p.sub);
+      if (st.leads[id]) { st.leads[id].body = body || st.leads[id].body; continue; }
+      st.leads[id] = { id, author, body, at: (d.created_utc || 0) * 1000 || Date.now(), postN: p.n, sub: p.sub, offerKey: p.offerKey,
+        permalink: "https://www.reddit.com" + String(d.permalink || ""), tier: buyer.tier, badge: buyer.badge || "raised hand", why: buyer.why, state: "new" };
+      added += 1;
+    }
+  }
+  await v2Set({ leads: st.leads, lastLeads: Date.now() });
+  return { ok: true, added, read, posts: posts.length };
+}
+
+async function v2LeadAct(id, action, note) {
+  const st = await v2Get();
+  const l = st.leads[id];
+  if (!l) return { ok: false };
+  if (action === "delivered") { l.state = "delivered"; l.deliveredAt = Date.now(); }
+  else if (action === "replied") { l.state = "replied"; l.repliedAt = Date.now(); }
+  else if (action === "won") { l.state = "won"; l.wonAt = Date.now(); }
+  else if (action === "drop") { l.state = "dropped"; }
+  else if (action === "undo") { l.state = "new"; delete l.deliveredAt; delete l.repliedAt; delete l.wonAt; }
+  if (note !== undefined) l.note = String(note || "");
+  await v2Set({ leads: st.leads });
+  return { ok: true, lead: l };
+}
+
+// ----------------------------------------------------- do these rooms exist
+// Rather than trust the list we shipped, ask Reddit. Subscribers, whether
+// the room still exists, whether it takes text posts. A wrong guess in the
+// list is corrected here instead of wasting a posting day.
+async function v2CheckTargets() {
+  const st = await v2Get();
+  const out = { ...(st.targets || {}) };
+  let ok = 0, gone = 0;
+  for (const t of V2.TARGETS) {
+    try {
+      const j = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(t.sub)}/about.json?raw_json=1`);
+      const d = (j && j.data) || {};
+      if (!d.display_name) { out[t.sub] = { ok: false, why: "not found", at: Date.now() }; gone += 1; continue; }
+      out[t.sub] = { ok: true, members: d.subscribers || 0, active: d.accounts_active || 0, type: d.submission_type || "any", over18: !!d.over18, restricted: d.subreddit_type !== "public", at: Date.now() };
+      ok += 1;
+    } catch (_) { out[t.sub] = { ok: false, why: "could not read it", at: Date.now() }; gone += 1; }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  await v2Set({ targets: out });
+  return { ok: true, checked: ok, failed: gone, targets: out };
+}
+
+// -------------------------------------------------- the buyer hunt (v2)
+// v1 hunted intent. This hunts money: a post only enters the queue if
+// somebody in it has a budget, an agency, or a business of their own.
+async function v2Scan(force) {
+  const st = await v2Get();
+  const subs = V2.TARGETS.filter((t) => t.kind !== "biz" || ["smallbusiness", "sweatystartup", "ecommerce", "shopify", "EntrepreneurRideAlong", "Franchising", "msp"].includes(t.sub)).map((t) => t.sub);
+  const urls = [];
+  for (const q of V2.SEARCHES) urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=new&t=week&limit=100&raw_json=1`, why: q });
+  for (const s of subs) urls.push({ url: `https://old.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=100&raw_json=1`, why: "r/" + s });
+  const queue = { ...(st.queue || {}) };
+  let seen = 0, found = 0, i = 0;
+  await chrome.storage.local.set({ v2Scan: { running: true, total: urls.length, done: 0, seen: 0, found: 0, where: "", stop: false } });
+  for (const u of urls) {
+    i += 1;
+    const { v2Scan: sc = {} } = await chrome.storage.local.get(["v2Scan"]);
+    if (sc.stop) break;
+    await chrome.storage.local.set({ v2Scan: { running: true, total: urls.length, done: i, seen, found, where: u.why, stop: false } });
+    let j = null;
+    try { j = await huntFetch(u.url); } catch (_) { continue; }
+    for (const c of ((j && j.data && j.data.children) || [])) {
+      const d = c && c.data;
+      if (!d || d.stickied || d.over_18 || !d.author || d.author === "[deleted]") continue;
+      seen += 1;
+      if (queue[d.id]) continue;
+      const cls = V2.classifyBuyer(d.title, d.selftext, d.subreddit);
+      if (!cls.keep) continue;
+      queue[d.id] = { id: d.id, author: d.author, sub: d.subreddit, title: String(d.title || "").slice(0, 300), body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 4000),
+        permalink: "https://www.reddit.com" + String(d.permalink || ""), created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0,
+        tier: cls.tier, badge: cls.badge, why: cls.why, amount: cls.amount || "", found: u.why, state: "new" };
+      found += 1;
+    }
+    await new Promise((r) => setTimeout(r, force ? 700 : 1200));
+  }
+  // nothing older than a fortnight stays in the queue
+  const cutoff = Date.now() - 14 * 86400000;
+  for (const [id, p] of Object.entries(queue)) if (p.state === "new" && (p.created || 0) < cutoff) delete queue[id];
+  await chrome.storage.local.set({ v2Scan: { running: false, total: urls.length, done: i, seen, found, where: "", stop: false } });
+  await v2Set({ queue, lastScan: Date.now() });
+  return { ok: true, seen, found, sources: urls.length };
+}
+
+async function v2QueueList(limit) {
+  const st = await v2Get();
+  const rows = Object.values(st.queue || {})
+    .filter((p) => p.state !== "done" && p.state !== "dropped")
+    .sort((a, b) => (b.tier - a.tier) || (b.created - a.created))
+    .slice(0, limit || 60);
+  const all = Object.values(st.queue || {});
+  return { ok: true, rows, total: all.length, tiers: { spending: all.filter((p) => p.badge === "spending").length, owner: all.filter((p) => p.badge === "owner").length, asking: all.filter((p) => p.badge === "asking").length }, lastScan: st.lastScan || 0 };
+}
+
+async function v2Answer(id, force) {
+  const st = await v2Get();
+  const p = (st.queue || {})[id];
+  if (!p) return { ok: false, error: "that thread is not in the queue" };
+  if (p.answer && !force) return { ok: true, answer: p.answer, cached: true };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  let extra = "";
+  let out = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(V2.answerSystem(profile), V2.answerUser(p, profile) + (extra ? "\n\n" + extra : ""), V2.ANSWER_SCHEMA, 1600, "public answer");
+    if (!res.ok) return res;
+    issues = V2.answerChecks(res.parsed);
+    out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
+    if (!issues.length) break;
+    extra = "Your last answer was rejected for these reasons, fix every one: " + issues.join("; ");
+  }
+  p.answer = out;
+  await v2Set({ queue: st.queue });
+  return { ok: true, answer: out, issues };
+}
+
+async function v2QueueAct(id, action) {
+  const st = await v2Get();
+  const p = (st.queue || {})[id];
+  if (!p) return { ok: false };
+  if (action === "answered") { p.state = "done"; p.answeredAt = Date.now(); }
+  else if (action === "drop") { p.state = "dropped"; }
+  else if (action === "undo") { p.state = "new"; delete p.answeredAt; }
+  await v2Set({ queue: st.queue });
+  return { ok: true };
+}
+
+// --------------------------------------------------------------- plumbing
+chrome.runtime.onMessage.addListener((msg, _s, reply) => {
+  if (!msg || typeof msg.type !== "string" || !msg.type.startsWith("v2-")) return;
+  const go = (pr) => { pr.then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; };
+  switch (msg.type) {
+    case "v2-board": return go(v2Board());
+    case "v2-plan": return go(v2Plan(msg.opts || {}));
+    case "v2-settings": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), ...(msg.settings || {}) } })).then(() => ({ ok: true })));
+    case "v2-draft": return go(v2Draft(msg.n, msg.force));
+    case "v2-draft-save": return go(v2DraftSave(msg.n, msg.patch || {}));
+    case "v2-open": return go(v2Open(msg.n));
+    case "v2-pending": return go(v2Pending().then((p) => p || { none: true }));
+    case "v2-posted": return go(v2MarkPosted(msg.n, msg.url));
+    case "v2-skip": return go(v2Skip(msg.n, msg.why));
+    case "v2-leads": return go(v2Get().then((st) => ({ ok: true, rows: Object.values(st.leads || {}).sort((a, b) => (b.tier - a.tier) || (b.at - a.at)), lastLeads: st.lastLeads || 0 })));
+    case "v2-lead-poll": return go(v2LeadPoll());
+    case "v2-lead-act": return go(v2LeadAct(msg.id, msg.action, msg.note));
+    case "v2-targets": return go(v2Get().then((st) => ({ ok: true, targets: V2.TARGETS, checked: st.targets || {}, kinds: V2.KINDS, promo: V2.PROMO })));
+    case "v2-check-targets": return go(v2CheckTargets());
+    case "v2-scan": return go(v2Scan(true));
+    case "v2-scan-state": return go(chrome.storage.local.get(["v2Scan"]).then((x) => x.v2Scan || { running: false }));
+    case "v2-scan-stop": return go(chrome.storage.local.get(["v2Scan"]).then((x) => chrome.storage.local.set({ v2Scan: { ...(x.v2Scan || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-queue": return go(v2QueueList(msg.limit));
+    case "v2-answer": return go(v2Answer(msg.id, !!msg.force));
+    case "v2-queue-act": return go(v2QueueAct(msg.id, msg.action));
+    case "v2-reset": return go(chrome.storage.local.set({ [V2_STORE]: { ...V2_EMPTY } }).then(() => ({ ok: true })));
+    default: return;
+  }
+});
+
+// One wake an hour: pull comments on our own posts so leads appear without
+// anybody pressing anything. Nothing is ever posted without a person.
+chrome.alarms.create("v2-tick", { periodInMinutes: 60 });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name !== "v2-tick") return;
+  v2LeadPoll().catch(() => {});
+});

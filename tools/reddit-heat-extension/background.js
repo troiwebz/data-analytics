@@ -1,4 +1,4 @@
-importScripts("lib.js");
+importScripts("lib.js", "v2-lib.js", "v2-bg.js");
 
 // Crawler: walks each subreddit's /new listing page by page (100 posts a
 // page, up to Reddit's 1000-post cap), keeps every post that matches a

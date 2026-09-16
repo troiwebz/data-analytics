@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Growth Board</title>
+<style>
+  :root{--bg:#0d1017;--panel:#12151c;--line:#20252f;--ink:#e8eaf0;--dim:#98a0b3;--faint:#6b7280;--go:#4ade80;--warn:#f59e0b;--hot:#ff5722;--blue:#60a5fa}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,#12151c,#0f131a);border-bottom:1px solid var(--line);padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  h1{font-size:16px;margin:0;letter-spacing:.2px}
+  h1 span{color:var(--go)}
+  .pill{font-size:11px;color:var(--dim);background:#1a1f28;border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+  nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  nav button{background:#161a22;border:1px solid var(--line);color:var(--dim);padding:7px 13px;border-radius:9px;cursor:pointer;font-size:13px}
+  nav button.on{background:var(--go);border-color:var(--go);color:#08120c;font-weight:700}
+  main{padding:20px 22px 60px;max-width:1180px}
+  section{display:none}section.on{display:block}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  button.act{background:var(--go);border:0;color:#08120c;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer}
+  button.ghost{background:#161a22;border:1px solid var(--line);color:var(--ink);padding:8px 13px;border-radius:9px;cursor:pointer}
+  button.ghost:hover{border-color:#39414f}
+  button:disabled{opacity:.45;cursor:default}
+  select,input[type=number],input[type=text]{background:#161a22;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 9px;font:inherit}
+  label.f{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);padding:8px 10px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:10px;border-bottom:1px solid #171b23;vertical-align:top;font-size:13px}
+  tr.done td{opacity:.5}
+  tr.done .ttl{text-decoration:line-through}
+  .tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:5px;padding:2px 7px;border:1px solid}
+  .t-magnet{color:#08120c;background:var(--go);border-color:var(--go)}
+  .t-value{color:var(--blue);background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.35)}
+  .t-weekly{color:var(--warn);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}
+  .t-spending{color:#08120c;background:var(--go);border-color:var(--go)}
+  .t-owner{color:var(--warn);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}
+  .t-asking{color:var(--dim);background:#1a1f28;border-color:var(--line)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+  .card h3{margin:0 0 6px;font-size:14px}
+  .dim{color:var(--dim)}.faint{color:var(--faint);font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
+  .draft{background:#0f1218;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px;white-space:pre-wrap;font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:420px;overflow:auto}
+  .issue{color:var(--warn);font-size:12px;margin-top:6px}
+  .stat{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+  .stat div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;min-width:104px}
+  .stat b{display:block;font-size:22px;line-height:1.2}
+  .stat span{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px}
+  .note{background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.25);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#cfe0f7}
+  a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+  ul.tight{margin:6px 0 0;padding-left:18px}ul.tight li{margin:3px 0}
+  #say{font-size:12px;color:var(--dim);min-height:17px}
+</style>
+
+<header>
+  <h1>Growth <span>Board</span></h1>
+  <span class="pill" id="ver">v2</span>
+  <span id="say"></span>
+  <nav>
+    <button data-tab="plan" class="on">Calendar</button>
+    <button data-tab="answer">Answer</button>
+    <button data-tab="leads">Leads</button>
+    <button data-tab="offers">Offers</button>
+    <button data-tab="targets">Targets</button>
+    <button data-tab="ads">Reddit ads</button>
+  </nav>
+</header>
+
+<main>
+  <section id="plan" class="on">
+    <div class="note">One post a day. Three value posts that sell nothing, then one offer — that ratio is what keeps the account alive and makes the offer days work. The board fills Reddit's own form; you read it and press Post.</div>
+    <div class="stat" id="planStat"></div>
+    <div class="bar">
+      <button class="act" id="mkPlan">Build the calendar</button>
+      <label class="f">days <input type="number" id="days" value="30" min="7" max="120" style="width:64px"></label>
+      <label class="f">rooms <select id="kinds">
+        <option value="all">all of them</option>
+        <option value="ads">already spending</option>
+        <option value="owner">business owners</option>
+        <option value="biz">general business</option>
+      </select></label>
+      <label class="f">offer every <input type="number" id="magnetEvery" value="4" min="2" max="10" style="width:56px"> days</label>
+      <label class="f">same room every <input type="number" id="cool" value="14" min="3" max="90" style="width:56px"> days</label>
+      <button class="ghost" id="leadPoll">Pull comments on my posts</button>
+    </div>
+    <table><thead><tr>
+      <th style="width:52px">Day</th><th style="width:130px">When</th><th style="width:170px">Room</th><th style="width:150px">Shape</th><th>What goes out</th><th style="width:230px"></th>
+    </tr></thead><tbody id="planRows"></tbody></table>
+    <div id="planDraft"></div>
+  </section>
+
+  <section id="answer">
+    <div class="note">Free, and the strongest thing on this page. Every complete answer you leave under a buyer's question keeps working for years — it is read by everyone who finds that thread later, and it is the reason a DM from you gets opened at all. Nothing here pitches.</div>
+    <div class="stat" id="qStat"></div>
+    <div class="bar">
+      <button class="act" id="scan">Scan for buyers</button>
+      <button class="ghost" id="scanStop" style="display:none">Stop</button>
+      <span id="scanLive" class="faint"></span>
+    </div>
+    <table><thead><tr>
+      <th style="width:100px">Signal</th><th style="width:130px">Room</th><th>Thread</th><th style="width:96px">Age</th><th style="width:210px"></th>
+    </tr></thead><tbody id="qRows"></tbody></table>
+    <div id="qDraft"></div>
+  </section>
+
+  <section id="leads">
+    <div class="note">Everybody who commented on one of our posts. They read the offer and raised a hand in public — this is the opposite of a cold DM, and it is the only list worth working.</div>
+    <div class="bar"><button class="act" id="leadPoll2">Refresh</button><span id="leadWhen" class="faint"></span></div>
+    <table><thead><tr>
+      <th style="width:100px">Signal</th><th style="width:150px">Who</th><th>What they said</th><th style="width:130px">From</th><th style="width:250px"></th>
+    </tr></thead><tbody id="leadRows"></tbody></table>
+  </section>
+
+  <section id="offers"><div class="note">Ten offers. Each one gives something real away before it asks for anything, and each carries the risk on our side. The calendar walks through all ten before repeating any.</div><div class="grid" id="offerGrid"></div></section>
+
+  <section id="targets">
+    <div class="note">Where the money is. <b>Already spending</b> rooms are people with a budget and a complaint. <b>Business owners</b> rooms are the best ticket size and the worst marketing. Anything marked comments-only is for answering, never for posting an offer.</div>
+    <div class="bar"><button class="ghost" id="checkT">Check these against Reddit</button><span id="checkWhen" class="faint"></span></div>
+    <table><thead><tr><th style="width:190px">Room</th><th style="width:130px">Kind</th><th style="width:150px">Posting</th><th style="width:110px">Members</th><th>What it is</th></tr></thead><tbody id="tRows"></tbody></table>
+  </section>
+
+  <section id="ads"><div id="adsBody"></div></section>
+</main>
+<script src="v2-lib.js"></script>
+<script src="board.js"></script>

@@ -1,4 +1,25 @@
-# Reddit Lead Threads v2.1 (private Chrome extension)
+# Reddit Lead Threads (private Chrome extension)
+
+## v2 — the Growth Board (start here)
+
+Click the extension icon → **Growth Board**.
+
+v1 pushes: it finds other people's threads and messages them. That is the weakest move on Reddit — cold DMs from a stranger offering marketing services get ignored, reported, and eventually banned, and the rooms it hunts (co-founder posts, idea subs) are full of people who have told you in writing that they have no money.
+
+v2 pulls. Six tabs:
+
+- **Calendar** — one post a day. Three value posts that sell nothing, then one offer post; a room never comes round twice inside a fortnight; all ten offers get an airing before any repeats. Claude writes each post against that room's own rules, a gate rejects anything with a link, a price, an emoji, a DM ask or a machine-written tell, and the board fills Reddit's own submit form. **You press Post.** The board never posts for you: one post to the wrong room costs the account.
+- **Answer** — the buyer queue. Twenty-six searches that hunt money rather than ideas (`spending $X a month`, `fired our agency`, `agency quoted me`, `rankings dropped`) across every ad-spender and business-owner room. A thread only enters if somebody in it has a budget, an agency, or a business of their own; students, freelancers touting for work and co-founder posts are dropped. Claude writes a complete public answer that sells nothing and points nowhere — the highest-return and cheapest thing on Reddit.
+- **Leads** — everyone who commented on one of our posts. They read the offer and raised a hand in public. Pulled automatically every hour.
+- **Offers** — the ten offers, each giving something real away before it asks, with the risk on our side.
+- **Targets** — 77 rooms sorted into *already spending*, *business owners* and *general business*, each marked comments-only / weekly thread / value post / offers ok. One button re-checks every one of them against Reddit itself, so a wrong guess in the list is corrected by the tool.
+- **Reddit ads** — the four-stage paid plan, starting at zero spend: post organically, find what the room already upvoted, then put money behind that exact post.
+
+v1 is untouched and still on the popup as **Co-founder hunt (v1)**.
+
+---
+
+# v1 — Reddit Lead Threads
 
 Scrapes the Reddit pages you browse while logged in, walks next pages and threads for you, matches hundreds of keywords, scores every thread on **lead evidence**, and saves a ranked CSV. No API key, no rate limits, nothing published to the Chrome Web Store.
 

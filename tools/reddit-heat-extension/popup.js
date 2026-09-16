@@ -13,12 +13,13 @@ async function load() {
     $("h-queue").textContent = r.total;
     $("h-today").textContent = r.contactedToday;
     $("h-ever").textContent = r.contactedTotal;
-    if (!r.on) $("hunt").textContent = "Co-founder hunt · start watching";
+    if (!r.on) $("hunt").textContent = "Co-founder hunt (v1) · start watching";
   });
   const last = Math.max(meta.lastPage || 0, meta.lastRun || 0);
   const upd = lastAutoReload ? ` · auto-updated to v${lastAutoReload.to} at ${new Date(lastAutoReload.t).toLocaleTimeString()}` : "";
   $("last").textContent = (last ? "Last collected " + new Date(last).toLocaleString() : "Nothing collected yet. Use the orange panel on any old.reddit.com page.") + upd;
 }
+$("board").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("board.html") }));
 $("hunt").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("hunt.html") }));
 $("inboxBtn").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("inbox.html") }));
 $("advBtn").addEventListener("click", () => { const a = $("adv"); a.hidden = !a.hidden; });
