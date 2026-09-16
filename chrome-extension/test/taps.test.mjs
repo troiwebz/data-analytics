@@ -269,5 +269,49 @@ tgCalls = [];
 r = await bg.pollTaps();
 ok('with approvals off nothing is polled at all', r.skipped === 'off' && !tgCalls.length, JSON.stringify(r));
 
+// --- "the Telegram button does nothing" -------------------------------------
+// Every one of these looks identical from the outside. The diagnostic has to
+// name which it actually is.
+let canned = {};
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  const r = canned[method];
+  if (r) return { ok: true, status: 200, json: async () => r };
+  return { ok: true, status: 200, json: async () => ({ ok: true, result: { username: 'haf_bot' } }) };
+};
+
+const says = (d, re) => d.checks.some(([, t]) => re.test(t));
+
+canned = {};
+let d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApprovals: true });
+ok('all set up reads as fine', d.ok === true, JSON.stringify(d.checks));
+
+d = await T.diagnose({ telegramChatId: '', telegramEnabled: true });
+ok('a missing chat id is named', !d.ok && says(d, /No chat id saved/), JSON.stringify(d.checks));
+ok('and it says where to get one', says(d, /userinfobot/), JSON.stringify(d.checks));
+
+// The bot cannot message you until you press Start on it - the commonest one.
+canned = { sendChatAction: { ok: false, description: 'Forbidden: bot can\'t initiate conversation with a user' } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a bot you have never started is named', !d.ok && says(d, /press Start/), JSON.stringify(d.checks));
+
+// A webhook left over from the Apps Script days: messages go out, taps never
+// come back, and nothing anywhere says so.
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://script.google.com/old' } } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a leftover webhook is named', !d.ok && says(d, /webhook is set/), JSON.stringify(d.checks));
+ok('and it says how to remove it', says(d, /deleteWebhook/), JSON.stringify(d.checks));
+
+canned = {};
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApprovals: false });
+ok('approvals being off is flagged but not called broken', d.ok === true && says(d, /Approval buttons are off/),
+   JSON.stringify(d.checks));
+
+await T.clearToken();
+d = await T.diagnose({ telegramChatId: '999' });
+ok('no token at all is the first thing it says', !d.ok && /No bot token/.test(d.checks[0][1]), JSON.stringify(d.checks));
+globalThis.fetch = oldFetch;
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

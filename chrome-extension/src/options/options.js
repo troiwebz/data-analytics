@@ -244,6 +244,16 @@ $('sampleTg').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Send a sample lead';
 });
 
+$('tgCheck').addEventListener('click', async () => {
+  const b = $('tgCheck');
+  b.disabled = true; b.textContent = 'Checking…';
+  const r = await ai('tg-check');
+  const lines = (r?.checks || []).map(([mark, text]) => `${mark} ${text}`).join('<br>');
+  $('tgStatus').innerHTML = lines || 'No answer from the service worker.';
+  $('tgStatus').style.color = r?.ok ? '' : '#b45309';
+  b.disabled = false; b.textContent = 'Why is nothing arriving?';
+});
+
 $('tapsNow').addEventListener('click', async () => {
   const b = $('tapsNow');
   b.disabled = true; b.textContent = 'Checking…';

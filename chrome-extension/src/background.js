@@ -1180,6 +1180,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .catch((e) => ({ error: e.message, sent: done, usedClaude: !!ai[m.threadId] })));
         break;
       }
+      case 'tg-check': {                             // why is nothing arriving
+        sendResponse(await telegram.diagnose(await getConfig()).catch((e) => ({ ok: false, checks: [['✗', e.message]] })));
+        break;
+      }
       case 'tg-taps': {                              // check for taps right now
         sendResponse(await pollTaps().catch((e) => ({ error: e.message })));
         break;

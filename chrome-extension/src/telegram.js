@@ -224,6 +224,64 @@ export async function status(cfg) {
   return { ...v, chatId: cfg.telegramChatId || '', enabled: !!cfg.telegramEnabled };
 }
 
+/**
+ * Why nothing is arriving.
+ *
+ * "The Telegram button does nothing" has half a dozen causes that all look
+ * identical from the outside: no token, no chat id, a chat the bot has never
+ * been spoken to, a webhook left over from the Apps Script days. This checks
+ * each one against Telegram itself and names the one that is actually wrong,
+ * with what to do about it.
+ */
+export async function diagnose(cfg) {
+  const out = [];
+  const token = await getToken();
+  if (!token) {
+    out.push(['✗', 'No bot token saved. Paste it above and press Save.']);
+    return { ok: false, checks: out };
+  }
+  out.push(['✓', 'Bot token is saved.']);
+
+  let me;
+  try { me = await call('getMe', {}); out.push(['✓', `Telegram knows the bot: @${me.username}.`]); }
+  catch (e) {
+    out.push(['✗', `Telegram rejected the token: ${e.message}. Check it in @BotFather.`]);
+    return { ok: false, checks: out };
+  }
+
+  if (!cfg.telegramChatId) {
+    out.push(['✗', 'No chat id saved. Message @userinfobot on Telegram, it replies with your id.']);
+    return { ok: false, checks: out };
+  }
+  try {
+    await call('sendChatAction', { chat_id: cfg.telegramChatId, action: 'typing' });
+    out.push(['✓', `The bot can reach chat ${cfg.telegramChatId}.`]);
+  } catch (e) {
+    out.push(['✗', `The bot cannot message chat ${cfg.telegramChatId}: ${e.message}. `
+      + `Open Telegram, find @${me.username}, and press Start - a bot cannot message you until you do.`]);
+    return { ok: false, checks: out };
+  }
+
+  // A webhook makes getUpdates illegal, so taps would never arrive even though
+  // messages go out fine. This is the one that looks like nothing at all.
+  try {
+    const hook = await call('getWebhookInfo', {});
+    if (hook?.url) {
+      out.push(['✗', `A webhook is set on this bot (${hook.url}), so your taps cannot be read. `
+        + `Open api.telegram.org/bot<your token>/deleteWebhook once in a tab, then try again.`]);
+      return { ok: false, checks: out };
+    }
+    out.push(['✓', 'No webhook in the way, so button taps can be read.']);
+  } catch { out.push(['?', 'Could not check for a webhook.']); }
+
+  if (!cfg.telegramEnabled) out.push(['✗', 'Sending to Telegram is switched off above.']);
+  else out.push(['✓', 'New threads are sent to Telegram.']);
+  if (!cfg.telegramApprovals) out.push(['!', 'Approval buttons are off, so messages arrive without buttons.']);
+  else out.push(['✓', 'Approval buttons are on.']);
+
+  return { ok: out.every(([m]) => m !== '✗'), checks: out, bot: me.username };
+}
+
 // --------------------------------------------------------------- your taps
 //
 // How a tap on your phone reaches Chrome, with no server anywhere.

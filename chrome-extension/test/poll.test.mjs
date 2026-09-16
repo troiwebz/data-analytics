@@ -101,7 +101,7 @@ const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; c
 await C.saveKey('sk-ant-api03-TESTKEYTESTKEY');
 // No webhookUrl, no sharedSecret: the Apps Script path must never be touched.
 await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0,
-                  telegramEnabled: true, telegramChatId: '999',
+                  telegramEnabled: true, telegramChatId: '999', telegramApprovals: true,
                   secondsBetweenThreadReads: 0 });   // no need to pace a stub
 const TG = await import('../src/telegram.js');
 await TG.setToken('1234567890:AAtesttoken');
@@ -167,6 +167,18 @@ ok('the public reply went to Telegram', tg.some((m) => /We have built citations 
 ok('Telegram gets the words, not the bold markers', !tg.some((m) => m.text.includes('**')));
 ok('the PM went to Telegram as its own message', tg.some((m) => /PM to buyer0/.test(m.text)));
 ok('everything went to the configured chat', tg.every((m) => m.chat_id === '999'));
+
+// Every newly launched thread reaches the phone ready to approve, on the
+// ordinary 3-minute check - no button pressed, nothing else to do.
+ok('every new thread arrives with approval buttons',
+   tg.length === 6 && tg.every((m) => !!m.reply_markup), JSON.stringify(tg.map((m) => !!m.reply_markup)));
+const btns = tg.flatMap((m) => m.reply_markup.inline_keyboard.flat().map((b) => b.text));
+ok('the PM messages can be sent from the phone', btns.filter((t) => /Send this PM/.test(t)).length === 3, btns.join(' | '));
+ok('the reply messages can be posted from the phone', btns.filter((t) => /Post this reply/.test(t)).length === 3, btns.join(' | '));
+ok('and every one of them can be rewritten first', btns.filter((t) => /Rewrite/.test(t)).length === 6, String(btns.filter((t) => /Rewrite/.test(t)).length));
+ok('nothing was posted by the check itself - a thread only goes out when you tap',
+   (store.recentLeads || []).every((l) => l.status !== 'POSTED'),
+   JSON.stringify((store.recentLeads || []).map((l) => l.status)));
 
 // --- Rebuild drafts: leads found before the key existed get Claude lines now.
 store.recentLeads = store.recentLeads.map((l) => {
