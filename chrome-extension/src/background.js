@@ -16,7 +16,7 @@ import { fetchThreads } from './thread.js';
 import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
-import { renderReply, renderDm, renderDmTitle } from './templates.js';
+import { renderReply, renderDm, renderDmTitle, plain } from './templates.js';
 import { lintDraft } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
@@ -697,35 +697,98 @@ export async function pollTaps() {
   const cfg = await getConfig();
   if (!cfg.telegramApprovals || !cfg.telegramChatId) return { skipped: 'off' };
 
-  let taps;
-  try { taps = await telegram.pendingTaps(); }
+  let events;
+  try { events = await telegram.pendingTaps(); }
   catch (e) { await log(`Telegram taps could not be read: ${e.message}`, 'error'); return { error: e.message }; }
-  if (!taps.length) return { taps: 0 };
+  if (!events.length) return { taps: 0 };
 
   let done = 0;
-  for (const tap of taps) {
-    if (tap.chatId && String(tap.chatId) !== String(cfg.telegramChatId)) {
-      await log(`ignored a Telegram tap from chat ${tap.chatId}, which is not yours`, 'error');
-      await telegram.ackTap(tap.id, 'Not your chat.');
+  for (const ev of events) {
+    if (ev.chatId && String(ev.chatId) !== String(cfg.telegramChatId)) {
+      await log(`ignored a Telegram ${ev.kind} from chat ${ev.chatId}, which is not yours`, 'error');
+      if (ev.kind === 'tap') await telegram.ackTap(ev.id, 'Not your chat.');
       continue;
     }
-    const lead = (await getLeads()).find((l) => String(l.threadId) === String(tap.threadId));
+
+    if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
+
+    const lead = (await getLeads()).find((l) => String(l.threadId) === String(ev.threadId));
     if (!lead) {
-      await telegram.ackTap(tap.id, 'That lead is no longer in the table.');
+      await telegram.ackTap(ev.id, 'That lead is no longer in the table.');
       continue;
     }
-    await telegram.ackTap(tap.id, 'Working on it…');
-    const line = await runTap(tap, lead, cfg);
-    await telegram.settleTap(tap, line);
+    await telegram.ackTap(ev.id, 'Working on it…');
+    const line = await runTap(ev, lead, cfg);
+    await telegram.settleTap(ev, line);
     await log(`Telegram tap on "${lead.title}": ${line}`);
     done++;
   }
-  return { taps: taps.length, done };
+  return { taps: events.length, done };
+}
+
+/**
+ * Rewriting from the phone.
+ *
+ * Tap ✏️ Rewrite and the bot asks for the new wording with the reply box
+ * already open; whatever is typed comes back as a reply pointing at that
+ * prompt, which is how we know which lead and which half it belongs to.
+ * The lead is updated and sent back with its buttons, so the next tap posts
+ * what you wrote, not what Claude wrote.
+ *
+ * A reply that answers no prompt of ours is ignored: the bot is not a chat.
+ */
+const EDITS_KEY = 'tgEdits';
+const getEdits = async () => (await chrome.storage.local.get(EDITS_KEY))[EDITS_KEY] || {};
+async function setEdit(promptId, entry) {
+  const all = await getEdits();
+  if (entry) all[promptId] = entry; else delete all[promptId];
+  // Only the last few matter; an abandoned prompt should not live forever.
+  const keys = Object.keys(all);
+  if (keys.length > 20) for (const k of keys.slice(0, keys.length - 20)) delete all[k];
+  await chrome.storage.local.set({ [EDITS_KEY]: all });
+}
+
+async function takeRewrite(ev, cfg) {
+  const edits = await getEdits();
+  const want = edits[String(ev.replyTo)];
+  if (!want) return false;                      // not answering anything of ours
+  await setEdit(String(ev.replyTo), null);
+
+  const lead = (await getLeads()).find((l) => String(l.threadId) === String(want.threadId));
+  if (!lead) { await telegram.say(cfg.telegramChatId, 'That lead is no longer in the table.'); return false; }
+
+  const body = String(ev.body || '').trim();
+  if (!body) { await telegram.say(cfg.telegramChatId, 'That came through empty, so nothing was changed.'); return false; }
+
+  // draftEdited matters: a staged tab still holds the OLD text, so postLead
+  // has to type the new one in rather than just pressing Submit on the old.
+  const patch = want.field === 'dm'
+    ? { dm: body, dmLint: lintDraft(body, cfg.compliance) }
+    : { draft: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
+  await updateLead(lead.threadId, patch);
+  await log(`rewrote the ${want.field === 'dm' ? 'PM' : 'public reply'} for "${lead.title}" from Telegram`);
+
+  const fresh = { ...lead, ...patch };
+  fresh.card = buildCard(fresh);
+  await telegram.resend(fresh, cfg, want.field === 'dm' ? 'PM' : 'reply');
+  return true;
 }
 
 /** One tap. Returns the line that goes back on the message. */
 async function runTap(tap, lead, cfg) {
   try {
+    if (tap.action === 'e' || tap.action === 'm') {
+      const which = tap.action === 'm' ? 'PM' : 'public reply';
+      const current = tap.action === 'm' ? lead.dm : lead.draft;
+      const promptId = await telegram.askFor(cfg.telegramChatId,
+        `✏️ Send the new ${which} for "${String(lead.title).slice(0, 60)}".\n\n`
+        + `Reply to this message with the whole thing - what you send replaces it.\n\n`
+        + `Now:\n${plain(current || '(empty)').slice(0, 900)}`);
+      if (!promptId) return '❌ Could not open the rewrite box.';
+      await setEdit(String(promptId), { threadId: String(lead.threadId), field: tap.action === 'm' ? 'dm' : 'draft' });
+      return `✏️ Waiting for your new ${which} - reply to the message below.`;
+    }
+
     if (tap.action === 's') {
       await updateLead(lead.threadId, { status: 'SKIPPED', decidedAt: new Date().toISOString() });
       return '⏭ Skipped.';
@@ -746,7 +809,7 @@ async function runTap(tap, lead, cfg) {
       if (lead.status === 'POSTED') return '🚀 Already posted - not posting it twice.';
       const gate = await checkRateLimit(cfg);
       if (!gate.ok) return `✋ Held: ${gate.reason}`;
-      const r = await postLead(lead, cfg);
+      const r = await postLead(lead, cfg, { edited: !!lead.draftEdited });
       return r?.ok ? `🚀 Posted.${r.postUrl ? ` ${r.postUrl}` : ''}`
                    : `❌ Could not post it: ${r?.error || 'unknown'}`;
     }

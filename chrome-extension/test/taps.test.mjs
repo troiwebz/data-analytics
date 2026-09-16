@@ -193,6 +193,76 @@ ok('and the phone says it was held, not that it worked',
    tgCalls.some((c) => c.method === 'editMessageText' && /Held/.test(c.body.text)),
    JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
 
+// --- rewriting from the phone ----------------------------------------------
+// Tap Rewrite, type the new wording, and the next tap posts what YOU wrote.
+store.recentLeads = [...(await getLeads()), lead('9')];
+tgCalls = [];
+updates = [tap('e:9')];
+await bg.pollTaps();
+const prompt = tgCalls.find((c) => c.method === 'sendMessage' && /Send the new public reply/.test(c.body.text || ''));
+ok('tapping Rewrite asks for the new wording', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
+ok('and opens the reply box on your phone', prompt?.body.reply_markup?.force_reply === true,
+   JSON.stringify(prompt?.body.reply_markup));
+ok('showing what it says now, so you can see what you are replacing',
+   /We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 120));
+
+// The reply you type. force_reply means it comes back pointing at the prompt.
+const reply = (body, replyTo) => ({
+  update_id: Math.floor(Math.random() * 1e6),
+  message: { message_id: 55, text: body, chat: { id: 999 }, from: { id: 5 },
+             reply_to_message: { message_id: replyTo } }
+});
+tgCalls = [];
+updates = [reply('My own wording, written on the train.', 1)];
+await bg.pollTaps();
+let l9 = (await getLeads()).find((x) => x.threadId === '9');
+ok('what you typed becomes the draft', l9.draft === 'My own wording, written on the train.', l9.draft);
+ok('and it is marked as yours, so a staged tab is retyped not reused', l9.draftEdited === true);
+ok('the lead comes back with its buttons, ready to approve',
+   tgCalls.some((c) => c.method === 'sendMessage' && c.body.reply_markup?.inline_keyboard),
+   JSON.stringify(tgCalls.map((c) => c.method)));
+ok('and the message it sends back is the wording you typed',
+   tgCalls.some((c) => /written on the train/.test(c.body.text || '')),
+   JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 40))));
+
+// Then approving posts YOUR text, not Claude's.
+await setConfig({ maxPostsPerDay: 10 });
+globalThis.__acting = '9';
+postResult = { ok: true, postUrl: 'https://bhw/threads/x.9/post-12' };
+updates = [tap('p:9')];
+await bg.pollTaps();
+l9 = (await getLeads()).find((x) => x.threadId === '9');
+ok('approving after a rewrite posts it', l9.status === 'POSTED', l9.status);
+ok('and the posted draft is the one you wrote', l9.draft === 'My own wording, written on the train.', l9.draft);
+
+// The PM half rewrites too.
+tgCalls = [];
+updates = [tap('m:2')];
+await bg.pollTaps();
+const pmPrompt = tgCalls.find((c) => /Send the new PM/.test(c.body.text || ''));
+ok('the PM can be rewritten as well', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+updates = [reply('A PM in my own words.', 1)];
+await bg.pollTaps();
+ok('and what you typed becomes the PM',
+   (await getLeads()).find((x) => x.threadId === '2').dm === 'A PM in my own words.',
+   (await getLeads()).find((x) => x.threadId === '2').dm);
+
+// A message that answers nothing of ours is not a rewrite.
+const before9 = (await getLeads()).find((x) => x.threadId === '9').draft;
+updates = [reply('just chatting to the bot', 99999)];
+await bg.pollTaps();
+ok('a reply to nothing of ours changes no draft',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9);
+
+// And a rewrite typed from someone else's chat is refused.
+store.tgEdits = { '77': { threadId: '9', field: 'draft' } };
+updates = [{ update_id: 1, message: { message_id: 78, text: 'hijacked', chat: { id: 4242 }, from: { id: 1 },
+                                      reply_to_message: { message_id: 77 } } }];
+await bg.pollTaps();
+ok('a rewrite from a chat that is not yours is refused',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
+
 // --- switched off, taps are not even read ----------------------------------
 await setConfig({ telegramApprovals: false });
 tgCalls = [];

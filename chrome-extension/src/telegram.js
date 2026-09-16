@@ -87,16 +87,50 @@ const replyMessage = (lead) => {
  * callback_data has a hard 64-byte limit, so it is one letter and the thread
  * id: d=send the PM, p=post the reply, s=skip this lead.
  */
-export const ACTIONS = { d: 'send the PM', p: 'post the public reply', s: 'skip this lead' };
+export const ACTIONS = {
+  d: 'send the PM', p: 'post the public reply', s: 'skip this lead',
+  m: 'rewrite the PM', e: 'rewrite the public reply'
+};
 
-function keyboard(lead, kind, cfg) {
+export function keyboard(lead, kind, cfg) {
   if (!cfg.telegramApprovals) return undefined;
   const id = String(lead.threadId || '');
   if (!id || id === 'sample') return undefined;        // a sample must never post
-  const row = kind === 'PM'
-    ? [{ text: '✉️ Send this PM', callback_data: `d:${id}` }]
-    : [{ text: '🚀 Post this reply', callback_data: `p:${id}` }];
-  return { inline_keyboard: [row, [{ text: '⏭ Skip', callback_data: `s:${id}` }]] };
+  const send = kind === 'PM'
+    ? [{ text: '✉️ Send this PM', callback_data: `d:${id}` },
+       { text: '✏️ Rewrite', callback_data: `m:${id}` }]
+    : [{ text: '🚀 Post this reply', callback_data: `p:${id}` },
+       { text: '✏️ Rewrite', callback_data: `e:${id}` }];
+  return { inline_keyboard: [send, [{ text: '⏭ Skip', callback_data: `s:${id}` }]] };
+}
+
+/**
+ * Ask for the new wording, with the phone's reply box already open.
+ *
+ * force_reply is what makes this work on a phone: Telegram opens the keyboard
+ * quoting this message, so whatever is typed next comes back as a reply
+ * pointing at it, and we know which lead and which half it belongs to without
+ * asking you to repeat yourself.
+ */
+export async function askFor(chatId, prompt) {
+  const m = await call('sendMessage', {
+    chat_id: chatId, text: prompt, disable_web_page_preview: true,
+    reply_markup: { force_reply: true, input_field_placeholder: 'Type the new wording' }
+  });
+  return m?.message_id;
+}
+
+/** Put the lead back in front of you, rewritten, with the buttons again. */
+export async function resend(lead, cfg, kind) {
+  const text = kind === 'PM' ? pmMessage(lead) : replyMessage(lead);
+  if (!text) return;
+  try {
+    await call('sendMessage', { chat_id: cfg.telegramChatId, text, parse_mode: 'HTML',
+                                disable_web_page_preview: true, reply_markup: keyboard(lead, kind, cfg) });
+  } catch {
+    await call('sendMessage', { chat_id: cfg.telegramChatId, text: stripTags(text),
+                                disable_web_page_preview: true, reply_markup: keyboard(lead, kind, cfg) });
+  }
 }
 
 /**
@@ -225,7 +259,9 @@ export async function pendingTaps() {
   let updates;
   try {
     updates = await call('getUpdates', {
-      offset, timeout: 0, allowed_updates: ['callback_query']
+      // Your typed rewrites come back as ordinary messages, so those are asked
+      // for too. Nothing else about a message is read or stored.
+      offset, timeout: 0, allowed_updates: ['callback_query', 'message']
     });
   } catch (e) {
     // A webhook set on this bot makes getUpdates illegal. Say which it is
@@ -239,18 +275,41 @@ export async function pendingTaps() {
   if (!updates?.length) return [];
   await setOffset(updates[updates.length - 1].update_id + 1);
 
-  return updates.map((u) => u.callback_query).filter(Boolean).map((q) => {
-    const [action, threadId] = String(q.data || '').split(':');
-    return {
-      id: q.id,
-      action,
-      threadId,
-      chatId: String(q.message?.chat?.id ?? ''),
-      fromId: String(q.from?.id ?? ''),
-      messageId: q.message?.message_id,
-      text: q.message?.text || ''
-    };
-  });
+  const out = [];
+  for (const u of updates) {
+    if (u.callback_query) {
+      const q = u.callback_query;
+      const [action, threadId] = String(q.data || '').split(':');
+      out.push({
+        kind: 'tap', id: q.id, action, threadId,
+        chatId: String(q.message?.chat?.id ?? ''),
+        fromId: String(q.from?.id ?? ''),
+        messageId: q.message?.message_id,
+        text: q.message?.text || ''
+      });
+      continue;
+    }
+    // A reply you typed. Only a reply counts - a message that is not answering
+    // one of our prompts is somebody chatting to the bot, and is ignored.
+    const m = u.message;
+    if (m?.text && m.reply_to_message) {
+      out.push({
+        kind: 'reply',
+        chatId: String(m.chat?.id ?? ''),
+        fromId: String(m.from?.id ?? ''),
+        messageId: m.message_id,
+        replyTo: m.reply_to_message.message_id,
+        body: String(m.text)
+      });
+    }
+  }
+  return out;
+}
+
+/** A plain acknowledgement in the chat, for things with no button to edit. */
+export async function say(chatId, text) {
+  try { await call('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true }); }
+  catch { /* nothing more we can do from here */ }
 }
 
 /** Stop the spinner on the button. Telegram wants this within a few seconds. */
