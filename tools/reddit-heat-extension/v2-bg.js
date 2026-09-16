@@ -59,7 +59,19 @@ async function v2Board() {
   v2Apply(st);
   const s = v2Settings(st);
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const rows = (st.plan || []).map((r) => ({ ...r, draft: st.drafts[r.n] ? { title: st.drafts[r.n].title, words: String(st.drafts[r.n].body || "").split(/\s+/).length, issues: st.drafts[r.n].issues || [], risk: st.drafts[r.n].risk || "" } : null }));
+  const ledger = v2Ledger(st);
+  const rows = (st.plan || []).map((r) => {
+    const b = (st.briefs || {})[r.sub];
+    const used = ledger[r.offerKey + "|" + r.sub];
+    return {
+      ...r,
+      draft: st.drafts[r.n] ? { title: st.drafts[r.n].title, words: String(st.drafts[r.n].body || "").split(/\s+/).length, issues: st.drafts[r.n].issues || [], risk: st.drafts[r.n].risk || "" } : null,
+      read: !!b,
+      blocked: !!(b && b.verdict && b.verdict.blocked),
+      verdict: b && b.verdict ? b.verdict.headline : "",
+      repeat: used ? (used.removed ? "removed here before" : "this offer has already run here") : "",
+    };
+  });
   const due = rows.find((r) => r.sub && r.state !== "posted" && r.at <= today.getTime() + 86400000);
   const leads = Object.values(st.leads || {});
   const postedRows = rows.filter((r) => r.state === "posted");
@@ -76,6 +88,9 @@ async function v2Board() {
     campaign: (() => { const c = V2.campaign(s.campaign); return c ? { key: c.key, name: c.name, niche: c.niche, shape: V2.campaignShape(c) } : null; })(),
     // the real number of comments the account left in the last month beats our
     // own tally, which only ever sees answers written in here
+    blocked: rows.filter((r) => r.blocked).length,
+    unread: rows.filter((r) => r.sub && !r.read).length,
+    repeats: rows.filter((r) => r.repeat).length,
     ratio: V2.ratio(Object.keys(st.mine || {}).length || postedRows.length, Math.max(st.myComments || 0, st.answered || 0)),
     results: v2Results(st),
     lastLeads: st.lastLeads || 0, lastScan: st.lastScan || 0,
@@ -154,7 +169,8 @@ async function v2Draft(n, force) {
   let extra = typeof force === "string" && force !== "true" ? force : "";
   let out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra), V2.POST_SCHEMA, 3000, "board post");
+    const shape = ((st.briefs || {})[row.sub] || {}).shape || null;
+    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }), V2.POST_SCHEMA, 3000, "board post");
     if (!res.ok) return res;
     issues = V2.postChecks(res.parsed, target, row.typeKey);
     out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
@@ -793,6 +809,175 @@ async function v2RulesRead(sub, force) {
   return { ok: true, read: out, issues };
 }
 
+// What survives in a room, read off the posts that are still standing there.
+async function v2Shape(sub, force) {
+  const st = await v2Get();
+  const brief = (st.briefs || {})[sub];
+  if (!brief) return { ok: false, error: "read the room first" };
+  if (brief.shape && !force) return { ok: true, shape: brief.shape, cached: true };
+  const survived = (brief.precedent || []).filter((p) => p.survived);
+  const removed = (brief.precedent || []).filter((p) => p.removed);
+  if (!survived.length && !removed.length) return { ok: false, error: "nothing has been tried here, so there is no shape to learn" };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  let extra = "", out = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(V2.shapeSystem(config.profile || {}), V2.shapeUser(sub, survived, removed) + (extra ? "\n\n" + extra : ""),
+      V2.SHAPE_SCHEMA, 1800, "what survives in r/" + sub);
+    if (!res.ok) return res;
+    issues = V2.shapeChecks(res.parsed);
+    out = { ...res.parsed, at: Date.now(), cents: res.cents, issues, from: survived.length, against: removed.length };
+    if (!issues.length) break;
+    extra = "Your last answer was rejected: " + issues.join("; ") + ". We are an outside marketing team and cannot claim to work inside this trade.";
+  }
+  brief.shape = out;
+  await v2Set({ briefs: { ...(st.briefs || {}), [sub]: brief } });
+  return { ok: true, shape: out, issues };
+}
+
+// ------------------------------------------------- reading every room at once
+// One room takes about twelve seconds. Sixteen is three minutes, once, and
+// after that nobody has to wonder which of them were never going to work.
+async function v2BriefAll(subs, force) {
+  const st = await v2Get();
+  v2Apply(st);
+  const s = v2Settings(st);
+  const camp = V2.campaign(s.campaign);
+  const list = (subs && subs.length ? subs
+    : camp ? V2.campaignRooms(camp).map((t) => t.sub)
+    : (s.subs && s.subs.length ? s.subs : V2.TARGETS.filter(V2.postable).map((t) => t.sub)));
+  const fresh = 7 * 86400000;
+  let done = 0, read = 0, skipped = 0, blocked = 0;
+  await chrome.storage.local.set({ v2All: { running: true, total: list.length, done: 0, where: "", stop: false } });
+  for (const sub of list) {
+    const { v2All: a = {} } = await chrome.storage.local.get(["v2All"]);
+    if (a.stop) break;
+    done += 1;
+    await chrome.storage.local.set({ v2All: { running: true, total: list.length, done, where: "r/" + sub, stop: false } });
+    const cur = await v2Get();
+    const had = (cur.briefs || {})[sub];
+    if (had && !force && Date.now() - (had.at || 0) < fresh) { skipped += 1; if (had.verdict && had.verdict.blocked) blocked += 1; continue; }
+    try {
+      const b = await v2RoomBrief(sub, true);
+      if (b && b.ok) { read += 1; if (b.verdict && b.verdict.blocked) blocked += 1; }
+    } catch (_) { /* one room failing is not the run failing */ }
+  }
+  await chrome.storage.local.set({ v2All: { running: false, total: list.length, done, where: "", stop: false } });
+  return { ok: true, rooms: list.length, read, skipped, blocked, campaign: camp ? camp.name : "" };
+}
+
+// ------------------------------------------------------------- the ledger
+// Which offer has been run in which room, and how it went. Built from the
+// board's own record joined to the tracker, so a post a moderator pulled is
+// known even though nothing in here was told about it.
+function v2Ledger(st) {
+  const out = {};
+  const mine = st.mine || {};
+  const now = Date.now();
+  for (const p of Object.values(st.posts || {})) {
+    if (!p.offerKey || !p.sub) continue;
+    const m = p.postId ? mine[p.postId] : null;
+    const ageH = (now - (p.at || 0)) / 3600000;
+    const key = p.offerKey + "|" + p.sub;
+    const prev = out[key] || { at: 0, n: 0, removed: false, survived: false };
+    out[key] = {
+      at: Math.max(prev.at, p.at || 0), n: prev.n + 1,
+      removed: prev.removed || !!(m && m.removed),
+      survived: prev.survived || (!(m && m.removed) && ageH > 24),
+      comments: Math.max(prev.comments || 0, (m && m.comments) || 0),
+    };
+  }
+  return out;
+}
+function v2Health(st, ledger) {
+  const health = {};
+  for (const o of V2.allOffers()) health[o.key] = V2.offerHealth(o.key, ledger);
+  return health;
+}
+
+// One offer, every room, best first — and the chain a blocked day walks along.
+async function v2Fit(offerKey, opts = {}) {
+  const st = await v2Get();
+  v2Apply(st);
+  const s = v2Settings(st);
+  const camp = V2.campaign(s.campaign);
+  const offer = V2.offer(offerKey);
+  const rooms = opts.all || !camp ? V2.TARGETS : V2.campaignRooms(camp);
+  const ledger = v2Ledger(st);
+  const chain = V2.fitChain(offer, rooms, {
+    briefs: st.briefs || {}, ledger, checked: st.targets || {},
+    health: v2Health(st, ledger),
+    campaignRooms: camp ? V2.campaignRooms(camp).map((t) => t.sub) : [],
+    campaignNiche: camp ? camp.niche : "",
+  });
+  return { ok: true, offer: { key: offer.key, name: offer.name, posture: offer.posture, who: offer.who },
+    chain, health: V2.offerHealth(offer.key, ledger), campaign: camp ? camp.name : "",
+    unread: chain.filter((c) => !(st.briefs || {})[c.sub]).length };
+}
+
+// Every offer the calendar may use, against every room it may use.
+async function v2Matrix() {
+  const st = await v2Get();
+  v2Apply(st);
+  const s = v2Settings(st);
+  const camp = V2.campaign(s.campaign);
+  const rooms = camp ? V2.campaignRooms(camp) : V2.TARGETS.filter(V2.postable);
+  const picked = s.offers && s.offers.length ? s.offers : V2.allOffers().map((o) => o.key);
+  const ledger = v2Ledger(st);
+  const health = v2Health(st, ledger);
+  const rows = picked.map((k) => {
+    const offer = V2.offer(k);
+    const chain = V2.fitChain(offer, rooms, { briefs: st.briefs || {}, ledger, checked: st.targets || {}, health,
+      campaignRooms: rooms.map((t) => t.sub), campaignNiche: camp ? camp.niche : "" });
+    return { key: offer.key, name: offer.name, posture: offer.posture, health: health[offer.key],
+      cells: chain, green: chain.filter((c) => c.state === "green").length, next: chain.find((c) => c.state === "green" || c.state === "grey") || null };
+  });
+  rows.sort((a, b) => b.green - a.green);
+  return { ok: true, rows, rooms: rooms.map((t) => t.sub), campaign: camp ? camp.name : "", unread: rooms.filter((t) => !(st.briefs || {})[t.sub]).length };
+}
+
+// A day whose room turned out to be closed walks to the next room in its
+// offer's chain rather than being lost.
+async function v2RowFallback(n) {
+  const st = await v2Get();
+  v2Apply(st);
+  const row = (st.plan || []).find((r) => r.n === Number(n));
+  if (!row) return { ok: false, error: "no such day" };
+  const fit = await v2Fit(row.offerKey);
+  const takenToday = new Set((st.plan || []).filter((r) => r.day === row.day && r.n !== row.n).map((r) => r.sub));
+  const cool = v2Settings(st).subCoolDays * 86400000;
+  const clash = (sub) => (st.plan || []).some((r) => r.n !== row.n && r.sub === sub && Math.abs((r.at || 0) - (row.at || 0)) < cool);
+  const next = fit.chain.find((c) => (c.state === "green" || c.state === "grey") && c.sub !== row.sub && !takenToday.has(c.sub) && !clash(c.sub));
+  if (!next) return { ok: false, error: "nothing else in this campaign will take this offer — read more rooms, or pick a different offer for the day" };
+  const was = row.sub;
+  row.sub = next.sub;
+  row.kind = next.kind; row.promo = next.promo; row.group = next.kind;
+  row.weekly = next.promo === "weekly";
+  row.movedFrom = was;
+  row.why = row.why.replace("r/" + was, "r/" + next.sub) + " (moved from r/" + was + ")";
+  delete st.drafts[row.n];
+  if (row.state === "drafted") row.state = "planned";
+  await v2Set({ plan: st.plan, drafts: st.drafts });
+  return { ok: true, from: was, to: next.sub, why: next.why, state: next.state };
+}
+
+// After a bulk read, several days can turn out to be sitting in rooms that
+// will never take them. Move them all in one go rather than one at a time.
+async function v2FallbackAll() {
+  const st = await v2Get();
+  const closed = (st.plan || []).filter((r) => {
+    if (!r.sub || r.state === "posted" || r.state === "skipped") return false;
+    const b = (st.briefs || {})[r.sub];
+    return !!(b && b.verdict && b.verdict.blocked);
+  });
+  const moves = [], stuck = [];
+  for (const r of closed) {
+    const res = await v2RowFallback(r.n);
+    if (res.ok) moves.push({ n: r.n, from: res.from, to: res.to });
+    else stuck.push({ n: r.n, sub: r.sub, why: res.error });
+  }
+  return { ok: true, moved: moves.length, moves, stuck };
+}
+
 // -------------------------------------------------- the buyer hunt (v2)
 // v1 hunted intent. This hunts money: a post only enters the queue if
 // somebody in it has a budget, an agency, or a business of their own.
@@ -911,6 +1096,14 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
+    case "v2-shape": return go(v2Shape(msg.sub, !!msg.force));
+    case "v2-brief-all": return go(v2BriefAll(msg.subs, !!msg.force));
+    case "v2-brief-all-state": return go(chrome.storage.local.get(["v2All"]).then((x) => x.v2All || { running: false }));
+    case "v2-brief-all-stop": return go(chrome.storage.local.get(["v2All"]).then((x) => chrome.storage.local.set({ v2All: { ...(x.v2All || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-fit": return go(v2Fit(msg.key, msg.opts || {}));
+    case "v2-matrix": return go(v2Matrix());
+    case "v2-fallback-all": return go(v2FallbackAll());
+    case "v2-row-fallback": return go(v2RowFallback(msg.n));
     case "v2-brief": return go(v2RoomBrief(msg.sub, !!msg.force));
     case "v2-brief-state": return go(chrome.storage.local.get(["v2Brief"]).then((x) => x.v2Brief || { running: false }));
     case "v2-brief-stop": return go(chrome.storage.local.get(["v2Brief"]).then((x) => chrome.storage.local.set({ v2Brief: { ...(x.v2Brief || {}), stop: true } })).then(() => ({ ok: true })));

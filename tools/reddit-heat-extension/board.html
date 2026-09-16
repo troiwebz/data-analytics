@@ -38,6 +38,8 @@
   .t-spending{color:#08120c;background:var(--go);border-color:var(--go)}
   .t-owner{color:var(--warn);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}
   .t-asking{color:var(--dim);background:#1a1f28;border-color:var(--line)}
+  .cell{display:inline-block;width:15px;height:15px;border-radius:4px;margin:1px;vertical-align:middle;cursor:help}
+  .c-green{background:var(--go)}.c-amber{background:var(--warn)}.c-grey{background:#39414f}.c-red{background:#7f1d1d}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
   .card h3{margin:0 0 6px;font-size:14px}
   .dim{color:var(--dim)}.faint{color:var(--faint);font-size:12px}
@@ -79,6 +81,7 @@
     <button data-tab="mine">My posts</button>
     <button data-tab="boost">Boost</button>
     <button data-tab="offers">Offers</button>
+    <button data-tab="fit">Fit</button>
     <button data-tab="targets">Targets</button>
 
   </nav>
@@ -111,6 +114,7 @@
   <section id="plan">
     <div class="note" style="border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.06);color:#f6d79b"><b>Read the room before you post in it.</b> <b>check r/…</b> on any day pulls that subreddit's rules in full and every post anyone has made there in the last year that tried what you are about to try — marked by whether it is still standing or was removed — plus who else is selling in there and how it went for them. A room whose own rules ban us will not open at all.</div>
     <div class="note">Three posts a day, in three different rooms, in three different shapes — <b>Offer</b> at 9, <b>Proof</b> at 2, <b>Conversation</b> at 7. Each day's three slots hit all three groups (owners, already-spending, general) so that after a fortnight you can see which group and which shape actually produced leads. Only the Offer lane ever asks for anything, and only on its own cadence. The board fills Reddit's own form; you read it and press Post.</div>
+    <div id="planBar"></div>
     <div class="stat" id="planStat"></div>
     <div id="ratio"></div>
     <div class="bar">
@@ -213,6 +217,17 @@
       <span id="boostSay" class="faint"></span>
     </div>
     <div id="boostBody"></div>
+  </section>
+
+  <section id="fit">
+    <div class="note">Every offer against every room in this campaign. <b>Green</b> means the rules allow it, the room has let posts like it stand, and we have not been there with this offer. <b>Amber</b> means we already ran it there, or everything like it was removed. <b>Red</b> means the rules block us, the room takes no posts at all, or this offer has been pulled too often to keep running. A day whose room turns out to be closed walks along its offer's row to the next green cell instead of being lost.</div>
+    <div class="bar">
+      <button class="act" id="readAll">Read every room in this campaign</button>
+      <button class="ghost" id="readStop" style="display:none">Stop</button>
+      <label class="f"><input type="checkbox" id="readForce"> re-read ones already done</label>
+      <span id="readLive" class="faint"></span>
+    </div>
+    <div id="fitBody"></div>
   </section>
 
   <section id="results">

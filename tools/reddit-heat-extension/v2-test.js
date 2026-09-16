@@ -284,6 +284,75 @@ assert.match(V.rulesChecks({ may_post: "no", quote: "No promotion of any kind is
 assert.match(V.rulesChecks({ may_post: "maybe", quote: "", plain: "x".repeat(40), shape: "y".repeat(30), watch: "z" }, RULES).join(" | "), /whether we may post/);
 assert.deepStrictEqual(V.rulesChecks({ may_post: "yes", quote: "", plain: "x".repeat(40), shape: "y".repeat(30), watch: "z" }, RULES), [], "an empty quote is allowed when no rule addresses it");
 
+
+// ---- the fit matrix: which offer may go into which room -----------------
+const OFF0 = V.offer("gbp_audit");
+const ROOMS = ["Roofing", "Contractor", "medspa", "smallbusiness", "HVAC"].map((x) => V.TARGETS.find((t) => t.sub === x));
+const BRIEFS = {
+  medspa: { verdict: { blocked: true, headline: "Do not post here", reasons: ["its own rules ban marketing agencies"] }, counts: {} },
+  Roofing: { verdict: { blocked: false }, counts: { survivedOffer: 4, removedOffer: 0, recent: 100, recentRemoved: 3, survivedCase: 1 } },
+  Contractor: { verdict: { blocked: false }, counts: { survivedOffer: 0, removedOffer: 2, recent: 100, recentRemoved: 20 } },
+};
+const CHAIN = V.fitChain(OFF0, ROOMS, { briefs: BRIEFS, ledger: { "gbp_audit|smallbusiness": { at: 1, survived: true } },
+  checked: { Roofing: { members: 40000, online: 300 } }, campaignRooms: ROOMS.map((r) => r.sub), campaignNiche: "roofers hvac plumbers contractors" });
+const cell = (sub) => CHAIN.find((c) => c.sub === sub);
+// a written ban is a hard no whatever the score would have been
+assert.strictEqual(cell("medspa").state, "red");
+assert.strictEqual(cell("medspa").allowed, false);
+// a room that never takes an offer post is a no as well
+assert.strictEqual(cell("HVAC").state, "red");
+assert.match(cell("HVAC").why.join(" "), /does not take an offer post/);
+// four survivors is the best cell, and it comes first
+assert.strictEqual(cell("Roofing").state, "green");
+assert.strictEqual(CHAIN[0].sub, "Roofing");
+assert.match(cell("Roofing").why.join(" "), /4 offer posts are still standing/);
+// everything removed and nothing standing is not somewhere to run it
+assert.strictEqual(cell("Contractor").state, "amber");
+assert.match(cell("Contractor").why.join(" "), /every offer post tried here was removed/);
+// the same offer never goes back into a room it already ran in
+assert.strictEqual(cell("smallbusiness").state, "amber");
+assert.match(cell("smallbusiness").why.join(" "), /repeat it somewhere new/);
+// and never back into one where it was removed
+const removedHere = V.fitScore(OFF0, ROOMS[0], { brief: BRIEFS.Roofing, used: { removed: true } });
+assert.strictEqual(removedHere.state, "red");
+assert.match(removedHere.why.join(" "), /was removed/);
+// an offer pulled twice anywhere stops being scheduled at all
+assert.strictEqual(V.fitScore(OFF0, ROOMS[0], { brief: BRIEFS.Roofing, health: { removed: 2, retired: true } }).state, "red");
+assert.strictEqual(V.offerHealth("k", { "k|a": { removed: true }, "k|b": { removed: true }, "k|c": { survived: true } }).retired, true);
+assert.strictEqual(V.offerHealth("k", { "k|a": { removed: true }, "k|c": { survived: true } }).retired, false);
+assert.strictEqual(V.offerHealth("k", {}).used, 0);
+// an unread room is neither promised nor condemned
+const unread = V.fitScore(OFF0, ROOMS[0], {});
+assert.match(unread.why.join(" "), /has not been read yet/);
+// the chain is ordered: everything runnable before everything that is not
+const ranks = CHAIN.map((c) => V.FIT_STATES[c.state].rank);
+assert.deepStrictEqual(ranks, ranks.slice().sort((a, b) => b - a), "the chain is out of order");
+
+// ---- learning the shape that survived, without lying about who we are ---
+const SHAPE = { stance: "They are practitioners inside the trade. An outside team stands on volume instead: how many of these businesses it has worked across.",
+  gives: "a whole system, step by step", asks: "nothing",
+  structure: "opens with a number from a real account, then five numbered findings, then a question",
+  length: "700 to 1000 words", avoid: "the removed ones offered spots and asked for links",
+  opening: "I have rebuilt attribution for 11 clinics this year and two numbers predicted revenue every time.", confidence: "low" };
+assert.deepStrictEqual(V.shapeChecks(SHAPE), []);
+assert.match(V.shapeChecks({ ...SHAPE, opening: "I am the CMO of a med spa doing $350K a month." }).join(" | "), /inside the trade/);
+assert.match(V.shapeChecks({ ...SHAPE, opening: "I'm the owner of a busy clinic." }).join(" | "), /inside the trade/);
+assert.match(V.shapeChecks({ ...SHAPE, stance: "Present yourself as an owner in the trade." }).join(" | "), /someone we are not/);
+assert.match(V.shapeChecks({ ...SHAPE, stance: "Pose as a customer asking a question." }).join(" | "), /someone we are not/);
+assert.match(V.shapeChecks({ ...SHAPE, confidence: "certain" }).join(" | "), /how much evidence/);
+assert.match(V.shapeSystem({}), /never describe a stance they cannot honestly take/i);
+assert.match(V.shapeSystem({}), /Never suggest claiming to be an owner/);
+// no evidence means no instruction, rather than an invented one
+assert.strictEqual(V.shapeBlock({ ...SHAPE, confidence: "none" }), "");
+assert.match(V.shapeBlock(SHAPE), /thin evidence/);
+assert.match(V.shapeBlock({ ...SHAPE, confidence: "high" }), /What actually survives in this room:/);
+assert.match(V.shapeBlock(SHAPE), /must read as one/);
+// and it reaches the post writer
+assert.match(V.postUser(V.TARGETS.find((t) => t.sub === "medspa"), "gbp_audit", "result_story", {}, "", { shape: SHAPE }), /What actually survives in this room/);
+assert.ok(!/What actually survives/.test(V.postUser(V.TARGETS.find((t) => t.sub === "medspa"), "gbp_audit", "result_story", {})), "the shape block appeared without a shape");
+assert.match(V.shapeUser("medspa", [{ title: "A post", body: "body", score: 5, comments: 9, kind: "case" }], [{ title: "A removed one" }]), /still standing[\s\S]*A post[\s\S]*removed[\s\S]*A removed one/i);
+assert.match(V.shapeUser("medspa", [], []), /No post like ours has survived here/);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);

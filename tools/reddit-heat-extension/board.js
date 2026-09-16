@@ -20,6 +20,7 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "camp") drawCampaigns();
   if (b.dataset.tab === "mine") drawMine();
   if (b.dataset.tab === "boost") drawBoost();
+  if (b.dataset.tab === "fit") drawFit();
 });
 
 // --------------------------------------------------------------- calendar
@@ -31,6 +32,24 @@ async function drawPlan() {
   $("#planStat").innerHTML = [
     ["Planned", c.planned], ["Written", c.drafted], ["Posted", c.posted], ["Leads", c.leads], ["New leads", c.newLeads],
   ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  const bar = $("#planBar");
+  if (bar) bar.innerHTML = BOARD.blocked
+    ? `<div class="note" style="border-color:rgba(214,45,32,.4);background:rgba(214,45,32,.08);color:#f3b3ad">${BOARD.blocked} day${BOARD.blocked === 1 ? "" : "s"} on this calendar sit in rooms whose own rules will not take a post from us. <button class="act" id="moveAll" style="margin-left:8px">Move them all</button></div>`
+    : "";
+  if ($("#moveAll")) $("#moveAll").onclick = async () => {
+    say("moving them…");
+    const r = await send({ type: "v2-fallback-all" });
+    if (!r || !r.ok) return say("could not move them", "var(--warn)");
+    say(`${r.moved} moved${r.stuck.length ? `, ${r.stuck.length} had nowhere to go — read more rooms or change the offer` : ""}`, r.stuck.length ? "var(--warn)" : "var(--go)");
+    drawPlan();
+  };
+  if (BOARD.blocked || BOARD.unread || BOARD.repeats) {
+    $("#planStat").innerHTML += [
+      BOARD.blocked ? `<div><b style="color:#d62d20">${BOARD.blocked}</b><span>rooms closed</span></div>` : "",
+      BOARD.repeats ? `<div><b style="color:var(--warn)">${BOARD.repeats}</b><span>repeats</span></div>` : "",
+      BOARD.unread ? `<div><b style="color:var(--dim)">${BOARD.unread}</b><span>unread rooms</span></div>` : "",
+    ].join("");
+  }
   const r8 = BOARD.ratio || { ok: true };
   $("#ratio").innerHTML = r8.ok
     ? `<div class="faint" style="margin-bottom:12px">${r8.posts} posts, ${r8.comments} public answers — ${esc(r8.why)}.</div>`
@@ -48,19 +67,24 @@ async function drawPlan() {
     const lane = `<span class="lane l-${r.lane === "talk" ? "talk" : r.lane}">${esc(r.laneName)}</span>`;
     const tag = r.magnet ? `<span class="tag t-magnet">offer</span>` : `<span class="tag t-value">gives</span>`;
     const wk = r.weekly ? ` <span class="tag t-weekly">weekly thread</span>` : "";
+    const flag = r.blocked ? `<div class="issue">⚠ ${esc(r.verdict)}</div>`
+      : r.repeat ? `<div class="issue">⚠ ${esc(r.repeat)}</div>`
+      : !r.read ? `<div class="faint">not read yet</div>` : "";
+    const moved = r.movedFrom ? `<div class="faint">moved from r/${esc(r.movedFrom)}</div>` : "";
     const group = r.group === "ads" ? "already spending" : r.group === "owner" ? "business owner" : "general";
     const what = r.magnet ? esc(r.offerName) : esc(r.typeName);
     const title = r.draft ? `<div class="ttl">${esc(r.draft.title)}</div><div class="faint">${r.draft.words} words${r.draft.issues.length ? " · " + r.draft.issues.length + " to fix" : ""}</div>` : `<span class="faint">not written yet</span>`;
     const btns = r.state === "posted"
       ? `<a href="${esc(r.url || "#")}" target="_blank">open the post</a>`
       : `<button class="ghost" data-w="${r.n}">${r.draft ? "rewrite" : "write it"}</button>
-         <button class="ghost" data-brief="${esc(r.sub)}">check r/${esc(r.sub)}</button>
+         <button class="${r.blocked ? "act" : "ghost"}" data-brief="${esc(r.sub)}">check r/${esc(r.sub)}</button>
+         ${r.blocked || r.repeat ? `<button class="act" data-move="${r.n}">move it</button>` : ""}
          <button class="ghost" data-off="${r.n}">5 offers</button>
          ${r.draft ? `<button class="ghost" data-v="${r.n}">read</button><button class="act" data-o="${r.n}">post it</button><button class="ghost" data-m="${r.n}">it is live</button>` : ""}
          <button class="ghost" data-s="${r.n}">skip</button>`;
     return `<tr class="${cls}">
       <td>${stamp}</td><td>${lane}<div class="faint">${group}</div></td>
-      <td><b>r/${esc(r.sub)}</b>${wk}</td>
+      <td><b>r/${esc(r.sub)}</b>${wk}${flag}${moved}</td>
       <td>${tag}<div class="faint">${esc(r.typeName)}</div></td>
       <td>${what}${title}</td><td>${btns}</td></tr>`;
   }).join("") || `<tr><td colspan="6" class="faint">No calendar yet — press Build the calendar.</td></tr>`;
@@ -69,6 +93,12 @@ async function drawPlan() {
   $$("#planRows button[data-o]").forEach((b) => b.onclick = () => open_(+b.dataset.o));
   $$("#planRows button[data-off]").forEach((b) => b.onclick = () => roomOffers(+b.dataset.off, false));
   $$("#planRows button[data-brief]").forEach((b) => b.onclick = () => showBrief(b.dataset.brief, false, "#planDraft"));
+  $$("#planRows button[data-move]").forEach((b) => b.onclick = async () => {
+    const r = await send({ type: "v2-row-fallback", n: +b.dataset.move });
+    if (!r || !r.ok) return say((r && r.error) || "could not move it", "var(--warn)");
+    say(`day moved from r/${r.from} to r/${r.to} — ${esc((r.why || [])[0] || r.state)}`, "var(--go)");
+    drawPlan();
+  });
   $$("#planRows button[data-s]").forEach((b) => b.onclick = async () => { await send({ type: "v2-skip", n: +b.dataset.s }); drawPlan(); });
   // if the content script missed the moment the post went live — a full page
   // reload, a crosspost, posting from the phone — mark it here by hand so the
@@ -183,6 +213,7 @@ function drawBrief(b, box) {
       <div class="faint" style="margin-top:8px">${b.about.members ? b.about.members.toLocaleString() + " members, " + (b.about.online || 0).toLocaleString() + " online" : ""}${c.recent ? ` · ${c.recentRemoved} of its last ${c.recent} posts have been removed` : ""}</div>
       <div class="bar" style="margin-top:10px">
         <button class="ghost" id="bRead">Have Claude read the rules</button>
+        <button class="ghost" id="bShape">What survives here</button>
         <button class="ghost" id="bAgain">Read the room again</button>
         <a href="https://www.reddit.com/r/${esc(b.sub)}/about/rules/" target="_blank" style="align-self:center">open the rules on Reddit</a>
       </div>
@@ -217,6 +248,29 @@ function drawBrief(b, box) {
         <td>${a.best ? `<a href="${esc(a.best.permalink)}" target="_blank">${esc(a.best.title)}</a><div class="faint">${a.best.comments} comments</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
     ${(b.errors || []).length ? `<div class="card"><div class="issue">${b.errors.map(esc).join(" · ")}</div></div>` : ""}`;
   $("#bAgain").onclick = () => showBrief(b.sub, true, "#" + box.id);
+  $("#bShape").onclick = async () => {
+    $("#bReadOut").innerHTML = `<div class="faint" style="margin-top:8px">reading the posts that are still standing…</div>`;
+    const r = await send({ type: "v2-shape", sub: b.sub });
+    if (!r || !r.ok) { $("#bReadOut").innerHTML = `<div class="issue">${esc((r && r.error) || "could not read them")}</div>`; return; }
+    const sh = r.shape;
+    const conf = String(sh.confidence || "").toLowerCase();
+    $("#bReadOut").innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <b style="color:${conf === "high" ? "var(--go)" : conf === "low" ? "var(--warn)" : "var(--dim)"}">What survives here — evidence: ${esc(sh.confidence)}</b>
+      <div class="faint">${sh.from} still standing, ${sh.against} removed</div>
+      ${(sh.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("")}
+      <ul class="tight" style="margin-top:8px">
+        <li><b>How they stand:</b> ${esc(sh.stance)}</li>
+        <li><b>What they give:</b> ${esc(sh.gives)}</li>
+        <li><b>What they ask:</b> ${esc(sh.asks)}</li>
+        <li><b>How it is built:</b> ${esc(sh.structure)}</li>
+        <li><b>Length:</b> ${esc(sh.length)}</li>
+        <li><b>What the removed ones did:</b> ${esc(sh.avoid)}</li>
+      </ul>
+      <div class="faint" style="margin-top:8px">An honest opening we could use:</div>
+      <div class="draft" style="font:12px/1.6 -apple-system,Segoe UI,sans-serif">${esc(sh.opening)}</div>
+      <div class="faint" style="margin-top:8px">Every post written for r/${esc(b.sub)} from now on is built in this shape. It copies the structure, never a claim about who we are.</div>
+    </div>`;
+  };
   $("#bRead").onclick = async () => {
     $("#bReadOut").innerHTML = `<div class="faint" style="margin-top:8px">reading…</div>`;
     const r = await send({ type: "v2-rules-read", sub: b.sub });
@@ -518,6 +572,40 @@ $("#checkT").onclick = async () => {
   }, 800);
 };
 $("#checkStop").onclick = () => { send({ type: "v2-check-stop" }); say("stopping…"); };
+
+// ------------------------------------------------------------- the fit matrix
+const CELL_TITLE = (c) => `r/${c.sub} — ${c.headline}${c.why && c.why.length ? ": " + c.why.join("; ") : ""}`;
+async function drawFit() {
+  const m = await send({ type: "v2-matrix" });
+  if (!m || !m.ok) return;
+  if (!m.rows.length) { $("#fitBody").innerHTML = `<div class="card"><h3>No offers ticked</h3><div class="faint">Tick some on the Offers tab.</div></div>`; return; }
+  const warn = m.unread ? `<div class="note" style="border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.08);color:#f6d79b">${m.unread} of these rooms have never been read, so their cells are guesses. Press <b>Read every room in this campaign</b> — it takes about twelve seconds a room, once.</div>` : "";
+  $("#fitBody").innerHTML = warn + `<div class="card">
+    <h3>${esc(m.campaign || "All rooms")} — ${m.rows.length} offers across ${m.rooms.length} rooms</h3>
+    <table style="margin-top:10px"><thead><tr><th style="width:250px">Offer</th><th style="width:76px">Green</th><th style="width:200px">Run it next in</th><th>Every room, best first</th></tr></thead>
+    <tbody>${m.rows.map((r) => `<tr>
+      <td><b>${esc(r.name)}</b><div class="faint">${esc(V2.posture(r.posture).name)}${r.health && r.health.used ? " · " + esc(r.health.why) : ""}</div>
+        ${r.health && r.health.retired ? `<div class="issue">⚠ retired — improve it first</div>` : ""}</td>
+      <td><b style="color:${r.green ? "var(--go)" : "var(--warn)"}">${r.green}</b></td>
+      <td>${r.next ? `<a href="https://www.reddit.com/r/${esc(r.next.sub)}/" target="_blank">r/${esc(r.next.sub)}</a><div class="faint">${esc((r.next.why || [])[0] || "")}</div>` : `<span class="faint">nowhere left</span>`}</td>
+      <td>${r.cells.map((c) => `<span class="cell c-${c.state}" title="${esc(CELL_TITLE(c))}"></span>`).join("")}
+        <div class="faint">${r.cells.filter((c) => c.state === "green").slice(0, 6).map((c) => "r/" + esc(c.sub)).join(", ") || "no room in this campaign will take it"}</div></td></tr>`).join("")}</tbody></table>
+    <div class="faint" style="margin-top:10px">Hover any square to see the room and the reason.</div></div>`;
+}
+$("#readAll").onclick = async () => {
+  $("#readAll").disabled = true; $("#readStop").style.display = "";
+  send({ type: "v2-brief-all", force: $("#readForce").checked }).then((r) => {
+    $("#readAll").disabled = false; $("#readStop").style.display = "none";
+    if (r && r.ok) say(`${r.rooms} rooms — ${r.read} read, ${r.skipped} already fresh, ${r.blocked} of them will not take a post from us`, "var(--go)");
+    drawFit(); drawPlan();
+  });
+  const tick = setInterval(async () => {
+    const st = await send({ type: "v2-brief-all-state" });
+    if (!st || !st.running) { clearInterval(tick); $("#readLive").textContent = ""; return; }
+    $("#readLive").textContent = `${esc(st.where)} · ${st.done} of ${st.total}`;
+  }, 700);
+};
+$("#readStop").onclick = () => { send({ type: "v2-brief-all-stop" }); say("stopping after this room…"); };
 
 // --------------------------------------------------------------- results
 function resTable(title, rows, note) {

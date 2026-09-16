@@ -645,7 +645,7 @@ V2.postSystem = function (profile = {}) {
   ].join("\n");
 };
 
-V2.postUser = function (target, offer, type, profile = {}, extra = "") {
+V2.postUser = function (target, offer, type, profile = {}, extra = "", opts = {}) {
   const t = V2.postType(type.key ? type.key : type);
   const o = V2.offer(offer.key ? offer.key : offer);
   const tg = typeof target === "string" ? (V2.TARGETS.find((x) => x.sub === target) || { sub: target, kind: "biz", promo: "value", note: "" }) : target;
@@ -678,6 +678,7 @@ V2.postUser = function (target, offer, type, profile = {}, extra = "") {
       ""
     );
   }
+  if (opts && opts.shape) lines.push(V2.shapeBlock(opts.shape), "");
   if (profile.credit) lines.push("True things about us that may be used, in our own words, and only if they fit naturally: " + profile.credit, "");
   if (profile.wins) lines.push("Real results we can cite: " + profile.wins, "");
   if (extra) lines.push("Extra instruction for this one: " + extra, "");
@@ -1299,6 +1300,8 @@ V2.classifyPromoPost = function (d, now) {
     permalink: "https://www.reddit.com" + String(d.permalink || ""),
     created, score: d.score || 0, comments: d.num_comments || 0,
     service: V2.SERVICE_RE.test(text),
+    // kept so the shape of what survived can be read back later
+    body: removed ? "" : body.replace(/\s+/g, " ").slice(0, 1400),
   };
 };
 
@@ -1402,4 +1405,197 @@ V2.rulesChecks = function (r, rules) {
   const q = String(r.quote || "").trim().toLowerCase();
   if (q && hay && !hay.includes(q.slice(0, Math.min(40, q.length)))) bad.push("the quoted rule is not in the rules it was given — it was paraphrased or invented");
   return bad;
+};
+
+// ------------------------------------------------------------ the fit matrix
+// Offers down one axis, rooms across the other, every cell saying whether
+// this offer may go into this room — and if not, why not. The calendar picks
+// from the green cells, a blocked day walks along its row to the next green
+// one, and the dedupe rules are what turn cells amber and red.
+V2.FIT_STATES = {
+  green: { name: "Run it", rank: 3 },
+  amber: { name: "Only if you must", rank: 2 },
+  grey: { name: "Untested", rank: 1 },
+  red: { name: "No", rank: 0 },
+};
+// Words that say a room and an offer are about the same trade. Crude on
+// purpose: the campaign already did the hard narrowing, this only stops a
+// roofing offer being sent to a dentist.
+V2.fitWords = function (text) {
+  return new Set(String(text || "").toLowerCase().match(/[a-z]{4,}/g) || []);
+};
+V2.FIT_STOP = new Set(["that", "this", "with", "your", "they", "them", "their", "from", "have", "been", "were", "will", "what", "when", "which", "would", "there", "about", "business", "businesses", "owner", "owners", "company", "companies", "anyone", "anything", "already", "month", "months", "spending", "people", "clients", "customers"]);
+V2.fitScore = function (offer, room, opts = {}) {
+  const brief = opts.brief || null;
+  const used = opts.used || null;          // {at, removed, survived} for this offer in this room
+  const health = opts.health || { removed: 0, retired: false };
+  const why = [];
+  let state = "grey", score = 0;
+
+  // 1. the rules, which are a gate and not a score
+  if (brief && brief.verdict && brief.verdict.blocked) {
+    return { state: "red", score: 0, allowed: false, why: [brief.verdict.headline.toLowerCase() + " — " + (brief.verdict.reasons[0] || "")], headline: brief.verdict.headline };
+  }
+  if (!V2.postable(room)) return { state: "red", score: 0, allowed: false, why: ["this room does not take an offer post at all"], headline: "Answer here, never post" };
+
+  // 2. have we already been here with this offer
+  if (used) {
+    if (used.removed) return { state: "red", score: 0, allowed: false, why: ["we ran this offer here and it was removed"], headline: "Removed here before" };
+    return { state: "amber", score: 5, allowed: false, why: ["we already ran this offer here" + (used.survived ? " and it stood — repeat it somewhere new, not here" : "")], headline: "Already used here" };
+  }
+  if (health.retired) return { state: "red", score: 0, allowed: false, why: ["this offer has been removed " + health.removed + " times — improve it before it goes anywhere else"], headline: "Offer retired" };
+  if (health.removed) { score -= 10; why.push("this offer has been removed once elsewhere"); }
+
+  // 3. does the trade match
+  const a = V2.fitWords([offer.who, offer.gift, offer.name].join(" "));
+  const b = V2.fitWords([room.note, room.sub, opts.campaignNiche || ""].join(" "));
+  let shared = 0;
+  for (const w of a) if (!V2.FIT_STOP.has(w) && b.has(w)) shared += 1;
+  if (shared >= 2) { score += 25; why.push("the offer and the room are about the same trade"); }
+  else if (shared === 1) { score += 10; }
+  else if (opts.campaignRoom) { score += 8; why.push("it is in this campaign's room list"); }
+
+  // 4. what has actually survived in here
+  if (brief) {
+    const c = brief.counts || {};
+    if (c.survivedOffer >= 3) { score += 40; state = "green"; why.push(c.survivedOffer + " offer posts are still standing here"); }
+    else if (c.survivedOffer > 0) { score += 22; state = "green"; why.push("an offer post has survived here"); }
+    else if (c.removedOffer > 0) { score -= 25; state = "amber"; why.push("every offer post tried here was removed"); }
+    else { score += 5; why.push("nobody has tried an offer here"); }
+    if (c.survivedCase > 0) { score += 8; why.push("result posts do well here"); }
+    if (c.recent && c.recentRemoved / c.recent > 0.15) { score -= 12; why.push("this room removes a lot of what is posted in it"); }
+  } else {
+    why.push("this room has not been read yet — press check before posting into it");
+  }
+
+  // 5. size, lightly: a big room is worth more, but not much more
+  const m = (opts.members || 0);
+  if (m >= 100000) score += 10; else if (m >= 20000) score += 6; else if (m >= 5000) score += 3;
+  if (opts.online >= 200) score += 4;
+
+  const promoRank = (V2.PROMO[room.promo] || {}).rank || 0;
+  if (promoRank === 1) { score -= 8; why.push("offers belong in its weekly thread here"); }
+  if (promoRank === 3) score += 6;
+
+  if (state === "grey" && score >= 40) state = "green";
+  if (state === "green" && score < 15) state = "amber";
+  return { state, score: Math.round(score), allowed: state === "green" || state === "grey", why, headline: V2.FIT_STATES[state].name };
+};
+
+// One offer, every room it could go to, best first. The chain is what a
+// blocked day walks along.
+V2.fitChain = function (offer, rooms, opts = {}) {
+  const briefs = opts.briefs || {};
+  const ledger = opts.ledger || {};
+  const checked = opts.checked || {};
+  const health = (opts.health || {})[offer.key] || { removed: 0, retired: false };
+  const out = rooms.map((room) => {
+    const c = checked[room.sub] || {};
+    const fit = V2.fitScore(offer, room, {
+      brief: briefs[room.sub] || null,
+      used: ledger[offer.key + "|" + room.sub] || null,
+      health,
+      members: c.members || 0, online: c.online || 0,
+      campaignRoom: !!opts.campaignRooms && opts.campaignRooms.includes(room.sub),
+      campaignNiche: opts.campaignNiche || "",
+    });
+    return { sub: room.sub, kind: room.kind, promo: room.promo, members: c.members || 0, online: c.online || 0, ...fit };
+  });
+  out.sort((x, y) => (V2.FIT_STATES[y.state].rank - V2.FIT_STATES[x.state].rank) || (y.score - x.score) || x.sub.localeCompare(y.sub));
+  return out;
+};
+// An offer that keeps getting pulled is the problem, not the rooms.
+V2.offerHealth = function (key, ledger) {
+  let removed = 0, survived = 0, used = 0;
+  for (const [k, v] of Object.entries(ledger || {})) {
+    if (!k.startsWith(key + "|")) continue;
+    used += 1;
+    if (v.removed) removed += 1;
+    if (v.survived) survived += 1;
+  }
+  return { used, removed, survived, retired: removed >= 2,
+    why: removed >= 2 ? "removed " + removed + " times — improve it before running it again" : removed === 1 ? "removed once, watch it" : used ? used + " rooms used, " + survived + " still standing" : "never run" };
+};
+
+// ------------------------------------------- what survives in this room
+// The posts still standing are the only honest style guide a room has. This
+// reads them and describes the shape: how the author stood, what they gave
+// away, what they asked for, how long it ran.
+//
+// The one thing it must never do is copy who the author claimed to be. The
+// med-spa post that survives a ban on agencies survives partly because its
+// author is a practitioner inside that trade. We are not, and pretending to
+// be is worse than being removed — it is a lie to the people we want as
+// clients, and a permanent ban rather than a deleted post.
+V2.SHAPE_SCHEMA = {
+  type: "object",
+  properties: {
+    stance: { type: "string", description: "How the surviving authors stand relative to the room: what they lead with about themselves, in a way we could honestly match." },
+    gives: { type: "string", description: "What they give away, concretely." },
+    asks: { type: "string", description: "What they ask for, if anything." },
+    structure: { type: "string", description: "How the post is built, start to finish, in a few clauses." },
+    length: { type: "string", description: "Roughly how long, and how it is broken up." },
+    avoid: { type: "string", description: "What the removed posts did that the surviving ones did not." },
+    opening: { type: "string", description: "One honest opening line we could use, written for an outside marketing team — never claiming to work inside the trade." },
+    confidence: { type: "string", description: "'high', 'low' or 'none' — how much evidence there actually was." },
+  },
+  required: ["stance", "gives", "asks", "structure", "length", "avoid", "opening", "confidence"],
+  additionalProperties: false,
+};
+V2.shapeSystem = function (profile = {}) {
+  return [
+    "You study the posts that survived in one subreddit and describe the shape they share, so that someone can write one like it.",
+    "",
+    "Who you are writing for: " + (profile.name || "a small outside marketing team") + ". They run ads and local search for other people's businesses. They are an agency. They do not work inside the trade this room is for.",
+    "",
+    "The rule that matters most: never describe a stance they cannot honestly take. If the surviving posts work because their authors are practitioners — a clinic owner, a contractor, the CMO of a business in this trade — say so plainly and then give the honest equivalent an outside team can stand on, which is usually the volume of work they have done across many of these businesses. Never suggest claiming to be an owner, an operator, a practitioner, an employee or a customer.",
+    "",
+    "Describe only what the evidence supports. If two posts survived, say the confidence is low. If none did, say none, and say what the removed ones had in common instead.",
+    "Be concrete: 'opens with a number from their own account, then five numbered findings, then a question' is useful. 'Be authentic and provide value' is not.",
+  ].join("\n");
+};
+V2.shapeUser = function (sub, survived, removed) {
+  const lines = ["Room: r/" + (typeof sub === "string" ? sub : sub.sub), ""];
+  if (!survived.length) lines.push("No post like ours has survived here.");
+  else {
+    lines.push("Posts that are still standing:");
+    for (const p of survived.slice(0, 8)) {
+      lines.push("", "— " + p.title + "  (" + p.score + " points, " + p.comments + " comments, " + p.kind + ")");
+      if (p.body) lines.push("  " + p.body.slice(0, 900));
+    }
+  }
+  if (removed.length) {
+    lines.push("", "Posts that were removed:");
+    for (const p of removed.slice(0, 8)) lines.push("— " + p.title);
+  }
+  lines.push("", "Describe the shape.");
+  return lines.join("\n");
+};
+V2.SHAPE_CLAIM_RE = /\b(say|claim|present|position|describe) (yourself|themselves|ourselves|you) (as|to be) (an? )?(owner|operator|practitioner|clinician|dentist|doctor|contractor|customer|patient|employee|insider|cmo)\b|\bpretend\b|\bpose as\b|\bact as if you (own|run|work)\b/i;
+V2.shapeChecks = function (sh) {
+  const bad = [];
+  if (!sh) return ["nothing came back"];
+  if (!["high", "low", "none"].includes(String(sh.confidence || "").toLowerCase())) bad.push("it did not say how much evidence there was");
+  if (!sh.structure || sh.structure.length < 25) bad.push("the structure is too vague to write from");
+  if (!sh.opening || sh.opening.length < 20) bad.push("there is no opening line");
+  const all = [sh.stance, sh.opening, sh.structure].join(" ");
+  if (V2.SHAPE_CLAIM_RE.test(all)) bad.push("it suggests claiming to be someone we are not");
+  const IAM = /\bi(?:'m| am) (?:the|an?) (?:cmo|ceo|owner|founder|director|manager|practitioner|clinician|operator|dentist|doctor|nurse|injector|contractor|roofer|technician)\b|\bi (?:own|run|manage) an? (?:med ?spa|medspa|clinic|practice|salon|shop|restaurant|gym|roofing|hvac|plumbing|dental)\b|\bas (?:the|an?) (?:owner|operator|practitioner) (?:of|here)\b/i;
+  if (IAM.test(String(sh.opening || "")) || IAM.test(String(sh.stance || ""))) bad.push("it puts us inside the trade, which we are not");
+  return bad;
+};
+// Folded into the post prompt so the writer builds in the shape that survived.
+V2.shapeBlock = function (sh) {
+  if (!sh || String(sh.confidence || "").toLowerCase() === "none") return "";
+  return [
+    "",
+    "What actually survives in this room" + (String(sh.confidence).toLowerCase() === "low" ? " (thin evidence — treat as a hint, not a rule)" : "") + ":",
+    "- How those authors stand: " + sh.stance,
+    "- What they give away: " + sh.gives,
+    "- What they ask for: " + sh.asks,
+    "- How the post is built: " + sh.structure,
+    "- Length: " + sh.length,
+    "- What the removed ones did: " + sh.avoid,
+    "Match that shape. Do not match any claim about who the author is — we are an outside marketing team and the post must read as one.",
+  ].join("\n");
 };
