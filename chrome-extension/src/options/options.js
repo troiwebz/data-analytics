@@ -244,6 +244,17 @@ $('sampleTg').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Send a sample lead';
 });
 
+$('tapsNow').addEventListener('click', async () => {
+  const b = $('tapsNow');
+  b.disabled = true; b.textContent = 'Checking…';
+  const r = await ai('tg-taps');
+  if (r?.error) showTg(null, `Could not read your taps: ${r.error}`);
+  else if (r?.skipped === 'off') status('Approval buttons are switched off — tick the box above and press Save first.', true);
+  else if (!r?.taps) status('Nothing waiting. Tap a button in Telegram, then press this again.');
+  else status(`Found ${r.taps} tap(s) and acted on ${r.done}. Check Telegram — the message should say what happened.`);
+  b.disabled = false; b.textContent = 'Check for taps now';
+});
+
 $('testTg').addEventListener('click', async () => {
   $('testTg').disabled = true; $('testTg').textContent = 'Sending…';
   const r = await ai('tg-test');

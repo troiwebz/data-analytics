@@ -1180,6 +1180,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .catch((e) => ({ error: e.message, sent: done, usedClaude: !!ai[m.threadId] })));
         break;
       }
+      case 'tg-taps': {                              // check for taps right now
+        sendResponse(await pollTaps().catch((e) => ({ error: e.message })));
+        break;
+      }
       case 'tg-send': {                              // send one lead by hand
         const cfg = await getConfig();
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
