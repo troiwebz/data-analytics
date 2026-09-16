@@ -49,26 +49,22 @@
     // Body: same editor as a thread reply.
     const rich = pick(S.richEditor, form);
     const plain = pick(S.plainTextarea, form);
-    const html = globalThis.HAF_HTML(body);
 
-    if (rich) {
-      rich.focus();
-      rich.innerHTML = html;
-      fire(rich, 'input', 'keyup', 'change', 'blur');
-      const hidden = pick(S.hiddenInput, form);
-      if (hidden) { hidden.value = html; fire(hidden, 'input', 'change'); }
-    } else if (plain) {
-      setInput(plain, String(body || ''));
-    } else {
-      return { ok: false, error: 'found the DM form but no editor inside it' };
-    }
+    if (!rich && !plain) return { ok: false, error: 'found the DM form but no editor inside it' };
+
+    // Same editor as a thread reply, so the same disappearing act - and the
+    // same cure. See HAF_FILL in content-lib.js.
+    const hold = globalThis.HAF_FILL(rich, plain, body, {
+      hidden: pick(S.hiddenInput, form),
+      holdMs: mode === 'send' ? 3000 : 12000
+    });
 
     await sleep(700);
     const landed = (rich && rich.textContent.trim().length > 20) || (plain && plain.value.trim().length > 20);
     if (!landed) return { ok: false, error: 'text did not stick in the DM editor' };
     if (!subject || !subject.value.trim()) return { ok: false, error: 'DM needs a subject and none was set' };
 
-    if (mode !== 'send') return { ok: true, filled: true };
+    if (mode !== 'send') return { ok: true, filled: true, refilled: hold.held() };
 
     const btn = pick(S.dmSubmit, form);
     if (!btn) return { ok: false, error: 'no send button on the DM form' };

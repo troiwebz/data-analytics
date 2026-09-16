@@ -393,7 +393,11 @@ async function rowAction(btn) {
     // on the row if you change your mind in the tab.
     await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id, status: 'POSTED', detail: 'opened filled from the dashboard' });
     delete edited[id];
-    say(id, 'Filled in and marked as posted. Press Post reply in the tab. Undo here if you change your mind.', true);
+    // A copy on the clipboard costs nothing and means a reply is never lost to
+    // the editor, whatever a theme update does to it.
+    await navigator.clipboard.writeText(plain(draft)).catch(() => {});
+    say(id, 'Filled in and marked as posted. Press Post reply in the tab. '
+          + 'It is on your clipboard too, if you need to paste it. Undo here if you change your mind.', true);
     return render();
   }
   if (act === 'copydm') {

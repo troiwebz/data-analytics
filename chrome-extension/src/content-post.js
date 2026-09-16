@@ -25,28 +25,19 @@
     return null;
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const fire = (el, ...types) => {
-    for (const t of types) el.dispatchEvent(new Event(t, { bubbles: true }));
-  };
+  // Holding the text is the whole point of HAF_FILL - see content-lib.js. The
+  // hold outlives this script, which is what keeps a staged reply on screen.
+  let hold = null;
 
   function insert(form) {
     const rich = pick(S.richEditor, form);
     const plain = pick(S.plainTextarea, form);
-    const html = globalThis.HAF_HTML(draft);
+    if (!rich && !plain) return 'found the form but no editor inside it';
 
-    if (rich) {
-      rich.focus();
-      rich.innerHTML = html;
-      fire(rich, 'input', 'keyup', 'change', 'blur');   // XenForo syncs its hidden field on these
-      const hidden = pick(S.hiddenInput, form);
-      if (hidden) { hidden.value = html; fire(hidden, 'input', 'change'); }
-    } else if (plain) {
-      plain.focus();
-      plain.value = draft;
-      fire(plain, 'input', 'keyup', 'change');
-    } else {
-      return 'found the form but no editor inside it';
-    }
+    hold = globalThis.HAF_FILL(rich, plain, draft, {
+      hidden: pick(S.hiddenInput, form),
+      holdMs: mode === 'stage' ? 12000 : 3000   // a staged reply sits there; a submit is seconds away
+    });
     return null;
   }
 
@@ -95,7 +86,7 @@
       if (err) return { ok: false, error: err };
       await sleep(700);
       if (!editorHasText(form)) return { ok: false, error: 'text did not stick in the editor' };
-      if (mode === 'stage') return { ok: true, staged: true };
+      if (mode === 'stage') return { ok: true, staged: true, refilled: hold ? hold.held() : 0 };
     } else if (!editorHasText(form)) {
       return { ok: false, error: 'staged reply is gone from the editor (page reloaded?)' };
     }

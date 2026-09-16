@@ -646,7 +646,10 @@ export async function runInThread(lead, mode, opts = {}) {
   let opened = false;
   try {
     if (!tabId) {
-      const tab = await chrome.tabs.create({ url: lead.url, active: false });
+      // Staged means you asked for it and are about to read it, so the tab
+      // comes to the front: the insert runs through the browser's editing
+      // pipeline, which wants a focused document. An auto-post stays behind.
+      const tab = await chrome.tabs.create({ url: lead.url, active: mode === 'stage' && !!opts.keepTab });
       tabId = tab.id; opened = true;
       await waitForTabLoad(tabId);
       await new Promise((r) => setTimeout(r, 1500 + Math.random() * 2500));   // human-ish pause
