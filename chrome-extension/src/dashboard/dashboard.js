@@ -466,7 +466,7 @@ async function rowAction(btn) {
     // nothing had. Say which of the two it is, and for the setup mistakes say
     // where to fix them rather than only quoting Telegram back.
     const fix = /chat id/i.test(r.error)
-      ? ' Settings → Telegram → Chat id. Message @userinfobot on Telegram and it replies with yours.'
+      ? ' Settings → Telegram → say "hi" to your bot, then press "Find it for me" next to the chat id box.'
       : /bot token/i.test(r.error)
         ? ' Settings → Telegram → paste the bot token from @BotFather.'
         : ' Settings → Telegram → "Why is nothing arriving?" will say which part is wrong.';

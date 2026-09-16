@@ -378,6 +378,42 @@ export async function pendingTaps() {
   return out;
 }
 
+/**
+ * Find your chat id from the bot itself.
+ *
+ * Sending you to @userinfobot works but is a detour: your own id is already
+ * sitting in anything you have ever sent this bot. This reads the bot's
+ * pending updates and takes the chat from the most recent one.
+ *
+ * Deliberately does NOT move the offset. Reading without acknowledging leaves
+ * every pending update where it is, so looking up an id can never swallow a
+ * tap you made a moment earlier.
+ */
+export async function findChatId() {
+  if (!(await getToken())) return { error: 'No bot token saved yet.' };
+  let updates;
+  try { updates = await call('getUpdates', { timeout: 0 }); }
+  catch (e) {
+    if (/webhook/i.test(e.message)) {
+      return { error: 'This bot has a webhook set, so its messages cannot be read. '
+        + 'That is usually the old Apps Script relay - turn it off first.' };
+    }
+    return { error: e.message };
+  }
+  const chats = [];
+  for (const u of updates || []) {
+    const chat = u.message?.chat || u.callback_query?.message?.chat || u.channel_post?.chat;
+    if (chat?.id != null && !chats.some((c) => c.id === chat.id)) {
+      chats.push({ id: String(chat.id), name: chat.username || chat.first_name || chat.title || '' });
+    }
+  }
+  if (!chats.length) {
+    return { error: 'Nothing from you yet. Open Telegram, find your bot, and send it any message '
+      + '("hi" will do) - then press this again.' };
+  }
+  return { chats, chatId: chats[chats.length - 1].id };
+}
+
 /** A plain acknowledgement in the chat, for things with no button to edit. */
 export async function say(chatId, text) {
   try { await call('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true }); }

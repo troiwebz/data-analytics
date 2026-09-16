@@ -255,6 +255,19 @@ $('sampleTg').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Send a sample lead';
 });
 
+$('findChat').addEventListener('click', async () => {
+  const b = $('findChat');
+  b.disabled = true; b.textContent = 'Looking…';
+  const r = await ai('tg-findchat');
+  if (r?.error) showTg(null, r.error);
+  else {
+    $('telegramChatId').value = r.chatId;
+    const who = (r.chats || []).find((c) => c.id === r.chatId);
+    status(`Found chat ${r.chatId}${who?.name ? ` (${who.name})` : ''}. Press Save, then Send a test message.`);
+  }
+  b.disabled = false; b.textContent = 'Find it for me';
+});
+
 $('tgCheck').addEventListener('click', async () => {
   const b = $('tgCheck');
   b.disabled = true; b.textContent = 'Checking…';

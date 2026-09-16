@@ -328,7 +328,35 @@ d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApp
 ok('approvals being off is flagged but not called broken', d.ok === true && says(d, /Approval buttons are off/),
    JSON.stringify(d.checks));
 
+// --- finding your own chat id ----------------------------------------------
+// The chat id is the one setting with no way to discover it from the UI, and
+// an empty one fails every send. It is already sitting in anything you have
+// ever sent the bot.
+canned = { getUpdates: { ok: true, result: [
+  { update_id: 5, message: { message_id: 1, text: 'hi', chat: { id: 8812664414, username: 'troi' }, from: { id: 1 } } }
+] } };
+let f = await T.findChatId();
+ok('your chat id is read off the bot', f.chatId === '8812664414', JSON.stringify(f));
+ok('and it says who it belongs to', f.chats[0].name === 'troi', JSON.stringify(f.chats));
+
+// Looking it up must never swallow a tap you made a second earlier.
+store.tgOffset = 41;
+await T.findChatId();
+ok('looking it up does not acknowledge anything', store.tgOffset === 41, String(store.tgOffset));
+
+canned = { getUpdates: { ok: true, result: [] } };
+f = await T.findChatId();
+ok('with nothing sent yet it says to message the bot first',
+   /send it any message/i.test(f.error || ''), JSON.stringify(f));
+
+canned = { getUpdates: { ok: false, description: 'Conflict: can\'t use getUpdates method while webhook is active' } };
+f = await T.findChatId();
+ok('and a webhook is named rather than shrugged at', /webhook/i.test(f.error || ''), JSON.stringify(f));
+canned = {};
+
 await T.clearToken();
+ok('with no token it says so rather than failing oddly',
+   /No bot token/i.test((await T.findChatId()).error || ''), JSON.stringify(await T.findChatId()));
 d = await T.diagnose({ telegramChatId: '999' });
 ok('no token at all is the first thing it says', !d.ok && /No bot token/.test(d.checks[0][1]), JSON.stringify(d.checks));
 globalThis.fetch = oldFetch;

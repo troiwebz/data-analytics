@@ -1184,6 +1184,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .catch((e) => ({ error: e.message, sent: done, usedClaude: !!ai[m.threadId] })));
         break;
       }
+      case 'tg-findchat': {                          // read your own chat id off the bot
+        sendResponse(await telegram.findChatId().catch((e) => ({ error: e.message })));
+        break;
+      }
       case 'tg-check': {                             // why is nothing arriving
         sendResponse(await telegram.diagnose(await getConfig()).catch((e) => ({ ok: false, checks: [['✗', e.message]] })));
         break;
