@@ -66,28 +66,114 @@
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return el.value === text;
   }
+  // Lexical builds real paragraphs out of a paste, but execCommand("insertText")
+  // with newlines in the string silently drops them — which is how a numbered
+  // offer arrives as one run-on wall with no space where the break was. So the
+  // paste goes first, the result is checked line by line, and only if that
+  // fails do we type it a line at a time with a real paragraph break between.
+  const linesOf = (t) => String(t || "").split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  function blockText(el) { return (el.innerText !== undefined ? el.innerText : el.textContent) || ""; }
+  function linesLanded(el, text) {
+    const want = linesOf(text);
+    if (want.length <= 1) return blockText(el).replace(/\s+/g, " ").includes(want[0] ? want[0].slice(0, 24) : "");
+    // Two shapes count as landed. A block editor like Lexical puts each
+    // paragraph in its own element, so innerText carries the breaks. A plain
+    // contenteditable keeps raw newlines in one text node, where innerText
+    // collapses them to spaces but textContent still has them. Either is fine;
+    // only text with no breaks at all in either is the run-on wall.
+    const ok = (raw) => {
+      let i = 0;
+      for (const g of linesOf(raw)) { if (i < want.length && g.startsWith(want[i].slice(0, Math.min(18, want[i].length)))) i += 1; }
+      return i >= want.length;
+    };
+    return ok(blockText(el)) || ok(el.textContent || "");
+  }
+  async function pasteInto(el, text) {
+    try {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    } catch (_) { return false; }
+    await sleep(320);
+    return !!blockText(el).trim();
+  }
+  // execCommand only writes where the caret is, and clearing the box loses it.
+  // Without putting it back, every typed line goes nowhere at all.
+  function caretToEnd(el) {
+    try {
+      el.focus();
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(r);
+    } catch (_) { /* best effort */ }
+  }
+  // execCommand is unreliable here — it returns false and fires nothing
+  // whenever the document is not the one the browser thinks is focused, which
+  // is most of the time for a tab the board just opened. A synthetic
+  // beforeinput needs no focus and is what Lexical listens to anyway, so that
+  // goes first and execCommand is only the last resort.
+  function beforeInput(el, inputType, data) {
+    try { el.dispatchEvent(new InputEvent("beforeinput", { inputType, data: data === undefined ? null : data, bubbles: true, cancelable: true })); return true; }
+    catch (_) { return false; }
+  }
+  async function breakLine(el) {
+    beforeInput(el, "insertParagraph");
+    await sleep(50);
+    if (!/\n\s*$/.test(blockText(el))) {
+      caretToEnd(el);
+      try { document.execCommand("insertParagraph"); } catch (_) { /* nothing left */ }
+      await sleep(50);
+    }
+  }
+  async function typeLines(el, text) {
+    const want = linesOf(text);
+    for (let i = 0; i < want.length; i += 1) {
+      const before = blockText(el).length;
+      beforeInput(el, "insertText", want[i]);
+      await sleep(50);
+      if (blockText(el).length <= before) {
+        // nothing moved: try the old way with the caret put back first
+        caretToEnd(el);
+        try { document.execCommand("insertText", false, want[i]); } catch (_) { /* keep going */ }
+        await sleep(50);
+      }
+      if (i < want.length - 1) await breakLine(el);
+    }
+    await sleep(220);
+  }
+  // Returns whether the box actually ended up empty. It matters: writing into
+  // a box that still holds the old text is what produced "Sent you a DM.Sent
+  // you a DM.", so if this cannot empty it we refuse to write at all.
+  async function clearRich(el) {
+    if (!blockText(el).trim()) return true;
+    el.focus();
+    try {
+      const r = document.createRange(); r.selectNodeContents(el);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      document.execCommand("delete");
+    } catch (_) { /* best effort */ }
+    await sleep(90);
+    if (!blockText(el).trim()) return true;
+    beforeInput(el, "deleteContent");
+    await sleep(60);
+    if (!blockText(el).trim()) return true;
+    beforeInput(el, "deleteContentBackward");
+    await sleep(90);
+    return !blockText(el).trim();
+  }
   async function setRich(el, text) {
     el.scrollIntoView({ block: "center" });
     el.focus();
     await sleep(120);
-    const already = textOf(el);
-    if (already && already.includes(text.slice(0, 24))) return true;   // never write it twice
-    if (already) {
-      try { const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand("delete"); } catch (_) { /* best effort */ }
-      await sleep(80);
-    }
-    let put = false;
-    try { put = document.execCommand("insertText", false, text); } catch (_) { put = false; }
-    await sleep(250);
-    if (textOf(el).includes(text.slice(0, 24))) return true;
-    if (!put) {
-      try {
-        const dt = new DataTransfer(); dt.setData("text/plain", text);
-        el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-        await sleep(250);
-      } catch (_) { /* paste blocked */ }
-    }
-    return textOf(el).includes(text.slice(0, 24));
+    if (linesLanded(el, text)) return true;          // already correct: never write it twice
+    if (!(await clearRich(el))) return false;        // never write into a box we could not empty
+    if (await pasteInto(el, text) && linesLanded(el, text)) return true;
+    // paste was blocked or flattened it: type it, keeping the breaks by hand
+    if (!(await clearRich(el))) return false;
+    await typeLines(el, text);
+    return linesLanded(el, text);
   }
 
   async function fill(loud) {
@@ -97,8 +183,8 @@
     let okT = true, okB = true;
     if (t) okT = await setNative(t, PEND.title);
     if (b) okB = await setRich(b, PEND.body); else okB = false;
-    if (okT && okB) say("filled — read it, then press Reddit's Post button", "#4ade80");
-    else if (okT) say("title in. The body did not take — press Copy body and paste it.", "#f59e0b");
+    if (okT && okB) say(`filled, ${linesOf(PEND.body).length} paragraphs — read it, then press Reddit's Post button`, "#4ade80");
+    else if (okT) say("title in, but the body did not come out right — press Copy body and paste it in yourself.", "#f59e0b");
     else say("could not fill it — use the copy buttons", "#f59e0b");
   }
 

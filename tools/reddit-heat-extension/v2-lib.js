@@ -835,13 +835,19 @@ V2.plan = function (opts = {}) {
 // Reddit publishes each room's rules as JSON. Reading them beats guessing:
 // the tool downgrades a room to comments-only the moment its own rules say
 // no self-promotion, whatever we wrote in the list.
-V2.NO_PROMO_RE = /no (self[- ]?promo|promotion|advertis|soliciting|spam)|self[- ]?promo(tion)? (is )?(not allowed|prohibited|banned|forbidden)|do not (advertise|promote|solicit)|no ads\b|advertising is not allowed|not a place to (advertise|promote)|banned: ?(promo|advertis)/i;
+V2.NO_PROMO_RE = /no (self[- ]?promo|promotion|advertis|soliciting|spam)|self[- ]?promo(tion)? (is )?(not allowed|prohibited|banned|forbidden)|do not (advertise|promote|solicit)|no ads\b|advertising is not allowed|not a place to (advertise|promote)|banned: ?(promo|advertis)|no (marketing |digital )?(agenc|vendor|solicit)|(agenc|vendor)(y|ies|s)? (are )?(not allowed|prohibited|banned|may not)|approved vendors only|(only )?approved vendors|vendor(s)? must be approved/i;
 V2.WEEKLY_RE = /(weekly|monthly|sticky|pinned|megathread|designated) (self[- ]?promo|promo|advertis|thread)|promo(tion)? thread|self[- ]?promo(tion)? (thread|saturday|sunday|monday)|only in the (weekly|monthly|sticky|pinned)/i;
 V2.OK_PROMO_RE = /self[- ]?promo(tion)? (is )?(allowed|welcome|encouraged|fine|ok)|promotion is allowed|advertising (is )?allowed/i;
 V2.promoFromRules = function (rules, submitText, description) {
   // accepts Reddit's raw shape and the trimmed one the board stores
   const text = [(rules || []).map((r) => [r.short_name, r.name, r.description, r.what, r.violation_reason].filter(Boolean).join(" ")).join(" \n "), submitText || "", description || ""].join(" \n ");
   if (!text.trim()) return null;
+  // an agency ban is checked before the weekly carve-out: "no marketing
+  // agencies except approved vendors" is still a ban until we are one, and a
+  // weekly promo thread does not make us an approved vendor
+  if (/no (marketing |digital )?(agenc|vendor)|(agenc|vendor)(y|ies|s)? (are )?(not allowed|prohibited|banned|may not)|approved vendors only|vendor(s)? must be approved/i.test(text)) {
+    return { promo: "no", why: "its own rules ban marketing agencies unless you are an approved vendor — message the moderators before posting anything" };
+  }
   if (V2.WEEKLY_RE.test(text)) return { promo: "weekly", why: "its own rules send promotion to a weekly or pinned thread" };
   if (V2.NO_PROMO_RE.test(text)) return { promo: "no", why: "its own rules forbid self-promotion" };
   if (V2.OK_PROMO_RE.test(text)) return { promo: "ok", why: "its own rules say self-promotion is allowed" };

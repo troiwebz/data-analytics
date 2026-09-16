@@ -68,8 +68,13 @@
   // in twice: "Sent you a DM.Sent you a DM." So: look before writing, empty
   // the box first, and wait for the DOM before deciding it failed.
   const has = (editor, text) => textOf(editor).includes(text.slice(0, Math.min(24, text.length)));
+  // Returns whether the box really ended up empty. execCommand("delete")
+  // silently does nothing whenever the browser does not consider this document
+  // focused, and writing into a box that still holds the old text is exactly
+  // what produced "Sent you a DM.Sent you a DM." — so this reports back, and
+  // the caller refuses to write when it failed.
   async function clearEditor(editor) {
-    if (!textOf(editor)) return;
+    if (!textOf(editor)) return true;
     editor.focus();
     try {
       const r = document.createRange(); r.selectNodeContents(editor);
@@ -77,6 +82,14 @@
       document.execCommand("delete");
     } catch (_) { /* best effort */ }
     await sleep(80);
+    if (!textOf(editor)) return true;
+    const del = (t) => { try { editor.dispatchEvent(new InputEvent("beforeinput", { inputType: t, bubbles: true, cancelable: true })); } catch (_) { /* nothing left */ } };
+    del("deleteContent");
+    await sleep(60);
+    if (!textOf(editor)) return true;
+    del("deleteContentBackward");
+    await sleep(80);
+    return !textOf(editor);
   }
   async function typeInto(editor, text) {
     editor.scrollIntoView({ block: "center" });
@@ -88,15 +101,67 @@
       return editor.value === text;
     }
     if (has(editor, text)) return true;             // already there: never write it again
-    await clearEditor(editor);                       // a half-written retry replaces, never appends
-    try { document.execCommand("insertText", false, text); } catch (_) { /* try paste */ }
-    await sleep(180);                                // let Lexical commit it before judging
-    if (has(editor, text)) return true;
+    if (!(await clearEditor(editor))) return false;  // never append to a box we could not empty
+    // Paste first. execCommand("insertText") drops every newline in the string,
+    // so a numbered reply lands as one run-on paragraph; Lexical turns a
+    // text/plain paste into real paragraphs instead.
+    const wantLines = String(text).split(/\n+/).map((x) => x.trim()).filter(Boolean);
+    // A block editor keeps each paragraph in its own element, so innerText
+    // carries the breaks; a plain contenteditable keeps raw newlines in one
+    // text node, where innerText collapses them but textContent does not.
+    // Either shape counts; only text with no breaks in either is the run-on
+    // wall we are trying to avoid.
+    const landed = () => {
+      if (wantLines.length <= 1) return has(editor, text);
+      const ok = (raw) => {
+        let i = 0;
+        for (const g of String(raw || "").split(/\n+/).map((x) => x.trim()).filter(Boolean)) {
+          if (i < wantLines.length && g.startsWith(wantLines[i].slice(0, Math.min(18, wantLines[i].length)))) i += 1;
+        }
+        return i >= wantLines.length;
+      };
+      return ok(editor.innerText !== undefined ? editor.innerText : editor.textContent) || ok(editor.textContent);
+    };
     try {
       const dt = new DataTransfer(); dt.setData("text/plain", text);
       editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-      await sleep(250);
-    } catch (_) { /* clipboard fallback below */ }
+      await sleep(300);
+    } catch (_) { /* typed below */ }
+    if (landed()) return true;
+    if (!(await clearEditor(editor))) return false;
+    // typed a line at a time, with a real paragraph break between each.
+    // The caret has to be put back before every line: clearing the box loses
+    // it, and execCommand only writes where the caret is.
+    const caretToEnd = () => {
+      try {
+        editor.focus();
+        const r = document.createRange(); r.selectNodeContents(editor); r.collapse(false);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      } catch (_) { /* best effort */ }
+    };
+    // execCommand returns false and fires nothing whenever the browser does not
+    // consider this document focused, which is most of the time for a tab we
+    // just opened. A synthetic beforeinput needs no focus and is what Lexical
+    // listens to anyway, so it goes first.
+    const bi = (inputType, data) => { try { editor.dispatchEvent(new InputEvent("beforeinput", { inputType, data: data === undefined ? null : data, bubbles: true, cancelable: true })); } catch (_) { /* nothing left */ } };
+    const len = () => String((editor.innerText !== undefined ? editor.innerText : editor.textContent) || "").length;
+    for (let i = 0; i < wantLines.length; i += 1) {
+      const before = len();
+      bi("insertText", wantLines[i]);
+      await sleep(50);
+      if (len() <= before) {
+        caretToEnd();
+        try { document.execCommand("insertText", false, wantLines[i]); } catch (_) { /* keep going */ }
+        await sleep(50);
+      }
+      if (i < wantLines.length - 1) {
+        bi("insertParagraph");
+        await sleep(50);
+        if (len() <= before + wantLines[i].length) { caretToEnd(); try { document.execCommand("insertParagraph"); } catch (_) { /* nothing left */ } await sleep(50); }
+      }
+    }
+    await sleep(180);
+    if (landed()) return true;
     // if both landed, take the doubling back out rather than posting it
     if (textOf(editor).includes(text + text) || textOf(editor).includes(text + " " + text)) {
       await clearEditor(editor);

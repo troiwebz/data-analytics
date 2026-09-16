@@ -84,6 +84,13 @@ assert.strictEqual(V.promoFromRules([{ short_name: "Promo", description: "Self-p
 assert.strictEqual(V.promoFromRules([{ short_name: "Promo", description: "Self-promotion is allowed as long as it is relevant." }]).promo, "ok");
 assert.strictEqual(V.promoFromRules([{ short_name: "Be civil", description: "No personal attacks." }]), null, "an unrelated rule should not move a room");
 assert.strictEqual(V.promoFromRules([]), null);
+// an agency ban is a ban, including the "except approved vendors" form that
+// r/MedSpa uses — and it outranks a weekly promo thread, because a weekly
+// thread does not make anyone an approved vendor
+assert.strictEqual(V.promoFromRules([{ short_name: "No Marketing Agencies (Except Approved Vendors)", description: "" }]).promo, "no");
+assert.match(V.promoFromRules([{ short_name: "No Marketing Agencies (Except Approved Vendors)" }]).why, /approved vendor/);
+assert.strictEqual(V.promoFromRules([{ short_name: "No agencies", description: "Agencies are not allowed. Self-promotion belongs in the weekly thread." }]).promo, "no");
+assert.strictEqual(V.promoFromRules([{ short_name: "Vendors", description: "Approved vendors only." }]).promo, "no");
 // the board stores rules trimmed to {name, what}; both shapes must read the same
 assert.strictEqual(V.promoFromRules([{ name: "No self-promotion", what: "Do not advertise your services here." }]).promo, "no");
 // the weekly reading wins over the blanket one, because it is the more specific
