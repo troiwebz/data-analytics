@@ -17,6 +17,9 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "targets") drawTargets();
   if (b.dataset.tab === "offers") drawOffers();
   if (b.dataset.tab === "results") drawResults();
+  if (b.dataset.tab === "camp") drawCampaigns();
+  if (b.dataset.tab === "mine") drawMine();
+  if (b.dataset.tab === "boost") drawBoost();
 });
 
 // --------------------------------------------------------------- calendar
@@ -356,24 +359,136 @@ async function drawResults() {
   $("#resBody").innerHTML = body || `<div class="card"><h3>Nothing to measure yet</h3><div class="faint">Post a few days of the calendar, then pull the comments. Numbers appear here once posts have gone out.</div></div>`;
 }
 
-function drawAds() {
+function adsPlanHtml() {
   const a = V2.ADS_PLAN;
-  $("#adsBody").innerHTML = `<div class="note">${esc(a.idea)}</div>
-    ${a.stages.map((s) => `<div class="card"><h3>${esc(s.name)}</h3><div class="faint">budget: ${esc(s.spend)}</div>
-      <ul class="tight"><li><b>Do:</b> ${esc(s.does)}</li><li><b>Out:</b> ${esc(s.out)}</li></ul></div>`).join("")}
+  return `<div class="card"><h3>The plan behind all of this</h3><div class="faint">${esc(a.idea)}</div>
+    <ul class="tight" style="margin-top:8px">${a.stages.map((st) => `<li><b>${esc(st.name)}</b> (${esc(st.spend)}) — ${esc(st.does)}</li>`).join("")}</ul></div>
     <div class="card"><h3>Targeting</h3><ul class="tight">${a.targeting.map((t) => `<li><b>${esc(t.name)}:</b> ${esc(t.how)}</li>`).join("")}</ul></div>
-    <div class="card"><h3>Formats</h3><ul class="tight">${a.formats.map((t) => `<li><b>${esc(t.name)}:</b> ${esc(t.note)}</li>`).join("")}</ul></div>
-    <div class="card"><h3>Rules that decide whether this works</h3><ul class="tight">${a.rules.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>
-    <div class="card"><h3>The test budget</h3><ul class="tight"><li>${esc(a.budget.test)}</li><li>${esc(a.budget.verdict)}</li></ul>
+    <div class="card"><h3>Rules that decide whether this works</h3><ul class="tight">${a.rules.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
     <div class="faint" style="margin-top:8px">Figures here are starting points. Reddit's own ad account shows the real minimums and costs on the day you open it.</div></div>`;
 }
+
+// ------------------------------------------------------------- campaigns
+async function drawCampaigns() {
+  const r = await send({ type: "v2-campaigns" });
+  if (!r || !r.ok) return;
+  const active = r.list.find((c) => c.key === r.active);
+  $("#campActive").innerHTML = active
+    ? `<div class="card" style="border-color:rgba(74,222,128,.4)"><h3>Running: ${esc(active.name)}</h3>
+        <div class="faint">${esc(active.niche)}</div>
+        <ul class="tight"><li>${active.shape.postable} of ${active.shape.rooms} rooms take a post — ${esc(active.shape.note)}</li>
+        <li>calendar set to ${active.shape.perDay} post${active.shape.perDay === 1 ? "" : "s"} a day, same room no sooner than every ${active.shape.subCoolDays} days</li>
+        ${active.members ? `<li>${active.members.toLocaleString()} members across its rooms, ${active.online.toLocaleString()} online right now</li>` : `<li class="faint">press Check against Reddit on the Targets tab to see how big these rooms are</li>`}</ul>
+        <div class="bar" style="margin-top:10px"><button class="act" id="campPlan">Rebuild the calendar for this campaign</button><button class="ghost" id="campOff">Back to all rooms</button></div></div>`
+    : `<div class="card"><h3>No campaign running</h3><div class="faint">The board is using all 191 rooms, which means nobody sees you twice. Pick one below.</div></div>`;
+  $("#campGrid").innerHTML = r.list.map((c) => `<div class="card" style="${c.key === r.active ? "border-color:rgba(74,222,128,.4)" : ""}">
+    <h3>${esc(c.name)}</h3>
+    <div class="faint">${esc(c.niche)}</div>
+    <div style="margin-top:6px">${esc(c.why)}</div>
+    <ul class="tight" style="margin-top:8px">
+      <li><b>${c.subs.length} rooms</b>, ${c.shape.postable} of them take a post · <span class="faint">${c.subs.slice(0, 6).map((x) => "r/" + x).join(", ")}${c.subs.length > 6 ? " +" + (c.subs.length - 6) : ""}</span></li>
+      <li><b>${c.shape.mode === "post-led" ? "Post-led" : "Answer-led"}</b> — ${esc(c.shape.note)}</li>
+      <li><b>Questions to own:</b> <span class="faint">${esc(c.queries.slice(0, 3).join(" · "))}…</span></li>
+    </ul>
+    <div class="bar" style="margin-top:10px">
+      <button class="${c.key === r.active ? "ghost" : "act"}" data-camp="${esc(c.key)}">${c.key === r.active ? "running" : "run this one"}</button>
+      <button class="ghost" data-q="${esc(c.key)}">its ${c.queries.length} questions</button>
+    </div>
+    <div id="q-${esc(c.key)}" hidden class="draft" style="font:12px/1.6 -apple-system,Segoe UI,sans-serif">${c.queries.map((q, i) => `${i + 1}. ${esc(q)}`).join("\n")}</div>
+  </div>`).join("");
+  $$("#campGrid button[data-camp]").forEach((b) => b.onclick = async () => {
+    const res = await send({ type: "v2-campaign-set", key: b.dataset.camp });
+    if (!res || !res.ok) return say((res && res.error) || "could not switch", "var(--warn)");
+    say(`${res.campaign.name} — ${res.rooms} rooms that take a post. ${res.note}`, "var(--go)");
+    drawCampaigns(); drawPlan();
+  });
+  $$("#campGrid button[data-q]").forEach((b) => b.onclick = () => { const d = $("#q-" + b.dataset.q); d.hidden = !d.hidden; });
+  if ($("#campOff")) $("#campOff").onclick = async () => { await send({ type: "v2-campaign-set", key: "" }); say("back to all 191 rooms", "var(--dim)"); drawCampaigns(); };
+  if ($("#campPlan")) $("#campPlan").onclick = () => { $$("nav button").find((x) => x.dataset.tab === "plan").click(); $("#mkPlan").click(); };
+}
+
+// ------------------------------------------------------------- my posts
+const VERDICT_COLOR = { boost: "var(--go)", watch: "var(--warn)", thin: "var(--dim)", quiet: "var(--faint)", stale: "var(--faint)" };
+let MINE = null;
+async function drawMine() {
+  MINE = await send({ type: "v2-mine", opts: { source: $("#mSource").value, sub: $("#mSub").value, sort: $("#mSort").value } });
+  if (!MINE || !MINE.ok) return;
+  const c = MINE.counts;
+  $("#mineStat").innerHTML = [["Posts", c.total], ["From the board", c.board], ["By hand", c.outside], ["Comments earned", c.comments], ["Worth boosting", c.shortlist], ["Removed", c.removed]]
+    .map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  $("#mineWhen").textContent = MINE.lastMine ? `read ${ago(MINE.lastMine)} ago · ${MINE.comments30} comments left in the last 30 days` : "not read yet — press Read my posts";
+  const cur = $("#mSub").value;
+  $("#mSub").innerHTML = `<option value="">every room</option>` + (MINE.subs || []).map((x) => `<option value="${esc(x)}" ${x === cur ? "selected" : ""}>r/${esc(x)}</option>`).join("");
+  $("#mineRows").innerHTML = (MINE.rows || []).map((p) => `<tr class="${p.removed ? "done" : ""}">
+    <td><b style="color:${VERDICT_COLOR[p.boost.verdict] || "var(--dim)"}">${esc(p.boost.verdict)}</b><div class="faint">${p.boost.score}</div></td>
+    <td class="faint">r/${esc(p.sub)}<div>${p.source === "board" ? "board" : "by hand"}</div></td>
+    <td><a href="${esc(p.permalink)}" target="_blank" class="ttl">${esc(p.title)}</a><div class="faint">${esc(p.boost.why)}</div>${p.removed ? `<div class="issue">⚠ removed by a moderator</div>` : ""}</td>
+    <td>${p.score}</td><td><b>${p.comments}</b></td><td>${p.hot || 0}</td><td class="faint">${ago(p.created)}</td>
+    <td>${p.running ? `<span class="tag t-magnet">boosting</span>` : p.boost.verdict === "boost" || p.boost.verdict === "watch" ? `<button class="act" data-b="${esc(p.id)}">boost</button>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="8" class="faint">No posts read yet. Press Read my posts — it pulls everything this account has ever posted, board or not.</td></tr>`;
+  $$("#mineRows button[data-b]").forEach((b) => b.onclick = () => startBoost(b.dataset.b));
+}
+["mSource", "mSub", "mSort"].forEach((id) => $("#" + id).onchange = drawMine);
+$("#readMine").onclick = async () => {
+  $("#readMine").disabled = true; say("reading everything this account has posted…");
+  const r = await send({ type: "v2-mine-read" });
+  $("#readMine").disabled = false;
+  if (!r || !r.ok) return say((r && r.error) || "could not read them", "var(--warn)");
+  say(`u/${r.user}: ${r.read} posts read, ${r.added} new, ${r.comments30} comments in the last 30 days`, "var(--go)");
+  drawMine(); drawBoost(); drawPlan();
+};
+
+// --------------------------------------------------------------- boosting
+async function startBoost(id) {
+  const r = await send({ type: "v2-boost-add", id, daily: +$("#budget").value || 7, days: 7 });
+  if (!r || !r.ok) return say((r && r.error) || "could not start it", "var(--warn)");
+  const p = r.plan;
+  say(`boosting into ${p.room} at $${p.daily} a day for ${p.days} days — $${p.total} in total. ${p.judge}.`, "var(--go)");
+  $$("nav button").find((x) => x.dataset.tab === "boost").click();
+}
+async function drawBoost() {
+  const r = await send({ type: "v2-boosts" });
+  if (!r || !r.ok) return;
+  $("#budget").value = r.dailyBudget || 7;
+  const money = r.overall.spent
+    ? `<div class="card"><h3>What the money has bought</h3><div class="stat" style="margin:8px 0 0">
+        <div><b>$${r.overall.spent}</b><span>spent</span></div>
+        <div><b>${r.overall.got}</b><span>comments bought</span></div>
+        <div><b>$${r.overall.per}</b><span>per comment</span></div></div>
+        <div class="faint" style="margin-top:8px">Under $3 a comment is working. Over $6 and the post is not the one — stop it and take the next off the shortlist.</div></div>`
+    : "";
+  const running = r.running.length ? `<div class="card"><h3>Running</h3>
+    <table style="margin-top:8px"><thead><tr><th>Post</th><th style="width:110px">Room</th><th style="width:90px">Budget</th><th style="width:130px">Spent</th><th style="width:110px">Comments</th><th style="width:210px">Verdict</th></tr></thead>
+    <tbody>${r.running.map((b) => `<tr class="${b.state === "stopped" ? "done" : ""}">
+      <td><a href="${esc(b.permalink)}" target="_blank">${esc(String(b.title).slice(0, 70))}</a></td>
+      <td class="faint">r/${esc(b.sub)}</td>
+      <td class="faint">$${b.daily}/day × ${b.days}</td>
+      <td><input type="number" data-spend="${esc(b.id)}" value="${b.spent || 0}" min="0" step="1" style="width:74px"> <span class="faint">$</span></td>
+      <td>${b.commentsAtStart} → <b>${b.commentsNow}</b><div class="faint">+${b.cost.got}</div></td>
+      <td><b style="color:${b.cost.stop ? "var(--warn)" : "var(--go)"}">${b.cost.per ? "$" + b.cost.per + " each" : "—"}</b><div class="faint">${esc(b.cost.verdict)}</div>
+        ${b.state === "running" ? `<button class="ghost" data-stop="${esc(b.id)}" style="margin-top:6px">stop it</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const short = r.shortlist.length ? `<div class="card"><h3>Worth the money</h3>
+    <div class="faint">${esc(r.plan.rule)} · ${esc(r.plan.target)}</div>
+    <table style="margin-top:8px"><thead><tr><th style="width:86px">Verdict</th><th style="width:110px">Room</th><th>Post</th><th style="width:88px">Comments</th><th style="width:76px">An hour</th><th style="width:110px"></th></tr></thead>
+    <tbody>${r.shortlist.map((p) => `<tr>
+      <td><b style="color:${VERDICT_COLOR[p.boost.verdict]}">${esc(p.boost.verdict)}</b></td>
+      <td class="faint">r/${esc(p.sub)}</td>
+      <td><a href="${esc(p.permalink)}" target="_blank">${esc(String(p.title).slice(0, 80))}</a><div class="faint">${esc(p.boost.advice)}</div></td>
+      <td><b>${p.comments}</b></td><td class="faint">${p.boost.perHour}</td>
+      <td><button class="act" data-b2="${esc(p.id)}">boost</button></td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="card"><h3>Nothing to boost yet</h3><div class="faint">A post reaches the shortlist once it has at least ${V2.BOOST_MIN_COMMENTS} comments and is under a week old. Press <b>Read my posts</b> on the My posts tab first — the shortlist is built from real comment counts, not from what the board expected.</div></div>`;
+  $("#boostBody").innerHTML = money + short + running + adsPlanHtml();
+  $$("#boostBody button[data-b2]").forEach((b) => b.onclick = () => startBoost(b.dataset.b2));
+  $$("#boostBody button[data-stop]").forEach((b) => b.onclick = async () => { await send({ type: "v2-boost-stop", id: b.dataset.stop, why: "stopped by hand" }); drawBoost(); });
+  $$("#boostBody input[data-spend]").forEach((i) => i.onchange = async () => { await send({ type: "v2-boost-spend", id: i.dataset.spend, spent: +i.value }); drawBoost(); });
+}
+$("#saveBudget").onclick = async () => { await send({ type: "v2-budget", daily: +$("#budget").value }); say("budget saved", "var(--go)"); drawBoost(); };
 
 // ------------------------------------------------------------------- boot
 (async function boot() {
   try { $("#ver").textContent = "v" + chrome.runtime.getManifest().version; } catch (_) { /* opened as a file */ }
-  drawAds();
   await drawPlan();
-  const tab = (location.hash || "#plan").slice(1);
+  const tab = (location.hash || "#camp").slice(1);
   const b = $$("nav button").find((x) => x.dataset.tab === tab);
   if (b) b.click();
 })();

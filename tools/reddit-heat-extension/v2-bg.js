@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -16,7 +16,7 @@ async function v2Set(patch) {
   return next;
 }
 function v2Settings(st) {
-  return { auto: false, perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, ...(st.settings || {}) };
+  return { auto: false, campaign: "", perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, dailyBudget: 7, ...(st.settings || {}) };
 }
 // Offers written in the studio live in storage, not in the shipped list, so
 // they are merged back onto V2 before anything resolves an offer key. The
@@ -73,7 +73,10 @@ async function v2Board() {
       leads: leads.length,
       newLeads: leads.filter((l) => l.state === "new").length,
     },
-    ratio: V2.ratio(postedRows.length, st.answered || 0),
+    campaign: (() => { const c = V2.campaign(s.campaign); return c ? { key: c.key, name: c.name, niche: c.niche, shape: V2.campaignShape(c) } : null; })(),
+    // the real number of comments the account left in the last month beats our
+    // own tally, which only ever sees answers written in here
+    ratio: V2.ratio(Object.keys(st.mine || {}).length || postedRows.length, Math.max(st.myComments || 0, st.answered || 0)),
     results: v2Results(st),
     lastLeads: st.lastLeads || 0, lastScan: st.lastScan || 0,
     targets: st.targets || {},
@@ -175,6 +178,180 @@ async function v2DraftSave(n, patch) {
   if (row.state === "planned") row.state = "drafted";
   await v2Set({ drafts: st.drafts, plan: st.plan });
   return { ok: true, draft: d };
+}
+
+// ------------------------------------------------------------- campaigns
+// Picking a campaign is the single act that narrows the board: it sets the
+// rooms, the offers, the searches and the cadence in one move, and everything
+// downstream — the calendar, the scan, the boost shortlist — follows it.
+async function v2CampaignSet(key) {
+  const st = await v2Get();
+  if (!key) {
+    await v2Set({ settings: { ...v2Settings(st), campaign: "", subs: [], offers: [] } });
+    return { ok: true, campaign: null, note: "back to all 191 rooms" };
+  }
+  const c = V2.campaign(key);
+  if (!c) return { ok: false, error: "no campaign called " + key };
+  const shape = V2.campaignShape(c);
+  const rooms = V2.campaignRooms(c).filter(V2.postable).map((t) => t.sub);
+  await v2Set({ settings: { ...v2Settings(st), campaign: key, subs: rooms, offers: c.offers.slice(), perDay: shape.perDay, subCoolDays: shape.subCoolDays } });
+  return { ok: true, campaign: c, shape, rooms: rooms.length, note: shape.note };
+}
+async function v2Campaigns() {
+  const st = await v2Get();
+  v2Apply(st);
+  const s = v2Settings(st);
+  return {
+    ok: true, active: s.campaign || "",
+    list: V2.CAMPAIGNS.map((c) => {
+      const shape = V2.campaignShape(c);
+      const checked = st.targets || {};
+      const members = V2.campaignRooms(c).reduce((n, t) => n + ((checked[t.sub] && checked[t.sub].members) || 0), 0);
+      const online = V2.campaignRooms(c).reduce((n, t) => n + ((checked[t.sub] && checked[t.sub].online) || 0), 0);
+      return { key: c.key, name: c.name, niche: c.niche, why: c.why, subs: c.subs, offers: c.offers, queries: c.queries, shape, members, online, problems: V2.campaignCheck(c) };
+    }),
+  };
+}
+
+// ------------------------------------------------------ every post I make
+// Not just the ones the board sent. Reddit publishes everything an account
+// has posted, so the board reads the lot: what it planned, what was posted by
+// hand, and what was posted long before any of this existed. Without that the
+// boost shortlist would only ever see half the evidence.
+async function v2TrackMine(pages) {
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const user = String((config.profile || {}).redditUser || "").replace(/^\/?u\//, "").trim();
+  if (!user) return { ok: false, error: "put your Reddit username in Your details first — the board cannot find your posts without it" };
+  const st = await v2Get();
+  const mine = { ...(st.mine || {}) };
+  const leads = Object.values(st.leads || {});
+  const boardByPostId = {};
+  for (const p of Object.values(st.posts || {})) if (p.postId) boardByPostId[p.postId] = p;
+
+  let after = "", read = 0, added = 0;
+  for (let page = 0; page < Math.max(1, Math.min(10, pages || 5)); page += 1) {
+    let j = null;
+    try { j = await huntFetch(`https://old.reddit.com/user/${encodeURIComponent(user)}/submitted.json?limit=100&sort=new&raw_json=1${after ? "&after=" + after : ""}`); } catch (e) { break; }
+    const kids = ((j && j.data && j.data.children) || []);
+    if (!kids.length) break;
+    for (const c of kids) {
+      const d = c.data || {};
+      if (!d.id) continue;
+      read += 1;
+      const board = boardByPostId[d.id] || null;
+      const mineLeads = board ? leads.filter((l) => l.postN === board.n) : [];
+      const was = mine[d.id] || {};
+      if (!was.id) added += 1;
+      mine[d.id] = {
+        id: d.id, sub: d.subreddit || "", title: String(d.title || "").slice(0, 300),
+        permalink: "https://www.reddit.com" + String(d.permalink || ""),
+        created: (d.created_utc || 0) * 1000, score: d.score || 0, comments: d.num_comments || 0,
+        removed: !!d.removed_by_category, self: !!d.is_self,
+        source: board ? "board" : "outside",
+        n: board ? board.n : 0, typeKey: board ? board.typeKey : "", offerKey: board ? board.offerKey : "",
+        magnet: board ? !!(V2.postType(board.typeKey) || {}).magnet : false,
+        hot: mineLeads.filter((l) => l.tier >= 2).length,
+        // remember how many comments it had when a boost began, so the money
+        // is judged on what it actually bought
+        boostAt: was.boostAt || 0, commentsAtStart: was.commentsAtStart || 0,
+        seen: Date.now(),
+      };
+    }
+    after = (j.data && j.data.after) || "";
+    if (!after) break;
+    await new Promise((r) => setTimeout(r, 900));
+  }
+  // the real comment count, so the ratio stops relying on our own tally
+  let myComments = st.myComments || 0;
+  try {
+    const cj = await huntFetch(`https://old.reddit.com/user/${encodeURIComponent(user)}/comments.json?limit=100&sort=new&raw_json=1`);
+    const kids = ((cj && cj.data && cj.data.children) || []);
+    const cutoff = Date.now() - 30 * 86400000;
+    myComments = kids.filter((c) => ((c.data || {}).created_utc || 0) * 1000 >= cutoff).length;
+  } catch (_) { /* keep the old number */ }
+  await v2Set({ mine, lastMine: Date.now(), myComments });
+  return { ok: true, read, added, total: Object.keys(mine).length, comments30: myComments, user };
+}
+
+async function v2MineList(opts = {}) {
+  const st = await v2Get();
+  v2Apply(st);
+  const now = Date.now();
+  let rows = Object.values(st.mine || {}).map((p) => ({ ...p, boost: V2.boostScore(p, now), running: !!(st.boosts || {})[p.id] }));
+  if (opts.sub) rows = rows.filter((r) => r.sub === opts.sub);
+  if (opts.source && opts.source !== "all") rows = rows.filter((r) => r.source === opts.source);
+  const sort = opts.sort || "new";
+  if (sort === "boost") rows.sort((a, b) => b.boost.score - a.boost.score);
+  else if (sort === "comments") rows.sort((a, b) => b.comments - a.comments);
+  else rows.sort((a, b) => b.created - a.created);
+  const all = Object.values(st.mine || {});
+  return {
+    ok: true, rows: rows.slice(0, opts.limit || 200), lastMine: st.lastMine || 0,
+    counts: {
+      total: all.length, board: all.filter((p) => p.source === "board").length, outside: all.filter((p) => p.source === "outside").length,
+      comments: all.reduce((n, p) => n + (p.comments || 0), 0),
+      removed: all.filter((p) => p.removed).length,
+      shortlist: all.filter((p) => V2.boostScore(p, now).verdict === "boost").length,
+    },
+    subs: Array.from(new Set(all.map((p) => p.sub))).sort(),
+    comments30: st.myComments || 0,
+  };
+}
+
+// --------------------------------------------------------------- boosting
+// Reddit's ad account is not readable from here, so spend is typed in and
+// comments are counted for you. That is enough for the only number that
+// matters: what a comment cost.
+async function v2BoostAdd(id, daily, days) {
+  const st = await v2Get();
+  const p = (st.mine || {})[id];
+  if (!p) return { ok: false, error: "that post is not in the tracker — press Read my posts first" };
+  const plan = V2.boostPlan(daily || v2Settings(st).dailyBudget, days, p);
+  const boosts = { ...(st.boosts || {}) };
+  boosts[id] = { id, sub: p.sub, title: p.title, permalink: p.permalink, startedAt: Date.now(),
+    daily: plan.daily, days: plan.days, budget: plan.total, spent: 0, commentsAtStart: p.comments || 0, state: "running" };
+  const mine = { ...(st.mine || {}) };
+  mine[id] = { ...p, boostAt: Date.now(), commentsAtStart: p.comments || 0 };
+  await v2Set({ boosts, mine });
+  return { ok: true, boost: boosts[id], plan };
+}
+async function v2BoostSpend(id, spent) {
+  const st = await v2Get();
+  const b = (st.boosts || {})[id];
+  if (!b) return { ok: false, error: "no boost on that post" };
+  b.spent = Math.max(0, Number(spent) || 0);
+  b.updatedAt = Date.now();
+  await v2Set({ boosts: st.boosts });
+  return { ok: true, boost: b };
+}
+async function v2BoostStop(id, why) {
+  const st = await v2Get();
+  const b = (st.boosts || {})[id];
+  if (!b) return { ok: false };
+  b.state = "stopped"; b.stoppedAt = Date.now(); b.stopWhy = why || "";
+  await v2Set({ boosts: st.boosts });
+  return { ok: true };
+}
+async function v2BoostList() {
+  const st = await v2Get();
+  v2Apply(st);
+  const now = Date.now();
+  const mine = st.mine || {};
+  const running = Object.values(st.boosts || {}).map((b) => {
+    const p = mine[b.id] || {};
+    const cost = V2.boostCost({ ...b, commentsNow: p.comments || b.commentsAtStart });
+    return { ...b, commentsNow: p.comments || 0, cost };
+  }).sort((a, b) => (a.state === "running" ? 0 : 1) - (b.state === "running" ? 0 : 1) || b.startedAt - a.startedAt);
+  const shortlist = Object.values(mine)
+    .map((p) => ({ ...p, boost: V2.boostScore(p, now) }))
+    .filter((p) => !(st.boosts || {})[p.id] && ["boost", "watch"].includes(p.boost.verdict))
+    .sort((a, b) => b.boost.score - a.boost.score)
+    .slice(0, 12);
+  const s = v2Settings(st);
+  const spent = running.reduce((n, b) => n + (b.spent || 0), 0);
+  const got = running.reduce((n, b) => n + b.cost.got, 0);
+  return { ok: true, shortlist, running, dailyBudget: s.dailyBudget, plan: V2.boostPlan(s.dailyBudget, 7, shortlist[0] || null),
+    overall: { spent, got, per: got ? Math.round((spent / got) * 100) / 100 : 0 } };
 }
 
 // ------------------------------------------------------- the offer studio
@@ -388,9 +565,19 @@ async function v2Rooms(picked) {
 // somebody in it has a budget, an agency, or a business of their own.
 async function v2Scan(force) {
   const st = await v2Get();
-  const subs = V2.TARGETS.filter((t) => t.kind !== "biz" || ["smallbusiness", "sweatystartup", "ecommerce", "shopify", "EntrepreneurRideAlong", "Franchising", "msp"].includes(t.sub)).map((t) => t.sub);
+  v2Apply(st);
+  // a campaign narrows the scan to its own rooms, its own money searches and
+  // the questions its niche asks over and over
+  const camp = V2.campaign(v2Settings(st).campaign);
+  const subs = camp
+    ? V2.campaignRooms(camp).map((t) => t.sub)
+    : V2.TARGETS.filter((t) => t.kind !== "biz" || ["smallbusiness", "sweatystartup", "ecommerce", "shopify", "EntrepreneurRideAlong", "Franchising", "msp"].includes(t.sub)).map((t) => t.sub);
+  const searches = camp ? camp.searches.concat(V2.SEARCHES.slice(0, 8)) : V2.SEARCHES;
   const urls = [];
-  for (const q of V2.SEARCHES) urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=new&t=week&limit=100&raw_json=1`, why: q });
+  for (const q of searches) urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=new&t=week&limit=100&raw_json=1`, why: q });
+  // the recurring questions: holding the top answer under these is worth more
+  // than any single thread, so they are hunted by name
+  for (const q of (camp && camp.queries) || []) urls.push({ url: `https://old.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=new&t=month&limit=50&raw_json=1`, why: "Q: " + q, question: true });
   for (const s of subs) urls.push({ url: `https://old.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=100&raw_json=1`, why: "r/" + s });
   const queue = { ...(st.queue || {}) };
   let seen = 0, found = 0, i = 0;
@@ -411,7 +598,8 @@ async function v2Scan(force) {
       if (!cls.keep) continue;
       queue[d.id] = { id: d.id, author: d.author, sub: d.subreddit, title: String(d.title || "").slice(0, 300), body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 4000),
         permalink: "https://www.reddit.com" + String(d.permalink || ""), created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0,
-        tier: cls.tier, badge: cls.badge, why: cls.why, amount: cls.amount || "", found: u.why, state: "new" };
+        tier: cls.tier + (u.question ? 1 : 0), badge: cls.badge, why: u.question ? "one of the questions this niche asks over and over — holding the top answer here pays for months" : cls.why,
+        amount: cls.amount || "", found: u.why, question: !!u.question, state: "new" };
       found += 1;
     }
     await new Promise((r) => setTimeout(r, force ? 700 : 1200));
@@ -500,6 +688,15 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-queue": return go(v2QueueList(msg.limit));
     case "v2-answer": return go(v2Answer(msg.id, !!msg.force));
     case "v2-queue-act": return go(v2QueueAct(msg.id, msg.action));
+    case "v2-campaigns": return go(v2Campaigns());
+    case "v2-campaign-set": return go(v2CampaignSet(msg.key));
+    case "v2-mine": return go(v2MineList(msg.opts || {}));
+    case "v2-mine-read": return go(v2TrackMine(msg.pages));
+    case "v2-boosts": return go(v2BoostList());
+    case "v2-boost-add": return go(v2BoostAdd(msg.id, msg.daily, msg.days));
+    case "v2-boost-spend": return go(v2BoostSpend(msg.id, msg.spent));
+    case "v2-boost-stop": return go(v2BoostStop(msg.id, msg.why));
+    case "v2-budget": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), dailyBudget: Math.max(1, Number(msg.daily) || 7) } })).then(() => ({ ok: true })));
     case "v2-reset": return go(chrome.storage.local.set({ [V2_STORE]: { ...V2_EMPTY } }).then(() => ({ ok: true })));
     default: return;
   }
@@ -511,4 +708,5 @@ chrome.alarms.create("v2-tick", { periodInMinutes: 60 });
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name !== "v2-tick") return;
   v2LeadPoll().catch(() => {});
+  v2TrackMine(2).catch(() => {});
 });

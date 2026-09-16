@@ -171,4 +171,71 @@ assert.strictEqual(V.ADS_PLAN.stages.length, 4);
 assert.ok(V.ADS_PLAN.rules.length >= 5);
 assert.ok(V.ADS_PLAN.stages[0].spend === "$0", "the paid plan should start at zero spend");
 
-console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.SEARCHES.length + " money searches");
+
+// ---- campaigns: one niche, its rooms, its questions ---------------------
+assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
+assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);
+for (const c of V.CAMPAIGNS) {
+  assert.deepStrictEqual(V.campaignCheck(c), [], c.name + " is broken");
+  assert.ok(c.name && c.name.length <= 20, c.key + " has no usable name");
+  assert.ok(c.searches.length >= 5, c.name + " has too few money searches");
+  assert.strictEqual(new Set(c.subs).size, c.subs.length, c.name + " lists a room twice");
+  // every room it names is a real one in the bench
+  for (const sub of c.subs) assert.ok(V.TARGETS.some((t) => t.sub === sub), c.name + " names r/" + sub + ", which is not in the room list");
+}
+// a campaign plans only into its own rooms
+const trade = V.campaign("trade_lock");
+const tradeRooms = V.campaignRooms(trade).filter(V.postable).map((t) => t.sub);
+const tradeShape = V.campaignShape(trade);
+const tradePlan = V.plan({ days: 10, perDay: tradeShape.perDay, subCoolDays: tradeShape.subCoolDays, subs: tradeRooms });
+assert.ok(tradePlan.rows.filter((r) => r.sub).every((r) => tradeRooms.includes(r.sub)), "the calendar left the campaign's rooms");
+assert.strictEqual(tradePlan.skipped, 0, "a trade campaign should fill every slot");
+// a niche whose rooms are nearly all comments-only is told so rather than
+// planning days it will only skip
+const clinic = V.campaignShape(V.campaign("chair_time"));
+assert.strictEqual(clinic.mode, "answer-led");
+assert.strictEqual(clinic.nichePostable, 3);
+assert.match(clinic.note, /answer-led/);
+assert.strictEqual(V.campaignShape(trade).mode, "post-led");
+// every campaign's cadence must be one its own rooms can actually carry
+for (const c of V.CAMPAIGNS) {
+  const sh = V.campaignShape(c);
+  assert.ok(sh.subCoolDays >= 5 || sh.postable < 5, c.name + " brings a room round every " + sh.subCoolDays + " days");
+  assert.ok(sh.postable >= sh.perDay * 5, c.name + " has too few rooms for " + sh.perDay + " lanes");
+  const rooms = V.campaignRooms(c).filter(V.postable).map((t) => t.sub);
+  const pl = V.plan({ days: 21, perDay: sh.perDay, subCoolDays: sh.subCoolDays, subs: rooms });
+  assert.strictEqual(pl.skipped, 0, c.name + " skips " + pl.skipped + " slots over three weeks");
+  assert.ok(pl.rows.filter((r) => r.sub).every((r) => rooms.includes(r.sub)), c.name + " planned outside its rooms");
+}
+// the general business rooms are shared by every campaign, because an owner
+// with a marketing problem asks in r/smallbusiness as often as in their trade
+for (const sub of V.SHARED_ROOMS) assert.ok(V.TARGETS.some((t) => t.sub === sub), "shared room r/" + sub + " is not in the list");
+assert.ok(V.campaignRooms(trade).length > V.campaignRooms(trade, true).length, "the shared rooms were not added");
+
+// ---- which post deserves the money -------------------------------------
+const NOW = Date.UTC(2026, 5, 1, 12);
+const bs = (p) => V.boostScore(p, NOW);
+assert.strictEqual(bs({ comments: 26, score: 18, hot: 9, magnet: true, created: NOW - 6 * 3600000 }).verdict, "boost");
+assert.strictEqual(bs({ comments: 1, score: 2, created: NOW - 8 * 3600000 }).verdict, "quiet");
+assert.strictEqual(bs({ comments: 3, score: 30, created: NOW - 3 * 3600000 }).verdict, "quiet", "upvotes without comments are not worth paying for");
+assert.strictEqual(bs({ comments: 30, score: 40, hot: 5, magnet: true, created: NOW - 12 * 86400000 }).verdict, "stale");
+// an offer post beats a value post with the same numbers, because every extra
+// reader of an offer can raise a hand
+assert.ok(bs({ comments: 9, score: 9, created: NOW - 10 * 3600000, magnet: true }).score > bs({ comments: 9, score: 9, created: NOW - 10 * 3600000 }).score);
+// the only number that matters
+assert.strictEqual(V.boostCost({ spent: 42, commentsAtStart: 26, commentsNow: 48 }).per, 1.91);
+assert.strictEqual(V.boostCost({ spent: 42, commentsAtStart: 26, commentsNow: 48 }).stop, false);
+assert.strictEqual(V.boostCost({ spent: 50, commentsAtStart: 26, commentsNow: 31 }).stop, true);
+assert.strictEqual(V.boostCost({ spent: 20, commentsAtStart: 5, commentsNow: 5 }).got, 0);
+// spend with nothing to show for it stops too, not just expensive comments
+assert.strictEqual(V.boostCost({ spent: 60, commentsAtStart: 6, commentsNow: 6 }).stop, true);
+assert.strictEqual(V.boostCost({ spent: 4, commentsAtStart: 6, commentsNow: 6 }).stop, false, "four dollars in is too early to call");
+assert.match(V.boostCost({ spent: 60, commentsAtStart: 6, commentsNow: 6 }).verdict, /not one comment/);
+// a small budget is planned one room at a time
+const bp = V.boostPlan(7, 7, { sub: "Roofing", comments: 20 });
+assert.strictEqual(bp.total, 49);
+assert.match(bp.room, /Roofing/);
+assert.match(bp.judge, /cost per comment/);
+assert.strictEqual(V.boostPlan(0, 0).daily, 7, "an empty budget falls back to the default");
+
+console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + V.SEARCHES.length + " money searches");

@@ -835,3 +835,258 @@ V2.ADS_PLAN = {
   ],
   budget: { test: "$500 over the first four weeks of paid", verdict: "If four weeks and $500 have not produced one booked call, the offer is wrong, not the channel — change the offer before adding budget." },
 };
+
+// ---------------------------------------------------------------- campaigns
+// 191 rooms is a menu, not a plan. A campaign is one niche: the rooms its
+// owners actually sit in, the searches that find them spending money, the
+// questions they ask over and over, and the offers that fit. Switch campaign
+// and the whole board changes. Six or eight rooms, hit repeatedly, beats 191
+// hit once — leads compound on the sixth exposure, not the first.
+V2.CAMPAIGNS = [
+  {
+    key: "trade_lock", name: "Trade Lock",
+    niche: "roofers, HVAC, plumbers, electricians and general contractors",
+    why: "Highest job value of any local trade, worst marketing, and they talk about slow seasons in public.",
+    subs: ["Roofing", "HVAC", "Plumbing", "Electricians", "Contractor", "Construction", "Painting", "landscaping", "PressureWashing", "JunkRemoval", "fencing", "Solar", "sweatystartup", "smallbusiness"],
+    offers: ["gbp_audit", "local_pack", "pay_on_results", "dead_leads", "landing_fix"],
+    searches: ["roofing leads dried up", "hvac company slow season marketing", "contractor google ads worth it",
+      "plumber not showing up on google maps", "\"per lead\" roofing angi thumbtack", "contractor spending on ads no calls",
+      "electrician marketing budget", "how do i get more jobs contractor"],
+    queries: [
+      "How much should a contractor spend on ads a month",
+      "Are Angi / Thumbtack / HomeAdvisor leads worth it",
+      "Why is my business not showing up on Google Maps",
+      "Google Ads or Facebook for a trade business",
+      "How do I get more jobs in the slow season",
+      "Is a marketing agency worth it for a small trade",
+      "How do I get more Google reviews",
+      "Why did my leads suddenly drop",
+      "What should a contractor website actually have",
+      "How do I compete with the big franchise in my area",
+    ],
+  },
+  {
+    key: "chair_time", name: "Chair Time",
+    niche: "dental, orthodontic, optometry, chiropractic and physio practices",
+    why: "A patient is worth thousands over their life, the owner is a clinician not a marketer, and local search decides everything.",
+    subs: ["dentistry", "Dentists", "Orthodontics", "optometry", "Chiropractic", "physicaltherapy", "Veterinary", "therapists", "GoogleBusinessProfile", "LocalSEO", "smallbusiness"],
+    offers: ["gbp_audit", "local_pack", "90_day_plan", "seo_gap", "free_build"],
+    searches: ["dental practice marketing new patients", "chiropractor google ads cost per patient",
+      "optometry practice not getting new patients", "clinic marketing agency worth it",
+      "\"new patients\" marketing spend practice", "physical therapy clinic marketing"],
+    queries: [
+      "How do I get more new patients without discounting",
+      "Is a dental marketing agency worth the retainer",
+      "How much does a new patient cost on Google Ads",
+      "Why is my practice not in the map pack",
+      "How do I get patients to leave reviews",
+      "Google Ads or Facebook for a clinic",
+      "What should a practice website have on it",
+      "How do I stop competing on price with the corporate chain",
+      "Is direct mail still worth it for a practice",
+      "How do I track which marketing brings patients in",
+    ],
+  },
+  {
+    key: "glow_local", name: "Glow Local",
+    niche: "medspas, salons, estheticians, barbers and studios",
+    why: "High ticket, heavily visual, already running Instagram ads badly, and the whole business is bookings.",
+    subs: ["medspa", "Esthetician", "eyelashextensions", "Hairstylist", "Barber", "Nailtechs", "Cosmetology", "massage", "personaltraining", "fitnessbusiness", "SocialMediaMarketing", "smallbusiness"],
+    offers: ["creative_pack", "gbp_audit", "ads_teardown", "free_build", "local_pack"],
+    searches: ["medspa marketing instagram ads", "salon not getting new clients", "esthetician marketing clients",
+      "med spa ads cost per lead", "instagram ads for my salon", "how to fill my books salon"],
+    queries: [
+      "How do I fill empty appointment slots",
+      "Do Instagram ads actually work for a salon",
+      "How much should I spend on ads for a medspa",
+      "How do I get clients who are not just chasing discounts",
+      "What should I post on Instagram for my studio",
+      "Is a booking app or Google the better source",
+      "How do I get more reviews without asking awkwardly",
+      "TikTok or Instagram for a beauty business",
+      "Why did my Instagram reach collapse",
+      "How do I stop no-shows",
+    ],
+  },
+  {
+    key: "case_load", name: "Case Load",
+    niche: "law firms, accountants, bookkeepers and insurance agents",
+    why: "One client is worth years of fees, the ad market is expensive, and almost none of them can measure what works.",
+    subs: ["Lawyertalk", "LawFirm", "Accounting", "Bookkeeping", "taxpros", "InsuranceAgent", "InsuranceProfessional", "CFP", "Mortgages", "consulting", "smallbusiness"],
+    offers: ["seo_gap", "landing_fix", "90_day_plan", "pay_on_results", "gbp_audit"],
+    searches: ["law firm marketing cost per case", "accounting firm getting clients",
+      "insurance agent lead generation cost", "bookkeeper finding clients", "\"cost per case\" google ads",
+      "small law firm marketing budget"],
+    queries: [
+      "What does a case actually cost to acquire on Google Ads",
+      "Is a legal marketing agency worth it for a solo firm",
+      "How do I get clients other than referrals",
+      "LSA or Google Ads for a law firm",
+      "How do I get more reviews in a regulated industry",
+      "How do I market an accounting practice outside tax season",
+      "Why do my leads never answer the phone",
+      "Is SEO worth it for a small firm",
+      "How do I track where a client came from",
+      "How do I stop paying for unqualified enquiries",
+    ],
+  },
+  {
+    key: "cart_lift", name: "Cart Lift",
+    niche: "ecommerce and Shopify stores already buying ads",
+    why: "They spend daily, they measure everything, and creative fatigue means they always need the next thing.",
+    subs: ["ecommerce", "shopify", "shopifystore", "EcommerceMarketing", "dropship", "FacebookAds", "PPC", "GoogleAds", "Emailmarketing", "conversionoptimization", "landingpage"],
+    offers: ["creative_pack", "ads_teardown", "landing_fix", "dead_leads", "free_build"],
+    searches: ["shopify ads not profitable", "meta ads roas dropped store", "\"cost per purchase\" went up shopify",
+      "creative fatigue facebook ads", "google shopping not converting", "email flows klaviyo revenue"],
+    queries: [
+      "Why did my ROAS suddenly collapse",
+      "How much should I spend to test a new creative",
+      "Meta or Google for a new store",
+      "How do I fix creative fatigue",
+      "What conversion rate should I expect",
+      "Is an agency worth it at my spend level",
+      "How do I set up tracking properly after iOS changes",
+      "How many creatives do I need a month",
+      "Why are my cold audiences not converting",
+      "Klaviyo flows: what actually makes money",
+    ],
+  },
+  {
+    key: "ticket_desk", name: "Ticket Desk",
+    niche: "MSPs, IT shops, staffing firms and B2B service companies",
+    why: "Contract values are enormous, sales cycles are long, and their marketing is usually one referral away from nothing.",
+    subs: ["msp", "sysadmin", "staffing", "recruiting", "consulting", "logistics", "Manufacturing", "CommercialCleaning", "SaaS", "B2BForHire", "smallbusiness"],
+    offers: ["seo_gap", "dead_leads", "90_day_plan", "landing_fix", "pay_on_results"],
+    searches: ["msp marketing getting clients", "staffing agency finding clients",
+      "b2b lead generation cost per meeting", "cold email vs ads b2b", "managed services marketing budget"],
+    queries: [
+      "How does an MSP get clients other than referrals",
+      "What does a B2B meeting cost to book",
+      "Does LinkedIn or Google work better for B2B services",
+      "Is cold email still worth doing",
+      "How long is a realistic B2B sales cycle",
+      "How do I market a service nobody searches for",
+      "Should I niche down or stay general",
+      "How do I get case studies when clients will not be named",
+      "Is content marketing worth it for a services firm",
+      "How do I stop competing on hourly rate",
+    ],
+  },
+];
+V2.campaign = function (key) { return V2.CAMPAIGNS.find((c) => c.key === key) || null; };
+// Every campaign also gets the general business rooms, because a roofer with
+// a marketing problem is as likely to ask in r/smallbusiness as in r/Roofing —
+// and because a niche on its own rarely has enough rooms that take a post to
+// keep three lanes fed without coming round too fast.
+V2.SHARED_ROOMS = ["smallbusiness", "sweatystartup", "growmybusiness", "EntrepreneurRideAlong", "smallbusinessadvice", "solopreneur", "Business_Ideas", "roastmystartup"];
+// A campaign only ever names rooms that are really in the list, and only ever
+// plans into ones that take a post.
+V2.campaignRooms = function (c, nicheOnly) {
+  if (!c) return [];
+  const names = nicheOnly ? (c.subs || []) : Array.from(new Set([...(c.subs || []), ...V2.SHARED_ROOMS]));
+  return names.map((s) => V2.TARGETS.find((t) => t.sub === s)).filter(Boolean);
+};
+V2.campaignCheck = function (c) {
+  const bad = [];
+  for (const s of c.subs || []) if (!V2.TARGETS.some((t) => t.sub === s)) bad.push("r/" + s + " is not in the room list");
+  for (const k of c.offers || []) if (!V2.OFFERS.some((o) => o.key === k)) bad.push(k + " is not a shipped offer");
+  if ((c.subs || []).length < 6) bad.push("a campaign needs at least six rooms to rotate through");
+  if ((c.queries || []).length < 8) bad.push("a campaign needs the questions its niche asks over and over");
+  return bad;
+};
+
+// Some niches are answer-led rather than post-led. Clinic rooms, for
+// instance, are almost all comments-only — you cannot post your way into
+// r/dentistry, you have to become the person who answers there. The board
+// says so out loud and sets the cadence to match instead of planning days it
+// will only end up skipping.
+V2.campaignShape = function (c) {
+  const rooms = V2.campaignRooms(c);
+  const n = rooms.filter(V2.postable).length;
+  const nicheN = V2.campaignRooms(c, true).filter(V2.postable).length;
+  // a room must not come round sooner than every five days, so the number of
+  // lanes is whatever the rooms can actually carry — not whatever we wanted
+  let perDay = 1;
+  for (const p of [3, 2, 1]) if (Math.floor(n / p) >= 5) { perDay = p; break; }
+  const subCoolDays = Math.max(3, Math.min(14, Math.floor(n / perDay)));
+  const mode = nicheN >= 5 ? "post-led" : "answer-led";
+  return {
+    rooms: rooms.length, postable: n, nichePostable: nicheN, perDay, subCoolDays, mode,
+    note: mode === "answer-led"
+      ? "answer-led: only " + nicheN + " room" + (nicheN === 1 ? "" : "s") + " in this niche ever allow an offer, so the posts go to the general business rooms and the leads come from answering in the rest."
+      : perDay === 3 ? "enough rooms to run all three lanes every day without any of them coming round inside " + subCoolDays + " days"
+      : "run " + perDay + " lane" + (perDay === 1 ? "" : "s") + " a day here — more than that and the same rooms come round too fast",
+  };
+};
+
+// ------------------------------------------------------------------ boost
+// Which post deserves the ad money. Not the one we like — the one the room
+// already argued with. Comments are the signal, because a promoted post is
+// paid for by its comment section: a thread people are talking in keeps
+// earning after the impression, and a silent one does not.
+V2.BOOST_MIN_COMMENTS = 4;
+V2.BOOST_MAX_AGE_DAYS = 7;
+V2.boostScore = function (p, now) {
+  const at = now || Date.now();
+  const hours = Math.max(1, (at - (p.created || at)) / 3600000);
+  const comments = p.comments || 0;
+  const perHour = comments / Math.min(hours, 24);          // the first day is the tell
+  const ageDays = hours / 24;
+  const engaged = (p.score || 0) > 0 ? comments / Math.max(1, p.score) : comments;   // arguing beats upvoting
+  let score = perHour * 40 + comments * 2 + (p.hot || 0) * 12 + Math.min(engaged, 3) * 10;
+  if (ageDays > V2.BOOST_MAX_AGE_DAYS) score *= 0.25;
+  if (p.magnet) score *= 1.35;
+  score = Math.round(score);
+  const why = [];
+  if (comments >= 12) why.push(comments + " comments");
+  else if (comments >= V2.BOOST_MIN_COMMENTS) why.push(comments + " comments, a start");
+  if (perHour >= 1) why.push(Math.round(perHour * 10) / 10 + " an hour in its first day");
+  if (p.hot) why.push(p.hot + " with a business behind them");
+  if (p.magnet) why.push("it is an offer post, so every extra reader can raise a hand");
+  let verdict = "no";
+  if (comments < V2.BOOST_MIN_COMMENTS) verdict = "quiet";
+  else if (ageDays > V2.BOOST_MAX_AGE_DAYS) verdict = "stale";
+  else if (score >= 90) verdict = "boost";
+  else if (score >= 45) verdict = "watch";
+  else verdict = "thin";
+  return {
+    score, verdict, perHour: Math.round(perHour * 100) / 100, ageDays: Math.round(ageDays * 10) / 10,
+    why: why.join(" · ") || "nothing has happened in it yet",
+    advice: verdict === "boost" ? "put the money here"
+      : verdict === "watch" ? "give it another few hours before spending"
+      : verdict === "stale" ? "older than a week — a promoted post this old underperforms, use it as the template for the next one"
+      : verdict === "quiet" ? "the room did not bite; promoting it would buy silence"
+      : "not enough happening to be worth paying for",
+  };
+};
+// A small budget is only small in the wrong room. £7 a day is invisible in
+// r/marketing and dominant in a 40,000-member trade sub, so the plan is one
+// room at a time, always-on, judged on what a comment costs.
+V2.boostPlan = function (daily, days, post) {
+  const d = Math.max(1, Math.min(100, Number(daily) || 7));
+  const n = Math.max(1, Math.min(30, Number(days) || 7));
+  const total = d * n;
+  const comments = (post && post.comments) || 0;
+  return {
+    daily: d, days: n, total,
+    room: post && post.sub ? "r/" + post.sub : "the room it was posted in",
+    rule: "one room at a time, comments left on, always-on rather than in bursts",
+    target: "aim under $3 a comment; over $6 and the post is not the one",
+    expect: comments ? "it earned " + comments + " comments on its own, so treat anything under " + (comments * 2) + " bought comments as a poor return" : "",
+    judge: "cost per comment, never cost per click — the comment section is the landing page",
+  };
+};
+V2.boostCost = function (b) {
+  const spent = Number(b.spent || 0);
+  const got = Math.max(0, (b.commentsNow || 0) - (b.commentsAtStart || 0));
+  const per = got ? Math.round((spent / got) * 100) / 100 : 0;
+  return {
+    spent, got, per,
+    verdict: !got ? (spent >= 15 ? "$" + spent + " and not one comment — stop it, the room is not listening" : spent > 0 ? "nothing yet — if the next $10 buys no comment, stop it" : "not started")
+      : per <= 3 ? "working — this is the room to keep feeding"
+      : per <= 6 ? "acceptable, watch it"
+      : "too expensive — stop and try the next post",
+    // money with nothing to show for it is the clearest stop signal there is
+    stop: (got > 0 && per > 6) || (got === 0 && spent >= 15),
+  };
+};

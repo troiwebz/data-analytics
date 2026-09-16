@@ -59,18 +59,27 @@
   <span class="pill" id="ver">v2</span>
   <span id="say"></span>
   <nav>
-    <button data-tab="plan" class="on">Calendar</button>
+    <button data-tab="camp" class="on">Campaign</button>
+    <button data-tab="plan">Calendar</button>
     <button data-tab="answer">Answer</button>
     <button data-tab="leads">Leads</button>
     <button data-tab="results">Results</button>
+    <button data-tab="mine">My posts</button>
+    <button data-tab="boost">Boost</button>
     <button data-tab="offers">Offers</button>
     <button data-tab="targets">Targets</button>
-    <button data-tab="ads">Reddit ads</button>
+
   </nav>
 </header>
 
 <main>
-  <section id="plan" class="on">
+  <section id="camp" class="on">
+    <div class="note">191 rooms is a menu, not a plan. A campaign is one niche — the rooms its owners actually sit in, the searches that catch them spending money, the questions they ask over and over, and the offers that fit. Pick one and the whole board narrows to it: calendar, scan, answers, boost. Six rooms hit repeatedly beat 191 hit once, because leads compound on the sixth time somebody sees your name.</div>
+    <div id="campActive"></div>
+    <div class="grid" id="campGrid"></div>
+  </section>
+
+  <section id="plan">
     <div class="note">Three posts a day, in three different rooms, in three different shapes — <b>Offer</b> at 9, <b>Proof</b> at 2, <b>Conversation</b> at 7. Each day's three slots hit all three groups (owners, already-spending, general) so that after a fortnight you can see which group and which shape actually produced leads. Only the Offer lane ever asks for anything, and only on its own cadence. The board fills Reddit's own form; you read it and press Post.</div>
     <div class="stat" id="planStat"></div>
     <div id="ratio"></div>
@@ -152,12 +161,35 @@
     <table><thead><tr><th style="width:34px"></th><th style="width:180px">Room</th><th style="width:118px">Kind</th><th style="width:140px">Posting</th><th style="width:96px">Members</th><th style="width:84px">Online</th><th>What it is</th></tr></thead><tbody id="tRows"></tbody></table>
   </section>
 
+  <section id="mine">
+    <div class="note">Every post this account has ever made, not just the ones the board sent — pulled straight from Reddit. The ones posted by hand or long before any of this count too, because the boost shortlist needs all the evidence, not half of it.</div>
+    <div class="stat" id="mineStat"></div>
+    <div class="bar">
+      <button class="act" id="readMine">Read my posts</button>
+      <label class="f">show <select id="mSource"><option value="all">everything</option><option value="board">sent by the board</option><option value="outside">posted by hand</option></select></label>
+      <label class="f">room <select id="mSub"><option value="">every room</option></select></label>
+      <label class="f">sort <select id="mSort"><option value="new">newest</option><option value="boost">worth boosting</option><option value="comments">most comments</option></select></label>
+      <span id="mineWhen" class="faint"></span>
+    </div>
+    <table><thead><tr><th style="width:96px">Verdict</th><th style="width:130px">Room</th><th>Post</th><th style="width:70px">Score</th><th style="width:88px">Comments</th><th style="width:70px">Hot</th><th style="width:70px">Age</th><th style="width:120px"></th></tr></thead><tbody id="mineRows"></tbody></table>
+  </section>
+
+  <section id="boost">
+    <div class="note">Put the money behind the post the room already argued with — never a fresh ad, never a landing page, comments always left on. At $5–10 a day you are invisible in r/marketing and dominant in a 40,000-member trade sub, so it is one room at a time, always-on, judged on <b>what a comment costs</b>. Reddit's ad account cannot be read from here, so type in what you have spent; the comment counts come from the tracker.</div>
+    <div class="bar">
+      <label class="f">daily budget $<input type="number" id="budget" value="7" min="1" max="100" style="width:64px"></label>
+      <button class="ghost" id="saveBudget">Save</button>
+      <span id="boostSay" class="faint"></span>
+    </div>
+    <div id="boostBody"></div>
+  </section>
+
   <section id="results">
     <div class="note">Three posts a day only pays for itself if you can see which of the three worked. Every post is counted twice — by the kind of room it went into and by the shape it was — so the winner is a fact, not a feeling. <b>Hot</b> means a commenter with a business or a budget behind them.</div>
     <div id="resBody"></div>
   </section>
 
-  <section id="ads"><div id="adsBody"></div></section>
+
 </main>
 <script src="v2-lib.js"></script>
 <script src="board.js"></script>
