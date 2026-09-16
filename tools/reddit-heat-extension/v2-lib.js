@@ -104,6 +104,142 @@ V2.TARGETS = [
   { sub: "DoneDirtCheap", kind: "biz", promo: "ok", note: "Very low ticket. Use only to build karma." },
 ];
 
+// A wider bench so the rooms can be chosen by preference rather than taken as
+// given. Tuple form to keep it readable: [sub, kind, posting rule, what it is].
+// Every one of these is checked against Reddit by the Targets tab — anything
+// that does not exist, or is private, is marked there rather than silently
+// wasting a posting slot.
+V2.MORE_TARGETS = [
+  // --- ads, search, social, analytics ---
+  ["AskMarketing", "ads", "value", "Open marketing questions, lighter moderation than r/marketing."],
+  ["GrowthHacking", "ads", "value", "Growth tactics; playbooks and teardowns do well."],
+  ["growmybusiness", "biz", "ok", "Built for owners asking for growth help. Offers are welcome."],
+  ["Business_Ideas", "biz", "value", "Idea stage mostly, but owners pass through."],
+  ["Entrepreneurship", "biz", "no", "Discussion room, promo removed on sight."],
+  ["solopreneur", "biz", "value", "One-person businesses that outsource marketing early."],
+  ["smallbusinessUK", "biz", "weekly", "UK owners; offers belong in the weekly thread."],
+  ["smallbusinesscanada", "biz", "value", "Canadian owners, smaller and friendlier."],
+  ["AusSmallBusiness", "biz", "value", "Australian owners, high service-business mix."],
+  ["copywriting", "ads", "no", "Copywriters, not buyers. Good for credibility only."],
+  ["conversionoptimization", "ads", "value", "CRO and landing pages — our landing teardown fits exactly."],
+  ["landingpage", "ads", "value", "People posting pages for critique. Free teardowns land."],
+  ["AmazonPPC", "ads", "value", "Amazon sellers with real daily ad spend."],
+  ["AmazonSeller", "biz", "no", "Sellers; different channel but real budgets."],
+  ["adops", "ads", "no", "Ad operations, technical. Credibility only."],
+  ["programmatic", "ads", "no", "Programmatic buyers, enterprise side."],
+  ["MarketingAutomation", "ads", "value", "Automation and lifecycle — dead-list revival fits."],
+  ["Emailmarketinghelp", "ads", "value", "Smaller email room, asks are practical."],
+  ["hubspot", "ads", "no", "Tool users; owners with a CRM already in place."],
+  ["YouTubeAds", "ads", "value", "Video buyers, smaller and less crowded."],
+  ["TikTokAds", "ads", "value", "TikTok buyers; creative packs fit here best."],
+  ["InstagramMarketing", "ads", "value", "IG growth and ads; creative-led."],
+  ["SEOhelp", "ads", "value", "Beginner SEO asks; easy place to be useful."],
+  ["seogrowth", "ads", "value", "Smaller SEO room with less moderation."],
+  ["webdev", "ads", "no", "Developers, not buyers. Skip for offers."],
+  ["Wordpress", "biz", "no", "Site owners with technical problems; answer them."],
+  ["shopifystore", "biz", "value", "Store critique room; free teardowns welcome."],
+  ["EcommerceMarketing", "ads", "value", "Store owners specifically about marketing."],
+  ["FacebookAdvertising", "ads", "value", "Second Meta room, less crowded than r/FacebookAds."],
+  ["PPCHelp", "ads", "value", "Direct help requests from people running ads."],
+
+  // --- trades and home services ---
+  ["Carpentry", "owner", "no", "Trade room; shop owners in the comments."],
+  ["Flooring", "owner", "value", "Installers and shop owners chasing local jobs."],
+  ["Concrete", "owner", "no", "Contractors; seasonal demand swings."],
+  ["Excavation", "owner", "no", "Heavy civil and site work contractors."],
+  ["Painting", "owner", "value", "Painting contractors, heavily local-search driven."],
+  ["PressureWashing", "owner", "value", "Owner-operators who buy leads constantly."],
+  ["WindowCleaning", "owner", "value", "Route businesses; local search is everything."],
+  ["JunkRemoval", "owner", "value", "Very high intent, very local, high ad spend."],
+  ["Locksmith", "owner", "no", "Emergency trade; Maps ranking decides the calls."],
+  ["GarageDoorService", "owner", "value", "Emergency trade with strong local pack value."],
+  ["appliancerepair", "owner", "no", "Technicians and small shop owners."],
+  ["HandymanBusiness", "owner", "value", "New owners building a customer pipeline."],
+  ["poolcleaning", "owner", "value", "Route businesses, seasonal spend."],
+  ["fencing", "owner", "value", "Fence contractors, project-based and local."],
+  ["Solar", "owner", "value", "Solar installers, expensive leads and big budgets."],
+  ["homeinspectors", "owner", "value", "Referral-driven but buying search now."],
+  ["propertymanagement", "owner", "value", "Managers with portfolios and marketing budgets."],
+  ["selfstorage", "owner", "value", "Facility owners; local pack decides occupancy."],
+  ["Moving", "owner", "value", "Movers who already buy leads year round."],
+  ["Towing", "owner", "no", "Emergency trade, Maps-led."],
+  ["Autobody", "owner", "no", "Body shops competing on local search."],
+  ["MechanicAdvice", "owner", "no", "Mostly consumers; shop owners answer. Comment only."],
+  ["Diesel", "owner", "no", "Fleet and shop owners."],
+  ["Trucking", "owner", "no", "Carriers and owner-operators, different channel."],
+  ["logistics", "biz", "value", "Freight and 3PL, B2B lead generation."],
+  ["Manufacturing", "biz", "value", "Job shops that have never marketed."],
+  ["Screenprinting", "owner", "value", "Print shops chasing local B2B orders."],
+  ["Embroidery", "owner", "value", "Small shops with a local customer base."],
+  ["signmaking", "owner", "value", "Sign shops, local B2B buyers."],
+
+  // --- health, legal, money ---
+  ["Orthodontics", "owner", "no", "Practice owners with very high case value."],
+  ["dentalhygiene", "owner", "no", "Staff room; use only to understand the trade."],
+  ["Dermatology", "owner", "no", "Cosmetic side is heavily advertised."],
+  ["PlasticSurgery", "owner", "no", "Consumers and surgeons; very high ad spend."],
+  ["therapists", "owner", "no", "Private practices filling caseloads."],
+  ["psychotherapy", "owner", "no", "Clinicians; directory and local search led."],
+  ["Counselling", "owner", "no", "Private practice owners."],
+  ["homecare", "owner", "value", "Home care agencies, expensive leads."],
+  ["Nursing", "owner", "no", "Staff room, not buyers. Kept out of rotation."],
+  ["CFP", "owner", "no", "Financial planners building a book."],
+  ["Bookkeeping", "owner", "value", "Bookkeepers who need a steady client flow."],
+  ["taxpros", "owner", "no", "Tax preparers; brutal seasonality."],
+  ["Mortgages", "owner", "no", "Loan officers who buy leads already."],
+  ["InsuranceProfessional", "owner", "value", "Agents and agency owners."],
+  ["RealEstateTechnology", "owner", "value", "Agents buying tools and lead systems."],
+  ["appraisal", "owner", "no", "Appraisers; small but local-search dependent."],
+
+  // --- beauty, fitness, food, events, pets ---
+  ["Barber", "owner", "no", "Shop owners and chair renters."],
+  ["Nailtechs", "owner", "no", "Solo operators filling a book."],
+  ["massage", "owner", "no", "Therapists and small studios."],
+  ["Cosmetology", "owner", "no", "Salon professionals; booking-led."],
+  ["eyelashextensions", "owner", "value", "Solo techs who advertise on IG already."],
+  ["tattooartists", "owner", "no", "Artists filling their calendar."],
+  ["foodtrucks", "owner", "value", "Owners who live on social reach."],
+  ["Chefit", "owner", "no", "Working chefs; owners among them."],
+  ["Catering", "owner", "value", "Event caterers chasing local B2B."],
+  ["Bakery", "owner", "value", "Small bakeries, very local."],
+  ["cafe", "owner", "value", "Cafe owners, footfall and Maps driven."],
+  ["bars", "owner", "no", "Bar owners; events and social reach."],
+  ["eventplanning", "owner", "value", "Planners chasing enquiries."],
+  ["videography", "owner", "value", "Freelancers and studios needing bookings."],
+  ["DJs", "owner", "value", "Event DJs marketing locally."],
+  ["Dogtraining", "owner", "no", "Owners and trainers mixed; trainers need clients."],
+  ["doggrooming", "owner", "value", "Groomers; appointment-led and very local."],
+  ["Veterinarians", "owner", "no", "Second vet room, owner-heavy."],
+  ["MartialArts", "owner", "no", "School owners filling classes."],
+  ["Tutoring", "owner", "value", "Tutors and small centres chasing enrolments."],
+  ["Daycares", "owner", "value", "Centres with waiting lists or empty rooms."],
+  ["fitnessbusiness", "owner", "value", "Gym and studio owners specifically about the business."],
+
+  // --- B2B and tech services ---
+  ["sysadmin", "owner", "no", "IT professionals; MSP owners among them."],
+  ["ITManagers", "owner", "no", "Buyers of IT services, not marketing."],
+  ["recruiting", "owner", "value", "Recruiters who market to get clients."],
+  ["humanresources", "biz", "no", "HR professionals; not our buyer."],
+  ["staffing", "owner", "value", "Staffing agency owners chasing clients."],
+  ["consulting", "biz", "value", "Consultants with a lead problem of their own."],
+  ["freelance", "biz", "no", "Freelancers, not buyers. Credibility only."],
+  ["Emailmarketingtips", "ads", "value", "Small practical email room."],
+  ["startups", "biz", "no", "Founder discussion; promo removed."],
+  ["indiehackers", "biz", "value", "Builders who market their own products."],
+  ["SideProject", "biz", "value", "Launch room; reach more than leads."],
+  ["roastmystartup", "biz", "ok", "Critique is the point — free teardowns belong here."],
+  ["analyticsengineering", "ads", "no", "Data side; credibility only."],
+  ["BusinessIntelligence", "biz", "no", "Not our buyer, kept for completeness."],
+  ["smallbusinessadvice", "biz", "value", "Owners asking for help directly."],
+  ["ecommercemarketing", "ads", "value", "Store marketing specifically."],
+  ["Slavelabour", "biz", "ok", "Offers allowed but the budgets are tiny. Karma only."],
+  ["hiring", "biz", "ok", "Direct hiring posts, mixed quality."],
+  ["jobbit", "biz", "ok", "Small gig board, low ticket."],
+];
+for (const [sub, kind, promo, note] of V2.MORE_TARGETS) {
+  if (!V2.TARGETS.some((t) => t.sub.toLowerCase() === sub.toLowerCase())) V2.TARGETS.push({ sub, kind, promo, note });
+}
+
 V2.KINDS = [
   { key: "ads", name: "Already spending", why: "They have a budget and a complaint. Shortest path to a paying client." },
   { key: "owner", name: "Business owners", why: "No marketing team, no agency, pays for calls. Best ticket size." },
@@ -185,7 +321,107 @@ V2.OFFERS = [
     risk: "no call required, ever — I send the document and you do what you like with it",
     spots: 5 },
 ];
-V2.offer = function (key) { return V2.OFFERS.find((o) => o.key === key) || V2.OFFERS[0]; };
+V2.POOL = [];    // offers written in the studio, merged in at runtime
+V2.allOffers = function () { return V2.OFFERS.concat(V2.POOL); };
+V2.offer = function (key) { return V2.allOffers().find((o) => o.key === key) || V2.OFFERS[0]; };
+
+// ------------------------------------------------------------ offer studio
+// Type what you do, what you have proof of, who you want, and get ten offers
+// back. The ten shipped above are a starting bench, not the limit — the ones
+// that actually convert will be the ones written around your own numbers.
+V2.OFFER_ANGLES = [
+  { key: "audit", name: "The free audit", how: "give away the diagnosis in public" },
+  { key: "teardown", name: "The teardown", how: "pull their own account or page apart, free" },
+  { key: "done_free", name: "We do it, you pay nothing yet", how: "carry the setup cost ourselves" },
+  { key: "performance", name: "Pay only on results", how: "no retainer, a price per booked outcome" },
+  { key: "guarantee", name: "The guarantee", how: "a named number by a named date or it is free" },
+  { key: "asset", name: "Give the asset away", how: "hand over the file, sheet or creatives to keep" },
+  { key: "speed", name: "The speed offer", how: "a small, complete thing finished in days, not months" },
+  { key: "risk_split", name: "Split the risk", how: "we take a smaller fee up front and more only if it works" },
+  { key: "comparison", name: "Beat what they have", how: "run against their current setup and let the numbers decide" },
+  { key: "unbundle", name: "The one-piece offer", how: "sell the single piece that unblocks them, not a package" },
+];
+V2.OFFER_SCHEMA = {
+  type: "object",
+  properties: {
+    offers: {
+      type: "array",
+      description: "Ten offers, each built on a different angle.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "What the offer is called, in plain words. No brand name, no prices." },
+          angle: { type: "string", description: "Which angle it uses." },
+          who: { type: "string", description: "Exactly who it is for. A trade and a situation, not 'small businesses'." },
+          gift: { type: "string", description: "What they receive for free, concretely. A thing, not a feeling." },
+          ask: { type: "string", description: "The single smallest thing we ask back. Never a call, never an email address." },
+          risk: { type: "string", description: "Why it costs them nothing to say yes." },
+          spots: { type: "integer", description: "How many we will do, between 3 and 15." },
+          channel: { type: "string", description: "One of local_seo, google_ads_seo, meta_ads, instagram_tiktok, none." },
+          why_it_works: { type: "string", description: "One line on why this one is hard to refuse." },
+        },
+        required: ["name", "angle", "who", "gift", "ask", "risk", "spots", "channel", "why_it_works"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["offers"],
+  additionalProperties: false,
+};
+V2.offerSystem = function (profile = {}) {
+  return [
+    "You write offers for " + (profile.name || "a small paid-ads and local-search team") + (profile.place ? " in " + profile.place : "") + ".",
+    "",
+    "An offer is irresistible when three things are true: the value arrives before the invoice, the risk sits on us rather than on them, and the thing we ask back is smaller than the thing we give.",
+    "",
+    "Rules for every offer you write:",
+    "- The gift must be a concrete deliverable a stranger can picture. 'Where you rank for your main keyword and the three profiles above you' is an offer. 'A free consultation' is not.",
+    "- The ask must be one small public thing: a link, a business name, a screenshot. Never a call, never an email address, never a form.",
+    "- No prices, no packages, no discounts, no 'limited time'. Scarcity is a number of spots, nothing else.",
+    "- No brand name, no domain, no agency language.",
+    "- Each of the ten must use a different angle. Do not write the same offer ten ways.",
+    "- Aim them at people who already have money moving: a business with customers, a budget, or an agency they are unhappy with.",
+    "",
+    "The angles to use, one each:",
+    ...V2.OFFER_ANGLES.map((a) => "- " + a.name + ": " + a.how),
+  ].join("\n");
+};
+V2.offerUser = function (brief, profile = {}) {
+  return [
+    "What we do and what we can prove, in their own words:",
+    String(brief || "").slice(0, 4000),
+    profile.credit ? "\nOther true things about us: " + profile.credit : "",
+    profile.wins ? "\nReal results we can cite: " + profile.wins : "",
+    "\nWrite ten offers.",
+  ].filter(Boolean).join("\n");
+};
+V2.offerChecks = function (o) {
+  const bad = [];
+  const all = [o && o.name, o && o.gift, o && o.ask, o && o.risk].join(" ");
+  if (!o || !o.name || o.name.length < 6) bad.push("it has no real name");
+  if (!o.gift || o.gift.length < 25) bad.push("the free part is too vague to picture");
+  if (!o.ask || o.ask.length < 8) bad.push("there is no ask");
+  if (!o.risk || o.risk.length < 12) bad.push("it does not say why saying yes is safe");
+  if (/\$\s?\d|\bprice|\bpackage|\bdiscount|\b\d+% off/i.test(all)) bad.push("it mentions money or a package");
+  if (/book a call|hop on a call|schedule a call|jump on a call|free consultation|discovery call/i.test(all)) bad.push("it asks for a call, which is not a small ask");
+  if (/email address|your email|sign ?up|fill (in|out) (the|a) form/i.test(all)) bad.push("it asks for an email or a form");
+  if (/https?:\/\/|www\./i.test(all)) bad.push("it contains a link");
+  const spots = Number(o.spots || 0);
+  if (!(spots >= 3 && spots <= 15)) bad.push("the number of spots is not believable");
+  return bad;
+};
+V2.offerFromDraft = function (d, i) {
+  return {
+    key: "made_" + Date.now().toString(36) + "_" + i,
+    name: String(d.name || "").slice(0, 90),
+    angle: String(d.angle || ""),
+    who: String(d.who || ""), gift: String(d.gift || ""), ask: String(d.ask || ""), risk: String(d.risk || ""),
+    spots: Math.max(3, Math.min(15, Number(d.spots) || 10)),
+    channel: ["local_seo", "google_ads_seo", "meta_ads", "instagram_tiktok", "none"].includes(d.channel) ? d.channel : "none",
+    why: String(d.why_it_works || ""),
+    made: true, at: Date.now(),
+  };
+};
 
 // -------------------------------------------------------------- post types
 // `magnet` posts ask for something back in the comments. `value` posts ask
@@ -327,58 +563,139 @@ V2.postChecks = function (draft, target, type) {
 // shape so that nothing repeats in a pattern a moderator would notice.
 // Deterministic: the same inputs always produce the same calendar, so
 // re-planning after a change does not shuffle everything you already sent.
-V2.PLAN_DEFAULT = { days: 30, perDay: 1, subCoolDays: 14, magnetEvery: 4, kinds: "all" };
+// Three posts a day, in three different rooms, in three different shapes, so
+// that by the end of a fortnight you can see which room type and which shape
+// actually produced comments — not just that "Reddit worked" or it didn't.
+//
+// Lane 1 carries the offer, but only on its cadence; on the days in between
+// it carries proof instead, so the slot is never wasted and the account never
+// looks like a billboard. Lanes 2 and 3 never sell anything.
+V2.LANES = [
+  { key: "offer", name: "Offer", hour: 9, magnetTypes: ["audit_magnet", "giveaway", "ama"], restTypes: ["result_story", "local_case"],
+    why: "the ask. Runs on its own cadence so the account is not one long advert." },
+  { key: "proof", name: "Proof", hour: 14, restTypes: ["result_story", "teardown", "comparison", "local_case"],
+    why: "numbers and method, given away. This is what makes the offer days believable." },
+  { key: "talk", name: "Conversation", hour: 19, restTypes: ["question_ask", "mistakes", "playbook"],
+    why: "a question or a list that starts an argument. Buyers reveal themselves in the replies." },
+];
+V2.KIND_ORDER = ["owner", "ads", "biz"];
+V2.PLAN_DEFAULT = { days: 30, perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", commentsPerPost: 5 };
+
 V2.plan = function (opts = {}) {
   const o = { ...V2.PLAN_DEFAULT, ...opts };
   const start = o.start || Date.now();
-  const pool = (o.subs && o.subs.length ? o.subs.map((s) => V2.TARGETS.find((t) => t.sub === s)).filter(Boolean) : V2.targetsBy(o.kinds)).filter(V2.postable);
+  const chosen = (o.subs && o.subs.length) ? o.subs.map((x) => V2.TARGETS.find((t) => t.sub === x)).filter(Boolean) : V2.targetsBy(o.kinds);
+  const pool = chosen.filter(V2.postable);
   if (!pool.length) return { rows: [], error: "no room in the list allows a post — pick some subreddits that are not comments-only" };
-  const offers = (o.offers && o.offers.length ? o.offers : V2.OFFERS.map((x) => x.key)).map(V2.offer);
-  const allowed = (o.types && o.types.length) ? V2.POST_TYPES.filter((t) => o.types.includes(t.key)) : V2.POST_TYPES;
-  const magnets = allowed.filter((t) => t.magnet);
-  const values = allowed.filter((t) => !t.magnet);
-  if (!magnets.length && !values.length) return { rows: [], error: "no post types selected" };
+  const offers = (o.offers && o.offers.length ? o.offers : V2.allOffers().map((x) => x.key)).map(V2.offer);
+  const lanes = V2.LANES.slice(0, Math.max(1, Math.min(V2.LANES.length, o.perDay)));
+  const allow = (keys) => keys.filter((k) => !o.types || !o.types.length || o.types.includes(k)).map(V2.postType);
 
-  // when each subreddit was last posted to, from real history first
+  // by kind, so each of the day's slots can come from a different group and
+  // the three groups can be compared against each other later
+  const byKind = {};
+  for (const k of V2.KIND_ORDER) byKind[k] = pool.filter((t) => t.kind === k);
+  const cursor = { owner: 0, ads: 0, biz: 0, any: 0 };
   const last = {};
   for (const h of o.history || []) if (h.sub) last[h.sub] = Math.max(last[h.sub] || 0, h.at || 0);
 
-  const rows = [];
-  let cursor = 0;
-  let magnetN = 0;
-  const slots = Math.max(1, o.days) * Math.max(1, o.perDay);
-  for (let i = 0; i < slots; i += 1) {
-    const at = start + Math.floor(i / o.perDay) * 86400000;
-    const wantMagnet = magnets.length && (i % Math.max(2, o.magnetEvery) === 0);
-    const type = wantMagnet ? magnets[Math.floor(i / o.magnetEvery) % magnets.length] : (values.length ? values[i % values.length] : magnets[i % magnets.length]);
-    // the next room that has cooled down; a magnet never goes somewhere
-    // offers are not welcome
-    let pick = null;
-    for (let k = 0; k < pool.length; k += 1) {
-      const c = pool[(cursor + k) % pool.length];
-      const rank = (V2.PROMO[c.promo] || {}).rank || 0;
-      if (type.magnet && rank < 1) continue;
-      if ((last[c.sub] || 0) > at - o.subCoolDays * 86400000) continue;
-      pick = c; cursor = (cursor + k + 1) % pool.length; break;
+  const takeRoom = (kind, at, needsOffer, usedToday) => {
+    const tries = [];
+    if (byKind[kind] && byKind[kind].length) tries.push([kind, byKind[kind]]);
+    for (const k of V2.KIND_ORDER) if (k !== kind && byKind[k] && byKind[k].length) tries.push([k, byKind[k]]);
+    tries.push(["any", pool]);
+    for (const [ck, list] of tries) {
+      for (let i = 0; i < list.length; i += 1) {
+        const c = list[(cursor[ck] + i) % list.length];
+        if (usedToday.has(c.sub)) continue;
+        if (needsOffer && ((V2.PROMO[c.promo] || {}).rank || 0) < 1) continue;
+        if ((last[c.sub] || 0) > at - o.subCoolDays * 86400000) continue;
+        cursor[ck] = (cursor[ck] + i + 1) % list.length;
+        return { room: c, borrowed: ck !== kind && ck !== "any" ? ck : (ck === "any" ? "any" : "") };
+      }
     }
-    if (!pick) { rows.push({ n: i + 1, at, skipped: true, why: "every room is still cooling down — add more subreddits or shorten the gap" }); continue; }
-    last[pick.sub] = at;
-    // offers walk in order across the offer days, so all ten get an airing
-    // before any of them comes round again
-    const offer = type.magnet ? offers[magnetN++ % offers.length] : offers[i % offers.length];
-    rows.push({
-      n: i + 1, at, sub: pick.sub, kind: pick.kind, promo: pick.promo,
-      weekly: pick.promo === "weekly",
-      typeKey: type.key, typeName: type.name, magnet: !!type.magnet,
-      offerKey: offer.key, offerName: offer.name,
-      why: type.magnet
-        ? "offer day — " + offer.name.toLowerCase() + " into r/" + pick.sub + (pick.promo === "weekly" ? ", inside that sub's weekly promo thread" : "")
-        : "value day — " + type.name.toLowerCase() + " into r/" + pick.sub + ", nothing sold",
-      state: "planned",
-    });
+    return null;
+  };
+
+  const rows = [];
+  let n = 0, magnetN = 0;
+  const laneN = {};                     // each lane walks its own shapes, so
+                                        // two slots on one day never rhyme
+  const days = Math.max(1, o.days);
+  for (let d = 0; d < days; d += 1) {
+    const dayStart = start + d * 86400000;
+    const usedToday = new Set();
+    const shapesToday = new Set();
+    for (let li = 0; li < lanes.length; li += 1) {
+      const lane = lanes[li];
+      n += 1;
+      const at = new Date(dayStart); at.setHours(lane.hour, 0, 0, 0);
+      const wantMagnet = lane.key === "offer" && (d % Math.max(1, o.magnetEvery) === 0);
+      const types = wantMagnet ? allow(lane.magnetTypes || []) : allow(lane.restTypes || []);
+      const lk = lane.key + (wantMagnet ? ":offer" : ":rest");
+      laneN[lk] = (laneN[lk] || 0);
+      // skip past a shape another lane already used today, so the three posts
+      // never read like the same post three times
+      let type = types.length ? types[laneN[lk] % types.length] : V2.postType("result_story");
+      for (let t = 1; t < types.length && shapesToday.has(type.key); t += 1) type = types[(laneN[lk] + t) % types.length];
+      laneN[lk] += 1;
+      shapesToday.add(type.key);
+      // the three slots walk the three groups, and the pairing shifts each day
+      // so a shape is never permanently married to one kind of room
+      const kind = V2.KIND_ORDER[(li + d) % V2.KIND_ORDER.length];
+      const got = takeRoom(kind, at.getTime(), !!type.magnet, usedToday);
+      if (!got) { rows.push({ n, day: d + 1, lane: lane.key, laneName: lane.name, at: at.getTime(), skipped: true, why: "no room left that has cooled down — widen the room list or shorten the gap" }); continue; }
+      const room = got.room;
+      usedToday.add(room.sub);
+      last[room.sub] = at.getTime();
+      if (type.magnet) magnetN += 1;
+      const offer = type.magnet ? offers[(magnetN - 1) % offers.length] : offers[(n - 1) % offers.length];
+      rows.push({
+        n, day: d + 1, lane: lane.key, laneName: lane.name, at: at.getTime(),
+        sub: room.sub, kind: room.kind, promo: room.promo, weekly: room.promo === "weekly",
+        group: room.kind, borrowed: got.borrowed || "",
+        typeKey: type.key, typeName: type.name, magnet: !!type.magnet,
+        offerKey: offer.key, offerName: offer.name,
+        why: type.magnet
+          ? "offer slot — " + offer.name.toLowerCase() + " into r/" + room.sub + (room.promo === "weekly" ? ", inside that sub's weekly promo thread" : "")
+          : lane.name.toLowerCase() + " slot — " + type.name.toLowerCase() + " into r/" + room.sub + ", nothing sold",
+        state: "planned",
+      });
+    }
   }
-  const magnetCount = rows.filter((r) => r.magnet).length;
-  return { rows, magnets: magnetCount, values: rows.filter((r) => r.sub && !r.magnet).length, skipped: rows.filter((r) => r.skipped).length, rooms: new Set(rows.filter((r) => r.sub).map((r) => r.sub)).size };
+  const real = rows.filter((r) => r.sub);
+  const groups = {};
+  for (const r of real) groups[r.group] = (groups[r.group] || 0) + 1;
+  return {
+    rows, magnets: real.filter((r) => r.magnet).length, values: real.filter((r) => !r.magnet).length,
+    skipped: rows.filter((r) => r.skipped).length, rooms: new Set(real.map((r) => r.sub)).size,
+    perDay: lanes.length, groups, commentsPerPost: o.commentsPerPost,
+    comments: real.length * (o.commentsPerPost || 0),
+  };
+};
+
+// Reddit publishes each room's rules as JSON. Reading them beats guessing:
+// the tool downgrades a room to comments-only the moment its own rules say
+// no self-promotion, whatever we wrote in the list.
+V2.NO_PROMO_RE = /no (self[- ]?promo|promotion|advertis|soliciting|spam)|self[- ]?promo(tion)? (is )?(not allowed|prohibited|banned|forbidden)|do not (advertise|promote|solicit)|no ads\b|advertising is not allowed|not a place to (advertise|promote)|banned: ?(promo|advertis)/i;
+V2.WEEKLY_RE = /(weekly|monthly|sticky|pinned|megathread|designated) (self[- ]?promo|promo|advertis|thread)|promo(tion)? thread|self[- ]?promo(tion)? (thread|saturday|sunday|monday)|only in the (weekly|monthly|sticky|pinned)/i;
+V2.OK_PROMO_RE = /self[- ]?promo(tion)? (is )?(allowed|welcome|encouraged|fine|ok)|promotion is allowed|advertising (is )?allowed/i;
+V2.promoFromRules = function (rules, submitText, description) {
+  // accepts Reddit's raw shape and the trimmed one the board stores
+  const text = [(rules || []).map((r) => [r.short_name, r.name, r.description, r.what, r.violation_reason].filter(Boolean).join(" ")).join(" \n "), submitText || "", description || ""].join(" \n ");
+  if (!text.trim()) return null;
+  if (V2.WEEKLY_RE.test(text)) return { promo: "weekly", why: "its own rules send promotion to a weekly or pinned thread" };
+  if (V2.NO_PROMO_RE.test(text)) return { promo: "no", why: "its own rules forbid self-promotion" };
+  if (V2.OK_PROMO_RE.test(text)) return { promo: "ok", why: "its own rules say self-promotion is allowed" };
+  return null;
+};
+// The unofficial ratio every Reddit moderator applies by eye: far more
+// comments than posts. The board tracks it so the account never crosses it.
+V2.ratio = function (posts, comments) {
+  const p = posts || 0, c = comments || 0;
+  const need = p * 5;
+  return { posts: p, comments: c, need, ok: c >= need, short: Math.max(0, need - c),
+    why: c >= need ? "the account reads as a participant" : "leave " + Math.max(0, need - c) + " more comments before the next post — moderators judge on this ratio, not on the posts alone" };
 };
 
 // ---------------------------------------------------- who is actually buying

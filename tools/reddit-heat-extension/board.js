@@ -15,6 +15,8 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "answer") drawQueue();
   if (b.dataset.tab === "leads") drawLeads();
   if (b.dataset.tab === "targets") drawTargets();
+  if (b.dataset.tab === "offers") drawOffers();
+  if (b.dataset.tab === "results") drawResults();
 });
 
 // --------------------------------------------------------------- calendar
@@ -26,13 +28,24 @@ async function drawPlan() {
   $("#planStat").innerHTML = [
     ["Planned", c.planned], ["Written", c.drafted], ["Posted", c.posted], ["Leads", c.leads], ["New leads", c.newLeads],
   ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  const r8 = BOARD.ratio || { ok: true };
+  $("#ratio").innerHTML = r8.ok
+    ? `<div class="faint" style="margin-bottom:12px">${r8.posts} posts, ${r8.comments} public answers — ${esc(r8.why)}.</div>`
+    : `<div class="note" style="border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.08);color:#f6d79b">${r8.posts} posts but only ${r8.comments} public answers. ${esc(r8.why)}.</div>`;
   const s = BOARD.settings || {};
   $("#days").value = s.days || 30; $("#kinds").value = s.kinds || "all";
-  $("#magnetEvery").value = s.magnetEvery || 4; $("#cool").value = s.subCoolDays || 14;
+  $("#perDay").value = String(s.perDay || 3);
+  $("#magnetEvery").value = s.magnetEvery || 2; $("#cool").value = s.subCoolDays || 14;
+  let lastDay = null;
   $("#planRows").innerHTML = (BOARD.rows || []).map((r) => {
-    if (r.skipped) return `<tr><td>${r.n}</td><td class="faint">${when(r.at)}</td><td colspan="4" class="faint">${esc(r.why)}</td></tr>`;
-    const tag = r.magnet ? `<span class="tag t-magnet">offer</span>` : `<span class="tag t-value">value</span>`;
+    const newDay = r.day !== lastDay; lastDay = r.day;
+    const cls = [newDay ? "dayline" : "", r.state === "posted" || r.state === "skipped" ? "done" : ""].filter(Boolean).join(" ");
+    const stamp = `${newDay ? `<b>${when(r.at).replace(/ \d\d:\d\d$/, "")}</b><br>` : ""}<span class="faint">${new Date(r.at).toTimeString().slice(0, 5)}</span>`;
+    if (r.skipped) return `<tr class="${cls}"><td>${stamp}</td><td colspan="5" class="faint">${esc(r.why)}</td></tr>`;
+    const lane = `<span class="lane l-${r.lane === "talk" ? "talk" : r.lane}">${esc(r.laneName)}</span>`;
+    const tag = r.magnet ? `<span class="tag t-magnet">offer</span>` : `<span class="tag t-value">gives</span>`;
     const wk = r.weekly ? ` <span class="tag t-weekly">weekly thread</span>` : "";
+    const group = r.group === "ads" ? "already spending" : r.group === "owner" ? "business owner" : "general";
     const what = r.magnet ? esc(r.offerName) : esc(r.typeName);
     const title = r.draft ? `<div class="ttl">${esc(r.draft.title)}</div><div class="faint">${r.draft.words} words${r.draft.issues.length ? " · " + r.draft.issues.length + " to fix" : ""}</div>` : `<span class="faint">not written yet</span>`;
     const btns = r.state === "posted"
@@ -40,9 +53,9 @@ async function drawPlan() {
       : `<button class="ghost" data-w="${r.n}">${r.draft ? "rewrite" : "write it"}</button>
          ${r.draft ? `<button class="ghost" data-v="${r.n}">read</button><button class="act" data-o="${r.n}">post it</button><button class="ghost" data-m="${r.n}">it is live</button>` : ""}
          <button class="ghost" data-s="${r.n}">skip</button>`;
-    return `<tr class="${r.state === "posted" || r.state === "skipped" ? "done" : ""}">
-      <td>${r.n}</td><td class="faint">${when(r.at)}</td>
-      <td><b>r/${esc(r.sub)}</b>${wk}<div class="faint">${esc(r.kind === "ads" ? "already spending" : r.kind === "owner" ? "business owner" : "general")}</div></td>
+    return `<tr class="${cls}">
+      <td>${stamp}</td><td>${lane}<div class="faint">${group}</div></td>
+      <td><b>r/${esc(r.sub)}</b>${wk}</td>
       <td>${tag}<div class="faint">${esc(r.typeName)}</div></td>
       <td>${what}${title}</td><td>${btns}</td></tr>`;
   }).join("") || `<tr><td colspan="6" class="faint">No calendar yet — press Build the calendar.</td></tr>`;
@@ -64,9 +77,10 @@ async function drawPlan() {
 
 $("#mkPlan").onclick = async () => {
   say("building…");
-  const r = await send({ type: "v2-plan", opts: { days: +$("#days").value, kinds: $("#kinds").value, magnetEvery: +$("#magnetEvery").value, subCoolDays: +$("#cool").value } });
+  const r = await send({ type: "v2-plan", opts: { days: +$("#days").value, perDay: +$("#perDay").value, kinds: $("#kinds").value, magnetEvery: +$("#magnetEvery").value, subCoolDays: +$("#cool").value } });
   if (!r || !r.ok) return say((r && r.error) || "could not build it", "var(--warn)");
-  say(`${r.rows.length} days across ${r.rooms} rooms — ${r.magnets} offer days, ${r.values} value days`, "var(--go)");
+  const g = r.groups || {};
+  say(`${r.rows.length} posts across ${r.rooms} rooms — ${r.magnets} offers, ${r.values} that sell nothing · owners ${g.owner || 0}, spenders ${g.ads || 0}, general ${g.biz || 0} · needs about ${r.comments} public answers alongside`, "var(--go)");
   drawPlan();
 };
 
@@ -186,37 +200,162 @@ $("#leadPoll").onclick = $("#leadPoll2").onclick = async () => {
   drawLeads(); drawPlan();
 };
 
-// --------------------------------------------------------------- reference
-function drawOffers() {
-  $("#offerGrid").innerHTML = V2.OFFERS.map((o) => `<div class="card">
+// ------------------------------------------------------------ offer studio
+let OFF = null;
+function offerCard(o, mode) {
+  const issues = (o.issues || []).map((i) => `<div class="issue">⚠ ${esc(i)}</div>`).join("");
+  const picked = OFF && (OFF.picked || []).includes(o.key);
+  const head = mode === "made"
+    ? `<button class="ghost" data-keep="${esc(o.key)}">keep this one</button>`
+    : `<label class="f"><input type="checkbox" data-pick="${esc(o.key)}" ${picked || !(OFF.picked || []).length ? "checked" : ""}> use in the calendar</label>` +
+      (o.made ? ` <button class="ghost" data-forget="${esc(o.key)}">remove</button>` : "");
+  return `<div class="card">
     <h3>${esc(o.name)}</h3>
-    <div class="faint">${esc(o.spots)} spots · ${esc(o.channel.replace(/_/g, " "))}</div>
+    <div class="faint">${esc(o.spots)} spots · ${esc(String(o.channel || "none").replace(/_/g, " "))}${o.angle ? " · " + esc(o.angle) : ""}${o.made ? " · yours" : ""}</div>
+    ${issues}
     <ul class="tight">
       <li><b>Who:</b> ${esc(o.who)}</li>
       <li><b>They get:</b> ${esc(o.gift)}</li>
       <li><b>We ask for:</b> ${esc(o.ask)}</li>
       <li><b>Their risk:</b> ${esc(o.risk)}</li>
-    </ul></div>`).join("");
+      ${o.why ? `<li><b>Why it lands:</b> ${esc(o.why)}</li>` : ""}
+    </ul>
+    <div class="bar" style="margin-top:10px">${head}</div></div>`;
 }
-async function drawTargets() {
-  const r = await send({ type: "v2-targets" });
-  const checked = (r && r.checked) || {};
-  $("#checkWhen").textContent = Object.keys(checked).length ? Object.keys(checked).length + " checked against Reddit" : "not checked yet";
-  $("#tRows").innerHTML = V2.TARGETS.map((t) => {
-    const c = checked[t.sub];
+async function drawOffers() {
+  OFF = await send({ type: "v2-offers" });
+  if (!OFF || !OFF.ok) return;
+  if (OFF.brief && !$("#brief").value) $("#brief").value = OFF.brief;
+  $("#madeGrid").innerHTML = (OFF.made || []).map((o) => offerCard(o, "made")).join("");
+  const all = (OFF.shipped || []).concat(OFF.pool || []);
+  $("#offerGrid").innerHTML = all.map((o) => offerCard(o, "pool")).join("");
+  const n = (OFF.picked || []).length;
+  $("#pickSay").textContent = n ? `${n} of ${all.length} ticked` : `all ${all.length} in use`;
+  $$("#madeGrid button[data-keep]").forEach((b) => b.onclick = async () => {
+    const r = await send({ type: "v2-offer-keep", key: b.dataset.keep });
+    say(r && r.ok ? (r.already ? "already kept" : "kept — it is now in the calendar's pool") : "could not keep it", "var(--go)");
+    drawOffers();
+  });
+  $$("#offerGrid button[data-forget]").forEach((b) => b.onclick = async () => { await send({ type: "v2-offer-forget", key: b.dataset.forget }); drawOffers(); });
+  $$("#offerGrid input[data-pick]").forEach((cb) => cb.onchange = pickOffers);
+}
+async function pickOffers() {
+  const boxes = $$("#offerGrid input[data-pick]");
+  const on = boxes.filter((b) => b.checked).map((b) => b.dataset.pick);
+  // everything ticked means "no preference", which keeps new offers in play
+  await send({ type: "v2-offer-pick", keys: on.length === boxes.length ? [] : on });
+  $("#pickSay").textContent = on.length === boxes.length ? `all ${boxes.length} in use` : `${on.length} of ${boxes.length} ticked`;
+  if (!on.length) say("nothing ticked — the calendar will fall back to all of them", "var(--warn)");
+}
+$("#mkOffers").onclick = async () => {
+  const brief = $("#brief").value.trim();
+  if (!brief) return say("say what you do first", "var(--warn)");
+  $("#mkOffers").disabled = true;
+  $("#offerSay").textContent = "writing ten…";
+  const r = await send({ type: "v2-offer-make", brief });
+  $("#mkOffers").disabled = false;
+  if (!r || !r.ok) { $("#offerSay").textContent = ""; return say((r && r.error) || "could not write them", "var(--warn)"); }
+  $("#offerSay").textContent = `${r.made.length} written, ${r.clean} clean · ${r.cents}¢`;
+  drawOffers();
+};
+$("#offAll").onclick = () => { $$("#offerGrid input[data-pick]").forEach((b) => b.checked = true); pickOffers(); };
+$("#offNone").onclick = () => { $$("#offerGrid input[data-pick]").forEach((b) => b.checked = false); pickOffers(); };
+
+// ----------------------------------------------------------------- rooms
+let TGT = null;
+function targetRows() {
+  const checked = (TGT && TGT.checked) || {};
+  const kind = $("#tKind").value, promoF = $("#tPromo").value, sort = $("#tSort").value, min = +$("#tMin").value || 0;
+  let list = (TGT.targets || []).map((t) => ({ ...t, c: checked[t.sub] || null }));
+  if (kind !== "all") list = list.filter((t) => t.kind === kind);
+  if (promoF === "post") list = list.filter((t) => (V2.PROMO[t.promo] || {}).rank >= 1);
+  if (promoF === "no") list = list.filter((t) => t.promo === "no");
+  if (min) list = list.filter((t) => t.c && t.c.ok && (t.c.members || 0) >= min);
+  const num = (t, f) => (t.c && t.c.ok ? (t.c[f] || 0) : -1);
+  if (sort === "members") list.sort((a, b) => num(b, "members") - num(a, "members"));
+  else if (sort === "online") list.sort((a, b) => num(b, "online") - num(a, "online"));
+  else if (sort === "kind") list.sort((a, b) => a.kind.localeCompare(b.kind) || a.sub.localeCompare(b.sub));
+  else list.sort((a, b) => a.sub.localeCompare(b.sub));
+  return list;
+}
+function drawTargetTable() {
+  const picked = new Set((TGT && TGT.picked) || []);
+  const list = targetRows();
+  $("#tRows").innerHTML = list.map((t) => {
+    const c = t.c;
     const kind = t.kind === "ads" ? "already spending" : t.kind === "owner" ? "business owner" : "general business";
     const promo = (V2.PROMO[t.promo] || {}).name;
+    const scraped = c && c.promoWhy ? `<div class="faint">from its own rules</div>` : "";
     const members = c ? (c.ok ? (c.members || 0).toLocaleString() : `<span style="color:var(--warn)">${esc(c.why)}</span>`) : `<span class="faint">—</span>`;
-    return `<tr><td><a href="https://www.reddit.com/r/${esc(t.sub)}/" target="_blank">r/${esc(t.sub)}</a></td>
-      <td class="faint">${kind}</td><td class="faint">${esc(promo)}</td><td>${members}</td><td class="faint">${esc(t.note)}</td></tr>`;
-  }).join("");
+    const online = c && c.ok ? `<span style="color:${(c.online || 0) > 200 ? "var(--go)" : "var(--dim)"}">${(c.online || 0).toLocaleString()}</span>` : `<span class="faint">—</span>`;
+    const rules = c && c.rules && c.rules.length
+      ? `<div class="rules">rules: ${c.rules.slice(0, 6).map((r) => esc(r.name)).join(" · ")}${c.rules.length > 6 ? " · +" + (c.rules.length - 6) : ""}</div>` : "";
+    const why = c && c.promoWhy ? `<div class="rules" style="color:var(--warn)">${esc(c.promoWhy)}</div>` : "";
+    return `<tr>
+      <td><input type="checkbox" data-sub="${esc(t.sub)}" ${picked.has(t.sub) || !picked.size ? "checked" : ""}></td>
+      <td><a href="https://www.reddit.com/r/${esc(t.sub)}/" target="_blank">r/${esc(t.sub)}</a>${c && c.ok && c.over18 ? ' <span class="tag t-weekly">18+</span>' : ""}</td>
+      <td class="faint">${kind}</td><td class="faint">${esc(promo)}${scraped}</td>
+      <td>${members}</td><td>${online}</td>
+      <td class="faint">${esc(c && c.title ? c.title : t.note)}${rules}${why}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="faint">Nothing matches those filters.</td></tr>`;
+  $$("#tRows input[data-sub]").forEach((cb) => cb.onchange = pickRooms);
+  const on = $$("#tRows input[data-sub]").filter((b) => b.checked).length;
+  $("#tSay").textContent = `${list.length} shown · ${(TGT.picked || []).length || "all"} picked for the calendar`;
 }
+async function pickRooms() {
+  // only the rows on screen are editable, so merge them into what was picked
+  const shown = $$("#tRows input[data-sub]");
+  const prev = new Set((TGT.picked || []).length ? TGT.picked : (TGT.targets || []).map((t) => t.sub));
+  for (const b of shown) { if (b.checked) prev.add(b.dataset.sub); else prev.delete(b.dataset.sub); }
+  const keys = Array.from(prev);
+  TGT.picked = keys.length === (TGT.targets || []).length ? [] : keys;
+  await send({ type: "v2-rooms", picked: TGT.picked });
+  $("#tSay").textContent = `${shown.length} shown · ${TGT.picked.length || "all"} picked for the calendar`;
+}
+async function drawTargets() {
+  TGT = await send({ type: "v2-targets" });
+  if (!TGT || !TGT.ok) return;
+  $("#checkLive").textContent = TGT.lastCheck ? "checked " + ago(TGT.lastCheck) + " ago" : "not checked against Reddit yet — press the button";
+  drawTargetTable();
+}
+["tKind", "tPromo", "tSort", "tMin"].forEach((id) => { $("#" + id).onchange = drawTargetTable; $("#" + id).oninput = drawTargetTable; });
+$("#tAll").onclick = () => { $$("#tRows input[data-sub]").forEach((b) => b.checked = true); pickRooms(); };
+$("#tNone").onclick = () => { $$("#tRows input[data-sub]").forEach((b) => b.checked = false); pickRooms(); };
 $("#checkT").onclick = async () => {
-  say("asking Reddit about every room — this takes a minute…");
-  const r = await send({ type: "v2-check-targets" });
-  say(r && r.ok ? `${r.checked} rooms confirmed, ${r.failed} could not be read` : "could not check", "var(--go)");
-  drawTargets();
+  $("#checkT").disabled = true; $("#checkStop").style.display = "";
+  send({ type: "v2-check-targets" }).then((r) => {
+    $("#checkT").disabled = false; $("#checkStop").style.display = "none";
+    if (r && r.ok) say(`${r.checked} rooms confirmed, ${r.failed} could not be read, ${r.ruled} gave up their rules, ${r.moved} had their posting rule set from those rules`, "var(--go)");
+    drawTargets();
+  });
+  const tick = setInterval(async () => {
+    const st = await send({ type: "v2-check-state" });
+    if (!st || !st.running) { clearInterval(tick); return; }
+    $("#checkLive").textContent = `${esc(st.where)} · ${st.done} of ${st.total}`;
+  }, 800);
 };
+$("#checkStop").onclick = () => { send({ type: "v2-check-stop" }); say("stopping…"); };
+
+// --------------------------------------------------------------- results
+function resTable(title, rows, note) {
+  if (!rows.length) return "";
+  const best = rows[0];
+  return `<div class="card"><h3>${esc(title)}</h3><div class="faint">${esc(note)}</div>
+    <table style="margin-top:8px"><thead><tr><th>${esc(title)}</th><th style="width:80px">Posts</th><th style="width:90px">Comments</th><th style="width:80px">Hot</th><th style="width:96px">Replied</th><th style="width:70px">Won</th><th style="width:110px">Per post</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.posts}</td><td>${r.leads}</td><td><b style="color:var(--go)">${r.hot}</b></td><td>${r.replied}</td><td>${r.won}</td><td>${r.per}</td></tr>`).join("")}</tbody></table>
+    ${best.posts >= 3 ? `<div class="faint" style="margin-top:8px">Best so far: <b>${esc(best.name)}</b> at ${best.per} comments a post. Give it three posts before believing it.</div>` : `<div class="faint" style="margin-top:8px">Too early to call — nothing here has three posts behind it yet.</div>`}</div>`;
+}
+async function drawResults() {
+  const b = BOARD && BOARD.results ? BOARD : await send({ type: "v2-board" });
+  const r = (b && b.results) || { groups: [], shapes: [], offers: [] };
+  const body = [
+    resTable("Kind of room", r.groups, "Which audience answers. This is the one that decides where the next month goes."),
+    resTable("Shape of post", r.shapes, "Which kind of post earns comments. Offer posts should win on leads, value posts on reach."),
+    resTable("Offer", r.offers, "Which offer people actually raise a hand for."),
+  ].filter(Boolean).join("");
+  $("#resBody").innerHTML = body || `<div class="card"><h3>Nothing to measure yet</h3><div class="faint">Post a few days of the calendar, then pull the comments. Numbers appear here once posts have gone out.</div></div>`;
+}
+
 function drawAds() {
   const a = V2.ADS_PLAN;
   $("#adsBody").innerHTML = `<div class="note">${esc(a.idea)}</div>
@@ -232,7 +371,7 @@ function drawAds() {
 // ------------------------------------------------------------------- boot
 (async function boot() {
   try { $("#ver").textContent = "v" + chrome.runtime.getManifest().version; } catch (_) { /* opened as a file */ }
-  drawOffers(); drawAds();
+  drawAds();
   await drawPlan();
   const tab = (location.hash || "#plan").slice(1);
   const b = $$("nav button").find((x) => x.dataset.tab === tab);

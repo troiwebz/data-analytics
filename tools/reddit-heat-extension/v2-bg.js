@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, lastPlan: 0, lastLeads: 0, lastScan: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -16,16 +16,28 @@ async function v2Set(patch) {
   return next;
 }
 function v2Settings(st) {
-  return { auto: false, perDay: 1, subCoolDays: 14, magnetEvery: 4, kinds: "all", days: 30, subs: [], offers: [], types: [], ...(st.settings || {}) };
+  return { auto: false, perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, ...(st.settings || {}) };
+}
+// Offers written in the studio live in storage, not in the shipped list, so
+// they are merged back onto V2 before anything resolves an offer key. The
+// same pass applies whatever the rules scraper learned about each room.
+function v2Apply(st) {
+  V2.POOL = Array.isArray(st.pool) ? st.pool : [];
+  for (const [sub, info] of Object.entries(st.targets || {})) {
+    if (!info || !info.promo) continue;
+    const t = V2.TARGETS.find((x) => x.sub === sub);
+    if (t && t.promo !== info.promo) { t.promo = info.promo; t.promoWhy = info.promoWhy || ""; }
+  }
 }
 const v2Key = (r) => r.sub + "|" + r.typeKey + "|" + r.offerKey;
 
 // ------------------------------------------------------------------ plan
 async function v2Plan(opts = {}) {
   const st = await v2Get();
+  v2Apply(st);
   const s = { ...v2Settings(st), ...opts };
   const history = Object.values(st.posts || {}).map((p) => ({ sub: p.sub, at: p.at || 0 }));
-  const built = V2.plan({ days: s.days, perDay: s.perDay, subCoolDays: s.subCoolDays, magnetEvery: s.magnetEvery, kinds: s.kinds, subs: s.subs, offers: s.offers, types: s.types, history, start: opts.start || Date.now() });
+  const built = V2.plan({ days: s.days, perDay: s.perDay, subCoolDays: s.subCoolDays, magnetEvery: s.magnetEvery, kinds: s.kinds, subs: s.subs, offers: s.offers, types: s.types, commentsPerPost: s.commentsPerPost, history, start: opts.start || Date.now() });
   if (built.error) return { ok: false, error: built.error };
   // a row already posted keeps its place; a draft already written is carried
   // over to the row that asks for the same thing, so replanning never throws
@@ -39,28 +51,60 @@ async function v2Plan(opts = {}) {
   const rows = built.rows;
   for (const p of posted) { const hit = rows.find((r) => r.sub === p.sub && r.typeKey === p.typeKey); if (hit) Object.assign(hit, { state: "posted", url: p.url, postId: p.postId, postedAt: p.postedAt }); }
   await v2Set({ plan: rows, drafts, settings: s, lastPlan: Date.now() });
-  return { ok: true, rows, magnets: built.magnets, values: built.values, rooms: built.rooms, skipped: built.skipped };
+  return { ok: true, rows, magnets: built.magnets, values: built.values, rooms: built.rooms, skipped: built.skipped, groups: built.groups, perDay: built.perDay, comments: built.comments };
 }
 
 async function v2Board() {
   const st = await v2Get();
+  v2Apply(st);
   const s = v2Settings(st);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const rows = (st.plan || []).map((r) => ({ ...r, draft: st.drafts[r.n] ? { title: st.drafts[r.n].title, words: String(st.drafts[r.n].body || "").split(/\s+/).length, issues: st.drafts[r.n].issues || [], risk: st.drafts[r.n].risk || "" } : null }));
   const due = rows.find((r) => r.sub && r.state !== "posted" && r.at <= today.getTime() + 86400000);
   const leads = Object.values(st.leads || {});
+  const postedRows = rows.filter((r) => r.state === "posted");
   return {
     ok: true, rows, settings: s,
     due: due || null,
     counts: {
       planned: rows.filter((r) => r.state === "planned").length,
       drafted: rows.filter((r) => r.state === "drafted").length,
-      posted: rows.filter((r) => r.state === "posted").length,
+      posted: postedRows.length,
       leads: leads.length,
       newLeads: leads.filter((l) => l.state === "new").length,
     },
+    ratio: V2.ratio(postedRows.length, st.answered || 0),
+    results: v2Results(st),
     lastLeads: st.lastLeads || 0, lastScan: st.lastScan || 0,
     targets: st.targets || {},
+  };
+}
+
+// Three posts a day only pays for itself if you can see which of the three
+// worked. Everything is grouped twice — by the kind of room and by the shape
+// of the post — so the winner is a fact rather than a feeling.
+function v2Results(st) {
+  const byGroup = {}, byShape = {}, byOffer = {};
+  const bump = (bag, key, patch) => {
+    if (!key) return;
+    const b = (bag[key] = bag[key] || { key, posts: 0, leads: 0, hot: 0, replied: 0, won: 0 });
+    for (const k of Object.keys(patch)) b[k] += patch[k];
+  };
+  const leads = Object.values(st.leads || {});
+  for (const p of Object.values(st.posts || {})) {
+    const mine = leads.filter((l) => l.postN === p.n);
+    const patch = { posts: 1, leads: mine.length, hot: mine.filter((l) => l.tier >= 2).length,
+      replied: mine.filter((l) => ["replied", "won"].includes(l.state)).length, won: mine.filter((l) => l.state === "won").length };
+    const room = V2.TARGETS.find((t) => t.sub === p.sub);
+    bump(byGroup, (room && room.kind) || "biz", patch);
+    bump(byShape, p.typeKey, patch);
+    bump(byOffer, p.offerKey, patch);
+  }
+  const rank = (bag, label) => Object.values(bag).sort((a, b) => (b.hot - a.hot) || (b.leads - a.leads)).map((r) => ({ ...r, name: label(r.key), per: r.posts ? Math.round((r.leads / r.posts) * 10) / 10 : 0 }));
+  return {
+    groups: rank(byGroup, (k) => (V2.KINDS.find((x) => x.key === k) || {}).name || k),
+    shapes: rank(byShape, (k) => V2.postType(k).name),
+    offers: rank(byOffer, (k) => V2.offer(k).name),
   };
 }
 
@@ -96,6 +140,7 @@ async function v2Ai(system, user, schema, maxTokens, label) {
 
 async function v2Draft(n, force) {
   const st = await v2Get();
+  v2Apply(st);
   const row = (st.plan || []).find((r) => r.n === Number(n));
   if (!row || !row.sub) return { ok: false, error: "that day is not on the plan" };
   if (st.drafts[n] && !force) return { ok: true, draft: st.drafts[n], cached: true };
@@ -130,6 +175,56 @@ async function v2DraftSave(n, patch) {
   if (row.state === "planned") row.state = "drafted";
   await v2Set({ drafts: st.drafts, plan: st.plan });
   return { ok: true, draft: d };
+}
+
+// ------------------------------------------------------- the offer studio
+// Type what you do and what you can prove; get ten offers back, each on a
+// different angle, each gated by the same rules the shipped ten obey.
+async function v2OfferMake(brief) {
+  if (!String(brief || "").trim()) return { ok: false, error: "write a line or two about what you do first" };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const profile = config.profile || {};
+  const res = await v2Ai(V2.offerSystem(profile), V2.offerUser(brief, profile), V2.OFFER_SCHEMA, 4000, "ten offers");
+  if (!res.ok) return res;
+  const made = (res.parsed.offers || []).slice(0, 10).map((d, i) => {
+    const o = V2.offerFromDraft(d, i);
+    o.issues = V2.offerChecks(o);
+    return o;
+  });
+  if (!made.length) return { ok: false, error: "the model returned no offers" };
+  const st = await v2Get();
+  await v2Set({ made, madeBrief: String(brief).slice(0, 4000), madeAt: Date.now() });
+  return { ok: true, made, cents: res.cents, clean: made.filter((o) => !o.issues.length).length };
+}
+
+async function v2OfferKeep(key) {
+  const st = await v2Get();
+  const o = (st.made || []).find((x) => x.key === key);
+  if (!o) return { ok: false, error: "that offer is not in the last batch" };
+  if ((st.pool || []).some((x) => x.key === key)) return { ok: true, already: true };
+  const pool = [...(st.pool || []), { ...o, issues: undefined }];
+  await v2Set({ pool });
+  return { ok: true, pool: pool.length };
+}
+async function v2OfferForget(key) {
+  const st = await v2Get();
+  const pool = (st.pool || []).filter((x) => x.key !== key);
+  const settings = v2Settings(st);
+  settings.offers = (settings.offers || []).filter((k) => k !== key);
+  await v2Set({ pool, settings });
+  return { ok: true, pool: pool.length };
+}
+// Which offers the calendar is allowed to use. An empty list means all of them.
+async function v2OfferPick(keys) {
+  const st = await v2Get();
+  await v2Set({ settings: { ...v2Settings(st), offers: Array.isArray(keys) ? keys : [] } });
+  return { ok: true };
+}
+async function v2Offers() {
+  const st = await v2Get();
+  v2Apply(st);
+  const s = v2Settings(st);
+  return { ok: true, shipped: V2.OFFERS, pool: st.pool || [], made: st.made || [], brief: st.madeBrief || "", picked: s.offers || [], angles: V2.OFFER_ANGLES };
 }
 
 // ------------------------------------------------------------- posting it
@@ -230,22 +325,62 @@ async function v2LeadAct(id, action, note) {
 // Rather than trust the list we shipped, ask Reddit. Subscribers, whether
 // the room still exists, whether it takes text posts. A wrong guess in the
 // list is corrected here instead of wasting a posting day.
-async function v2CheckTargets() {
+async function v2CheckTargets(only) {
   const st = await v2Get();
   const out = { ...(st.targets || {}) };
-  let ok = 0, gone = 0;
-  for (const t of V2.TARGETS) {
+  const list = only && only.length ? V2.TARGETS.filter((t) => only.includes(t.sub)) : V2.TARGETS;
+  let ok = 0, gone = 0, ruled = 0, i = 0;
+  await chrome.storage.local.set({ v2Check: { running: true, total: list.length, done: 0, where: "", stop: false } });
+  for (const t of list) {
+    i += 1;
+    const { v2Check: ck = {} } = await chrome.storage.local.get(["v2Check"]);
+    if (ck.stop) break;
+    await chrome.storage.local.set({ v2Check: { running: true, total: list.length, done: i, where: "r/" + t.sub, stop: false } });
+    let about = null;
+    try { about = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(t.sub)}/about.json?raw_json=1`); } catch (_) { /* below */ }
+    const d = (about && about.data) || {};
+    if (!d.display_name) { out[t.sub] = { ok: false, why: "not found, private or banned", at: Date.now() }; gone += 1; await new Promise((r) => setTimeout(r, 350)); continue; }
+    const row = {
+      ok: true, at: Date.now(),
+      members: d.subscribers || 0,
+      online: d.accounts_active || d.active_user_count || 0,
+      type: d.submission_type || "any",
+      over18: !!d.over18,
+      restricted: d.subreddit_type !== "public",
+      quarantined: !!d.quarantine,
+      title: String(d.title || d.public_description || "").slice(0, 160),
+    };
+    // the room's own rules, straight from Reddit, and what they imply about
+    // whether we may post an offer there at all
     try {
-      const j = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(t.sub)}/about.json?raw_json=1`);
-      const d = (j && j.data) || {};
-      if (!d.display_name) { out[t.sub] = { ok: false, why: "not found", at: Date.now() }; gone += 1; continue; }
-      out[t.sub] = { ok: true, members: d.subscribers || 0, active: d.accounts_active || 0, type: d.submission_type || "any", over18: !!d.over18, restricted: d.subreddit_type !== "public", at: Date.now() };
-      ok += 1;
-    } catch (_) { out[t.sub] = { ok: false, why: "could not read it", at: Date.now() }; gone += 1; }
-    await new Promise((r) => setTimeout(r, 400));
+      const rj = await huntFetch(`https://old.reddit.com/r/${encodeURIComponent(t.sub)}/about/rules.json?raw_json=1`);
+      const rules = ((rj && rj.rules) || []).map((r) => ({
+        name: String(r.short_name || "").slice(0, 120),
+        what: String(r.description || "").replace(/\s+/g, " ").slice(0, 600),
+        kind: r.kind || "",
+      }));
+      if (rules.length) { row.rules = rules; ruled += 1; }
+      const verdict = V2.promoFromRules(rules, d.submit_text || "", d.description || d.public_description || "");
+      if (verdict) { row.promo = verdict.promo; row.promoWhy = verdict.why; }
+    } catch (_) { /* some rooms hide their rules json */ }
+    if (row.restricted || row.quarantined) { row.promo = "no"; row.promoWhy = row.quarantined ? "the room is quarantined" : "the room is restricted — only approved users may post"; }
+    if (row.type === "link") { row.promo = "no"; row.promoWhy = "it does not take text posts"; }
+    out[t.sub] = row;
+    ok += 1;
+    await new Promise((r) => setTimeout(r, 450));
   }
-  await v2Set({ targets: out });
-  return { ok: true, checked: ok, failed: gone, targets: out };
+  await chrome.storage.local.set({ v2Check: { running: false, total: list.length, done: i, where: "", stop: false } });
+  await v2Set({ targets: out, lastCheck: Date.now() });
+  const moved = Object.values(out).filter((x) => x && x.promo).length;
+  return { ok: true, checked: ok, failed: gone, ruled, moved, targets: out };
+}
+
+// Which rooms the calendar may use. An empty list means every room that
+// allows a post.
+async function v2Rooms(picked) {
+  const st = await v2Get();
+  await v2Set({ settings: { ...v2Settings(st), subs: Array.isArray(picked) ? picked : [] } });
+  return { ok: true, picked: (picked || []).length };
 }
 
 // -------------------------------------------------- the buyer hunt (v2)
@@ -325,10 +460,10 @@ async function v2QueueAct(id, action) {
   const st = await v2Get();
   const p = (st.queue || {})[id];
   if (!p) return { ok: false };
-  if (action === "answered") { p.state = "done"; p.answeredAt = Date.now(); }
+  if (action === "answered") { p.state = "done"; p.answeredAt = Date.now(); st.answered = (st.answered || 0) + 1; }
   else if (action === "drop") { p.state = "dropped"; }
-  else if (action === "undo") { p.state = "new"; delete p.answeredAt; }
-  await v2Set({ queue: st.queue });
+  else if (action === "undo") { if (p.answeredAt) st.answered = Math.max(0, (st.answered || 0) - 1); p.state = "new"; delete p.answeredAt; }
+  await v2Set({ queue: st.queue, answered: st.answered || 0 });
   return { ok: true };
 }
 
@@ -349,8 +484,16 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-leads": return go(v2Get().then((st) => ({ ok: true, rows: Object.values(st.leads || {}).sort((a, b) => (b.tier - a.tier) || (b.at - a.at)), lastLeads: st.lastLeads || 0 })));
     case "v2-lead-poll": return go(v2LeadPoll());
     case "v2-lead-act": return go(v2LeadAct(msg.id, msg.action, msg.note));
-    case "v2-targets": return go(v2Get().then((st) => ({ ok: true, targets: V2.TARGETS, checked: st.targets || {}, kinds: V2.KINDS, promo: V2.PROMO })));
-    case "v2-check-targets": return go(v2CheckTargets());
+    case "v2-targets": return go(v2Get().then((st) => { v2Apply(st); return { ok: true, targets: V2.TARGETS, checked: st.targets || {}, kinds: V2.KINDS, promo: V2.PROMO, picked: v2Settings(st).subs || [], lastCheck: st.lastCheck || 0 }; }));
+    case "v2-check-targets": return go(v2CheckTargets(msg.only));
+    case "v2-check-state": return go(chrome.storage.local.get(["v2Check"]).then((x) => x.v2Check || { running: false }));
+    case "v2-check-stop": return go(chrome.storage.local.get(["v2Check"]).then((x) => chrome.storage.local.set({ v2Check: { ...(x.v2Check || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-rooms": return go(v2Rooms(msg.picked));
+    case "v2-offers": return go(v2Offers());
+    case "v2-offer-make": return go(v2OfferMake(msg.brief));
+    case "v2-offer-keep": return go(v2OfferKeep(msg.key));
+    case "v2-offer-forget": return go(v2OfferForget(msg.key));
+    case "v2-offer-pick": return go(v2OfferPick(msg.keys));
     case "v2-scan": return go(v2Scan(true));
     case "v2-scan-state": return go(chrome.storage.local.get(["v2Scan"]).then((x) => x.v2Scan || { running: false }));
     case "v2-scan-stop": return go(chrome.storage.local.get(["v2Scan"]).then((x) => chrome.storage.local.set({ v2Scan: { ...(x.v2Scan || {}), stop: true } })).then(() => ({ ok: true })));
