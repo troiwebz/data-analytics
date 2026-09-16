@@ -280,6 +280,18 @@ $('findChat').addEventListener('click', async () => {
   b.disabled = false; b.textContent = 'Find it for me';
 });
 
+$('unhook').addEventListener('click', async () => {
+  const b = $('unhook');
+  b.disabled = true; b.textContent = 'Removing…';
+  const r = await ai('tg-unhook');
+  if (r?.error) showTg(null, `Could not remove it: ${r.error}`);
+  else if (!r.had) status('There is no webhook on this bot — nothing to remove.');
+  else if (r.gone) status(`Webhook removed (it was ${r.was}). The bot is yours now — press "Find it for me", then Save.`);
+  else status(`It came straight back (${r.back}). Something is still setting it — turn off the Apps Script `
+            + `triggers first: Apps Script → Triggers → delete, then Deploy → Manage deployments → Archive.`, true);
+  b.disabled = false; b.textContent = 'Remove the webhook';
+});
+
 $('selfTest').addEventListener('click', async () => {
   const b = $('selfTest');
   b.disabled = true; b.textContent = 'Testing…';

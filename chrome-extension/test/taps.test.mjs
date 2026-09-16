@@ -374,6 +374,41 @@ f = await T.findChatId();
 ok('and a webhook is named rather than shrugged at', /webhook/i.test(f.error || ''), JSON.stringify(f));
 canned = {};
 
+// --- handing the bot back from the webhook ---------------------------------
+// A bot can have a webhook or be read by Chrome, never both. While the old
+// Apps Script relay's webhook is on, every message and every tap goes to
+// Google instead of here.
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://script.google.com/old' } } };
+let hooks = 0;
+const realCall = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  if (method === 'deleteWebhook') { hooks++; canned.getWebhookInfo = { ok: true, result: {} }; }
+  return realCall(url, opts);
+};
+let w = await T.removeWebhook();
+ok('the webhook is removed', w.had === true && w.gone === true, JSON.stringify(w));
+ok('and it says what was there', /script\.google\.com/.test(w.was || ''), w.was);
+ok('deleteWebhook was actually called', hooks === 1, String(hooks));
+
+// Nothing to remove reads as nothing to remove, not as a failure.
+w = await T.removeWebhook();
+ok('a bot with no webhook says so plainly', w.had === false, JSON.stringify(w));
+
+// A live Apps Script trigger puts its webhook straight back, which looks
+// exactly like the delete having failed.
+canned.getWebhookInfo = { ok: true, result: { url: 'https://script.google.com/old' } };
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  if (method === 'deleteWebhook') hooks++;       // but it comes back
+  return realCall(url, opts);
+};
+w = await T.removeWebhook();
+ok('a webhook that reappears is reported as such', w.had === true && w.gone === false, JSON.stringify(w));
+ok('and names what put it back', /script\.google\.com/.test(w.back || ''), w.back);
+globalThis.fetch = realCall;
+canned = {};
+
 await T.clearToken();
 ok('with no token it says so rather than failing oddly',
    /No bot token/i.test((await T.findChatId()).error || ''), JSON.stringify(await T.findChatId()));

@@ -1235,6 +1235,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ at: tgSelfTestAt || 0 });
         break;
       }
+      case 'tg-unhook': {                            // hand the bot back from the webhook
+        sendResponse(await telegram.removeWebhook()
+          .then(async (r) => { if (r.gone) await log('removed the webhook from the Telegram bot'); return r; })
+          .catch((e) => ({ error: e.message })));
+        break;
+      }
       case 'tg-findchat': {                          // read your own chat id off the bot
         sendResponse(await telegram.findChatId().catch((e) => ({ error: e.message })));
         break;

@@ -434,6 +434,30 @@ export async function findChatId() {
 }
 
 /**
+ * Take the webhook off the bot.
+ *
+ * A bot can have a webhook or be polled, never both. While the old Apps Script
+ * relay's webhook is set, every message you send the bot and every button you
+ * tap goes to a Google server instead of to Chrome, and nothing here can read
+ * either. Removing it is what hands the bot back.
+ *
+ * Done from here rather than by opening api.telegram.org/bot<token>/... in a
+ * tab, which would put the token in browser history and anything that syncs it.
+ *
+ * drop_pending_updates is deliberately NOT set: anything queued while the
+ * webhook was on is then still there to be read.
+ */
+export async function removeWebhook() {
+  const before = await call('getWebhookInfo', {});
+  if (!before?.url) return { had: false };
+  await call('deleteWebhook', {});
+  const after = await call('getWebhookInfo', {});
+  // A live Apps Script trigger can put its webhook straight back, which looks
+  // exactly like the delete having failed. Say which it is.
+  return { had: true, was: before.url, gone: !after?.url, back: after?.url || '' };
+}
+
+/**
  * The one thing no amount of checking from this side can prove: that a tap on
  * your phone reaches Chrome. Sends a message with a single button; tapping it
  * closes the loop, and the reply you get back is the proof.
