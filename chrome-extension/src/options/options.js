@@ -204,8 +204,14 @@ function showTg(r, err) {
   el.style.color = '#334155';
   if (!r?.stored) {
     el.style.color = '#b45309';
-    el.innerHTML = '<b>No bot token saved.</b> New threads will not reach your phone. '
-                 + 'Open Telegram, message <b>@BotFather</b>, send <b>/newbot</b>, and paste the token it gives you above.';
+    // Two different situations, and telling everyone to send /newbot puts the
+    // person who already HAS a bot into a second one - so their "hi" goes to
+    // one bot while the token belongs to another, and nothing ever connects.
+    el.innerHTML = '<b>No bot token saved.</b> New threads will not reach your phone.<br>'
+      + '<b>Already made a bot?</b> Message <b>@BotFather</b>, send <b>/mybots</b>, pick it, '
+      + 'tap <b>API Token</b>, and paste that above. Do not send /newbot — that makes a second bot, '
+      + 'and your messages would go to the wrong one.<br>'
+      + '<b>No bot yet?</b> Message <b>@BotFather</b>, send <b>/newbot</b>, and paste the token it gives you.';
     return;
   }
   // A missing chat id is exactly as fatal as a missing token - nothing can be

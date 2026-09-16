@@ -260,7 +260,8 @@ export async function diagnose(cfg) {
   const out = [];
   const token = await getToken();
   if (!token) {
-    out.push(['✗', 'No bot token saved. Paste it above and press Save.']);
+    out.push(['✗', 'No bot token saved. If you already have a bot, get its token from @BotFather with '
+      + '/mybots → pick it → API Token. Do not send /newbot unless you want a second bot.']);
     return { ok: false, checks: out };
   }
   out.push(['✓', 'Bot token is saved.']);
