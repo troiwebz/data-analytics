@@ -12,7 +12,7 @@ globalThis.chrome = {
     sendMessage: async (m) => { if (m?.target === 'offscreen-audio') { played.push(m); return { ok: true }; } return {}; }
   },
   action: { onClicked: { addListener: () => {} } },
-  tabs: { onRemoved: { addListener: () => {} } },
+  tabs: { onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {}, removeListener: () => {} } },
   alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
   notifications: {
     create: (id, opts, cb) => { globalThis.__banners.push({ id, opts }); cb && cb(id); },

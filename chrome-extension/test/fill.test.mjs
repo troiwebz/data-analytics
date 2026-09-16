@@ -60,11 +60,10 @@ const page = (wipeOn) => `<!doctype html><meta charset="utf-8">
   el.addEventListener('input', (e) => { if (e.isTrusted) { model = el.innerHTML; hidden.value = model; } });
 
   const restore = () => { el.innerHTML = model; hidden.value = model; };
-  if (${JSON.stringify(wipeOn)} === 'blur') {
-    el.addEventListener('blur', () => setTimeout(restore, 1200));
-  } else {
-    setTimeout(restore, 1400);                     // a late init, resetting from its copy
-  }
+  const mode = ${JSON.stringify(wipeOn)};
+  if (mode === 'blur') el.addEventListener('blur', () => setTimeout(restore, 1200));
+  else if (mode === 'init') setTimeout(restore, 1400);   // a late init, resetting from its copy
+  // 'none': a well-behaved editor, for testing what happens around a real post
 })();
 </script>`;
 
@@ -123,6 +122,38 @@ for (const wipeOn of ['blur', 'init']) {
   await p.waitForTimeout(2500);
   const after = await p.evaluate(() => document.querySelector('.fr-element').textContent.trim());
   ok('clearing it yourself sticks - the hold does not put it back', after === '', JSON.stringify(after.slice(0, 50)));
+  await p.close();
+}
+
+// Pressing Post reply clears the editor - that is the forum accepting the
+// reply, not a wipe. The hold must stand down rather than type the draft back
+// in on top of a reply you have just posted. A click, note, not a keystroke.
+{
+  const p = await browser.newPage();
+  await p.setContent(page('none') + `<script>
+    // What XenForo does on a successful quick reply: add the post, clear the box.
+    document.querySelector('button[type=submit]').addEventListener('click', (ev) => {
+      ev.preventDefault();                          // XenForo posts over AJAX
+      const a = document.createElement('article'); a.className = 'message';
+      a.innerHTML = '<a href="/threads/x.1/post-77">#77</a>';
+      document.body.appendChild(a);
+      document.querySelector('.fr-element').innerHTML = '';
+    });
+  </script>`);
+  await p.evaluate(() => { window.__sent = []; window.chrome = { runtime: { sendMessage: (m) => window.__sent.push(m) } }; });
+  await p.evaluate(({ draft }) => {
+    globalThis.__HAF_DRAFT__ = draft; globalThis.__HAF_MODE__ = 'stage'; globalThis.__HAF_THREAD_ID__ = '9001';
+  }, { draft: DRAFT });
+  for (const f of ['selectors.js', 'content-lib.js', 'content-post.js']) await p.evaluate(read(f));
+  await p.waitForFunction(() => window.__sent.length > 0, null, { timeout: 15000 });
+
+  await p.click('button[type=submit]');
+  await p.waitForTimeout(2500);
+  const after = await p.evaluate(() => document.querySelector('.fr-element').textContent.trim());
+  ok('posting it clears the box and the hold leaves it cleared', after === '', JSON.stringify(after.slice(0, 60)));
+  const landed = await p.evaluate(() => window.__sent.find((m) => m.cmd === 'reply-landed'));
+  ok('and the reply landing is reported, so the row can turn green', !!landed, JSON.stringify(landed));
+  ok('with the real post link', /\/post-77$/.test(landed?.postUrl || ''), landed?.postUrl);
   await p.close();
 }
 

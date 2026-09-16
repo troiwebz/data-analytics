@@ -181,17 +181,30 @@ ok('Copy marks the thread posted',
 ok('and says so', /marked as posted/i.test($('rows').querySelector('#msg-9001')?.textContent || ''),
    $('rows').querySelector('#msg-9001')?.textContent);
 
-// Open filled is an intent to post, so it marks the row without a second click.
+// Open filled fills a tab and leaves it open. It must NOT mark the row posted:
+// that mark is what used to close the very tab it had just opened, and it also
+// claimed a reply you had not sent yet. The service worker sets the row to
+// FILLED, and it turns POSTED off the reply actually landing - staged.test.mjs
+// owns that half.
 leads[0].status = 'SENT'; leads[0].pmSent = false;
 await render();
 global.__sent = [];
 await openLead('9001');
 click($('rows').querySelector('button[data-act="fill"]')); await wait(); await wait();
-ok('Open filled marks the thread posted',
-   global.__sent.some((m) => m.cmd === 'mark' && m.threadId === '9001' && m.status === 'POSTED'),
+ok('Open filled asks for the fill', global.__sent.some((m) => m.cmd === 'fill-thread' && m.lead?.threadId === '9001'),
    JSON.stringify(global.__sent.map((m) => m.cmd)));
-ok('and says both what it did and that it can be undone',
-   /marked as posted/i.test(flashOf('9001')) && /undo/i.test(flashOf('9001')), flashOf('9001'));
+ok('and does NOT mark the row posted, which is what closed the tab',
+   !global.__sent.some((m) => m.cmd === 'mark'), JSON.stringify(global.__sent.map((m) => m.cmd)));
+ok('and says the tab stays open and will go green by itself',
+   /stays open/i.test(flashOf('9001')) && /green/i.test(flashOf('9001')), flashOf('9001'));
+
+// The FILLED row reads as waiting on you, not as done.
+leads[0].status = 'FILLED'; await render();
+const filled = $('rows').querySelector('tr[data-row="9001"]');
+ok('a filled row is flagged as waiting on you', /filled — waiting on you/.test(filled.textContent), filled.textContent.slice(0, 80));
+ok('and is not struck through as done', !/\bposted\b/.test(filled.className) && /\bfilling\b/.test(filled.className), filled.className);
+ok('and keeps its Post now and Skip buttons', !!$('rows').querySelector('button[data-act="post"]'));
+leads[0].status = 'SENT'; await render();
 
 // A fill that fails must NOT mark anything.
 leads[0].status = 'SENT'; await render();

@@ -42,8 +42,11 @@ globalThis.HAF_HTML = function (text) {
  *   - Trust nothing. Some themes re-initialise the editor a beat after the
  *     page settles, which wipes it however the text got in. So the text is
  *     held: if it disappears within the next few seconds it goes straight back.
- *     The hold stops the instant you touch the keyboard, so it can never fight
- *     you for the box or undo a deletion you meant.
+ *     The hold stands down the instant you do anything yourself - a keystroke,
+ *     a paste, or a click on any button - so it can never fight you for the
+ *     box, undo a deletion you meant, or type the draft back in after you have
+ *     pressed Post reply and the forum has cleared the editor. Only trusted
+ *     events count, and ours are never trusted.
  */
 /**
  * Plain text -> BB code, for when the rich editor is switched off in
@@ -120,15 +123,28 @@ globalThis.HAF_FILL = function (rich, plain, text, opts) {
   // Hold it. Anything you do yourself ends the hold immediately - the events
   // are trusted, ours are not, so this cannot mistake one for the other.
   let held = 0;
+  let stop = () => {};
   if (holdMs > 0 && (rich || plain)) {
     const target = rich || plain;
+    const doc = target.ownerDocument;
+    const EDITS = ['keydown', 'paste', 'cut', 'drop'];
     let timer = null;
-    const stop = () => {
+    stop = () => {
       if (timer) { clearInterval(timer); timer = null; }
-      for (const t of ['keydown', 'paste', 'cut', 'drop']) target.removeEventListener(t, onUser, true);
+      for (const t of EDITS) target.removeEventListener(t, onEdit, true);
+      doc.removeEventListener('click', onClick, true);
     };
-    function onUser(e) { if (e.isTrusted) stop(); }
-    for (const t of ['keydown', 'paste', 'cut', 'drop']) target.addEventListener(t, onUser, true);
+    function onEdit(e) { if (e.isTrusted) stop(); }
+    // Pressing Post reply is a click, not a keystroke, and the forum clears the
+    // editor right after it. Without this the hold would type the draft back in
+    // on top of the reply you just posted.
+    function onClick(e) {
+      if (!e.isTrusted) return;
+      const el = e.target && e.target.closest && e.target.closest('button, input[type="submit"], a.button');
+      if (el) stop();
+    }
+    for (const t of EDITS) target.addEventListener(t, onEdit, true);
+    doc.addEventListener('click', onClick, true);
 
     const until = Date.now() + holdMs;
     timer = setInterval(() => {
@@ -139,5 +155,5 @@ globalThis.HAF_FILL = function (rich, plain, text, opts) {
     }, 400);
   }
 
-  return { ok, held: () => held };
+  return { ok, held: () => held, stop: () => stop() };
 };

@@ -152,7 +152,60 @@ chrome.action.onClicked.addListener(async () => {
 });
 
 // A staged tab the user closes by hand is simply forgotten.
-chrome.tabs.onRemoved.addListener((tabId) => removeStagedByTab(tabId));
+/**
+ * A tab you filled and then closed without posting goes back on the to-do list.
+ * Anything else would leave the row claiming a state you never reached.
+ */
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const staged = await getStaged();
+  const entry = Object.entries(staged).find(([, e]) => e.tabId === tabId);
+  await removeStagedByTab(tabId);
+  if (!entry) return;
+  const [threadId] = entry;
+  const lead = (await getLeads()).find((l) => String(l.threadId) === String(threadId));
+  if (lead?.status === 'FILLED') {
+    await updateLead(threadId, { status: 'SENT', staged: false });
+    await log(`filled tab closed without posting → back on the to-do list: "${lead.title}"`);
+  }
+});
+
+/**
+ * The reply landing on the thread, for real.
+ *
+ * "Open filled" types the reply in and leaves the tab for you to read and
+ * press Post reply. The row says FILLED until then, and turns POSTED here -
+ * when the content script sees the post actually appear, or when the page
+ * navigates to the new post (XenForo does one or the other depending on
+ * whether the quick reply went through AJAX). Either way the real post link is
+ * what gets saved, not a guess.
+ */
+async function replyLanded(threadId, postUrl, how) {
+  const lead = (await getLeads()).find((l) => String(l.threadId) === String(threadId));
+  // Only a thread we filled and are holding open can land this way. Anything
+  // else - already counted, or a row we never filled - is not ours to mark.
+  if (!lead || lead.status !== 'FILLED') return;
+  await recordPost();                                     // counts against your daily cap now, not at fill time
+  await updateLead(threadId, { status: 'POSTED', postUrl: postUrl || '', staged: false, error: '' });
+  await setStaged(threadId, null);                        // the tab stays open; it is yours
+  await log(`reply landed on "${lead.title}" (${how})`);
+  const cfg = await getConfig();
+  if (cfg.webhookUrl) await reportResult(cfg, threadId, 'POSTED', `posted in the tab (${how})`).catch(() => {});
+}
+
+// Fallback for a quick reply that reloads the page instead of posting over
+// AJAX: XenForo lands you on /threads/<slug>.<id>/post-<n>, which the in-page
+// watcher cannot report because it died with the old document.
+chrome.tabs.onUpdated.addListener(async (tabId, info) => {
+  if (!info.url || !/\/post-\d+/.test(info.url)) return;
+  const staged = await getStaged();
+  const entry = Object.entries(staged).find(([, e]) => e.tabId === tabId);
+  if (!entry) return;
+  // It has to be a post in the thread we filled. Otherwise reading someone
+  // else's post permalink in that tab would mark your reply as sent.
+  const lead = (await getLeads()).find((l) => String(l.threadId) === String(entry[0]));
+  const sameThread = lead?.url && info.url.startsWith(String(lead.url).replace(/\/+$/, ''));
+  if (sameThread) await replyLanded(entry[0], info.url, 'page reloaded onto the post');
+});
 
 export async function scheduleAlarms(cfg) {
   await chrome.alarms.clear(FEED_ALARM);
@@ -502,11 +555,15 @@ async function stageLeads(leads, cfg) {
   }
 }
 
-async function expireStaged() {
+export async function expireStaged() {
   const cfg = await getConfig();
   const staged = await getStaged();
   const cutoff = Date.now() - cfg.stageTtlMinutes * 60000;
   for (const [threadId, e] of Object.entries(staged)) {
+    // A tab you opened with "Open filled" is yours until you close it. The
+    // expiry is for tabs the watcher armed by itself in the background, which
+    // is where stale tabs actually pile up.
+    if (e.by === 'you') continue;
     if (e.at < cutoff) {
       chrome.tabs.remove(e.tabId).catch(() => {});
       await setStaged(threadId, null);
@@ -742,7 +799,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const was = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
         if (msg.status === 'POSTED' && was?.status !== 'POSTED') await recordPost();
         const staged = (await getStaged())[msg.threadId];
-        if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.threadId, null); }
+        // Drop the bookkeeping either way, but only close the tab if the
+        // watcher opened it. Closing a tab you opened yourself, a second after
+        // filling it, is what "Open filled" used to do to itself.
+        if (staged) {
+          if (staged.by !== 'you') chrome.tabs.remove(staged.tabId).catch(() => {});
+          await setStaged(msg.threadId, null);
+        }
         await updateLead(msg.threadId, { status: msg.status, staged: false, error: '' });
         if (cfg.webhookUrl) await reportResult(cfg, msg.threadId, msg.status, msg.detail || '').catch((e) => log(`sheet update failed: ${e.message}`, 'error'));
         sendResponse({ ok: true });
@@ -750,6 +813,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'deep-backfill': {                        // walk N listing pages into the database
         sendResponse(await deepBackfill(msg.opts || {}).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'reply-landed': {                         // the content script saw the post appear
+        await replyLanded(msg.threadId, msg.postUrl, 'seen in the tab');
+        sendResponse({ ok: true });
         break;
       }
       case 'fill-days': {                            // cover N whole days, however many pages that takes
@@ -763,8 +831,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (staged) { chrome.tabs.remove(staged.tabId).catch(() => {}); await setStaged(msg.lead.threadId, null); }
         const r = await runInThread(msg.lead, 'stage', { keepTab: true });
         if (r.ok && r.tabId) {
-          await setStaged(msg.lead.threadId, { tabId: r.tabId, at: Date.now(), title: msg.lead.title });
-          await updateLead(msg.lead.threadId, { staged: true });
+          await setStaged(msg.lead.threadId, { tabId: r.tabId, at: Date.now(), title: msg.lead.title, by: 'you' });
+          // FILLED, not POSTED: the reply is typed in but you have not pressed
+          // Post reply yet, and the row should not claim you did. It turns
+          // POSTED by itself the moment the reply actually lands - see
+          // 'haf-reply-landed' below - and goes back to the to-do list if you
+          // close the tab without posting.
+          await updateLead(msg.lead.threadId, { staged: true, status: 'FILLED', filledAt: new Date().toISOString() });
           chrome.tabs.update(r.tabId, { active: true }).catch(() => {});
         }
         sendResponse(r);

@@ -25,7 +25,7 @@ globalThis.chrome = {
     sendMessage: async () => ({})
   },
   action: { onClicked: { addListener: () => {} } },
-  tabs: { onRemoved: { addListener: () => {} } },
+  tabs: { onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {}, removeListener: () => {} } },
   alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
   notifications: { create: (id, o, cb) => cb && cb(id), clear: () => {},
                    onClicked: { addListener: () => {} }, onButtonClicked: { addListener: () => {} } },

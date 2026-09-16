@@ -39,6 +39,8 @@ const STATUS = {
   SENT:     { label: 'To do',    hint: 'Found and drafted. Nothing posted yet.' },
   NEW:      { label: 'To do',    hint: 'Found and drafted. Nothing posted yet.' },
   APPROVED: { label: 'Queued',   hint: 'You tapped Post. It posts within a minute.' },
+  FILLED:   { label: 'Filled',   hint: 'Typed into the thread and waiting for you to press Post reply. '
+                                     + 'Turns Posted by itself when the reply lands.' },
   POSTED:   { label: 'Posted',   hint: 'Your reply is live on the thread.' },
   SKIPPED:  { label: 'Skipped',  hint: 'You decided against this one.' },
   FAILED:   { label: 'Failed',   hint: 'Posting did not work. Open it and try again.' },
@@ -207,6 +209,13 @@ async function renderInner() {
  */
 function doneTag(l) {
   const posted = l.status === 'POSTED';
+  // Filled is not done: the reply is sitting in a tab waiting for you. Say so
+  // in amber rather than green, so a glance down the list never reads as a
+  // reply you posted when you did not.
+  if (l.status === 'FILLED') {
+    return ` <span class="waiting" title="The reply is typed into the thread. Press Post reply in the tab.">`
+         + `⏳ filled — waiting on you</span>${l.pmSent ? ' <span class="done">✓ PM sent</span>' : ''}`;
+  }
   if (!posted && !l.pmSent) return '';
   const label = posted && l.pmSent ? 'replied + PM sent' : posted ? 'reply posted' : 'PM sent';
   const from = l.pmFrom ? ` (found in ${l.pmFrom})` : '';
@@ -240,6 +249,7 @@ function row(l, staged, cfg) {
   // without opening the row.
   const state = l.status === 'POSTED' ? 'posted'
               : ['SKIPPED', 'EXPIRED'].includes(l.status) ? 'dim'
+              : l.status === 'FILLED' ? 'filling'
               : l.pmSent ? 'pmdone' : '';
   const cells = COLS.map((c) => {
     let html;
@@ -388,16 +398,15 @@ async function rowAction(btn) {
     const r = await chrome.runtime.sendMessage({ cmd: 'fill-thread', lead: { ...lead, draft } });
     btn.disabled = false;
     if (!r?.ok) return say(id, `Could not fill it: ${r?.error || 'unknown'}`, false);
-    // Opening it filled means you are posting it, so the row is marked now
-    // rather than waiting for a second click that is easy to forget. Undo is
-    // on the row if you change your mind in the tab.
-    await chrome.runtime.sendMessage({ cmd: 'mark', threadId: id, status: 'POSTED', detail: 'opened filled from the dashboard' });
+    // The row is marked FILLED by the service worker, not POSTED - it turns
+    // POSTED by itself when the reply actually lands on the thread. Marking it
+    // posted here is what used to close the tab a second after filling it.
     delete edited[id];
     // A copy on the clipboard costs nothing and means a reply is never lost to
     // the editor, whatever a theme update does to it.
     await navigator.clipboard.writeText(plain(draft)).catch(() => {});
-    say(id, 'Filled in and marked as posted. Press Post reply in the tab. '
-          + 'It is on your clipboard too, if you need to paste it. Undo here if you change your mind.', true);
+    say(id, 'Filled in — the tab stays open. Press Post reply there and this row turns green by itself. '
+          + 'It is on your clipboard too, if you need to paste it.', true);
     return render();
   }
   if (act === 'copydm') {

@@ -48,6 +48,35 @@
            (plain && plain.value.trim().length > 20);
   }
 
+  /**
+   * Staged mode leaves the tab for you to read and press Post reply yourself.
+   * This watches for that reply actually appearing, so the dashboard row can
+   * turn green off the real event rather than assuming you went through with
+   * it. XenForo's quick reply inserts the new post inline over AJAX, so a
+   * MutationObserver sees it; if the theme reloads the page instead, the
+   * service worker catches the /post-<n> URL instead.
+   */
+  function watchForLanding(form) {
+    const msgSel = S.message.join(',');
+    const before = document.querySelectorAll(msgSel).length;
+    let reported = false;
+    const check = () => {
+      if (reported) return;
+      const posts = document.querySelectorAll(msgSel);
+      if (posts.length <= before) return;
+      reported = true;
+      obs.disconnect();
+      if (hold) hold.stop();            // never re-type a reply that has landed
+      const last = posts[posts.length - 1];
+      chrome.runtime.sendMessage({
+        cmd: 'reply-landed', threadId,
+        postUrl: last.querySelector('a[href*="/post-"]')?.href || location.href
+      });
+    };
+    const obs = new MutationObserver(check);
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+
   async function submit(form) {
     const msgSel = S.message.join(',');
     const before = document.querySelectorAll(msgSel).length;
@@ -86,7 +115,7 @@
       if (err) return { ok: false, error: err };
       await sleep(700);
       if (!editorHasText(form)) return { ok: false, error: 'text did not stick in the editor' };
-      if (mode === 'stage') return { ok: true, staged: true, refilled: hold ? hold.held() : 0 };
+      if (mode === 'stage') { watchForLanding(form); return { ok: true, staged: true, refilled: hold ? hold.held() : 0 }; }
     } else if (!editorHasText(form)) {
       return { ok: false, error: 'staged reply is gone from the editor (page reloaded?)' };
     }
