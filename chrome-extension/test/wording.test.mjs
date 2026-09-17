@@ -76,5 +76,28 @@ store.config = { ...C.DEFAULT_CONFIG, templateDefaults: C.textStamp(C.DEFAULT_CO
 r = await C.adoptNewTemplates();
 ok('nothing to adopt when it is already current', r.adopted === false && !r.yours, JSON.stringify(r));
 
+// --- the PM cap ------------------------------------------------------------
+//
+// Changing a default does nothing on its own: setConfig writes the whole merged
+// config, so the first-ever Save froze the shipped numbers into storage. That
+// is why 8 kept holding PMs back long after the reason for 8 was gone, and it
+// is the same trap the wording above fell into.
+store.config = { ...C.DEFAULT_CONFIG, configVersion: 26, maxDmsPerDay: 8 };
+await C.migrateConfig();
+cfg = await C.getConfig();
+ok('the old PM cap of 8 is lifted on upgrade', cfg.maxDmsPerDay === 30, String(cfg.maxDmsPerDay));
+
+// But only the old default. A number typed by hand is a decision, and an
+// upgrade that overwrites your decisions is worse than one that does nothing.
+store.config = { ...C.DEFAULT_CONFIG, configVersion: 26, maxDmsPerDay: 12 };
+await C.migrateConfig();
+cfg = await C.getConfig();
+ok('a cap you chose yourself is left alone', cfg.maxDmsPerDay === 12, String(cfg.maxDmsPerDay));
+
+store.config = { ...C.DEFAULT_CONFIG, configVersion: 26, maxDmsPerDay: 0 };
+await C.migrateConfig();
+cfg = await C.getConfig();
+ok('and switching the cap off entirely survives the upgrade', cfg.maxDmsPerDay === 0, String(cfg.maxDmsPerDay));
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -91,7 +91,23 @@ const short = await checkDmLimit({ maxDmsPerDay: 0, minSecondsBetweenDms: 30 });
 ok('30 seconds is a real setting', !short.ok && /30 sec gap/.test(short.reason), JSON.stringify(short));
 ok('and the wait left is counted in seconds', /\d+ sec to go/.test(short.reason), short.reason);
 const capped = await checkDmLimit({ maxDmsPerDay: 8, minSecondsBetweenDms: 0 });
-ok('a cap you set is still applied', !capped.ok && /your daily PM limit of 8/.test(capped.reason), JSON.stringify(capped));
+ok('a cap you set is still applied', !capped.ok && /your daily PM cap of 8/.test(capped.reason), JSON.stringify(capped));
+// A cap that stops something you already read, approved and tapped has to say
+// where to change it. "Held" with no way out reads like the extension's rule
+// rather than a number you own.
+ok('and it says where to change it', /Settings/.test(capped.reason), capped.reason);
+ok('and that nought turns it off', /0 = no cap/.test(capped.reason), capped.reason);
+
+// The shipped default. 8 was chosen to be cautious and ended up holding back
+// PMs that had already been decided on, which is the wrong job for a backstop.
+const { DEFAULT_CONFIG: DC } = await import('../src/config.js');
+ok('the default PM cap is 30, not 8', DC.maxDmsPerDay === 30, String(DC.maxDmsPerDay));
+const day = new Date().toLocaleDateString('en-CA');
+bags.local.rateState = { day, count: 0, lastPostAt: 0, dmCount: 29, lastDmAt: 0 };
+ok('so the 30th PM of the day still goes out on the default',
+   (await checkDmLimit({ maxDmsPerDay: DC.maxDmsPerDay, minSecondsBetweenDms: 0 })).ok,
+   JSON.stringify(await checkDmLimit({ maxDmsPerDay: DC.maxDmsPerDay, minSecondsBetweenDms: 0 })));
+bags.local.rateState = { day, count: 0, lastPostAt: 0, dmCount: 99, lastDmAt: Date.now() };
 
 // Nothing left over from before: the old code blocked at 5 minutes by default
 // whatever the config said, which is what this is here to stop coming back.

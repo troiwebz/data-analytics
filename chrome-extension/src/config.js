@@ -73,8 +73,10 @@ export const DEFAULT_CONFIG = {
   autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
-  maxDmsPerDay: 8,             // hard cap on sent DMs — unsolicited PMs are what
-                               // BHW moderators act on, so keep this low
+  maxDmsPerDay: 30,            // cap on sent PMs per day; 0 = no cap at all.
+                               // Deliberately high: this is a backstop against
+                               // a runaway loop, not a policy about how many
+                               // PMs you may send - that is your call.
   minSecondsBetweenDms: 120,   // spacing between two sent PMs; 0 = none
 
   // Staging: for strong leads, open the thread in a background tab and type the
@@ -542,7 +544,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 26;
+export const CONFIG_VERSION = 27;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -675,6 +677,15 @@ export async function migrateConfig() {
     // fingerprint below makes this automatic and only for wording nobody has
     // touched, so it will not need doing again.
     for (const k of TEXT_KEYS) next[k] = DEFAULT_CONFIG[k];
+  }
+  if (v < 27) {
+    // The PM cap shipped at 8, on the theory that a low number was safer. In
+    // practice it holds back PMs you have already read, approved and tapped -
+    // a decision you had made - so it was doing the wrong job. It is now a
+    // backstop against a runaway loop, not a policy, and 0 switches it off.
+    //
+    // Only the old default is lifted: a number you typed yourself is yours.
+    if (Number(next.maxDmsPerDay) === 8) next.maxDmsPerDay = DEFAULT_CONFIG.maxDmsPerDay;
   }
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;

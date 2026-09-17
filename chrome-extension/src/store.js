@@ -186,7 +186,13 @@ export async function getRateState() {
 const wait = (ms) => (ms >= 60000 ? `${Math.ceil(ms / 60000)} min` : `${Math.ceil(ms / 1000)} sec`);
 
 function gate(used, lastAt, cap, gapSeconds, what) {
-  if (cap > 0 && used >= cap) return { ok: false, reason: `your daily ${what} limit of ${cap} is used up` };
+  // The cap is a backstop against a runaway loop, not a judgement about how
+  // many you may send - so when it does stop something you decided to send,
+  // it has to say where to change it rather than just refusing.
+  if (cap > 0 && used >= cap) {
+    return { ok: false, reason: `your daily ${what} cap of ${cap} is used up `
+      + `- raise it in Settings (0 = no cap)` };
+  }
   const left = (gapSeconds || 0) * 1000 - (Date.now() - (lastAt || 0));
   if (gapSeconds > 0 && lastAt && left > 0) {
     return { ok: false, reason: `your ${wait(gapSeconds * 1000)} gap: ${wait(left)} to go` };
