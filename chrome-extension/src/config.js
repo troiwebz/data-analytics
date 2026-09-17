@@ -49,6 +49,20 @@ export const DEFAULT_CONFIG = {
   telegramApprovals: false,    // off until you turn it on
   telegramPollSeconds: 30,     // Chrome clamps alarms to 30s, so lower is the same
 
+  // ---- Night mode -------------------------------------------------------
+  // The one thing here that posts without a tap, so it is off until you turn
+  // it on and it is deliberately narrow. A lead found inside the window is
+  // announced with a countdown; tap Hold and it stops, do nothing and it goes
+  // up. Public replies only - an unsolicited PM is what BHW moderators act on,
+  // and it is not worth an account to save you typing.
+  nightMode: false,
+  nightStart: '23:00',         // in your timezone above
+  nightEnd: '07:00',
+  nightVetoMinutes: 20,        // how long you have to stop it
+  nightMinScore: 10,           // below this it waits for you
+  nightMaxPosts: 3,            // unattended posts per night, on top of the daily cap
+  nightSummary: true,          // a Telegram summary when the window closes
+
   webhookUrl: '',              // Apps Script /exec URL (optional, legacy relay)
   sharedSecret: '',            // must match SHARED_SECRET in Apps Script
 

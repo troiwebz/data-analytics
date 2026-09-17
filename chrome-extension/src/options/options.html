@@ -236,6 +236,35 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Night mode <span class="hint">the only thing here that posts without a tap</span></h2>
+    <label class="sw"><input type="checkbox" id="nightMode"> Post public replies by myself overnight</label>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Inside the window below, a lead arrives saying <b>"posting in N minutes unless you tap Hold"</b>. Tap
+      Hold and it stops and waits for you. Do nothing and it goes up.<br>
+      <b>Public replies only.</b> A PM never sends itself — an unsolicited PM is what BHW moderators act on,
+      and it is not worth an account to save you typing.<br>
+      <b>Only drafts worth posting.</b> A draft written from the title alone never qualifies, whatever it
+      scores: that is the one that answered "Crypto Runner" with multi-chain wallet operations, and in
+      public under your name at 3am it is the worst thing this could do. Claude must have written it, the
+      compliance check must be clean, and it must clear your score below.<br>
+      <b>Chrome still has to be running.</b> Lid shut and asleep, nothing posts — it is your browser doing it.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>From</label><input type="text" id="nightStart" placeholder="23:00"></div>
+      <div><label>Until</label><input type="text" id="nightEnd" placeholder="07:00"></div>
+      <div><label>You have (minutes) to stop it</label><input type="number" id="nightVetoMinutes" min="0"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><label>Only at or above score</label><input type="number" id="nightMinScore" min="0"></div>
+      <div><label>Most posts per night</label><input type="number" id="nightMaxPosts" min="0"></div>
+    </div>
+    <label class="ck" style="margin-top:10px"><input type="checkbox" id="nightSummary">
+      Send me a summary when the window closes</label>
+    <div class="hint" style="margin-top:6px">Times are in the timezone set at the top. Your daily caps and
+      spacing still apply on top of the overnight cap.</div>
+  </div>
+
+  <div class="c">
     <h2>Moving to another machine <span class="hint">so a new install comes up already set up</span></h2>
     <div id="backupState" class="hint" style="line-height:1.7"></div>
     <div class="hint" style="margin-top:8px;line-height:1.7">

@@ -11,6 +11,7 @@
 
 import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
 import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced } from './backup.js';
+import * as night from './night.js';
 import { fetchFeed } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThreads } from './thread.js';
@@ -275,6 +276,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === TAP_ALARM) await pollTaps();
+    if (alarm.name === UPDATE_ALARM) {          // the minute tick doubles as the night runner
+      await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
+      await nightSummary().catch(() => {});
+    }
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
     if (alarm.name === PM_ALARM) await syncSentPms().catch((e) => log(`PM check: ${e.message}`, 'error'));
   } catch (e) {
@@ -525,6 +530,24 @@ export async function pollFeed() {
   if (!leads.length) return { new: fresh.length, matched: 0 };
 
   await recordLeads(leads);
+
+  // Night mode: arm the countdown BEFORE Telegram, so the card that reaches
+  // your phone already says when it will post and carries the Hold button.
+  if (night.isNight(cfg)) {
+    const armed = [];
+    for (const l of leads) {
+      const why = night.blockedReason(l, cfg);
+      if (why) { l.autoBlocked = why; continue; }
+      l.autoPostAt = night.postAt(cfg);
+      armed.push(l);
+    }
+    if (armed.length) {
+      for (const l of armed) await updateLead(l.threadId, { autoPostAt: l.autoPostAt, autoBlocked: '' });
+      await log(`night mode: ${armed.length} reply/replies posting in ${cfg.nightVetoMinutes} min unless held`);
+    }
+    const held = leads.filter((l) => l.autoBlocked);
+    for (const l of held) await updateLead(l.threadId, { autoBlocked: l.autoBlocked });
+  }
 
   // Telegram, straight from here: every new thread goes to your phone as it is
   // found, no Apps Script in the way. A failure is logged and nothing else -
@@ -812,6 +835,12 @@ async function runTap(tap, lead, cfg) {
       return `✏️ Editing the ${which} - reply to the message below with your version.`;
     }
 
+    if (tap.action === 'h') {
+      if (!lead.autoPostAt) return '✋ Nothing was counting down on this one.';
+      await updateLead(lead.threadId, { autoPostAt: 0, autoHeld: true, autoBlocked: 'you held it' });
+      return '✋ Held. It will not post by itself - it is waiting for you.';
+    }
+
     if (tap.action === 's') {
       await updateLead(lead.threadId, { status: 'SKIPPED', decidedAt: new Date().toISOString() });
       return '⏭ Skipped.';
@@ -841,6 +870,94 @@ async function runTap(tap, lead, cfg) {
   } catch (e) {
     return `❌ ${e.message}`;
   }
+}
+
+/**
+ * The unattended post.
+ *
+ * Runs on the minute alarm. Everything that decides whether a lead may go up
+ * was settled when its countdown was armed; this re-checks it anyway, because
+ * between then and now you may have edited the draft, the daily cap may have
+ * filled, or the window may have closed - and a rule that is only enforced at
+ * the moment of arming is not a rule.
+ *
+ * Never throws: whatever happens here, the next tick must still run.
+ */
+export async function runNightQueue() {
+  const cfg = await getConfig();
+  if (!cfg.nightMode) return { skipped: 'off' };
+
+  const leads = await getLeads();
+  const due = night.dueNow(leads);
+  if (!due.length) return { due: 0 };
+
+  // Outside the window nothing posts itself, whatever is queued. A countdown
+  // armed at 06:55 must not fire at 07:30 while you are reading email.
+  if (!night.isNight(cfg)) {
+    for (const l of due) await updateLead(l.threadId, { autoPostAt: 0, autoBlocked: 'the night window closed first' });
+    await log(`night mode: ${due.length} left for you, the window closed before they were due`);
+    return { due: due.length, posted: 0, closed: true };
+  }
+
+  const cap = Number(cfg.nightMaxPosts) || 0;
+  let done = 0;
+  for (const lead of due) {
+    if (cap > 0 && night.nightCount(await getLeads(), cfg) >= cap) {
+      await updateLead(lead.threadId, { autoPostAt: 0, autoBlocked: `your overnight cap of ${cap} is used up` });
+      continue;
+    }
+    // Re-check: you may have edited it, or it may already be decided.
+    const why = night.blockedReason(lead, cfg);
+    if (why) { await updateLead(lead.threadId, { autoPostAt: 0, autoBlocked: why }); continue; }
+
+    const gate = await checkRateLimit(cfg);
+    if (!gate.ok) {
+      // Not a refusal, just not yet: leave it due and try on the next tick.
+      await log(`night mode: holding "${lead.title}" - ${gate.reason}`);
+      continue;
+    }
+
+    const r = await postLead(lead, cfg, { edited: !!lead.draftEdited });
+    await updateLead(lead.threadId, r?.ok
+      ? { autoPostAt: 0, autoPostedAt: new Date().toISOString(), autoBlocked: '' }
+      : { autoPostAt: 0, autoBlocked: `posting failed: ${r?.error || 'unknown'}` });
+    await log(`night mode: ${r?.ok ? 'posted' : 'failed'} "${lead.title}"${r?.ok ? '' : ` - ${r?.error}`}`);
+    if (r?.ok) {
+      done++;
+      await telegram.say(cfg.telegramChatId,
+        `🌙 Posted while you were asleep: ${lead.title}${r.postUrl ? `\n${r.postUrl}` : ''}`).catch(() => {});
+    }
+  }
+  return { due: due.length, posted: done };
+}
+
+/**
+ * What happened overnight, once, when the window closes. Sent even when
+ * nothing went out: "nothing posted" is information at 7am, and silence from a
+ * thing that posts on your behalf is not.
+ */
+export async function nightSummary() {
+  const cfg = await getConfig();
+  if (!cfg.nightMode || !cfg.nightSummary) return { skipped: 'off' };
+  if (night.isNight(cfg)) return { skipped: 'still night' };
+
+  const key = new Date().toISOString().slice(0, 10);
+  const { nightSummaryOn } = await chrome.storage.local.get('nightSummaryOn');
+  if (nightSummaryOn === key) return { skipped: 'already sent today' };
+  await chrome.storage.local.set({ nightSummaryOn: key });
+
+  const leads = await getLeads();
+  const posted = leads.filter((l) => l.autoPostedAt && Date.now() - new Date(l.autoPostedAt).getTime() < 16 * 3600000);
+  const held = leads.filter((l) => l.autoBlocked && !['POSTED', 'SKIPPED'].includes(l.status));
+  const waiting = leads.filter((l) => ['SENT', 'NEW'].includes(l.status) && !l.autoBlocked && !l.autoPostedAt);
+  if (!posted.length && !held.length && !waiting.length) return { skipped: 'nothing to report' };
+
+  const lines = [`🌅 Overnight: ${posted.length} posted, ${held.length} held, ${waiting.length} waiting for you.`];
+  // say() sends plain text, so no escaping is needed and none is invented.
+  for (const l of posted.slice(0, 5)) lines.push(`🚀 ${l.title}`);
+  for (const l of held.slice(0, 5)) lines.push(`✋ ${l.title} — ${l.autoBlocked}`);
+  await telegram.say(cfg.telegramChatId, lines.join('\n').slice(0, 3500)).catch(() => {});
+  return { posted: posted.length, held: held.length, waiting: waiting.length };
 }
 
 // -------------------------------------------------------------- approvals

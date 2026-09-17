@@ -71,8 +71,16 @@ function pmMessage(lead) {
     : '\n\n<i>No PM draft on this lead. Open it on the dashboard and press Rebuild drafts.</i>');
 }
 
+/** "Posting in 18 min unless you tap Hold", in your own words at 3am. */
+function countdownLine(lead) {
+  if (!lead.autoPostAt || lead.autoHeld) return '';
+  const mins = Math.max(0, Math.round((lead.autoPostAt - Date.now()) / 60000));
+  return `\n🌙 <b>Night mode: posting in ${mins} min unless you tap Hold.</b>`;
+}
+
 const replyMessage = (lead) => {
-  const head = '📋 <b>Public reply</b>' + (lead.url ? ` · <a href="${esc(lead.url)}">open the thread</a>` : '');
+  const head = '📋 <b>Public reply</b>' + (lead.url ? ` · <a href="${esc(lead.url)}">open the thread</a>` : '')
+    + countdownLine(lead);
   const body = plain(lead.draft || '').trim();
   return body ? head + preBlock('(tap to copy)', body, LIMIT - head.length) : '';
 };
@@ -96,6 +104,19 @@ export function keyboard(lead, kind, cfg) {
   if (!cfg.telegramApprovals) return undefined;
   const id = String(lead.threadId || '');
   if (!id || id === 'sample') return undefined;        // a sample must never post
+
+  // A lead counting down to an unattended post leads with the way to stop it.
+  // Hold is the only button that matters at 3am, so it comes first and alone.
+  if (lead.autoPostAt && !lead.autoHeld) {
+    return {
+      inline_keyboard: [
+        [{ text: '✋ Hold', callback_data: `h:${id}` }],
+        [{ text: '🚀 Post Public Now', callback_data: `p:${id}` },
+         { text: '⏭ Skip', callback_data: `s:${id}` }],
+        [{ text: '✏️ Edit Post', callback_data: `e:${id}` }]
+      ]
+    };
+  }
 
   // The same four on both messages, so whichever one you happen to be looking
   // at can do the whole job. There is no "I posted it" button: a reply is

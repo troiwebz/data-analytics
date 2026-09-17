@@ -283,10 +283,82 @@ tgCalls = [];
 r = await bg.pollTaps();
 ok('with approvals off nothing is polled at all', r.skipped === 'off' && !tgCalls.length, JSON.stringify(r));
 
-const postedCountBefore = (await getLeads()).filter((l) => l.status === 'POSTED').length;
 await setConfig({ telegramApprovals: true });      // the block above turned them off
 
+// --- night mode: the one thing that posts without a tap --------------------
+{
+  const NIGHT = { nightMode: true, nightStart: '00:00', nightEnd: '23:59', // always night, for the test
+                  nightVetoMinutes: 20, nightMinScore: 10, nightMaxPosts: 2,
+                  maxPostsPerDay: 10, minSecondsBetweenPosts: 0 };
+  await setConfig(NIGHT);
+  const ready = (id, over = {}) => ({
+    ...lead(id), score: 20, body: 'The buyer actually wrote this and it was read.',
+    aiSpecifics: { tips: ['We have done this'] }, lint: { ok: true }, ...over
+  });
+
+  // Nothing is due yet: a countdown that has not run out must not fire.
+  store.recentLeads = [ready('n1', { autoPostAt: Date.now() + 600000 })];
+  let nr = await bg.runNightQueue();
+  ok('a countdown still running posts nothing', nr.due === 0, JSON.stringify(nr));
+  ok('and the lead is untouched', (await getLeads()).find((l) => l.threadId === 'n1').status === 'SENT');
+
+  // Due, and eligible: it goes up by itself.
+  globalThis.__acting = 'n1';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.n1/post-1' };
+  store.recentLeads = [ready('n1', { autoPostAt: Date.now() - 1000 })];
+  nr = await bg.runNightQueue();
+  let l = (await getLeads()).find((x) => x.threadId === 'n1');
+  ok('a countdown that ran out posts by itself', l.status === 'POSTED', l.status);
+  ok('and is recorded as an unattended post', !!l.autoPostedAt, JSON.stringify(l.autoPostedAt));
+  ok('and the countdown is cleared so it cannot fire twice', !l.autoPostAt, String(l.autoPostAt));
+
+  // The gate is re-checked at posting time, not only when armed. Between the
+  // two you may have edited the draft or the thread may have been re-read.
+  store.recentLeads = [ready('n2', { autoPostAt: Date.now() - 1000, body: '' })];
+  globalThis.__acting = 'n2';
+  await bg.runNightQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'n2');
+  ok('a draft that lost its post body is held at the last moment', l.status === 'SENT', l.status);
+  ok('and says why', /never read/.test(l.autoBlocked || ''), l.autoBlocked);
+
+  // Outside the window nothing fires, whatever is queued.
+  await setConfig({ nightStart: '23:00', nightEnd: '23:01' });
+  store.recentLeads = [ready('n3', { autoPostAt: Date.now() - 1000 })];
+  globalThis.__acting = 'n3';
+  nr = await bg.runNightQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'n3');
+  ok('a countdown that outlives the window does not fire', l.status === 'SENT', l.status);
+  ok('and it is left for you, not silently dropped', /window closed/.test(l.autoBlocked || ''), l.autoBlocked);
+
+  // Switched off, nothing happens at all.
+  await setConfig({ nightMode: false });
+  store.recentLeads = [ready('n4', { autoPostAt: Date.now() - 1000 })];
+  nr = await bg.runNightQueue();
+  ok('switched off it does nothing', nr.skipped === 'off', JSON.stringify(nr));
+  ok('and posts nothing', (await getLeads()).find((x) => x.threadId === 'n4').status === 'SENT');
+
+  // Hold, from the phone.
+  await setConfig({ ...NIGHT, nightStart: '00:00', nightEnd: '23:59' });
+  store.recentLeads = [ready('n5', { autoPostAt: Date.now() + 600000 })];
+  tgCalls = [];
+  updates = [tap('h:n5')];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 'n5');
+  ok('tapping Hold stops the countdown', !l.autoPostAt && l.autoHeld === true, JSON.stringify({ at: l.autoPostAt, held: l.autoHeld }));
+  ok('and the phone is told it is safe', tgCalls.some((c) => c.method === 'editMessageText' && /Held/.test(c.body.text)),
+     JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+  store.recentLeads = [{ ...l }];
+  await bg.runNightQueue();
+  ok('a held lead never posts itself afterwards',
+     (await getLeads()).find((x) => x.threadId === 'n5').status === 'SENT');
+
+  await setConfig({ nightMode: false, maxPostsPerDay: 10 });
+}
+
 // --- the self-test button ---------------------------------------------------
+// Counted here, after night mode has had its turn, so this measures what the
+// self-test does rather than what ran before it.
+const postedCountBefore = (await getLeads()).filter((l) => l.status === 'POSTED').length;
 // Tapping it belongs to no lead, so it must be answered before anything tries
 // to look one up - otherwise the one button whose whole job is proving the
 // chain works would fall through as "that lead is no longer in the table".
