@@ -32,14 +32,41 @@ export const hasToken = async () => Boolean(await getToken());
 export const setToken = (t) => vault.setSecret('telegram', String(t).trim());
 export const clearToken = () => vault.removeSecret('telegram');
 
+/**
+ * Seconds before a Telegram request is given up on.
+ *
+ * fetch has no timeout of its own, so a host that cannot reach
+ * api.telegram.org - a firewalled server, a blocked egress route - leaves the
+ * request hanging for as long as the network lets it. In a service worker that
+ * is worse than an error: nothing resets the 30-second idle timer while we
+ * wait, so the worker is killed mid-request and the catch block that would
+ * have logged it never runs. Silence, every thirty seconds, forever. A timeout
+ * turns that into a sentence in the log.
+ */
+const CALL_TIMEOUT_MS = 15000;
+
 async function call(method, body) {
   const token = await getToken();
   if (!token) throw new Error('No Telegram bot token saved.');
-  const res = await fetch(`${API}${token}/${method}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  const ctl = new AbortController();
+  const bail = setTimeout(() => ctl.abort(), CALL_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${API}${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctl.signal
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(`could not reach api.telegram.org within ${CALL_TIMEOUT_MS / 1000}s `
+        + '- this machine may be blocking it. Check the network, or a proxy or firewall on the server.');
+    }
+    throw new Error(`could not reach api.telegram.org: ${e.message}`);
+  } finally {
+    clearTimeout(bail);
+  }
   const data = await res.json().catch(() => ({}));
   if (!data.ok) throw new Error(data.description || `Telegram returned ${res.status}`);
   return data.result;

@@ -567,5 +567,55 @@ ok('and says it is a fresh install rather than "no longer in the table"',
    /fresh install/i.test(said) && !/no longer/i.test(said), said);
 ok('and nothing was posted to the forum', posted.length === 0 || true);
 
+// --- the heartbeat ----------------------------------------------------------
+//
+// An armed alarm proves only that a check is scheduled. On a server nobody is
+// touching, Chrome can be closed, the Windows session logged off, or the MV3
+// worker killed mid-job - and chrome.alarms.get() returns exactly the same
+// thing in all of those cases. The heartbeat is the only fact that separates
+// "not running" from "running but nothing is arriving", which need opposite
+// fixes.
+await setConfig({ telegramChatId: '999', telegramApprovals: true });
+store.recentLeads = [lead('1'), lead('2')];
+updates = [];
+await bg.pollTaps();
+let hb = await bg.tapsHeartbeat();
+ok('a successful check records a heartbeat', hb && Date.now() - hb.at < 5000, JSON.stringify(hb));
+ok('and says what it found', /nothing waiting/.test(hb.note || ''), hb.note);
+
+updates = [tap('p:2')];
+globalThis.__acting = '2';
+await bg.pollTaps();
+hb = await bg.tapsHeartbeat();
+ok('and what it found when there was something', /1 waiting/.test(hb.note || ''), hb.note);
+
+// A check that could not run at all must still beat - otherwise a broken
+// install is indistinguishable from a stopped one.
+await setConfig({ telegramChatId: '' });
+const beforeBeat = (await bg.tapsHeartbeat()).at;
+await bg.pollTaps();
+hb = await bg.tapsHeartbeat();
+ok('a refused check still beats, so "stopped" and "misconfigured" stay apart',
+   hb.at > beforeBeat && hb.ok === false, JSON.stringify(hb));
+ok('and the beat carries the reason', /chat id/i.test(hb.note || ''), hb.note);
+await setConfig({ telegramChatId: '999' });
+
+// --- a tap is logged on arrival, not on completion --------------------------
+//
+// Posting opens a tab and waits on a content script. If that stalls, or the
+// worker is killed, a line written after the work is never written - and an
+// empty log then looks like "the tap never arrived", which is the opposite
+// problem with the opposite fix.
+postResult = new Promise(() => {});                 // never resolves
+store.appLog = [];
+updates = [tap('p:1')];
+globalThis.__acting = '1';
+const hang = bg.pollTaps();
+await new Promise((r) => setTimeout(r, 60));
+const during = (await getLog()).map((l) => l.msg).join(' | ');
+ok('the tap is in the log while the work is still running', /Telegram tap: p .*starting/.test(during), during);
+postResult = { ok: true, postUrl: 'https://bhw/threads/x.1/post-9' };
+await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

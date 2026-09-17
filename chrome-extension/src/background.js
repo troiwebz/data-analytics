@@ -23,6 +23,7 @@ import { lintDraft } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
+import { alive } from './alive.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
@@ -227,7 +228,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, info) => {
 export async function scheduleAlarms(cfg) {
   await chrome.alarms.clear(FEED_ALARM);
   await chrome.alarms.clear(APPROVAL_ALARM);
-  if (!cfg.enabled) return;
+  if (!cfg.enabled) {
+    // No alarms at all, which means pollTaps never runs and cannot report its
+    // own reasons - so this is the one place the paused state can be said.
+    await chrome.alarms.clear(TAP_ALARM);
+    await logOnce('paused', 'HAF Watcher is paused in Settings: nothing is being checked and '
+      + 'your Telegram buttons will do nothing. Switch it on to start.', 'error');
+    return;
+  }
+  await clearLogOnce('paused');
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: Math.max(1, cfg.pollMinutes), delayInMinutes: 0.1 });
   chrome.alarms.create(APPROVAL_ALARM, { periodInMinutes: Math.max(1, cfg.approvalPollMinutes) });
   chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
@@ -266,7 +275,10 @@ async function checkForUpdate() {
   }
 }
 
-chrome.alarms.onAlarm.addListener(async (alarm) => {
+// Every alarm runs inside `alive`: the work below waits on the network and on
+// content scripts for far longer than MV3's 30-second idle budget, and a worker
+// killed mid-job leaves no error anywhere because the handler dies with it.
+chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
   try {
     if (alarm.name === FEED_ALARM) {
       const cfg = await getConfig();
@@ -285,7 +297,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } catch (e) {
     await log(`${alarm.name}: ${e.message}`, 'error');
   }
-});
+}));
 
 // ------------------------------------------------------------------- feed
 
@@ -723,6 +735,20 @@ export async function expireStaged() {
  *
  * Never throws: a poll must not die on a bad tap.
  */
+/**
+ * When the tap check last ran, and what it found.
+ *
+ * The single most useful fact when nothing is happening. If this is minutes or
+ * hours old, the extension is not running at all - Chrome closed, the machine
+ * asleep, the worker dead - and no amount of checking tokens will help. If it
+ * is seconds old and still nothing arrives, the problem is at Telegram's end
+ * or in the chat id. Those need different fixes, and this is what tells them
+ * apart.
+ */
+const BEAT_KEY = 'tapsHeartbeat';
+const beat = (r) => chrome.storage.local.set({ [BEAT_KEY]: { at: Date.now(), ...r } });
+export const tapsHeartbeat = async () => (await chrome.storage.local.get(BEAT_KEY))[BEAT_KEY] || null;
+
 export async function pollTaps() {
   const cfg = await getConfig();
 
@@ -741,6 +767,7 @@ export async function pollTaps() {
           + 'Settings → Find it for me, or Restore from a file.'
         : '';
   if (missing) {
+    await beat({ ok: false, note: missing });
     await logOnce('tapsOff', `Telegram buttons will not work: ${missing}`, 'error');
     return { skipped: 'off', reason: missing };
   }
@@ -748,7 +775,12 @@ export async function pollTaps() {
 
   let events;
   try { events = await telegram.pendingTaps(); }
-  catch (e) { await log(`Telegram taps could not be read: ${e.message}`, 'error'); return { error: e.message }; }
+  catch (e) {
+    await beat({ ok: false, note: e.message });
+    await log(`Telegram taps could not be read: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+  await beat({ ok: true, note: events.length ? `${events.length} waiting` : 'nothing waiting' });
   if (!events.length) return { taps: 0 };
 
   let done = 0;
@@ -787,6 +819,12 @@ export async function pollTaps() {
       continue;
     }
     await telegram.ackTap(ev.id, 'Working on it…');
+    // Logged before the work, not after. Posting opens a tab and waits on a
+    // content script; if any of that stalls or the worker is killed, a line
+    // written afterwards is never written at all - and "no log entry" then
+    // looks identical to "the tap never arrived", which are opposite problems
+    // with opposite fixes.
+    await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
     const line = await runTap(ev, lead, cfg);
     await telegram.settleTap(ev, line);
     await log(`Telegram tap on "${lead.title}": ${line}`);
@@ -1397,6 +1435,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           : cfg.telegramApprovals
             ? ['✗', 'Approvals are on but the checker is not running. Press Save on this page to arm it.']
             : ['!', 'Approval buttons are off, so nothing will have buttons to tap.']);
+
+        // Did the checker actually run recently? An armed alarm only means it
+        // is scheduled; on a machine nobody touches, Chrome can be closed, the
+        // session logged off or the worker killed mid-job, and the alarm looks
+        // exactly the same. This is the fact that tells the difference.
+        const hb = await tapsHeartbeat();
+        const ageS = hb ? Math.round((Date.now() - hb.at) / 1000) : 0;
+        const expect = Math.max(30, Number(cfg.telegramPollSeconds) || 30);
+        out.checks.push(!hb
+          ? ['✗', 'The tap checker has never run on this install. Chrome has to be open and this '
+              + 'extension switched on for a tap to reach it.']
+          : ageS <= expect * 3
+            ? ['✓', `The tap checker last ran ${ageS}s ago (${hb.note || 'ok'}).`]
+            : ['✗', `The tap checker last ran ${ageS >= 120 ? Math.round(ageS / 60) + ' minutes' : ageS + ' seconds'} ago, `
+                + `but it should run every ${expect}s. Chrome was probably closed, the machine asleep, or the `
+                + 'Windows session logged off. Taps only work while Chrome is actually running.']);
 
         if (out.ok) {
           try {
