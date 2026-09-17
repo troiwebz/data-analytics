@@ -118,6 +118,47 @@ Two installs polling the same bot means whichever asks first consumes the tap
 and the other never sees it. That failure looks identical to everything else in
 this document, so don't create it. One machine polls, and it's the VPS.
 
+## Never typing the keys again
+
+Keys live in `chrome.storage`, which belongs to one Chrome profile on one
+machine — which is why copying the extension to the VPS copied the code and
+none of the setup.
+
+Put a file called `haf-secrets.json` next to `manifest.json` in the extension
+folder. It is read on every install and every browser start, and fills in
+whatever is missing. Copy the folder anywhere and it configures itself.
+
+Making it, on the machine that already works:
+
+1. Settings → **Download haf-secrets.json**. It comes out already named
+   correctly, with your real keys and every setting you have tuned.
+2. Move it into the extension folder, beside `manifest.json`.
+3. Delete it from Downloads.
+
+From then on, `bash tools/build-zip.sh --with-secrets` produces a zip that sets
+itself up on arrival. Plain `build-zip.sh` leaves the file out.
+
+Two rules it follows, so it cannot bite you later:
+
+- **It never overwrites.** A key already in the browser wins, because the
+  browser you are sitting at is the more recent authority — a stale file must
+  not undo a key you rotated this morning. "Read the file now" in Settings
+  overrides that when you actually want the file to win.
+- **It is never committed.** `haf-secrets.json` is in `.gitignore`. A key in
+  git history is a key you have to rotate, and rewriting history does not
+  un-leak it.
+
+The trade, stated plainly: **anyone who has the folder has both keys.** On a
+server only you reach, that is much the same exposure as the browser profile
+they already sat in. But it does make the zip a secret — don't mail it, don't
+leave it in shared storage, and delete it once it is in place. If it ever does
+get out, rotate the Anthropic key at console.anthropic.com and the bot token
+with `/revoke` in BotFather; nothing else needs changing, because the next
+`haf-secrets.json` you download carries the new ones.
+
+`haf-secrets.example.json` in the folder documents the format if you would
+rather write it by hand.
+
 ## Proving it works
 
 On the VPS, dashboard → **Settings → 🧪 Test everything**. The line to read:

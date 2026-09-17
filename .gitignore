@@ -47,6 +47,13 @@ logs/
 # artifact does not belong in the history.
 haf-watcher-*.zip
 
+# The seed file: live Anthropic key and Telegram bot token, kept next to
+# manifest.json so a copy of the folder configures itself on a new machine.
+# It must never be committed - a key in git history is a key you have to
+# rotate, and rewriting history does not un-leak it.
+haf-secrets.json
+**/haf-secrets.json
+
 # Large / generated files
 *.pdf
 *.xlsx

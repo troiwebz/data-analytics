@@ -24,6 +24,7 @@ import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive } from './alive.js';
+import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
@@ -144,6 +145,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // anything reads them, or the extension comes up looking configured - the
   // vault has the secrets - with every setting silently back to its default.
   const back = await restoreIfEmpty().catch(() => ({}));
+  // haf-secrets.json in the extension folder, if there is one: the keys travel
+  // with the folder, so a copy onto a new machine configures itself instead of
+  // needing the Anthropic key and the Telegram token retyped over RDP. Runs
+  // before anything reads the config, and fills gaps only.
+  const seeded = await applySeed().catch((e) => ({ error: e.message }));
   const migrated = await migrateConfig();
   // New wording shipped with the code is taken up before anything reads the
   // config, and before setConfig writes it back - otherwise that write would
@@ -154,6 +160,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await scheduleAlarms(cfg);
   await log(details.reason === 'install' ? 'installed' : `reloaded (v${chrome.runtime.getManifest().version}${migrated ? ', settings upgraded' : ''})`);
   if (back.restored) await log(`brought ${back.keys} setting(s) back from your other Chrome`);
+  await logSeed(seeded);
   await pushConfig(cfg).catch(() => {});
   // Drafts are written once and stored, so a template change reaches nothing
   // already in the database. Re-render when the wording has moved, rather than
@@ -186,7 +193,23 @@ async function refreshIfTemplatesChanged(cfg) {
     await log(`could not refresh drafts: ${e.message}`, 'error');
   }
 }
-chrome.runtime.onStartup.addListener(async () => scheduleAlarms(await getConfig()));
+chrome.runtime.onStartup.addListener(async () => {
+  // Also on every browser start, not just install: on a server the folder may
+  // be updated underneath a Chrome that is never reinstalled, and a restart is
+  // the moment to notice.
+  await logSeed(await applySeed().catch((e) => ({ error: e.message })));
+  await scheduleAlarms(await getConfig());
+});
+
+/** Say what the seed file did, and nothing at all when there is not one. */
+async function logSeed(r) {
+  if (!r || r.none || r.already) return;
+  if (r.error) return log(`${SEED_FILE}: ${r.error}`, 'error');
+  const took = (r.secrets || []).join(' and ');
+  await log(`${SEED_FILE}: filled in ${took || 'no keys'}`
+    + `${r.settings ? `, ${r.settings} setting(s)` : ''}`
+    + `${r.kept?.length ? ` (kept the ${r.kept.join(' and ')} key already in this browser)` : ''}`);
+}
 
 // Toolbar icon opens the dashboard as a full tab (focused if already open).
 chrome.action.onClicked.addListener(async () => {
@@ -1593,6 +1616,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await playSound({ ...cfg, soundEnabled: true }, msg.sound));
         break;
       }
+      case 'seed-status':   sendResponse(await seedStatus().catch((e) => ({ error: e.message }))); break;
+      case 'seed-apply':
+        sendResponse(await applySeed({ force: msg.force !== false })
+          .then((r) => ({ ...r, file: SEED_FILE }))
+          .catch((e) => ({ error: e.message })));
+        break;
       case 'sync-pms':      sendResponse(await syncSentPms({ pages: msg.pages || 3 }).catch((e) => ({ error: e.message }))); break;
       case 'next-check': {
         // chrome.alarms holds the real schedule, so ask it rather than adding

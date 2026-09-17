@@ -289,6 +289,29 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Set it up once <span class="hint">keys that travel with the folder, so a new machine configures itself</span></h2>
+    <div id="seedState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Keys normally live in this Chrome profile, which is why copying the extension to a server copies the
+      code and none of the setup. Put a file named <code>haf-secrets.json</code> next to
+      <code>manifest.json</code> in the extension folder and it is read on every install and every browser
+      start, filling in whatever is missing. Zip the folder with that file inside and every machine you
+      unzip it onto sets itself up — nothing to retype over RDP.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="seedMake" style="flex:0 0 auto">Download haf-secrets.json</button>
+      <button id="seedApply" class="sec" style="flex:0 0 auto">Read the file now</button>
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>The trade:</b> anyone who has the folder has your Claude key and your bot token. On a server you
+      alone reach that is much the same as the browser profile they were already in — but it does mean the
+      zip is now a secret. Don't email it, don't put it in shared storage, and delete it from Downloads once
+      it is in place. It is kept out of git and, unless you ask for it, out of
+      <code>tools/build-zip.sh</code>'s zip.
+    </div>
+  </div>
+
+  <div class="c">
     <h2>Staging <span class="hint">strong leads are opened in a background tab with the reply typed in but NOT sent — a 🚀 tap just clicks Submit</span></h2>
     <div class="row">
       <div><label>Stage leads scoring ≥</label><input type="number" id="stageScore" min="0"></div>

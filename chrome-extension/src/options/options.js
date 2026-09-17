@@ -345,6 +345,51 @@ $('importFile').addEventListener('change', async (e) => {
   refreshTg(); showBackup();
 });
 
+// --- the seed file ----------------------------------------------------------
+
+async function showSeed() {
+  const el = $('seedState');
+  if (!el) return;
+  const r = await ai('seed-status');
+  if (!r || r.error) { el.innerHTML = `<b style="color:#dc2626">✗ ${esc(r?.error || 'could not check')}</b>`; return; }
+  if (!r.present) {
+    el.innerHTML = '<b>No <code>haf-secrets.json</code> in the extension folder.</b> '
+      + 'Press the button below and drop the file in beside <code>manifest.json</code>.';
+    return;
+  }
+  const has = [r.has?.anthropic && 'the Claude key', r.has?.telegram && 'the bot token',
+               r.has?.chatId && 'your chat id'].filter(Boolean).join(', ');
+  el.innerHTML = `<b style="color:#16a34a">✓ <code>haf-secrets.json</code> is in the folder</b>`
+    + ` — it carries ${esc(has || 'no keys')}${r.settings ? ` and ${r.settings} setting(s)` : ''}.`
+    + (r.applied ? ' Already read in.' : ' <b>Not read in yet</b> — press "Read the file now", or just reload the extension.');
+}
+
+$('seedMake').addEventListener('click', async () => {
+  if (!confirm('This file will contain your live Claude key and bot token.\n\n'
+    + 'It is meant to sit inside the extension folder so a new machine sets itself up. '
+    + 'Anyone who gets the folder gets both keys. Continue?')) return;
+  const data = await ai('backup-export', { secrets: true });
+  if (data?.error) return status(data.error, true);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'haf-secrets.json';                        // already the name it needs
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  status('Saved haf-secrets.json. Move it into the extension folder next to manifest.json, '
+    + 'then delete it from Downloads.');
+});
+
+$('seedApply').addEventListener('click', async () => {
+  const r = await ai('seed-apply', { force: true });
+  if (r?.error) return status(r.error, true);
+  if (r?.none) return status(`No ${r.file || 'haf-secrets.json'} in the extension folder yet.`, true);
+  status(`Read it in: ${r.secrets?.length ? `the ${r.secrets.join(' and ')} key(s)` : 'no keys'}`
+    + `${r.settings ? ` and ${r.settings} setting(s)` : ''}.`);
+  fill(await getConfig());
+  refreshTg(); showSeed();
+});
+
 $('unhook').addEventListener('click', async () => {
   const b = $('unhook');
   b.disabled = true; b.textContent = 'Removing…';
@@ -467,4 +512,4 @@ $('testAlert').addEventListener('click', async () => {
 $('playSound').addEventListener('click', () => preview('sound'));
 $('playHot').addEventListener('click', () => preview('soundHot'));
 
-getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup);
+getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup).then(showSeed);
