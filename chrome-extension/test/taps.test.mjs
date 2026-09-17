@@ -209,13 +209,17 @@ tgCalls = [];
 updates = [tap('e:9')];
 await bg.pollTaps();
 const prompt = tgCalls.find((c) => c.method === 'sendMessage' && /Editing the post/.test(c.body.text || ''));
-ok('Edit Post opens an edit box', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
-ok('and opens the reply box on your phone', prompt?.body.reply_markup?.force_reply === true,
+ok('Edit Post explains what to do', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
+// No force_reply: that is what put the whole draft in a quote above a shrunken
+// box. The text comes as its own message instead, so one tap copies exactly it.
+ok('it does NOT use a reply box, so there is no quote', !prompt?.body.reply_markup?.force_reply,
    JSON.stringify(prompt?.body.reply_markup));
-ok('with the post itself in front of you to edit',
-   /We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 140));
-ok('and it says Post Public Now comes back after', /Post Public Now/.test(prompt?.body.text || ''),
-   (prompt?.body.text || '').slice(0, 200));
+const block = tgCalls.find((c) => c.method === 'sendMessage' && /^<pre>/.test(c.body.text || ''));
+ok('the draft arrives in a tap-to-copy block of its own', !!block, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 20))));
+ok('and that block is the draft and nothing else',
+   /^<pre>We have done this before/.test(block?.body.text || ''), (block?.body.text || '').slice(0, 60));
+ok('the instruction does not repeat the draft into a wall of text',
+   !/We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 140));
 
 // The reply you type. force_reply means it comes back pointing at the prompt.
 const reply = (body, replyTo) => ({
@@ -223,8 +227,10 @@ const reply = (body, replyTo) => ({
   message: { message_id: 55, text: body, chat: { id: 999 }, from: { id: 5 },
              reply_to_message: { message_id: replyTo } }
 });
+// A plain message, NOT a reply: this is the normal way now, and the reason the
+// quote is gone.
 tgCalls = [];
-updates = [reply('My own wording, written on the train.', 1)];
+updates = [reply('My own wording, written on the train.', 0)];
 await bg.pollTaps();
 let l9 = (await getLeads()).find((x) => x.threadId === '9');
 ok('what you typed becomes the draft', l9.draft === 'My own wording, written on the train.', l9.draft);
@@ -254,22 +260,45 @@ updates = [tap('m:2')];
 await bg.pollTaps();
 const pmPrompt = tgCalls.find((c) => /Editing the DM/.test(c.body.text || ''));
 ok('Edit DM opens an edit box too', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
-ok('with the DM in front of you', /lines/.test(pmPrompt?.body.text || ''), (pmPrompt?.body.text || '').slice(0, 140));
+const pmBlock = tgCalls.find((c) => /^<pre>Hi buyer/.test(c.body.text || ''));
+ok('with the DM itself in a copy block', !!pmBlock, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 24))));
 updates = [reply('A PM in my own words.', 1)];
 await bg.pollTaps();
 ok('and what you typed becomes the PM',
    (await getLeads()).find((x) => x.threadId === '2').dm === 'A PM in my own words.',
    (await getLeads()).find((x) => x.threadId === '2').dm);
 
-// A message that answers nothing of ours is not a rewrite.
+// With no edit waiting, a message is just a message.
 const before9 = (await getLeads()).find((x) => x.threadId === '9').draft;
-updates = [reply('just chatting to the bot', 99999)];
+store.tgEdits = {};
+updates = [reply('just chatting to the bot', 0)];
 await bg.pollTaps();
-ok('a reply to nothing of ours changes no draft',
+ok('with no edit open, what you type changes nothing',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
+
+// /cancel leaves it exactly as it was.
+store.tgEdits = { '1': { threadId: '9', field: 'draft', at: Date.now() } };
+tgCalls = [];
+updates = [reply('/cancel', 0)];
+await bg.pollTaps();
+ok('/cancel leaves the draft alone',
    (await getLeads()).find((x) => x.threadId === '9').draft === before9);
+ok('and says so', tgCalls.some((c) => /Left as it was/.test(c.body.text || '')),
+   JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+ok('and closes the edit, so the next message is yours again',
+   !Object.keys(store.tgEdits || {}).length, JSON.stringify(store.tgEdits));
+
+// An edit nobody answered expires, rather than swallowing a message an hour later.
+store.tgEdits = { '1': { threadId: '9', field: 'draft', at: Date.now() - 60 * 60000 } };
+updates = [reply('a message an hour later', 0)];
+await bg.pollTaps();
+ok('a stale edit does not swallow a later message',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
 
 // And a rewrite typed from someone else's chat is refused.
-store.tgEdits = { '77': { threadId: '9', field: 'draft' } };
+store.tgEdits = { '77': { threadId: '9', field: 'draft', at: Date.now() } };
 updates = [{ update_id: 1, message: { message_id: 78, text: 'hijacked', chat: { id: 4242 }, from: { id: 1 },
                                       reply_to_message: { message_id: 77 } } }];
 await bg.pollTaps();

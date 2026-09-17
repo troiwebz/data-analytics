@@ -134,17 +134,30 @@ export function keyboard(lead, kind, cfg) {
 }
 
 /**
- * Ask for the new wording, with the phone's reply box already open.
+ * Hand over the text to edit.
  *
- * force_reply is what makes this work on a phone: Telegram opens the keyboard
- * quoting this message, so whatever is typed next comes back as a reply
- * pointing at it, and we know which lead and which half it belongs to without
- * asking you to repeat yourself.
+ * Telegram gives no way to put a long, editable string into your compose box:
+ * a bot cannot prefill the input field (switch_inline_query caps at 256
+ * characters and needs inline mode), and you cannot edit a bot's message. So
+ * the closest thing is made as short as possible:
+ *
+ *   1. one short line saying what is being edited
+ *   2. the draft ON ITS OWN in a <pre> block - one tap on a phone copies the
+ *      whole thing, with none of the card text mixed in
+ *   3. you paste into the ordinary box, change what you like, and send
+ *
+ * force_reply used to do step 3, and it is what made this feel wrong: it put
+ * the entire draft in the message it quoted, so you typed underneath a wall of
+ * quoted text in a shrunken box. Now the next message you send in the chat is
+ * taken as the new version, which means a full-size box and no quote at all.
  */
-export async function askFor(chatId, prompt) {
+export async function askFor(chatId, header, body) {
+  await call('sendMessage', { chat_id: chatId, text: header, disable_web_page_preview: true });
   const m = await call('sendMessage', {
-    chat_id: chatId, text: prompt, disable_web_page_preview: true,
-    reply_markup: { force_reply: true, input_field_placeholder: 'Type the new wording' }
+    chat_id: chatId,
+    text: `<pre>${esc(String(body || '').slice(0, LIMIT - 60))}</pre>`,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
   });
   return m?.message_id;
 }
@@ -401,16 +414,18 @@ export async function pendingTaps() {
       });
       continue;
     }
-    // A reply you typed. Only a reply counts - a message that is not answering
-    // one of our prompts is somebody chatting to the bot, and is ignored.
+    // Anything you type. Whether it counts is decided in the background, which
+    // knows if an edit is waiting; here it is just carried across. replyTo is
+    // passed when you did reply to the prompt, because that is still the
+    // clearest signal when several things are in flight.
     const m = u.message;
-    if (m?.text && m.reply_to_message) {
+    if (m?.text) {
       out.push({
         kind: 'reply',
         chatId: String(m.chat?.id ?? ''),
         fromId: String(m.from?.id ?? ''),
         messageId: m.message_id,
-        replyTo: m.reply_to_message.message_id,
+        replyTo: m.reply_to_message?.message_id || 0,
         body: String(m.text)
       });
     }

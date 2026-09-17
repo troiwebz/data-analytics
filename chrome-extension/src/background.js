@@ -790,11 +790,32 @@ async function setEdit(promptId, entry) {
   await chrome.storage.local.set({ [EDITS_KEY]: all });
 }
 
+/** Minutes an unanswered edit stays open before your messages are yours again. */
+const EDIT_TTL_MS = 15 * 60000;
+
 async function takeRewrite(ev, cfg) {
   const edits = await getEdits();
-  const want = edits[String(ev.replyTo)];
-  if (!want) return false;                      // not answering anything of ours
-  await setEdit(String(ev.replyTo), null);
+
+  // Either you replied to the prompt, or you just typed - both count. Typing
+  // is the normal way now, because dropping force_reply is what got rid of the
+  // quote; a reply still works when several things are in flight.
+  let key = String(ev.replyTo || '');
+  let want = edits[key];
+  if (!want) {
+    const open = Object.entries(edits)
+      .filter(([, e]) => Date.now() - (e.at || 0) < EDIT_TTL_MS)
+      .sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+    if (!open.length) return false;             // nothing is waiting; you are just chatting
+    [key, want] = open[0];
+  }
+
+  // A way out that does not change anything.
+  if (/^\/?cancel$/i.test(ev.body.trim())) {
+    await setEdit(key, null);
+    await telegram.say(cfg.telegramChatId, 'Left as it was.');
+    return true;
+  }
+  await setEdit(key, null);
 
   const lead = (await getLeads()).find((l) => String(l.threadId) === String(want.threadId));
   if (!lead) { await telegram.say(cfg.telegramChatId, 'That lead is no longer in the table.'); return false; }
@@ -809,6 +830,9 @@ async function takeRewrite(ev, cfg) {
     : { draft: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
   await updateLead(lead.threadId, patch);
   await log(`rewrote the ${want.field === 'dm' ? 'PM' : 'public reply'} for "${lead.title}" from Telegram`);
+  // Editing is a decision about this lead, so a countdown on it stops: your
+  // version should not go up seconds later because a timer was already running.
+  if (lead.autoPostAt) await updateLead(lead.threadId, { autoPostAt: 0, autoBlocked: 'you edited it' });
 
   const fresh = { ...lead, ...patch };
   fresh.card = buildCard(fresh);
@@ -822,17 +846,21 @@ async function runTap(tap, lead, cfg) {
     if (tap.action === 'e' || tap.action === 'm') {
       const which = tap.action === 'm' ? 'DM' : 'post';
       const current = tap.action === 'm' ? lead.dm : lead.draft;
-      // The whole text goes in the prompt so it is in front of you to edit:
-      // on a phone, hold the quoted text, copy, change what you want, send.
-      // What comes back replaces it, and the lead reappears with its buttons.
+      // The text goes in a message of its own, so one tap copies exactly it
+      // and nothing else. No force_reply, so you get the full-size box with no
+      // quote above it - the next thing you send is taken as the new version.
       const promptId = await telegram.askFor(cfg.telegramChatId,
-        `✏️ Editing the ${which} for "${String(lead.title).slice(0, 60)}".\n\n`
-        + `Here it is. Reply to this message with the version you want - what you send replaces it, `
-        + `and the lead comes back with Post ${which === 'DM' ? 'DM' : 'Public'} Now on it.\n\n`
-        + `${plain(current || '(empty)').slice(0, 2500)}`);
+        `✏️ Editing the ${which} for "${String(lead.title).slice(0, 60)}".\n`
+        + `Tap the text below to copy it, paste it here, change what you like and send. `
+        + `Send /cancel to leave it as it is.`,
+        plain(current || ''));
       if (!promptId) return '❌ Could not open the edit box.';
-      await setEdit(String(promptId), { threadId: String(lead.threadId), field: tap.action === 'm' ? 'dm' : 'draft' });
-      return `✏️ Editing the ${which} - reply to the message below with your version.`;
+      await setEdit(String(promptId), {
+        threadId: String(lead.threadId),
+        field: tap.action === 'm' ? 'dm' : 'draft',
+        at: Date.now()
+      });
+      return `✏️ Editing the ${which} - send me the version you want.`;
     }
 
     if (tap.action === 'h') {
