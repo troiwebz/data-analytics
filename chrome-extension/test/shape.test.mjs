@@ -108,6 +108,48 @@ ok('PM greets the author', d.startsWith('Hi buyer1001') || d.startsWith('Hey buy
 // The requested shape has no budget line, so the PM no longer carries one.
 ok('the PM does not mention the budget', !d.includes('$400'), d);
 
+// ---- When they pay --------------------------------------------------------
+// The question behind every HAF thread is "what if I pay and nothing
+// arrives". It is answered before they ask, and named against the actual work:
+// "after the first milestone" is a phrase, "once the campaigns are live and
+// spending" is a commitment.
+{
+  const milestone = {
+    seo: /links are live/i, ads: /ads are live|campaigns are live/i, design: /files/i,
+    social: /accounts are running|posts are up/i, web: /build/i, content: /pieces/i,
+    generic: /first (part|piece)/i
+  };
+  for (const [cat, re] of Object.entries(milestone)) {
+    const l = { ...lead('7001'), category: cat,
+                aiSpecifics: { ...lead('7001').aiSpecifics, offer: 'pilot' } };
+    const dm = renderDm(l, cfg);
+    ok(`the ${cat} PM says when they pay`, /pay nothing until|Nothing is due until/i.test(dm),
+       dm.split('\n\n').slice(-3)[0]);
+    ok(`and names the ${cat} milestone, not a generic one`, re.test(dm), dm.split('\n\n').slice(-3)[0]);
+    ok(`the ${cat} line puts the invoice after it`, /invoice after that/i.test(dm), dm.split('\n\n').slice(-3)[0]);
+    ok(`and offers nothing free`, !/\bfree\b|no charge|no cost/i.test(dm), dm);
+    ok(`no slot is left showing for ${cat}`, !/\{\{|\}\}/.test(dm), (dm.match(/\{\{\w+\}\}/) || [''])[0]);
+  }
+
+  // The "terms" close already says this. Saying it twice in six lines reads as
+  // protesting rather than reassuring.
+  const t = renderDm({ ...lead('7002'), category: 'ads',
+                       aiSpecifics: { ...lead('7002').aiSpecifics, offer: 'terms' } }, cfg);
+  ok('the terms close does not say it twice',
+     (t.match(/invoice/gi) || []).length === 1, JSON.stringify(t.match(/invoice/gi)));
+  ok('and there is no empty gap where the line would have been', !/\n{3,}/.test(t), JSON.stringify(t));
+
+  // Every category and every close, linted.
+  for (const cat of ['seo', 'ads', 'design', 'social', 'web', 'content', 'generic']) {
+    for (const offer of ['pilot', 'ready', 'formula', 'terms', 'scope']) {
+      const dm = renderDm({ ...lead('7003'), category: cat,
+                            aiSpecifics: { ...lead('7003').aiSpecifics, offer } }, cfg);
+      ok(`${cat}/${offer} passes the compliance check`, lintDraft(dm, cfg.compliance).ok !== false,
+         JSON.stringify(lintDraft(dm, cfg.compliance).errors));
+    }
+  }
+}
+
 // No AI tells anywhere.
 const all = [...Array(60)].map((_, i) => renderReply(lead('2' + i), cfg) + '\n' + renderDm(lead('2' + i), cfg));
 ok('no em or en dashes in 60 renders', !all.some((t) => /[–—]/.test(t)));

@@ -380,6 +380,29 @@ export const DEFAULT_CONFIG = {
     scope: `{Tell me the shape you want and it is priced the same day|Say how you want it scoped and you will have a price the same day}: {per item or as one job, whichever suits|priced per item or as one job, your call}, {with a fixed price and a date, no call needed|fixed price and a date, nothing to book}.`
   },
 
+  // ---- When they pay -----------------------------------------------------
+  // The line that answers the question behind every HAF thread: what happens
+  // if I pay and nothing arrives. Nobody on that forum has to wonder about it
+  // out loud - they have all been burned once - so it is said before they ask.
+  //
+  // Named against the actual work, because "after the first milestone" is a
+  // phrase and "once the campaigns are live and spending" is a commitment. The
+  // milestone is the first point where the buyer can SEE something, not the
+  // point where the job is finished.
+  //
+  // Not free work: the work is paid for, just not before it exists. It is
+  // rendered in every PM except one carrying the "terms" close, which already
+  // says this - saying it twice reads as protesting.
+  paymentTerms: {
+    seo:     `{You pay nothing until the first links are live and indexed|Nothing is due until the first links are live and you can check them}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    ads:     `{You pay nothing until the campaigns are live and spending|Nothing is due until the ads are live and you can see them running}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    design:  `{You pay nothing until the first files are in your hands|Nothing is due until you have seen the first files}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    social:  `{You pay nothing until the accounts are running and posting|Nothing is due until the first posts are up and you can see them}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    web:     `{You pay nothing until the first build is on your staging|Nothing is due until you can click through the first build}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    content: `{You pay nothing until the first pieces are delivered|Nothing is due until you have read the first pieces}. {First invoice after that, not before|We invoice after that, never up front}.`,
+    generic: `{You pay nothing until the first part of the work is done and you can see it|Nothing is due until the first piece is delivered and in front of you}. {First invoice after that, not before|We invoice after that, never up front}.`
+  },
+
   // ---- Private message ---------------------------------------------------
   // Fixed shape, every time:
   //
@@ -405,6 +428,8 @@ export const DEFAULT_CONFIG = {
 
 {{offer}}
 
+{{payment}}
+
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
@@ -418,6 +443,8 @@ Thanks!!`,
 {{tips}}
 
 {{offer}}
+
+{{payment}}
 
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
@@ -433,6 +460,8 @@ Thanks!!`,
 
 {{offer}}
 
+{{payment}}
+
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
@@ -446,6 +475,8 @@ Thanks!!`,
 {{tips}}
 
 {{offer}}
+
+{{payment}}
 
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
@@ -461,6 +492,8 @@ Thanks!!`,
 
 {{offer}}
 
+{{payment}}
+
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
@@ -475,6 +508,8 @@ Thanks!!`,
 
 {{offer}}
 
+{{payment}}
+
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 
 Thanks!!`,
@@ -488,6 +523,8 @@ Thanks!!`,
 {{tips}}
 
 {{offer}}
+
+{{payment}}
 
 {Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
 

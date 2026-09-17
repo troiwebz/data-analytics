@@ -108,7 +108,16 @@ export function renderDm(lead, cfg) {
   // dropped into a quote. The substitution below still runs twice and question
   // is still passed, so a template of your own can use it if you want it.
   const offerText = spin(cfg.offers?.[offer] || '', `o${lead.threadId}`);
-  return render({ ...lead, tips: layTips(tips.slice(0, 3)), question, offer: offerText },
+
+  // When they pay, named against the actual work. Skipped when the "terms"
+  // close is the one chosen, because that close already says it and saying it
+  // twice in six lines reads as protesting rather than reassuring.
+  const terms = cfg.paymentTerms || {};
+  const payment = offer === 'terms'
+    ? ''
+    : spin(terms[lead.category] || terms.generic || '', `y${lead.threadId}`);
+
+  return render({ ...lead, tips: layTips(tips.slice(0, 3)), question, offer: offerText, payment },
     t[lead.category] || t.generic || Object.values(t)[0], seed);
 }
 
@@ -143,6 +152,7 @@ function render(lead, tpl, seed) {
     tip: lead.tip || '',
     tips: lead.tips || '',
     question: lead.question || '',
+    payment: lead.payment || '',
     offer: lead.offer || '',
     specifics: lead.specifics || ''
   };
