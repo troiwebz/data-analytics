@@ -43,6 +43,10 @@ logs/
 # Vercel
 .vercel
 
+# Built extension packages - reproducible with tools/build-zip.sh, so the
+# artifact does not belong in the history.
+haf-watcher-*.zip
+
 # Large / generated files
 *.pdf
 *.xlsx
