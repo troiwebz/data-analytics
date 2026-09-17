@@ -26,6 +26,9 @@ const MAX_PER_POLL = 6;       // a quiet burst, not a flood, if many land at onc
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export const getToken = () => vault.getSecret('telegram');
+
+/** Is a bot token saved on this install? Never returns the token itself. */
+export const hasToken = async () => Boolean(await getToken());
 export const setToken = (t) => vault.setSecret('telegram', String(t).trim());
 export const clearToken = () => vault.removeSecret('telegram');
 

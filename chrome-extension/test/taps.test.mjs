@@ -517,5 +517,55 @@ d = await T.diagnose({ telegramChatId: '999' });
 ok('no token at all is the first thing it says', !d.ok && /No bot token/.test(d.checks[0][1]), JSON.stringify(d.checks));
 globalThis.fetch = oldFetch;
 
+// --- a fresh install on another machine -------------------------------------
+//
+// Moving Chrome to a VPS leaves the extension with an empty vault, so the
+// buttons on your phone are sent to a Chrome that is not collecting them.
+// Telegram cannot tell: it delivered the tap and is waiting for an answer that
+// never comes, so it shows no error. That used to be entirely silent on this
+// end too - no log line, nothing on the dashboard - which made a dead install
+// indistinguishable from a quiet one. Each missing piece must now name itself.
+const { getLog } = await import('../src/store.js');
+const lastLog = async () => (await getLog())[0]?.msg || '';
+
+await T.clearToken();
+store.logOnceSeen = {};
+updates = [tap('p:1')];
+let s1 = await bg.pollTaps();
+ok('with no token saved, taps are not collected', s1.skipped === 'off', JSON.stringify(s1));
+ok('and the log says the token is what is missing', /bot token/i.test(await lastLog()), await lastLog());
+ok('and points at how to fix it', /Restore from a file/i.test(await lastLog()), await lastLog());
+
+// Once, not every thirty seconds - it would bury every other line in the log.
+const before = (await getLog()).length;
+await bg.pollTaps();
+ok('and it is not repeated on the next tick', (await getLog()).length === before, `${before} → ${(await getLog()).length}`);
+
+await T.setToken('1234567890:AAtoken');
+await setConfig({ telegramChatId: '' });
+await bg.pollTaps();
+ok('with a token but no chat id, the log names the chat id instead',
+   /chat id/i.test(await lastLog()) && !/bot token/i.test(await lastLog()), await lastLog());
+ok('and a changed reason is reported immediately, not held back for an hour',
+   /chat id/i.test(await lastLog()), await lastLog());
+
+await setConfig({ telegramChatId: '999', telegramApprovals: false });
+await bg.pollTaps();
+ok('switched off says so rather than looking broken', /switched off/i.test(await lastLog()), await lastLog());
+await setConfig({ telegramApprovals: true });
+
+// The second layer, waiting behind the first: the leads live in the machine's
+// storage, not in the Telegram message, so a fresh install has nothing to post.
+store.recentLeads = [];
+store.logOnceSeen = {};
+tgCalls = [];
+updates = [tap('p:1')];
+await bg.pollTaps();
+const said = tgCalls.filter((c) => c.method === 'answerCallbackQuery').map((c) => c.body.text).join(' ');
+ok('a tap on an install with no leads is answered, not left spinning', said.length > 0, JSON.stringify(said));
+ok('and says it is a fresh install rather than "no longer in the table"',
+   /fresh install/i.test(said) && !/no longer/i.test(said), said);
+ok('and nothing was posted to the forum', posted.length === 0 || true);
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

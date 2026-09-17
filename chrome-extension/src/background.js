@@ -28,7 +28,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
-  checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, log,
+  checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, log, logOnce, clearLogOnce,
   getStaged, setStaged, removeStagedByTab, dedupeLeads
 } from './store.js';
 
@@ -725,7 +725,26 @@ export async function expireStaged() {
  */
 export async function pollTaps() {
   const cfg = await getConfig();
-  if (!cfg.telegramApprovals || !cfg.telegramChatId) return { skipped: 'off' };
+
+  // The three ways this can be dead on arrival - all of which used to return
+  // in silence. A fresh install on a new machine has an empty vault, so the
+  // buttons on your phone go to a Chrome that is not listening: Telegram shows
+  // no error (it delivered the tap and is waiting for an answer that never
+  // comes) and Chrome does nothing. Now the log says which piece is missing.
+  const missing = !cfg.telegramApprovals
+    ? 'Telegram approvals are switched off in Settings, so your button taps are not being collected.'
+    : !(await telegram.hasToken())
+      ? 'No Telegram bot token is saved on this install, so your button taps cannot be collected. '
+        + 'Settings → paste the token, or Restore from a file.'
+      : !cfg.telegramChatId
+        ? 'No Telegram chat id is saved on this install, so your button taps are being ignored. '
+          + 'Settings → Find it for me, or Restore from a file.'
+        : '';
+  if (missing) {
+    await logOnce('tapsOff', `Telegram buttons will not work: ${missing}`, 'error');
+    return { skipped: 'off', reason: missing };
+  }
+  await clearLogOnce('tapsOff');
 
   let events;
   try { events = await telegram.pendingTaps(); }
@@ -754,9 +773,17 @@ export async function pollTaps() {
       continue;
     }
 
-    const lead = (await getLeads()).find((l) => String(l.threadId) === String(ev.threadId));
+    const all = await getLeads();
+    const lead = all.find((l) => String(l.threadId) === String(ev.threadId));
     if (!lead) {
-      await telegram.ackTap(ev.id, 'That lead is no longer in the table.');
+      // An empty table means a different install answered this tap than the
+      // one that sent it - moving Chrome to another machine does exactly this,
+      // because the leads live in that machine's storage, not in the message.
+      const why = all.length
+        ? 'That lead is no longer in the table.'
+        : 'This Chrome has no leads yet, so it cannot post that one. It is a fresh install - let it run one check first.';
+      await telegram.ackTap(ev.id, why);
+      if (!all.length) await logOnce('tapNoLeads', `a Telegram tap arrived for thread ${ev.threadId} but this install has no leads yet`, 'error');
       continue;
     }
     await telegram.ackTap(ev.id, 'Working on it…');

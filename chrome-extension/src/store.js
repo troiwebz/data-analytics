@@ -241,6 +241,39 @@ export async function getLog() {
   return l || [];
 }
 
+const ONCE_KEY = 'logOnceSeen';
+
+/**
+ * A log line for a condition that repeats on every tick.
+ *
+ * A broken Telegram setup is re-discovered every 30 seconds. Logging it each
+ * time would bury the log in one message and logging it never - which is what
+ * the code used to do - leaves you with a bot that answers nothing and a log
+ * that says nothing, which is the worst of the two. So: say it, then stay
+ * quiet about it for `everyMinutes`, and say it again the moment the text
+ * changes (a missing token becoming a missing chat id is news).
+ */
+export async function logOnce(key, msg, level = 'info', everyMinutes = 60) {
+  const { [ONCE_KEY]: seen } = await chrome.storage.local.get(ONCE_KEY);
+  const book = seen || {};
+  const prev = book[key];
+  const fresh = prev && prev.msg === String(msg)
+    && Date.now() - prev.at < everyMinutes * 60000;
+  if (fresh) return false;
+  book[key] = { msg: String(msg), at: Date.now() };
+  await chrome.storage.local.set({ [ONCE_KEY]: book });
+  await log(msg, level);
+  return true;
+}
+
+/** Forget a `logOnce` key, so the next occurrence is reported immediately. */
+export async function clearLogOnce(key) {
+  const { [ONCE_KEY]: seen } = await chrome.storage.local.get(ONCE_KEY);
+  if (!seen || !(key in seen)) return;
+  delete seen[key];
+  await chrome.storage.local.set({ [ONCE_KEY]: seen });
+}
+
 // ---- staged tabs: { [threadId]: { tabId, at, title } } ---------------------
 const STAGED_KEY = 'stagedTabs';
 
