@@ -115,18 +115,25 @@ ok('the PM does not mention the budget', !d.includes('$400'), d);
 // spending" is a commitment.
 {
   const milestone = {
-    seo: /links are live/i, ads: /ads are live|campaigns are live/i, design: /files/i,
-    social: /accounts are running|posts are up/i, web: /build/i, content: /pieces/i,
+    seo: /links are live/i,
+    ads: /ads (are|go) live/i,
+    design: /files/i,
+    social: /accounts? (is|are) running|posts are (live|going up)/i,
+    web: /build/i,
+    content: /pieces/i,
     generic: /first (part|piece)/i
   };
   for (const [cat, re] of Object.entries(milestone)) {
     const l = { ...lead('7001'), category: cat,
                 aiSpecifics: { ...lead('7001').aiSpecifics, offer: 'pilot' } };
     const dm = renderDm(l, cfg);
-    ok(`the ${cat} PM says when they pay`, /pay nothing until|Nothing is due until/i.test(dm),
+    ok(`the ${cat} PM says there is nothing upfront`, /no (money|payment) upfront|nothing upfront/i.test(dm),
        dm.split('\n\n').slice(-3)[0]);
     ok(`and names the ${cat} milestone, not a generic one`, re.test(dm), dm.split('\n\n').slice(-3)[0]);
-    ok(`the ${cat} line puts the invoice after it`, /invoice after that/i.test(dm), dm.split('\n\n').slice(-3)[0]);
+    ok(`the ${cat} line says pay after it`, /(you )?pay (once|after)/i.test(dm), dm.split('\n\n').slice(-3)[0]);
+    // It has to read like a person typing on a forum, not like an invoice.
+    ok(`the ${cat} line is not invoice boilerplate`,
+       !/nothing is due|first invoice|remittance|net \d|upon receipt/i.test(dm), dm.split('\n\n').slice(-3)[0]);
     ok(`and offers nothing free`, !/\bfree\b|no charge|no cost/i.test(dm), dm);
     ok(`no slot is left showing for ${cat}`, !/\{\{|\}\}/.test(dm), (dm.match(/\{\{\w+\}\}/) || [''])[0]);
   }
@@ -136,7 +143,8 @@ ok('the PM does not mention the budget', !d.includes('$400'), d);
   const t = renderDm({ ...lead('7002'), category: 'ads',
                        aiSpecifics: { ...lead('7002').aiSpecifics, offer: 'terms' } }, cfg);
   ok('the terms close does not say it twice',
-     (t.match(/invoice/gi) || []).length === 1, JSON.stringify(t.match(/invoice/gi)));
+     !/upfront/i.test(t) && (t.match(/invoice|payment after/gi) || []).length === 1,
+     JSON.stringify(t.split('\n\n').slice(-3)));
   ok('and there is no empty gap where the line would have been', !/\n{3,}/.test(t), JSON.stringify(t));
 
   // Every category and every close, linted.
@@ -191,7 +199,12 @@ ok('a different thread renders differently', renderDm(lead('1002'), cfg) !== d.r
 const allOffers = Object.keys(cfg.offers);
 ok('there are five closes', allOffers.length === 5, allOffers.join(','));
 const rendered = allOffers.map((o) => renderDm({ ...lead('5' + o), aiSpecifics: { ...lead('1').aiSpecifics, offer: o } }, cfg));
-ok('each close is different', new Set(rendered.map((t) => t.split('\n\n').slice(-3)[0])).size === 5);
+// Compared whole, not by paragraph position. The payment line added a
+// paragraph and the "terms" close suppresses it, so counting back from the end
+// no longer lands on the close - it lands on different things per offer.
+ok('each close is different', new Set(rendered).size === 5, String(new Set(rendered).size));
+ok('and the difference is the close itself, not the rest of the PM',
+   new Set(allOffers.map((o) => cfg.offers[o])).size === 5);
 ok('no close offers free work', !rendered.some((t) => /\bfree\b|no charge|at no cost/i.test(t)),
    rendered.find((t) => /\bfree\b/i.test(t))?.slice(-120));
 ok('no close promises a guarantee or a discount', !rendered.some((t) => /guarantee|\d+% off|discount/i.test(t)));

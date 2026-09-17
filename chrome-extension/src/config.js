@@ -393,14 +393,21 @@ export const DEFAULT_CONFIG = {
   // Not free work: the work is paid for, just not before it exists. It is
   // rendered in every PM except one carrying the "terms" close, which already
   // says this - saying it twice reads as protesting.
+  //
+  // Written the way someone actually types on a forum. "Nothing is due until
+  // the campaigns are live and spending. First invoice after that, not before."
+  // is invoice boilerplate - correct, and nobody talks like that. "No money
+  // upfront. You pay once the ads are live and running." says the same thing
+  // in words a person would use, which is the whole point on a forum where
+  // everyone can smell a template.
   paymentTerms: {
-    seo:     `{You pay nothing until the first links are live and indexed|Nothing is due until the first links are live and you can check them}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    ads:     `{You pay nothing until the campaigns are live and spending|Nothing is due until the ads are live and you can see them running}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    design:  `{You pay nothing until the first files are in your hands|Nothing is due until you have seen the first files}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    social:  `{You pay nothing until the accounts are running and posting|Nothing is due until the first posts are up and you can see them}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    web:     `{You pay nothing until the first build is on your staging|Nothing is due until you can click through the first build}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    content: `{You pay nothing until the first pieces are delivered|Nothing is due until you have read the first pieces}. {First invoice after that, not before|We invoice after that, never up front}.`,
-    generic: `{You pay nothing until the first part of the work is done and you can see it|Nothing is due until the first piece is delivered and in front of you}. {First invoice after that, not before|We invoice after that, never up front}.`
+    seo:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the first links are live|You pay after the first links are live and you can check them|Pay after the links are live, not before}.`,
+    ads:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the ads are live and running|You pay after the ads go live and you can see them running|Pay after the ads are live, not before}.`,
+    design:  `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you have seen the first files|You pay after the first files are with you|Pay after you have the first files, not before}.`,
+    social:  `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the posts are going up|You pay after the account is running and posting|Pay after the first posts are live, not before}.`,
+    web:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you can click through the first build|You pay after the first build is up and you have seen it|Pay after you have seen the first build, not before}.`,
+    content: `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you have read the first pieces|You pay after the first pieces are with you|Pay after you have the first pieces, not before}.`,
+    generic: `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the first part is done and you can see it|You pay after the first piece is with you|Pay after you have seen the first part, not before}.`
   },
 
   // ---- Private message ---------------------------------------------------
