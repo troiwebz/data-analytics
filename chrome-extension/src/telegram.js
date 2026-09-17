@@ -127,7 +127,8 @@ const replyMessage = (lead) => {
  */
 export const ACTIONS = {
   d: 'send the PM', p: 'post the public reply', s: 'skip this lead',
-  m: 'rewrite the PM', e: 'rewrite the public reply'
+  m: 'rewrite the PM', e: 'rewrite the public reply',
+  f: 'send the PM anyway, past the duplicate check'
 };
 
 export function keyboard(lead, kind, cfg) {
@@ -542,6 +543,38 @@ export async function selfTest(cfg) {
 export async function say(chatId, text) {
   try { await call('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true }); }
   catch { /* nothing more we can do from here */ }
+}
+
+/**
+ * A possible duplicate, put to you on the phone.
+ *
+ * The refusal used to be final: "Already sent", no evidence, no way past it.
+ * Since the evidence was sometimes wrong - a buyer messaging you counted as
+ * your PM - a flat refusal meant a lead you had never contacted could not be
+ * contacted at all without going to the machine. So: say what was found, link
+ * the conversation so you can read it, and leave the decision here.
+ *
+ * The link is a url button, not a callback, so it costs nothing against the
+ * 64-byte callback_data limit and opens BHW directly.
+ */
+export async function askAnyway(chatId, lead, dup) {
+  const id = String(lead.threadId || '');
+  const when = dup.at ? ` (${String(dup.at).slice(0, 10)})` : '';
+  const text = `❓ <b>Might already be a duplicate</b>\n\n`
+    + `${esc(String(lead.title).slice(0, 90))}\n\n`
+    + `Not sending yet: ${esc(dup.why || 'a conversation with them exists')}${when}.\n`
+    + `That is not proof you pitched this job, so it is your call.`;
+  const buttons = [];
+  if (dup.url) buttons.push([{ text: '👀 Open the conversation', url: dup.url }]);
+  buttons.push([{ text: '✉️ Send anyway', callback_data: `f:${id}` },
+                { text: '⏭ Skip', callback_data: `s:${id}` }]);
+  try {
+    await call('sendMessage', {
+      chat_id: chatId, text, parse_mode: 'HTML',
+      disable_web_page_preview: true, reply_markup: { inline_keyboard: buttons }
+    });
+    return true;
+  } catch { return false; }
 }
 
 /** Stop the spinner on the button. Telegram wants this within a few seconds. */

@@ -19,6 +19,14 @@ const STARTER     = /data-author="([^"]*)"/;
 // "Participants: alice, bob" sits in the row's minor line as linked usernames.
 const USERNAME_ANY = /<a[^>]+href="[^"]*\/members\/([^."\/]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
 const TIMESTAMP   = /data-timestamp="(\d+)"/;
+// Who you are, read off the page's own navigation. Needed because a
+// conversation only proves you pitched if YOU started it - a message the buyer
+// sent you is not evidence of your PM, and treating it as such is what marked
+// leads you had never touched as done.
+const ME = [
+  /class="[^"]*p-navgroup-user-linkText[^"]*"[^>]*>([\s\S]*?)</,
+  /class="[^"]*p-navgroup-link--user[^"]*"[^>]*>[\s\S]{0,200}?\/members\/([^."\/]+)/
+];
 
 const strip = (h) => String(h || '').replace(/<[^>]+>/g, '')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
@@ -52,18 +60,61 @@ export function parseConversations(html) {
       title: strip(link[3]),
       url: link[1].startsWith('http') ? link[1] : 'https://www.blackhatworld.com' + link[1],
       people: [...people].filter(Boolean),
+      // The row's own starter, kept apart from the participant list: this is
+      // the only field that says who opened the conversation.
+      startedBy: starter ? norm(starter[1]) : '',
+      // NOT when it started - XenForo puts the LAST message's time here. The
+      // old code read this as a start date and called any bumped conversation
+      // proof of a fresh PM, which is the bug this whole file now guards.
       at: ts ? new Date(parseInt(ts[1], 10) * 1000).toISOString() : null
     });
   }
   return out;
 }
 
+/** Your own BHW username, read off the page you already fetched. */
+export function parseMe(html) {
+  for (const re of ME) {
+    const m = String(html || '').match(re);
+    const name = norm(strip(m?.[1]));
+    if (name) return name;
+  }
+  return '';
+}
+
+/**
+ * Do two subjects describe the same thread?
+ *
+ * The old test was `a.includes(b) || b.includes(a)`, which after punctuation is
+ * stripped makes a conversation called "SEO" a match for "Looking for SEO
+ * expert" - and so marks a lead done because you once used the word SEO. This
+ * asks instead how much of the shorter subject the longer one actually
+ * accounts for, and wants most of it plus more than one word in common, so a
+ * single shared keyword is never enough.
+ */
+export function titlesMatch(a, b) {
+  const A = normTitle(a), B = normTitle(b);
+  if (!A || !B) return false;
+  if (A === B) return true;
+  const wa = new Set(A.split(' ').filter((w) => w.length > 2));
+  const wb = new Set(B.split(' ').filter((w) => w.length > 2));
+  if (!wa.size || !wb.size) return false;
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared++;
+  const smaller = Math.min(wa.size, wb.size);
+  return shared >= 2 && shared / smaller >= 0.6;
+}
+
 /**
  * Walk the conversation list. Page 1 is usually enough; more only helps if a
  * lot has been sent since the last check.
+ *
+ * Returns the rows and who you are, because deciding whether a conversation
+ * proves anything needs both and the username is on the same page.
  */
 export async function fetchConversations(pages = 2) {
   const all = [];
+  let me = '';
   for (let p = 1; p <= pages; p++) {
     const url = p === 1 ? 'https://www.blackhatworld.com/direct-messages/'
                         : `https://www.blackhatworld.com/direct-messages/page-${p}`;
@@ -73,43 +124,68 @@ export async function fetchConversations(pages = 2) {
     if (/\/login\b/.test(html) && !ROW_SPLIT.test(html)) {
       throw new Error('not logged in to BlackHatWorld in this Chrome profile');
     }
+    if (p === 1) me = parseMe(html);
     const rows = parseConversations(html);
     all.push(...rows);
     if (rows.length === 0) break;
   }
-  return all;
+  return { rows: all, me };
 }
 
 /**
- * Decide, for one lead, whether a conversation proves the PM went.
+ * Decide, for one lead, what the message list actually proves.
  *
- * Two levels, because the author's name alone is not proof: you may have
- * spoken to them a year ago about something else, and marking a fresh lead
- * done on that basis would hide work you have not done.
+ * Three answers, because the old two collapsed cases that are not alike:
  *
- *   sent          the conversation's title matches the thread, or it is with
- *                 that author and started after we found the thread
- *   priorContact  a conversation with that author exists, but older. Worth
- *                 knowing before pitching, not proof of this pitch.
+ *   sent    you started a conversation with that person whose subject is this
+ *           thread. That is a PM you sent about this job.
+ *   maybe   a conversation with them has moved recently, but either they
+ *           started it or the subject is something else. Worth showing you
+ *           before you pitch again; not proof you already did.
+ *   prior   a conversation exists but it is old. Context, nothing more.
+ *
+ * What changed and why: the previous version returned `sent: true` for any
+ * conversation with that person whose timestamp was later than when we found
+ * the thread. XenForo puts the LAST message's time in that field, so a buyer
+ * messaging you about something else, or a year-old thread getting one reply,
+ * both read as "you already pitched this" - and the lead was struck off, the
+ * Telegram tap refused as a duplicate, and a slot charged to your daily cap,
+ * for a PM that never existed.
+ *
+ * Timing is no longer proof of anything on its own. `me` is your username;
+ * without it authorship cannot be checked, so nothing is treated as sent.
  */
-export function matchLead(lead, conversations) {
+export function matchLead(lead, conversations, me = '') {
   const author = norm(lead.author);
   if (!author) return null;
-  const mine = conversations.filter((c) => c.people.includes(author));
+  const rows = Array.isArray(conversations) ? conversations : conversations?.rows || [];
+  const mine = rows.filter((c) => c.people.includes(author));
   if (!mine.length) return null;
 
-  const wanted = normTitle(lead.dmTitle || lead.title);
+  const who = norm(me);
   const found = new Date(lead.foundAt || 0).getTime();
+  const byNewest = (a, b) => new Date(b.at || 0) - new Date(a.at || 0);
+  const iStarted = (c) => Boolean(who) && c.startedBy === who;
 
-  const titled = wanted && mine.find((c) => {
-    const t = normTitle(c.title);
-    return t && (t === wanted || t.includes(wanted) || wanted.includes(t));
-  });
-  if (titled) return { sent: true, at: titled.at, url: titled.url, why: 'subject matches the thread' };
+  // Proof: your conversation, this subject.
+  const proven = mine.filter(iStarted)
+    .find((c) => titlesMatch(c.title, lead.dmTitle || lead.title));
+  if (proven) {
+    return { sent: true, at: proven.at, url: proven.url, title: proven.title,
+             why: 'you started a conversation with this subject' };
+  }
 
-  const after = mine.find((c) => c.at && new Date(c.at).getTime() >= found - 60000);
-  if (after) return { sent: true, at: after.at, url: after.url, why: 'started after the thread was found' };
+  // Not proof, but you should see it before pitching again.
+  const recent = mine.slice().sort(byNewest)
+    .find((c) => c.at && new Date(c.at).getTime() >= found - 60000);
+  if (recent) {
+    return { sent: false, maybe: true, at: recent.at, url: recent.url, title: recent.title,
+             why: iStarted(recent)
+               ? 'you have a conversation with them about something else'
+               : 'they have messaged you recently' };
+  }
 
-  const newest = mine.slice().sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))[0];
-  return { sent: false, at: newest.at, url: newest.url, why: 'you have spoken to them before' };
+  const newest = mine.slice().sort(byNewest)[0];
+  return { sent: false, at: newest.at, url: newest.url, title: newest.title,
+           why: 'you have spoken to them before' };
 }

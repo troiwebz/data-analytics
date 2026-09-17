@@ -533,7 +533,10 @@ $('pmcheck').addEventListener('click', () => busy('pmcheck', 'Reading…', async
   if (r?.error) return alert(`Could not read your message list: ${r.error}`);
   alert(`Read ${r.conversations} conversation(s) from your BHW message list.\n\n` +
     `${r.marked} thread(s) ticked off as already sent.\n` +
-    `${r.known} more are with people you have spoken to before.`);
+    (r.cleared ? `${r.cleared} were marked sent by mistake and have been put back, with their PM slots refunded.\n` : '') +
+    (r.maybes ? `${r.maybes} might be duplicates - you will be asked before those send.\n` : '') +
+    `${r.known} more are with people you have spoken to before.` +
+    (r.me ? '' : '\n\nCould not read your BHW username off the page, so nothing was marked sent. Check you are logged in.'));
 }));
 
 $('regen').addEventListener('click', () => busy('regen', 'Reading threads…', async () => {

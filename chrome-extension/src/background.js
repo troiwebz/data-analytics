@@ -87,27 +87,54 @@ export async function playSound(cfg, which) {
  * nothing and sends nothing.
  */
 export async function syncSentPms({ pages = 2 } = {}) {
-  const conversations = await fetchConversations(pages);
+  const { rows, me } = await fetchConversations(pages);
   const leads = await getLeads();
-  let marked = 0, known = 0;
+  let marked = 0, known = 0, cleared = 0, maybes = 0;
 
   for (const lead of leads) {
-    const hit = matchConversation(lead, conversations);
+    const hit = matchConversation(lead, rows, me);
+
+    // Clearing, which did not exist before. A flag set by the old loose rules
+    // was permanent: nothing re-examined it, so a lead marked done by mistake
+    // stayed done, kept refusing the Telegram tap as a duplicate, and kept its
+    // slot charged to the daily cap. A flag this check put there has to be one
+    // this check can take away.
+    if (lead.pmSent && lead.pmFrom === 'your BHW message list' && !hit?.sent) {
+      await updateLead(lead.threadId, {
+        pmSent: false, pmSentAt: '', pmFrom: '',
+        pmMaybe: hit?.maybe ? (hit.why || 'a conversation exists') : '',
+        pmMaybeUrl: hit?.maybe ? hit.url || '' : ''
+      });
+      await unrecordDm();                              // give the slot back
+      cleared++;
+      continue;
+    }
     if (!hit) continue;
+
     if (hit.sent) {
       if (lead.pmSent) continue;                       // already known, nothing to do
       await updateLead(lead.threadId, {
-        pmSent: true, pmSentAt: hit.at || new Date().toISOString(), pmFrom: 'your BHW message list'
+        pmSent: true, pmSentAt: hit.at || new Date().toISOString(),
+        pmFrom: 'your BHW message list', pmUrl: hit.url || '', pmMaybe: '', pmMaybeUrl: ''
       });
-      await recordDm();
+      // Only charge today's cap for something sent today. Discovering a PM
+      // from last week is not a PM sent now, and counting it was spending
+      // today's allowance on history.
+      if (String(hit.at || '').slice(0, 10) === new Date().toLocaleDateString('en-CA')) await recordDm();
       marked++;
+    } else if (hit.maybe) {
+      // Not proof. Remembered so the tap can show it to you and let you judge.
+      await updateLead(lead.threadId, { pmMaybe: hit.why || 'a conversation exists', pmMaybeUrl: hit.url || '' });
+      maybes++;
     } else if (!lead.priorContact) {
       await updateLead(lead.threadId, { priorContact: hit.at ? hit.at.slice(0, 10) : 'earlier' });
       known++;
     }
   }
-  await log(`checked ${conversations.length} conversation(s): ${marked} already sent, ${known} previously contacted`);
-  return { conversations: conversations.length, marked, known };
+  const whoami = me ? '' : ' (could not read your username from the page, so nothing was marked sent)';
+  await log(`checked ${rows.length} conversation(s): ${marked} already sent, ${cleared} wrongly marked and cleared, `
+    + `${maybes} worth a look, ${known} previously contacted${whoami}`, cleared ? 'error' : 'info');
+  return { conversations: rows.length, me, marked, known, cleared, maybes };
 }
 
 // ---------------------------------------------------------------- lifecycle
@@ -906,6 +933,54 @@ async function takeRewrite(ev, cfg) {
 }
 
 /** One tap. Returns the line that goes back on the message. */
+/**
+ * Is this really a duplicate? Asked of BHW, now, not of a stored flag.
+ *
+ * The flag is written by an hourly job, so at the moment you tap it can be an
+ * hour stale - and a flag written by the old loose rules could be simply
+ * wrong. Since a refusal here means walking to the machine to override it, the
+ * refusal has to be based on the current state of your message list rather
+ * than on a cached guess.
+ *
+ * Costs one page fetch, about a second. A failure never blocks the send: not
+ * being able to check is not evidence of a duplicate, and refusing on it would
+ * make an unreachable BHW look exactly like an already-sent PM.
+ */
+async function duplicateCheck(lead) {
+  try {
+    const { rows, me } = await fetchConversations(1);
+    const hit = matchConversation(lead, rows, me);
+    if (!hit) return { sent: false, maybe: false };
+    if (hit.sent) {
+      await updateLead(lead.threadId, {
+        pmSent: true, pmSentAt: hit.at || new Date().toISOString(),
+        pmFrom: 'your BHW message list', pmUrl: hit.url || ''
+      });
+      return hit;
+    }
+    if (hit.maybe) return hit;
+    return { sent: false, maybe: false };
+  } catch (e) {
+    await log(`could not check your message list before sending: ${e.message}`, 'error');
+    return { sent: false, maybe: false, unchecked: e.message };
+  }
+}
+
+const dupLine = (lead, dup) =>
+  `✉️ Already sent - ${dup.why}.${dup.url ? `\n${dup.url}` : ''}`;
+
+/**
+ * A possible duplicate, put to you rather than decided for you.
+ *
+ * The evidence, a link to the conversation, and a Send anyway button - so the
+ * call is made on your phone with the conversation one tap away, instead of
+ * being refused flatly by a rule you cannot see or argue with.
+ */
+async function offerAnyway(lead, cfg, dup) {
+  await updateLead(lead.threadId, { pmMaybe: dup.why || '', pmMaybeUrl: dup.url || '' });
+  await telegram.askAnyway(cfg.telegramChatId, lead, dup);
+}
+
 async function runTap(tap, lead, cfg) {
   try {
     if (tap.action === 'e' || tap.action === 'm') {
@@ -942,8 +1017,15 @@ async function runTap(tap, lead, cfg) {
     // Both of these go through the same functions the dashboard buttons use.
     // They already count the send against your daily cap and mark the row, so
     // doing it again here would charge you twice for one PM.
-    if (tap.action === 'd') {
-      if (lead.pmSent) return '✉️ Already sent - not sending it twice.';
+    // 'f' is Send anyway: the same as 'd' but past the duplicate check, because
+    // you have seen the conversation it found and decided.
+    if (tap.action === 'd' || tap.action === 'f') {
+      const forced = tap.action === 'f';
+      if (!forced) {
+        const dup = await duplicateCheck(lead);
+        if (dup.sent) return dupLine(lead, dup);
+        if (dup.maybe) { await offerAnyway(lead, cfg, dup); return '❓ Might be a duplicate - have a look.'; }
+      }
       const gate = await checkDmLimit(cfg);
       if (!gate.ok) return `✋ Held: ${gate.reason}`;
       const r = await sendDm(lead, cfg, { mode: 'send' });
