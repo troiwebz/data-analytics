@@ -6,7 +6,10 @@ export const FEED_URL =
   'https://www.blackhatworld.com/forums/hire-a-freelancer.76/index.rss';
 
 export const DEFAULT_CONFIG = {
-  enabled: false,              // flipped on from Options once the webhook is set
+  // On by default. A fresh install should start watching rather than sit there
+  // looking installed; it cannot post or message anyone until the two keys are
+  // in, so there is nothing to start early.
+  enabled: true,
   feedUrl: FEED_URL,
   pollMinutes: 3,              // how often to check the forum
   jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
@@ -46,7 +49,7 @@ export const DEFAULT_CONFIG = {
   // It needs no server. Chrome asks Telegram "any taps?" on a timer, which
   // means CHROME HAS TO BE RUNNING - a tap while the Mac is asleep is acted on
   // when Chrome wakes, not lost.
-  telegramApprovals: false,    // off until you turn it on
+  telegramApprovals: true,     // the buttons are the point, and nothing acts without a tap
   telegramPollSeconds: 30,     // Chrome clamps alarms to 30s, so lower is the same
 
   // ---- Night mode -------------------------------------------------------
