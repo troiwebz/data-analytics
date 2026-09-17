@@ -126,5 +126,21 @@ ok('and unrelated subjects do not match',
    !titlesMatch('invoice for the march work', 'need a google ads guy for crypto'));
 ok('an empty subject never matches', !titlesMatch('', 'anything') && !titlesMatch('anything', ''));
 
+// One page only. The list is ordered by most recent activity, so a lead found
+// today is on page one or it is not there at all - and a second page cost an
+// extra request to the forum on every single check without ever changing an
+// answer.
+const asked = [];
+globalThis.fetch = async (url) => {
+  asked.push(String(url));
+  return { ok: true, status: 200, text: async () => html };
+};
+const got = await (await import('../src/messages.js')).fetchConversations();
+ok('the inbox is read with one request', asked.length === 1, JSON.stringify(asked));
+ok('and it is page one', /\/direct-messages\/$/.test(asked[0]), asked[0]);
+ok('no page-2 walk', !asked.some((u) => /page-/.test(u)), JSON.stringify(asked));
+ok('the rows and your username come back together',
+   got.rows.length === 4 && got.me === norm(ME), JSON.stringify({ n: got.rows.length, me: got.me }));
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

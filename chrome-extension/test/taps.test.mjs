@@ -208,18 +208,25 @@ store.recentLeads = [...(await getLeads()), lead('9')];
 tgCalls = [];
 updates = [tap('e:9')];
 await bg.pollTaps();
-const prompt = tgCalls.find((c) => c.method === 'sendMessage' && /Editing the post/.test(c.body.text || ''));
-ok('Edit Post explains what to do', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
-// No force_reply: that is what put the whole draft in a quote above a shrunken
-// box. The text comes as its own message instead, so one tap copies exactly it.
-ok('it does NOT use a reply box, so there is no quote', !prompt?.body.reply_markup?.force_reply,
+// The card you tapped BECOMES the editor. It used to send two fresh messages
+// and then a third with the rewritten card, so a two-line change pushed four
+// messages into the chat and the thing being edited scrolled away.
+const prompt = tgCalls.find((c) => c.method === 'editMessageText' && /Editing the post/.test(c.body.text || ''));
+ok('Edit Post rewrites the card in place', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
+ok('and it is the same message, not a new one', prompt?.body.message_id === 11, String(prompt?.body.message_id));
+ok('nothing new is posted to the chat',
+   !tgCalls.some((c) => c.method === 'sendMessage'), JSON.stringify(tgCalls.map((c) => c.method)));
+ok('the draft is in a tap-to-copy block', /<pre>We have done this before/.test(prompt?.body.text || ''),
+   (prompt?.body.text || '').slice(0, 120));
+ok('with a way out that changes nothing',
+   (prompt?.body.reply_markup?.inline_keyboard || []).flat().some((b) => /Leave it as it is/.test(b.text)),
    JSON.stringify(prompt?.body.reply_markup));
-const block = tgCalls.find((c) => c.method === 'sendMessage' && /^<pre>/.test(c.body.text || ''));
-ok('the draft arrives in a tap-to-copy block of its own', !!block, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 20))));
-ok('and that block is the draft and nothing else',
-   /^<pre>We have done this before/.test(block?.body.text || ''), (block?.body.text || '').slice(0, 60));
-ok('the instruction does not repeat the draft into a wall of text',
-   !/We have done this before/.test(prompt?.body.text || ''), (prompt?.body.text || '').slice(0, 140));
+// The cancel button must name the THREAD, because that is what the lead is
+// looked up by - naming the message would find nothing and answer "no longer
+// in the table" to a card that is right there.
+ok('and the way out names the thread, not the message',
+   (prompt?.body.reply_markup?.inline_keyboard || []).flat()[0]?.callback_data === 'c:9',
+   JSON.stringify((prompt?.body.reply_markup?.inline_keyboard || []).flat()[0]));
 
 // The reply you type. force_reply means it comes back pointing at the prompt.
 const reply = (body, replyTo) => ({
@@ -235,14 +242,16 @@ await bg.pollTaps();
 let l9 = (await getLeads()).find((x) => x.threadId === '9');
 ok('what you typed becomes the draft', l9.draft === 'My own wording, written on the train.', l9.draft);
 ok('and it is marked as yours, so a staged tab is retyped not reused', l9.draftEdited === true);
-const back = tgCalls.find((c) => c.method === 'sendMessage' && c.body.reply_markup?.inline_keyboard);
-ok('the edited lead comes straight back', !!back, JSON.stringify(tgCalls.map((c) => c.method)));
+const back = tgCalls.find((c) => c.method === 'editMessageText' && c.body.reply_markup?.inline_keyboard);
+ok('the card comes back on the same message', !!back && back.body.message_id === 11,
+   JSON.stringify(tgCalls.map((c) => `${c.method}:${c.body.message_id || ''}`)));
+ok('so the chat ends where it started, with nothing added',
+   !tgCalls.some((c) => c.method === 'sendMessage'), JSON.stringify(tgCalls.map((c) => c.method)));
 ok('with Post Public Now on it, so one more tap posts your version',
    (back?.body.reply_markup.inline_keyboard.flat() || []).some((b) => /Post Public Now/.test(b.text)),
    JSON.stringify((back?.body.reply_markup.inline_keyboard.flat() || []).map((b) => b.text)));
-ok('and the message it sends back is the wording you typed',
-   tgCalls.some((c) => /written on the train/.test(c.body.text || '')),
-   JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 40))));
+ok('and it shows the wording you typed',
+   /written on the train/.test(back?.body.text || ''), (back?.body.text || '').slice(0, 80));
 
 // Then approving posts YOUR text, not Claude's.
 await setConfig({ maxPostsPerDay: 10 });
@@ -260,8 +269,11 @@ updates = [tap('m:2')];
 await bg.pollTaps();
 const pmPrompt = tgCalls.find((c) => /Editing the DM/.test(c.body.text || ''));
 ok('Edit DM opens an edit box too', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
-const pmBlock = tgCalls.find((c) => /^<pre>Hi buyer/.test(c.body.text || ''));
-ok('with the DM itself in a copy block', !!pmBlock, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 24))));
+ok('with the DM itself in a copy block', /<pre>Hi buyer/.test(pmPrompt?.body.text || ''),
+   (pmPrompt?.body.text || '').slice(0, 120));
+ok('and it edited the card rather than posting another message',
+   pmPrompt?.method === 'editMessageText' && !tgCalls.some((c) => c.method === 'sendMessage'),
+   JSON.stringify(tgCalls.map((c) => c.method)));
 updates = [reply('A PM in my own words.', 1)];
 await bg.pollTaps();
 ok('and what you typed becomes the PM',
@@ -351,7 +363,20 @@ await setConfig({ telegramApprovals: true });      // the block above turned the
   ok('and says why', /never read/.test(l.autoBlocked || ''), l.autoBlocked);
 
   // Outside the window nothing fires, whatever is queued.
-  await setConfig({ nightStart: '23:00', nightEnd: '23:01' });
+  //
+  // The window is computed from the clock rather than hardcoded. A fixed
+  // '23:00'-'23:01' was "outside now" on almost every run and inside it for one
+  // minute a day - in the configured timezone, not UTC - so this check quietly
+  // inverted itself once daily and would have looked like a real regression to
+  // whoever next ran the suite at the wrong moment.
+  {
+    const { minutesNow } = await import('../src/night.js');
+    const cfg = await (await import('../src/config.js')).getConfig();
+    const hhmm = (mins) => String(Math.floor(((mins % 1440) + 1440) % 1440 / 60)).padStart(2, '0')
+      + ':' + String(((mins % 1440) + 1440) % 1440 % 60).padStart(2, '0');
+    const soon = minutesNow(cfg) + 120;               // two hours away, whatever the hour
+    await setConfig({ nightStart: hhmm(soon), nightEnd: hhmm(soon + 1) });
+  }
   store.recentLeads = [ready('n3', { autoPostAt: Date.now() - 1000 })];
   globalThis.__acting = 'n3';
   nr = await bg.runNightQueue();

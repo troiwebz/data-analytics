@@ -128,7 +128,8 @@ const replyMessage = (lead) => {
 export const ACTIONS = {
   d: 'send the PM', p: 'post the public reply', s: 'skip this lead',
   m: 'rewrite the PM', e: 'rewrite the public reply',
-  f: 'send the PM anyway, past the duplicate check'
+  f: 'send the PM anyway, past the duplicate check',
+  c: 'cancel an edit and put the card back'
 };
 
 export function keyboard(lead, kind, cfg) {
@@ -191,6 +192,54 @@ export async function askFor(chatId, header, body) {
     disable_web_page_preview: true
   });
   return m?.message_id;
+}
+
+/**
+ * Turn the card you tapped INTO the editor, in place.
+ *
+ * Tapping Edit DM used to send two fresh messages and then, once you replied,
+ * a third with the rewritten card - so a small change to two lines pushed four
+ * messages into the chat and the thing you were editing scrolled away. Editing
+ * the same message means there is one card, it changes to show the draft, and
+ * it changes back. Nothing new appears.
+ *
+ * What Telegram still cannot do is put text in your compose box: a bot may not
+ * prefill it, and switch_inline_query caps at 256 characters. So the draft is
+ * in a <pre> block, which one tap copies in full on mobile - paste, change your
+ * two lines, send.
+ */
+export async function editIntoEditor(chatId, messageId, which, body, title, threadId) {
+  const text = `✏️ <b>Editing the ${esc(which)}</b> — ${esc(String(title || '').slice(0, 60))}\n`
+    + `Tap the text to copy it, paste it back, change what you like and send.\n`
+    + `<pre>${esc(String(body || '').slice(0, LIMIT - 300))}</pre>`;
+  try {
+    await call('editMessageText', {
+      chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: [[{ text: '✖️ Leave it as it is', callback_data: `c:${threadId}` }]] }
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Put the card back, on the same message, with its buttons.
+ *
+ * Used after a rewrite lands and after Cancel, so the chat ends up exactly as
+ * it started rather than accumulating a history of the edit.
+ */
+export async function editIntoCard(chatId, messageId, lead, kind, cfg) {
+  const text = kind === 'PM' ? pmMessage(lead) : replyMessage(lead);
+  if (!text) return false;
+  const body = { chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
+                 disable_web_page_preview: true, reply_markup: keyboard(lead, kind, cfg) };
+  try {
+    await call('editMessageText', { ...body, text });
+    return true;
+  } catch {
+    try { await call('editMessageText', { ...body, text: stripTags(text), parse_mode: undefined }); return true; }
+    catch { return false; }
+  }
 }
 
 /** Put the lead back in front of you, rewritten, with the buttons again. */
@@ -588,6 +637,10 @@ export async function ackTap(id, text = '') {
  * the same lead cannot be posted twice from the same card.
  */
 export async function settleTap(tap, line) {
+  // An empty line means the handler has already rewritten this message itself
+  // - the Edit buttons turn the card into the editor in place. Stamping an
+  // outcome on top would wipe the very text you are about to copy.
+  if (!line) return;
   const stamp = `\n\n${line}`;
   try {
     await call('editMessageText', {

@@ -86,16 +86,34 @@
     if (!btn) return { ok: false, error: 'no send button on the DM form' };
     btn.click();
 
-    for (let i = 0; i < 30; i++) {
+    // Landing on the conversation is the clearest confirmation, but it is not
+    // the only shape a success takes: the form can be submitted over XHR and
+    // leave the address bar alone, and a slow forum can take longer than this
+    // loop is willing to wait. So a few other signs count, and running out of
+    // patience is reported as "probably sent" rather than as a failure - the
+    // caller then asks BHW's own message list, which is the only real
+    // authority. Saying "could not send" about a PM that did go is the worse
+    // mistake: it leaves the row unstruck and invites you to send it twice.
+    const left = location.href;
+    for (let i = 0; i < 40; i++) {
       await sleep(500);
-      // A sent DM lands on the conversation itself.
       if (/\/direct-messages\/(?!add)|\/conversations\/(?!add)/.test(location.pathname)) {
         return { ok: true, sent: true, dmUrl: location.href };
       }
       const err = document.querySelector('.blockMessage--error, .js-errorMessage');
       if (err && err.textContent.trim()) return { ok: false, error: err.textContent.trim().slice(0, 200) };
+      // XenForo's own success notice, whether or not the page moved.
+      const good = document.querySelector('.blockMessage--success, .js-successMessage');
+      if (good && good.textContent.trim()) return { ok: true, sent: true, dmUrl: location.href };
+      // The compose form is gone and the conversation is on the page: that is
+      // the conversation view, rendered without a navigation. S.dmSent exists
+      // for exactly this and was only used on one of the two paths.
+      if (!pick(S.dmForm) && pick(S.dmSent)) {
+        return { ok: true, sent: true, dmUrl: location.href };
+      }
     }
-    return { ok: false, error: 'sent but no confirmation after 15s — check your DMs' };
+    return { ok: true, sent: false, unconfirmed: true, movedTo: location.href !== left ? location.href : '',
+             error: 'submitted, but the page never confirmed it within 20s' };
   }
 
   run()

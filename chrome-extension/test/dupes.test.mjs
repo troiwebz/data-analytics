@@ -209,5 +209,60 @@ ok('a check that could not run does not block the send', (await getRateState()).
    String((await getRateState()).dmCount));
 inboxFail = '';
 
+// --- the inbox is the authority on a send, not the tab ----------------------
+//
+// The tab can only report what it saw. The message list is the forum's own
+// record of what exists, so it is asked on every send - and "sent" on the
+// dashboard then means the same thing as "sent" on BHW, which is what makes
+// the strike-through trustworthy enough to stop a second PM.
+//
+// The case that used to vanish: {ok:true, sent:false}. It matched neither
+// branch, so there was no flag, no error and no log line - a row that looked
+// untouched for a PM that had almost certainly gone.
+store.recentLeads = [lead('8')];
+store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+dmResult = { ok: true, sent: false, unconfirmed: true, error: 'submitted, but the page never confirmed it within 20s' };
+inboxHtml = inbox(convRow(508, 'Need a Google Ads guy for crypto', 'buyer8', new Date().toISOString(), ME));
+globalThis.__acting = '8';
+let l8 = await bg.sendDm((await getLeads())[0], await (await import('../src/config.js')).getConfig(), { mode: 'send' });
+let row8 = (await getLeads())[0];
+ok('a send the page could not confirm is settled by the message list', row8.pmSent === true,
+   JSON.stringify({ r: l8, pmSent: row8.pmSent }));
+ok('so the row strikes through instead of looking untouched', row8.pmSent === true);
+ok('and it counts once', (await getRateState()).dmCount === 1, String((await getRateState()).dmCount));
+ok('the conversation is linked from the row', /direct-messages/.test(row8.pmUrl || ''), row8.pmUrl);
+ok('and it is recorded as ours, not as a list find', row8.pmFrom === 'sent from here', row8.pmFrom);
+
+// Which matters: the clearing pass must never take back a PM we sent.
+inboxHtml = inbox();                                  // the list no longer matches
+const before8 = (await getLeads())[0].pmSent;
+await bg.syncSentPms({ pages: 1 });
+ok('a PM we sent is never un-marked by the message-list check',
+   (await getLeads())[0].pmSent === before8 && before8 === true,
+   JSON.stringify((await getLeads())[0]));
+
+// Page says sent, list has not caught up yet: the tab is evidence enough.
+store.recentLeads = [lead('9')];
+store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+dmResult = { ok: true, sent: true, dmUrl: 'https://bhw/direct-messages/t.9/' };
+inboxHtml = inbox();
+globalThis.__acting = '9';
+await bg.sendDm((await getLeads())[0], await (await import('../src/config.js')).getConfig(), { mode: 'send' });
+ok('a send the tab watched is marked even before the list shows it',
+   (await getLeads())[0].pmSent === true, JSON.stringify((await getLeads())[0]));
+
+// Neither the page nor the list: this really did not go, and says so.
+store.recentLeads = [lead('10')];
+store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+dmResult = { ok: true, sent: false, unconfirmed: true, error: 'submitted, but the page never confirmed it within 20s' };
+inboxHtml = inbox();
+globalThis.__acting = '10';
+await bg.sendDm((await getLeads())[0], await (await import('../src/config.js')).getConfig(), { mode: 'send' });
+let row10 = (await getLeads())[0];
+ok('with no evidence anywhere it is not marked sent', !row10.pmSent, JSON.stringify(row10));
+ok('and the reason is on the row rather than nowhere', /never confirmed/.test(row10.pmError || ''), row10.pmError);
+ok('and no slot is spent', (await getRateState()).dmCount === 0, String((await getRateState()).dmCount));
+dmResult = { ok: true, sent: true };
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

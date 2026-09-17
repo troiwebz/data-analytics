@@ -87,7 +87,16 @@ export async function playSound(cfg, which) {
  * another machine, or before this extension existed. Read-only: it opens
  * nothing and sends nothing.
  */
-export async function syncSentPms({ pages = 2 } = {}) {
+/**
+ * The marker for a flag this check set from the message list alone.
+ *
+ * Only these are ever taken back. A PM the extension watched itself send is
+ * marked 'sent from here' and is never second-guessed - the list not matching
+ * it means the subject drifted, not that the PM never happened.
+ */
+const FOUND_IN_LIST = 'your BHW message list';
+
+export async function syncSentPms({ pages = 1 } = {}) {
   const { rows, me } = await fetchConversations(pages);
   const leads = await getLeads();
   let marked = 0, known = 0, cleared = 0, maybes = 0;
@@ -100,7 +109,7 @@ export async function syncSentPms({ pages = 2 } = {}) {
     // stayed done, kept refusing the Telegram tap as a duplicate, and kept its
     // slot charged to the daily cap. A flag this check put there has to be one
     // this check can take away.
-    if (lead.pmSent && lead.pmFrom === 'your BHW message list' && !hit?.sent) {
+    if (lead.pmSent && lead.pmFrom === FOUND_IN_LIST && !hit?.sent) {
       await updateLead(lead.threadId, {
         pmSent: false, pmSentAt: '', pmFrom: '',
         pmMaybe: hit?.maybe ? (hit.why || 'a conversation exists') : '',
@@ -116,7 +125,7 @@ export async function syncSentPms({ pages = 2 } = {}) {
       if (lead.pmSent) continue;                       // already known, nothing to do
       await updateLead(lead.threadId, {
         pmSent: true, pmSentAt: hit.at || new Date().toISOString(),
-        pmFrom: 'your BHW message list', pmUrl: hit.url || '', pmMaybe: '', pmMaybeUrl: ''
+        pmFrom: FOUND_IN_LIST, pmUrl: hit.url || '', pmMaybe: '', pmMaybeUrl: ''
       });
       // Only charge today's cap for something sent today. Discovering a PM
       // from last week is not a PM sent now, and counting it was spending
@@ -877,7 +886,7 @@ export async function pollTaps() {
     await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
     const line = await runTap(ev, lead, cfg);
     await telegram.settleTap(ev, line);
-    await log(`Telegram tap on "${lead.title}": ${line}`);
+    await log(`Telegram tap on "${lead.title}": ${line || 'card rewritten in place'}`);
     done++;
   }
   return { taps: events.length, done };
@@ -951,7 +960,15 @@ async function takeRewrite(ev, cfg) {
 
   const fresh = { ...lead, ...patch };
   fresh.card = buildCard(fresh);
-  await telegram.resend(fresh, cfg, want.field === 'dm' ? 'PM' : 'reply');
+  const kind = want.kind || (want.field === 'dm' ? 'PM' : 'reply');
+
+  // Put the card back on the message that became the editor, so the chat ends
+  // up exactly as it started. Only when there is no message to edit - an older
+  // prompt, or Telegram refusing to edit something past its 48-hour window -
+  // does a new card get sent.
+  const back = want.messageId
+    && await telegram.editIntoCard(cfg.telegramChatId, want.messageId, fresh, kind, cfg);
+  if (!back) await telegram.resend(fresh, cfg, kind);
   return true;
 }
 
@@ -977,7 +994,7 @@ async function duplicateCheck(lead) {
     if (hit.sent) {
       await updateLead(lead.threadId, {
         pmSent: true, pmSentAt: hit.at || new Date().toISOString(),
-        pmFrom: 'your BHW message list', pmUrl: hit.url || ''
+        pmFrom: FOUND_IN_LIST, pmUrl: hit.url || ''
       });
       return hit;
     }
@@ -1006,9 +1023,37 @@ async function offerAnyway(lead, cfg, dup) {
 
 async function runTap(tap, lead, cfg) {
   try {
+    if (tap.action === 'c') {
+      // Cancel: put the card back on the very message that became the editor.
+      // Which card it was is remembered rather than guessed - the PM and the
+      // reply are different messages and restoring the wrong one would lose
+      // the buttons you actually wanted.
+      const open = (await getEdits())[String(tap.messageId)];
+      await setEdit(String(tap.messageId), null);
+      const ok = await telegram.editIntoCard(cfg.telegramChatId, tap.messageId, lead,
+                                             open?.kind || 'PM', cfg);
+      return ok ? '' : '✖️ Left as it was.';
+    }
+
     if (tap.action === 'e' || tap.action === 'm') {
       const which = tap.action === 'm' ? 'DM' : 'post';
       const current = tap.action === 'm' ? lead.dm : lead.draft;
+
+      // Edit the card you tapped, rather than sending a new one. Three fresh
+      // messages for a two-line change buried the thing being edited; now one
+      // message becomes the editor and becomes the card again afterwards.
+      const inPlace = tap.messageId && await telegram.editIntoEditor(
+        cfg.telegramChatId, tap.messageId, which, plain(current || ''), lead.title, lead.threadId);
+      if (inPlace) {
+        await setEdit(String(tap.messageId), {
+          threadId: String(lead.threadId),
+          field: tap.action === 'm' ? 'dm' : 'draft',
+          messageId: tap.messageId,
+          kind: tap.action === 'm' ? 'PM' : 'reply',
+          at: Date.now()
+        });
+        return '';                                // the edited card says it all
+      }
       // The text goes in a message of its own, so one tap copies exactly it
       // and nothing else. No force_reply, so you get the full-size box with no
       // quote above it - the next thing you send is taken as the new version.
@@ -1238,16 +1283,52 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
       chrome.runtime.onMessage.addListener(onMsg);
     });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/selectors.js', 'src/content-lib.js', 'src/content-dm.js'] });
-    const result = await pending;
+    let result = await pending;
+
+    // https://www.blackhatworld.com/direct-messages/ is the authority, and it is
+    // asked on EVERY send, not only the ones the page failed to confirm. The
+    // page can only report what it saw in a tab; the message list is the forum's
+    // own record of what exists. Reading it here means "sent" on the dashboard
+    // means the same thing as "sent" on BHW - which is the whole point, since
+    // the strike-through on the row is what stops a second PM going out.
+    const proof = await duplicateCheck(lead);
+    if (proof.sent) {
+      // The list has it. That settles it whatever the tab thought, and the
+      // conversation URL comes along so the row can link to it.
+      if (!result.sent) await log(`DM to ${lead.author} did go - the page never said so, your message list did`);
+      result = { ...result, ok: true, sent: true, dmUrl: proof.url || result.dmUrl || result.movedTo || '' };
+      result.provenBy = FOUND_IN_LIST;
+    } else if (result.sent) {
+      // The tab watched it send but the list has not caught up - a new
+      // conversation can take a moment to appear. The tab is good enough
+      // evidence on its own, and the hourly check will line the two up.
+      result.provenBy = 'the page itself';
+    } else if (result.unconfirmed) {
+      await log(`DM to ${lead.author}: the page never confirmed it and it is not in your `
+        + 'message list either - the tab is left open so you can finish it by hand', 'error');
+    }
 
     if (result.ok && result.sent) {
       await recordDm();
-      await updateLead(lead.threadId, { pmSent: true, pmSentAt: new Date().toISOString(), dm: body, pmError: '' });
-      await log(`DM sent → ${lead.author}`);
+      await updateLead(lead.threadId, {
+        pmSent: true, pmSentAt: new Date().toISOString(), dm: body, pmError: '',
+        // Records that WE sent it, never who confirmed it. The clearing pass
+        // below only takes back flags it set itself (FOUND_IN_LIST), so
+        // writing the confirming authority here would make a PM we really
+        // sent eligible to be un-marked later if the subject ever drifted.
+        pmFrom: 'sent from here', pmUrl: result.dmUrl || '',
+        pmMaybe: '', pmMaybeUrl: ''
+      });
+      await log(`DM sent → ${lead.author} (confirmed by ${result.provenBy || 'the page'})`);
       setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 3000);
-    } else if (!result.ok) {
-      await updateLead(lead.threadId, { pmError: result.error });
-      await log(`DM failed (${lead.author}): ${result.error}`, 'error');
+    } else {
+      // Every remaining case lands here, including {ok:true, sent:false}, which
+      // used to match neither branch: no flag, no error, no log line, and a row
+      // that looked untouched for a PM that may well have been sent.
+      const why = result.error || 'it did not go through and did not say why';
+      await updateLead(lead.threadId, { pmError: why });
+      if (result.ok !== false) await log(`DM not confirmed (${lead.author}): ${why}`, 'error');
+      else await log(`DM failed (${lead.author}): ${why}`, 'error');
       // Leave the tab open on failure so it can be finished by hand.
       chrome.tabs.update(tab.id, { active: true }).catch(() => {});
     }
@@ -1622,7 +1703,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           .then((r) => ({ ...r, file: SEED_FILE }))
           .catch((e) => ({ error: e.message })));
         break;
-      case 'sync-pms':      sendResponse(await syncSentPms({ pages: msg.pages || 3 }).catch((e) => ({ error: e.message }))); break;
+      case 'sync-pms':      sendResponse(await syncSentPms({ pages: msg.pages || 1 }).catch((e) => ({ error: e.message }))); break;
       case 'next-check': {
         // chrome.alarms holds the real schedule, so ask it rather than adding
         // an interval to a remembered time and drifting away from the truth.

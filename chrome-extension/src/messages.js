@@ -106,13 +106,18 @@ export function titlesMatch(a, b) {
 }
 
 /**
- * Walk the conversation list. Page 1 is usually enough; more only helps if a
- * lot has been sent since the last check.
+ * Read the conversation list.
+ *
+ * One page, by default and in practice always. The list is ordered by most
+ * recent activity, so a lead found today is on page one or it is not there at
+ * all - and anything further back is by definition older than the threads
+ * being worked. Walking more pages cost extra requests to the forum on every
+ * check and never once changed an answer.
  *
  * Returns the rows and who you are, because deciding whether a conversation
  * proves anything needs both and the username is on the same page.
  */
-export async function fetchConversations(pages = 2) {
+export async function fetchConversations(pages = 1) {
   const all = [];
   let me = '';
   for (let p = 1; p <= pages; p++) {
