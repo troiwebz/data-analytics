@@ -38,7 +38,10 @@ const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'pmUrl', 'postUrl',
                   // thread re-found after `seen` is cleared would otherwise be
                   // announced all over again, which is how every old thread
                   // ended up buzzing the phone at once.
-                  'tgSentAt', 'tgCards'];
+                  'tgSentAt', 'tgCards',
+                  // In-flight marker. Must survive a re-parse landing mid-send,
+                  // or the lock disappears exactly when it is doing its job.
+                  'pmSending'];
 
 /**
  * Bought with a request to the forum, so a later parse that happens not to

@@ -662,9 +662,41 @@ export async function askAnyway(chatId, lead, dup) {
 }
 
 /** Stop the spinner on the button. Telegram wants this within a few seconds. */
+/**
+ * Claim a tap, exclusively, across every copy of this extension.
+ *
+ * Telegram keeps ONE update queue per bot, and each install tracks its own
+ * position in it in its own chrome.storage. So two installs polling the same
+ * bot - a Mac and a VPS both left open - each receive the SAME callback_query
+ * and each act on it. That is how one tap sent two identical PMs.
+ *
+ * The inbox check cannot catch this: both copies read the message list before
+ * either had sent, so neither saw the other's PM. Checking then acting is not
+ * safe when two actors do it at once; it needs a lock.
+ *
+ * answerCallbackQuery IS that lock. A given callback_query_id can be answered
+ * exactly once - Telegram rejects the second - so whichever copy answers first
+ * owns the tap and the other is told to stand down. This used to swallow the
+ * error and carry on, with a comment saying the tap was already being acted
+ * on, which was exactly the wrong conclusion to draw from it.
+ *
+ * Returns true if this copy owns the tap. On an ambiguous failure it returns
+ * false: not acting means you tap again, acting twice means a buyer gets two
+ * messages, and those costs are not comparable.
+ */
+export async function claimTap(id, text = '') {
+  try {
+    await call('answerCallbackQuery', { callback_query_id: id, text: text.slice(0, 190) });
+    return true;
+  } catch (e) {
+    return { ok: false, why: e.message };
+  }
+}
+
+/** Answer a tap where nothing is at stake if the answer is lost. */
 export async function ackTap(id, text = '') {
   try { await call('answerCallbackQuery', { callback_query_id: id, text: text.slice(0, 190) }); }
-  catch { /* the tap is already being acted on; a failed ack must not undo it */ }
+  catch { /* only the little toast on your phone is lost */ }
 }
 
 /**

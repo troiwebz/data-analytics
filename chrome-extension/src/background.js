@@ -944,7 +944,16 @@ export async function pollTaps() {
       if (!all.length) await logOnce('tapNoLeads', `a Telegram tap arrived for thread ${ev.threadId} but this install has no leads yet`, 'error');
       continue;
     }
-    await telegram.ackTap(ev.id, 'Working on it…');
+    // Claim it before doing anything. If another copy of this extension got
+    // there first, Telegram refuses this and we stand down - which is the only
+    // thing that stops a Mac and a VPS both acting on one tap.
+    const claim = await telegram.claimTap(ev.id, 'Working on it…');
+    if (claim !== true) {
+      await logOnce('twocopies',
+        'Another copy of HAF Watcher took that tap. You have two running against the same bot - '
+        + 'close one, or they will both act on everything you tap.', 'error');
+      continue;
+    }
     // Logged before the work, not after. Posting opens a tab and waits on a
     // content script; if any of that stalls or the worker is killed, a line
     // written afterwards is never written at all - and "no log entry" then
@@ -1363,6 +1372,15 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
  * Unsolicited PMs are the thing BHW moderators actually act on, so this is
  * capped and spaced separately from posting, and never runs unprompted.
  */
+/**
+ * How long a PM may be considered in flight before the lock is ignored.
+ *
+ * Longer than the worst realistic send (30s for the tab, a pause, 45s for the
+ * content script) so a slow forum never looks like a stuck lock, and short
+ * enough that a worker killed mid-send does not wedge the lead for ever.
+ */
+const PM_LOCK_MS = 3 * 60000;
+
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
   const body = lead.dm || renderDm(lead, cfg);
   const title = lead.dmTitle || renderDmTitle(lead, cfg);
@@ -1373,11 +1391,28 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
   // it is a refusal to send this extension's own interface to a customer -
   // which happened, to a real buyer, because the editor's instructions and the
   // draft shared one Telegram message and a whole-message copy took both.
+  // A second lock, inside this copy. The Telegram claim stops two installs
+  // racing; this stops one install racing itself - a tap while a send is still
+  // in flight, an alarm firing during a manual send, a retry on a slow forum.
+  // Sending takes up to a minute, which is a wide window to land a second tap in.
+  const fresh = (await getLeads()).find((l) => String(l.threadId) === String(lead.threadId)) || lead;
+  if (fresh.pmSending && Date.now() - fresh.pmSending < PM_LOCK_MS) {
+    const secs = Math.ceil((PM_LOCK_MS - (Date.now() - fresh.pmSending)) / 1000);
+    const why = `already sending this PM - started ${Math.round((Date.now() - fresh.pmSending) / 1000)}s ago`;
+    await log(`DM to ${lead.author} held: ${why}`, 'error');
+    return { ok: false, blocked: true, error: `${why}. Give it ${secs}s.` };
+  }
+  if (fresh.pmSent) {
+    // Settled between the tap and here - another path got there first.
+    return { ok: false, blocked: true, error: 'already sent - not sending it twice' };
+  }
+  await updateLead(lead.threadId, { pmSending: Date.now() });
+
   const bot = botTextIn(body) || botTextIn(title);
   if (bot) {
     const why = `refusing to send: the draft still contains my own text ("${bot}"). `
       + 'Tap the grey block to copy just the draft, or press Rewrite drafts on the dashboard.';
-    await updateLead(lead.threadId, { pmError: why });
+    await updateLead(lead.threadId, { pmError: why, pmSending: 0 });
     await log(`DM to ${lead.author} BLOCKED - ${why}`, 'error');
     return { ok: false, blocked: true, error: why };
   }
@@ -1436,7 +1471,7 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
         // writing the confirming authority here would make a PM we really
         // sent eligible to be un-marked later if the subject ever drifted.
         pmFrom: 'sent from here', pmUrl: result.dmUrl || '',
-        pmMaybe: '', pmMaybeUrl: ''
+        pmMaybe: '', pmMaybeUrl: '', pmSending: 0
       });
       await log(`DM sent → ${lead.author} (confirmed by ${result.provenBy || 'the page'})`);
       setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 3000);
@@ -1445,7 +1480,7 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
       // used to match neither branch: no flag, no error, no log line, and a row
       // that looked untouched for a PM that may well have been sent.
       const why = result.error || 'it did not go through and did not say why';
-      await updateLead(lead.threadId, { pmError: why });
+      await updateLead(lead.threadId, { pmError: why, pmSending: 0 });
       if (result.ok !== false) await log(`DM not confirmed (${lead.author}): ${why}`, 'error');
       else await log(`DM failed (${lead.author}): ${why}`, 'error');
       // Leave the tab open on failure so it can be finished by hand.
@@ -1453,6 +1488,9 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
     }
     return result;
   } catch (e) {
+    // The lock must come off on the way out of every path, or a send that
+    // threw leaves the lead unsendable for three minutes with no explanation.
+    await updateLead(lead.threadId, { pmSending: 0, pmError: e.message }).catch(() => {});
     return { ok: false, error: e.message };
   }
 }
