@@ -352,5 +352,43 @@ dmResult = { ok: true, sent: true };
   ok('while a thread never announced is not skipped', !announced.has('61'));
 }
 
+// --- nothing carrying the bot's own text ever leaves ------------------------
+//
+// The checkpoint that cannot be tapped through. Stripping on the way in is the
+// repair; this is the guarantee, because a draft can also reach a buyer by a
+// path that never went through the editor at all.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  const bad = '✏️ Editing the DM — a thread\nTap the text to copy it, paste it back, change what you like and send.\nHi there, we can help.';
+
+  store.recentLeads = [lead('70', { dm: bad })];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  inboxHtml = inbox();
+  globalThis.__acting = '70';
+  const r = await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
+  ok('a PM carrying my own instructions is refused', r.blocked === true && r.ok === false, JSON.stringify(r));
+  ok('and nothing is marked sent', !(await getLeads())[0].pmSent, JSON.stringify((await getLeads())[0].pmSent));
+  ok('and no slot is spent', (await getRateState()).dmCount === 0, String((await getRateState()).dmCount));
+  ok('and the row says what is wrong and how to fix it',
+     /my own text/.test((await getLeads())[0].pmError || '') && /grey block/.test((await getLeads())[0].pmError || ''),
+     (await getLeads())[0].pmError);
+
+  // A public reply is worse, not better: it is on the thread for everyone.
+  store.recentLeads = [lead('71', { draft: bad })];
+  const p = await bg.postLead((await getLeads())[0], cfg, {});
+  ok('a public reply carrying it is refused too', p.blocked === true, JSON.stringify(p));
+  ok('and the thread was never opened', (await getLeads())[0].status !== 'POSTED',
+     (await getLeads())[0].status);
+
+  // And an ordinary draft is not held up by any of this.
+  store.recentLeads = [lead('72')];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  globalThis.__acting = '72';
+  dmResult = { ok: true, sent: true };
+  const good = await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
+  ok('a normal PM still goes', good.sent === true && !good.blocked, JSON.stringify(good));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -229,8 +229,15 @@ export async function askFor(chatId, header, body) {
  * two lines, send.
  */
 export async function editIntoEditor(chatId, messageId, which, body, title, threadId) {
+  // The draft goes LAST, alone, with nothing after it - and the instructions
+  // go above it, short. A buyer once received "Editing the DM — Tap the text
+  // to copy it" above the pitch, because the two sat together in one message
+  // and a long-press-Copy takes the whole message rather than just the block.
+  // Putting the block at the end means a copy that overruns stops at the end
+  // of the draft instead of sweeping instructions into it, and anything that
+  // still gets through is refused before it reaches a buyer.
   const text = `✏️ <b>Editing the ${esc(which)}</b> — ${esc(String(title || '').slice(0, 60))}\n`
-    + `Tap the text to copy it, paste it back, change what you like and send.\n`
+    + `<i>Tap the block below to copy only the draft. Do not copy this whole message.</i>\n`
     + `<pre>${esc(String(body || '').slice(0, LIMIT - 300))}</pre>`;
   try {
     await call('editMessageText', {

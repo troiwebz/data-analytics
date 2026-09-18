@@ -19,7 +19,7 @@ import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle, plain } from './templates.js';
-import { lintDraft } from './compliance.js';
+import { lintDraft, botTextIn, stripBotText } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
@@ -1011,8 +1011,28 @@ async function takeRewrite(ev, cfg) {
   const lead = (await getLeads()).find((l) => String(l.threadId) === String(want.threadId));
   if (!lead) { await telegram.say(cfg.telegramChatId, 'That lead is no longer in the table.'); return false; }
 
-  const body = String(ev.body || '').trim();
+  let body = String(ev.body || '').trim();
   if (!body) { await telegram.say(cfg.telegramChatId, 'That came through empty, so nothing was changed.'); return false; }
+
+  // Copying the whole editor message, rather than tapping the code block,
+  // brings this extension's own instructions along with the draft. Pasted back
+  // they became the draft, and a buyer got "Editing the DM - Tap the text to
+  // copy it" above the pitch. Taken out here, and said out loud: a silent
+  // repair of something this wrong would hide it rather than surface it.
+  const cleaned = stripBotText(body);
+  if (cleaned.removed.length) {
+    await log(`removed ${cleaned.removed.length} line(s) of the bot's own text from your rewrite`, 'error');
+    if (!cleaned.text) {
+      await telegram.say(cfg.telegramChatId,
+        '⚠️ That was only the instructions, with none of the message - nothing was changed.\n\n'
+        + 'Tap the grey block itself to copy just the draft, rather than copying the whole message.');
+      return false;
+    }
+    await telegram.say(cfg.telegramChatId,
+      `⚠️ Your text had ${cleaned.removed.length} line(s) of my own instructions in it. `
+      + 'I took them out - check the draft below before sending.');
+    body = cleaned.text;
+  }
 
   // draftEdited matters: a staged tab still holds the OLD text, so postLead
   // has to type the new one in rather than just pressing Submit on the old.
@@ -1296,6 +1316,18 @@ export async function pollApprovals() {
  * locally, in the Sheet, and on Telegram.
  */
 export async function postLead(lead, cfg, { edited = false } = {}) {
+  // The same hard stop as the PM. A public reply carrying the editor's own
+  // instructions would be worse, not better - it is on the thread for everyone
+  // to read, and cannot be quietly deleted.
+  const bot = botTextIn(lead.draft);
+  if (bot) {
+    const why = `refusing to post: the reply still contains my own text ("${bot}"). `
+      + 'Tap the grey block to copy just the draft, or press Rewrite drafts on the dashboard.';
+    await updateLead(lead.threadId, { error: why });
+    await log(`reply to "${lead.title}" BLOCKED - ${why}`, 'error');
+    return { ok: false, blocked: true, error: why };
+  }
+
   const staged = (await getStaged())[lead.threadId];
   let result;
   if (staged && !edited) {
@@ -1334,6 +1366,21 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
   const body = lead.dm || renderDm(lead, cfg);
   const title = lead.dmTitle || renderDmTitle(lead, cfg);
+
+  // The last gate, and the one that cannot be tapped through. Not part of the
+  // configurable compliance rules on purpose: those are yours to tune and can
+  // be switched off, and this must not be. It is not an opinion about wording,
+  // it is a refusal to send this extension's own interface to a customer -
+  // which happened, to a real buyer, because the editor's instructions and the
+  // draft shared one Telegram message and a whole-message copy took both.
+  const bot = botTextIn(body) || botTextIn(title);
+  if (bot) {
+    const why = `refusing to send: the draft still contains my own text ("${bot}"). `
+      + 'Tap the grey block to copy just the draft, or press Rewrite drafts on the dashboard.';
+    await updateLead(lead.threadId, { pmError: why });
+    await log(`DM to ${lead.author} BLOCKED - ${why}`, 'error');
+    return { ok: false, blocked: true, error: why };
+  }
   let tab;
   try {
     tab = await chrome.tabs.create({ url: dmUrl(lead.author, title), active: mode !== 'send' });
