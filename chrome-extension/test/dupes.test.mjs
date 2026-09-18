@@ -264,5 +264,93 @@ ok('and the reason is on the row rather than nowhere', /never confirmed/.test(ro
 ok('and no slot is spent', (await getRateState()).dmCount === 0, String((await getRateState()).dmCount));
 dmResult = { ok: true, sent: true };
 
+// --- the inbox is swept on every poll, not hourly ---------------------------
+//
+// The table is what stops a PM going out twice, so up to an hour stale was the
+// wrong trade: a PM sent from the phone or another machine should show as sent
+// by the next check.
+{
+  const { getConfig } = await import('../src/config.js');
+  store.recentLeads = [lead('20')];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  inboxHtml = inbox(convRow(520, 'Need a Google Ads guy for crypto', 'buyer20', new Date().toISOString(), ME),
+                    convRow(521, 'something else', 'someone', new Date().toISOString(), ME),
+                    convRow(522, 'a third', 'another', new Date().toISOString(), ME));
+  fetched = 0;
+  // runCheck, not pollFeed: pollFeed returns early when nothing is new, and
+  // "nothing new on the forum" says nothing about what you sent from your
+  // phone since. The sweep has to happen on every path.
+  await bg.runCheck().catch(() => {});
+  ok('a check reads the message list too', fetched > 0, String(fetched));
+  ok('and strikes off what it finds', (await getLeads()).find((l) => l.threadId === '20')?.pmSent === true,
+     JSON.stringify((await getLeads()).find((l) => l.threadId === '20')));
+  // Identity came from the conversations themselves - the fixture's nav markup
+  // is not what proves it.
+  const r2 = await bg.syncSentPms({ pages: 1 });
+  ok('and it knows which account you are without any Settings entry', r2.me === ME.toLowerCase(), r2.me);
+}
+
+// --- a card that cannot be tapped into a refusal ----------------------------
+//
+// A PM already in the list has no business offering a send button: the tap can
+// only be refused, and the refusal lands seconds later on a card that still
+// looks sendable.
+{
+  const buttons = (l) => (T.keyboard(l, 'PM', { telegramApprovals: true })?.inline_keyboard || [])
+    .flat().map((b) => b.text).join(' | ');
+  ok('an unsent lead offers Post DM Now', /Post DM Now/.test(buttons(lead('30'))), buttons(lead('30')));
+  const gone = lead('31', { pmSent: true, pmUrl: 'https://www.blackhatworld.com/direct-messages/t.9/' });
+  ok('one already in the list does not', !/Post DM Now/.test(buttons(gone)), buttons(gone));
+  ok('nor offers to edit a PM that has gone', !/Edit DM/.test(buttons(gone)), buttons(gone));
+  ok('it links the conversation instead', /already sent/i.test(buttons(gone)), buttons(gone));
+  ok('and the public reply is still fully actionable',
+     /Post Public Now/.test(buttons(gone)) && /Edit Post/.test(buttons(gone)), buttons(gone));
+}
+
+// --- failing closed must never be quiet -------------------------------------
+//
+// Marking leads done on a bad guess is worse than marking nothing, so no
+// username means nothing is marked. But a silent "0 already sent" reads exactly
+// like "nothing to do", which is how this looked broken rather than stuck.
+{
+  store.recentLeads = [lead('40')];
+  // One row only: too little to conclude from, and no nav markup to fall back on.
+  inboxHtml = '<html>' + convRow(540, 'x', 'buyer40', new Date().toISOString(), 'buyer40') + '</html>';
+  const r3 = await bg.syncSentPms({ pages: 1 });
+  ok('with no way to tell who you are, nothing is marked sent',
+     !(await getLeads())[0].pmSent && r3.me === '', JSON.stringify(r3));
+  ok('and the result says so rather than reading as "nothing to do"', r3.me === '', JSON.stringify(r3));
+  const said = (await (await import('../src/store.js')).getLog())[0]?.msg || '';
+  ok('the log names the problem and the fix', /which BHW account you are/.test(said) || /could not be identified/.test(said), said);
+}
+
+// --- Telegram announces a thread once, ever ---------------------------------
+//
+// `seen` decides what is new, but it can be emptied - "Load last 48h", a wiped
+// profile, a fresh install on another machine - and every thread on the board
+// then looks new again and arrives on the phone at once. The stamp lives on the
+// lead and survives a re-parse, so this cannot happen however `seen` is
+// disturbed.
+{
+  const { recordLeads, getLeads: gl } = await import('../src/store.js');
+  store.recentLeads = [];
+  store.seenThreads = {};
+
+  // Announced once.
+  await recordLeads([lead('60', { tgSentAt: '2026-09-17T10:00:00Z', tgCards: { PM: 44 } })]);
+  ok('an announced thread carries its stamp', (await gl())[0].tgSentAt === '2026-09-17T10:00:00Z');
+
+  // Re-found by a later poll, with a fresh parse that knows nothing about it.
+  await recordLeads([lead('60')]);
+  const again = (await gl()).find((l) => l.threadId === '60');
+  ok('re-finding it does not clear the stamp', again.tgSentAt === '2026-09-17T10:00:00Z', again.tgSentAt);
+  ok('and the card it belongs to is remembered too', again.tgCards?.PM === 44, JSON.stringify(again.tgCards));
+
+  // Which is what the poll filters on.
+  const announced = new Set((await gl()).filter((l) => l.tgSentAt).map((l) => String(l.threadId)));
+  ok('so the poll skips it', announced.has('60'));
+  ok('while a thread never announced is not skipped', !announced.has('61'));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

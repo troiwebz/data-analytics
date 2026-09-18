@@ -31,7 +31,14 @@ export async function isFirstRun() {
 }
 
 /** What you decided about a lead. Re-finding a thread must never undo it. */
-const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'postUrl', 'decidedAt', 'priorContact', 'staged'];
+const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'pmUrl', 'postUrl', 'decidedAt',
+                  'priorContact', 'staged',
+                  // When this thread was announced on Telegram, and which
+                  // messages carry its cards. Both must survive a re-parse: a
+                  // thread re-found after `seen` is cleared would otherwise be
+                  // announced all over again, which is how every old thread
+                  // ended up buzzing the phone at once.
+                  'tgSentAt', 'tgCards'];
 
 /**
  * Bought with a request to the forum, so a later parse that happens not to

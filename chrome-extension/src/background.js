@@ -97,7 +97,9 @@ export async function playSound(cfg, which) {
 const FOUND_IN_LIST = 'your BHW message list';
 
 export async function syncSentPms({ pages = 1 } = {}) {
-  const { rows, me } = await fetchConversations(pages);
+  const cfg = await getConfig();
+  const told = cfg.bhwUsername || '';
+  const { rows, me } = await fetchConversations(pages, { told });
   const leads = await getLeads();
   let marked = 0, known = 0, cleared = 0, maybes = 0;
 
@@ -131,6 +133,14 @@ export async function syncSentPms({ pages = 1 } = {}) {
       // from last week is not a PM sent now, and counting it was spending
       // today's allowance on history.
       if (String(hit.at || '').slice(0, 10) === new Date().toLocaleDateString('en-CA')) await recordDm();
+      // The card on your phone still offers to send it. Correct it in place so
+      // the button is gone and the conversation is one tap away - a tap that
+      // can only be refused is worse than no button at all.
+      const card = lead.tgCards?.PM;
+      if (card && cfg.telegramChatId) {
+        await telegram.refreshCard(cfg.telegramChatId, card,
+          { ...lead, pmSent: true, pmUrl: hit.url || '' }, 'PM', cfg).catch(() => {});
+      }
       marked++;
     } else if (hit.maybe) {
       // Not proof. Remembered so the tap can show it to you and let you judge.
@@ -141,9 +151,19 @@ export async function syncSentPms({ pages = 1 } = {}) {
       known++;
     }
   }
-  const whoami = me ? '' : ' (could not read your username from the page, so nothing was marked sent)';
+  if (!me) {
+    // Failing closed is right - marking leads done on a bad guess is worse -
+    // but it must never be quiet about it. A silent "0 already sent" reads
+    // exactly like "nothing to do", which is how this looked broken for days.
+    await logOnce('whoami', 'Could not work out which BHW account you are, so nothing can be '
+      + 'marked as already sent. Open Settings and type your BHW username in "Your BHW username".', 'error');
+  } else {
+    await clearLogOnce('whoami');
+  }
   await log(`checked ${rows.length} conversation(s): ${marked} already sent, ${cleared} wrongly marked and cleared, `
-    + `${maybes} worth a look, ${known} previously contacted${whoami}`, cleared ? 'error' : 'info');
+    + `${maybes} worth a look, ${known} previously contacted`
+    + (me ? ` (as ${me})` : ' — BUT your account could not be identified, so nothing was marked sent'),
+    (cleared || !me) ? 'error' : 'info');
   return { conversations: rows.length, me, marked, known, cleared, maybes };
 }
 
@@ -343,7 +363,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       const cfg = await getConfig();
       // Jitter so the fetch doesn't land on the same second every cycle.
       await new Promise((r) => setTimeout(r, Math.random() * (cfg.jitterSeconds || 0) * 1000));
-      await pollFeed();
+      await runCheck();          // new threads, then your message list
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === TAP_ALARM) await pollTaps();
@@ -352,6 +372,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await nightSummary().catch(() => {});
     }
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
+    // The hourly alarm stays as a backstop: polling can be switched off, or a
+    // cycle can fail, and the list should still be reconciled eventually.
     if (alarm.name === PM_ALARM) await syncSentPms().catch((e) => log(`PM check: ${e.message}`, 'error'));
   } catch (e) {
     await log(`${alarm.name}: ${e.message}`, 'error');
@@ -538,6 +560,33 @@ export function enrich(m, cfg, status, aiSpecifics) {
   return lead;
 }
 
+/**
+ * One check: new threads, then your message list.
+ *
+ * Both halves, in that order, wherever a check is triggered - the alarm and the
+ * button alike. It is a wrapper rather than a few lines at the end of pollFeed
+ * because pollFeed returns early in several places (disabled, first run, no new
+ * threads) and the message list has to be read on all of them: "nothing new on
+ * the forum" says nothing about what you sent from your phone since.
+ *
+ * The sweep never fails a check. An unreadable list leaves the leads as they
+ * are and logs why.
+ */
+export async function runCheck() {
+  // The two halves are independent, so neither may take the other down with
+  // it. A forum that will not load says nothing about your message list, and
+  // the list is what keeps the table honest about what has already been sent.
+  let r, failed;
+  try { r = await pollFeed(); }
+  catch (e) { failed = e.message; await log(`feed check: ${e.message}`, 'error'); }
+
+  const pms = await syncSentPms().catch(async (e) => {
+    await log(`PM check: ${e.message}`, 'error');
+    return { error: e.message };
+  });
+  return { ...(r || {}), ...(failed ? { error: failed } : {}), pms };
+}
+
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
@@ -623,11 +672,29 @@ export async function pollFeed() {
   // Telegram, straight from here: every new thread goes to your phone as it is
   // found, no Apps Script in the way. A failure is logged and nothing else -
   // the lead is already saved, so it is never lost to a network blip.
+  //
+  // Only threads never announced before. `seen` decides what is new, but it
+  // can be emptied - "Load last 48h", a wiped profile, a fresh install on
+  // another machine - and every thread then looks new again, which is how the
+  // whole board arrived on the phone at once. The stamp lives on the lead and
+  // survives a re-parse, so a thread is announced exactly once, ever.
+  const known = await getLeads();
+  const announced = new Set(known.filter((l) => l.tgSentAt).map((l) => String(l.threadId)));
+  const fresh2 = leads.filter((l) => !announced.has(String(l.threadId)));
+  if (fresh2.length < leads.length) {
+    await log(`${leads.length - fresh2.length} thread(s) were already sent to Telegram - not sending them again`);
+  }
   try {
-    const t = await telegram.sendLeads(leads, cfg);
-    if (t.error) await log(`Telegram: ${t.sent}/${leads.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
+    const t = await telegram.sendLeads(fresh2, cfg);
+    // Announced. Stamped before anything else so a crash between here and the
+    // next poll cannot cause a second alert for the same thread.
+    for (const l of fresh2) {
+      await updateLead(l.threadId, { tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(l.threadId)] });
+    }
+    if (t.error) await log(`Telegram: ${t.sent}/${fresh2.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
     else if (t.sent) await log(`Telegram: ${t.sent} lead(s) as ${t.parts} message(s)`);
   } catch (e) { await log(`Telegram failed: ${e.message}`, 'error'); }
+
 
   if (cfg.webhookUrl) {
     try {
@@ -988,7 +1055,8 @@ async function takeRewrite(ev, cfg) {
  */
 async function duplicateCheck(lead) {
   try {
-    const { rows, me } = await fetchConversations(1);
+    const told = (await getConfig()).bhwUsername || '';
+    const { rows, me } = await fetchConversations(1, { told });
     const hit = matchConversation(lead, rows, me);
     if (!hit) return { sent: false, maybe: false };
     if (hit.sent) {
@@ -1006,8 +1074,12 @@ async function duplicateCheck(lead) {
   }
 }
 
+// Names the authority, because "already sent" with no source is exactly what
+// you cannot argue with. This came from your BHW message list, read seconds
+// ago - not from anything the extension remembered.
 const dupLine = (lead, dup) =>
-  `✉️ Already sent - ${dup.why}.${dup.url ? `\n${dup.url}` : ''}`;
+  `✉️ Already sent — your BHW message list says ${dup.why}`
+  + `${dup.at ? ` (${String(dup.at).slice(0, 10)})` : ''}.${dup.url ? `\n${dup.url}` : ''}`;
 
 /**
  * A possible duplicate, put to you rather than decided for you.
@@ -1450,7 +1522,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg?.cmd) return;
   (async () => {
     switch (msg.cmd) {
-      case 'poll-now':      sendResponse(await pollFeed().catch((e) => ({ error: e.message }))); break;
+      case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
       case 'approvals-now': sendResponse(await pollApprovals().then(() => ({ ok: true })).catch((e) => ({ error: e.message }))); break;
       case 'reschedule':    await scheduleAlarms(await getConfig()); sendResponse({ ok: true }); break;
       case 'staged':        sendResponse(await getStaged()); break;

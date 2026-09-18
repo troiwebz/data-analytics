@@ -150,19 +150,39 @@ export function keyboard(lead, kind, cfg) {
     };
   }
 
+  // A PM already in your BHW message list loses its send button. Leaving it
+  // there invites a tap that can only be refused, and the refusal arrives
+  // seconds later on a card that still looks sendable - better that the card
+  // tells the truth and links the conversation instead.
+  const pmGone = Boolean(lead.pmSent);
+
   // The same four on both messages, so whichever one you happen to be looking
   // at can do the whole job. There is no "I posted it" button: a reply is
   // marked posted when it actually lands on the thread, whether you tapped it
   // here or pressed Post reply in the browser yourself.
-  return {
-    inline_keyboard: [
-      [{ text: '🚀 Post Public Now', callback_data: `p:${id}` },
-       { text: '✉️ Post DM Now', callback_data: `d:${id}` }],
-      [{ text: '✏️ Edit Post', callback_data: `e:${id}` },
-       { text: '✏️ Edit DM', callback_data: `m:${id}` }],
-      [{ text: '⏭ Skip', callback_data: `s:${id}` }]
-    ]
-  };
+  const top = [{ text: '🚀 Post Public Now', callback_data: `p:${id}` }];
+  if (!pmGone) top.push({ text: '✉️ Post DM Now', callback_data: `d:${id}` });
+
+  const mid = [{ text: '✏️ Edit Post', callback_data: `e:${id}` }];
+  if (!pmGone) mid.push({ text: '✏️ Edit DM', callback_data: `m:${id}` });
+
+  const rows = [top, mid];
+  if (pmGone && lead.pmUrl) rows.push([{ text: '✅ PM already sent — open it', url: lead.pmUrl }]);
+  rows.push([{ text: '⏭ Skip', callback_data: `s:${id}` }]);
+  return { inline_keyboard: rows };
+}
+
+/**
+ * Bring a card up to date on the phone, in place.
+ *
+ * Used when the message list turns out to hold a PM this lead already has, so
+ * the card you are looking at stops offering to send it again. Silent about
+ * everything it cannot do: an old message, a deleted one, or a card that was
+ * never sent all just mean there is nothing to correct.
+ */
+export async function refreshCard(chatId, messageId, lead, kind, cfg) {
+  if (!chatId || !messageId) return false;
+  return editIntoCard(chatId, messageId, lead, kind, cfg);
 }
 
 /**
@@ -270,12 +290,17 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
   if (what !== 'pm') parts.push(['public reply', replyMessage(lead)]);
 
   const failed = [];
+  // Which message holds which card. Kept so a card can be corrected later - a
+  // PM that turns up in your message list has to stop offering a send button
+  // on the card already sitting on your phone.
+  const ids = {};
   for (const [name, text] of parts) {
     if (!text) continue;
     try {
-      await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true,
-                                  reply_markup: keyboard(lead, name, cfg) });
-      onPart?.(name, null);
+      const m = await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true,
+                                            reply_markup: keyboard(lead, name, cfg) });
+      if (m?.message_id) ids[name] = m.message_id;
+      onPart?.(name, null, m?.message_id);
       continue;
     } catch (e) {
       // Telegram rejects a whole message over one bad tag. Losing half of a
@@ -294,6 +319,7 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
     }
   }
   if (failed.length) throw new Error(failed.join(' | '));
+  return { ids };
 }
 
 /** Last resort when Telegram will not accept the markup: send the words. */
@@ -306,9 +332,11 @@ export async function sendLeads(leads, cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId || !(await getToken())) return { sent: 0 };
   let sent = 0, parts = 0;
   const errors = [];
+  const cards = {};
   for (const lead of leads.slice(0, MAX_PER_POLL)) {
     try {
-      await sendLead(lead, cfg, { onPart: () => parts++ });
+      const r = await sendLead(lead, cfg, { onPart: () => parts++ });
+      if (r?.ids && Object.keys(r.ids).length) cards[String(lead.threadId)] = r.ids;
       sent++;
     } catch (e) {
       // One lead failing no longer stops the rest: they are unrelated, and
@@ -325,7 +353,7 @@ export async function sendLeads(leads, cfg) {
         text: `…and ${skipped} more on the dashboard.`, parse_mode: 'HTML' });
     } catch { /* the count is a nicety */ }
   }
-  return { sent, parts, error, skipped };
+  return { sent, parts, error, skipped, cards };
 }
 
 /** Prove the token and chat id work, from the Settings page. */

@@ -73,6 +73,12 @@ export const DEFAULT_CONFIG = {
   autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
+  // Your BHW username. Normally worked out from your own message list - you
+  // are the one person in every conversation - so this is only needed if that
+  // ever fails. It decides which conversations count as PMs YOU sent, so a
+  // wrong value here means leads marked done that are not.
+  bhwUsername: '',
+
   maxDmsPerDay: 30,            // cap on sent PMs per day; 0 = no cap at all.
                                // Deliberately high: this is a backstop against
                                // a runaway loop, not a policy about how many

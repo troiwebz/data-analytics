@@ -142,5 +142,44 @@ ok('no page-2 walk', !asked.some((u) => /page-/.test(u)), JSON.stringify(asked))
 ok('the rows and your username come back together',
    got.rows.length === 4 && got.me === norm(ME), JSON.stringify({ n: got.rows.length, me: got.me }));
 
+// --- working out who you are ------------------------------------------------
+//
+// This is what the whole check rests on, and it was resting on two regexes
+// against markup nobody had verified. One of them could never match: real
+// XenForo writes the href BEFORE the class, and it looked for it after. With
+// both missing and the check failing closed, "already sent" was never applied
+// to anything and the button reported 0 for ever - which reads exactly like
+// "nothing to do".
+const { peopleInEvery } = await import('../src/messages.js');
+
+ok('you are the name in every conversation', peopleInEvery(convs) === norm(ME), peopleInEvery(convs));
+ok('and that is what parseMe uses, with no page markup at all',
+   parseMe('', convs) === norm(ME), parseMe('', convs));
+
+// Two rows can share a second person by chance; three is the threshold.
+ok('two conversations are not enough to conclude from', peopleInEvery(convs.slice(0, 2)) === '');
+ok('and neither is none', peopleInEvery([]) === '' && peopleInEvery() === '');
+
+// If two people are in every row, there is no answer - a guess here marks
+// leads done that are not.
+const pair = [
+  { people: ['me', 'other'] }, { people: ['me', 'other'] }, { people: ['me', 'other'] }
+];
+ok('a tie yields nothing rather than a guess', peopleInEvery(pair) === '', peopleInEvery(pair));
+
+// The navigation markup is now a fallback, and the pattern that could never
+// match is fixed - href first is the real shape.
+const realNav = '<a href="/members/bargainbed.123/" class="p-navgroup-link p-navgroup-link--user">acc</a>';
+ok('the real nav shape is read now', parseMe(realNav, []) === norm(ME), parseMe(realNav, []));
+ok('and the other order still works',
+   parseMe('<a class="p-navgroup-link--user" href="/members/bargainbed.9/">x</a>', []) === norm(ME));
+
+// What you typed in Settings beats everything: if you have said, guessing is absurd.
+ok('a username you set wins over the page', parseMe(html, convs, 'SomeoneElse') === 'someoneelse',
+   parseMe(html, convs, 'SomeoneElse'));
+
+// And when nothing can be determined it says so, rather than picking one.
+ok('no evidence means no answer', parseMe('', []) === '');
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

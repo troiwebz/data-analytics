@@ -23,9 +23,19 @@ const TIMESTAMP   = /data-timestamp="(\d+)"/;
 // conversation only proves you pitched if YOU started it - a message the buyer
 // sent you is not evidence of your PM, and treating it as such is what marked
 // leads you had never touched as done.
+// Who you are, from the page's own navigation. These are a fallback now, not
+// the basis: the second of the two never matched anything, because real
+// XenForo writes the href BEFORE the class
+// (<a href="/members/name.123/" class="...p-navgroup-link--user">) and this
+// looked for it after. With both patterns missing and the check failing
+// closed, nothing was ever marked sent and "check the inbox" reported 0 for
+// ever - indistinguishable from there being nothing to do. Hence peopleInEvery
+// below, which needs no knowledge of the theme at all.
 const ME = [
   /class="[^"]*p-navgroup-user-linkText[^"]*"[^>]*>([\s\S]*?)</,
-  /class="[^"]*p-navgroup-link--user[^"]*"[^>]*>[\s\S]{0,200}?\/members\/([^."\/]+)/
+  /<a[^>]+href="[^"]*\/members\/([^."\/]+)[^"]*"[^>]*class="[^"]*p-navgroup-link--user/,
+  /<a[^>]+class="[^"]*p-navgroup-link--user[^"]*"[^>]+href="[^"]*\/members\/([^."\/]+)/,
+  /data-logged-in="true"[\s\S]{0,4000}?\/account\/[\s\S]{0,400}?\/members\/([^."\/]+)/
 ];
 
 const strip = (h) => String(h || '').replace(/<[^>]+>/g, '')
@@ -72,8 +82,35 @@ export function parseConversations(html) {
   return out;
 }
 
-/** Your own BHW username, read off the page you already fetched. */
-export function parseMe(html) {
+/**
+ * The one name in every conversation.
+ *
+ * You are a participant in every conversation you have, so the username that
+ * appears in all of them is you. That is true of any forum, in any theme, and
+ * survives markup changes entirely - which is why it is tried first. Two rows
+ * could coincide on a second shared person, so three are wanted before it is
+ * trusted, and a tie means no answer rather than a guess.
+ */
+export function peopleInEvery(rows) {
+  const list = (rows || []).filter((r) => r.people?.length);
+  if (list.length < 3) return '';
+  const counts = new Map();
+  for (const r of list) for (const p of new Set(r.people)) counts.set(p, (counts.get(p) || 0) + 1);
+  const all = [...counts.entries()].filter(([, n]) => n === list.length).map(([p]) => p);
+  return all.length === 1 ? all[0] : '';
+}
+
+/**
+ * Your own BHW username.
+ *
+ * Order matters: the conversations themselves first, because that cannot be
+ * broken by a theme; then the navigation markup; and a name you typed in
+ * Settings beats both, because if you have told us, guessing is absurd.
+ */
+export function parseMe(html, rows, told = '') {
+  if (told) return norm(told);
+  const fromRows = peopleInEvery(rows);
+  if (fromRows) return fromRows;
   for (const re of ME) {
     const m = String(html || '').match(re);
     const name = norm(strip(m?.[1]));
@@ -117,9 +154,9 @@ export function titlesMatch(a, b) {
  * Returns the rows and who you are, because deciding whether a conversation
  * proves anything needs both and the username is on the same page.
  */
-export async function fetchConversations(pages = 1) {
+export async function fetchConversations(pages = 1, { told = '' } = {}) {
   const all = [];
-  let me = '';
+  let firstHtml = '';
   for (let p = 1; p <= pages; p++) {
     const url = p === 1 ? 'https://www.blackhatworld.com/direct-messages/'
                         : `https://www.blackhatworld.com/direct-messages/page-${p}`;
@@ -129,12 +166,14 @@ export async function fetchConversations(pages = 1) {
     if (/\/login\b/.test(html) && !ROW_SPLIT.test(html)) {
       throw new Error('not logged in to BlackHatWorld in this Chrome profile');
     }
-    if (p === 1) me = parseMe(html);
+    if (p === 1) firstHtml = html;
     const rows = parseConversations(html);
     all.push(...rows);
     if (rows.length === 0) break;
   }
-  return { rows: all, me };
+  // Worked out AFTER parsing, because the rows are the best evidence of who
+  // you are and they only exist once the page is read.
+  return { rows: all, me: parseMe(firstHtml, all, told) };
 }
 
 /**
