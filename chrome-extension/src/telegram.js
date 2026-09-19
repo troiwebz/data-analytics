@@ -301,6 +301,12 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
   // PM that turns up in your message list has to stop offering a send button
   // on the card already sitting on your phone.
   const ids = {};
+  // Exactly what this card put in front of you. The card and the send used to
+  // render the text independently, so anything that changed the lead in
+  // between - a draft rewrite, a lost set of Claude lines - meant you approved
+  // one message and a different one went to the buyer. What is shown is what
+  // is sent, and this is where "what is shown" is captured.
+  const shown = { dm: plain(lead.dm || ''), draft: plain(lead.draft || '') };
   for (const [name, text] of parts) {
     if (!text) continue;
     try {
@@ -326,7 +332,7 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
     }
   }
   if (failed.length) throw new Error(failed.join(' | '));
-  return { ids };
+  return { ids, shown };
 }
 
 /** Last resort when Telegram will not accept the markup: send the words. */
@@ -339,7 +345,7 @@ export async function sendLeads(leads, cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId || !(await getToken())) return { sent: 0 };
   let sent = 0, parts = 0;
   const errors = [];
-  const cards = {};
+  const cards = {}, approved = {};
   // Which threads actually went. The caller stamps these as announced, and it
   // must stamp ONLY these: a poll that finds 33 threads sends six, and marking
   // the other 27 as announced silenced them for ever.
@@ -348,6 +354,7 @@ export async function sendLeads(leads, cfg) {
     try {
       const r = await sendLead(lead, cfg, { onPart: () => parts++ });
       if (r?.ids && Object.keys(r.ids).length) cards[String(lead.threadId)] = r.ids;
+      if (r?.shown) approved[String(lead.threadId)] = r.shown;
       sentIds.push(String(lead.threadId));
       sent++;
     } catch (e) {
@@ -365,7 +372,7 @@ export async function sendLeads(leads, cfg) {
         text: `…and ${skipped} more on the dashboard.`, parse_mode: 'HTML' });
     } catch { /* the count is a nicety */ }
   }
-  return { sent, parts, error, skipped, cards, sentIds };
+  return { sent, parts, error, skipped, cards, sentIds, approved };
 }
 
 /** Prove the token and chat id work, from the Settings page. */

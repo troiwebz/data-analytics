@@ -533,6 +533,18 @@ export async function rebuildDrafts({ withAi = false } = {}) {
       lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
     };
     patch.card = buildCard({ ...l, ...patch });
+    // A lead already on your phone: update the card there too, and move the
+    // approved text with it. Rewriting the draft and leaving the card showing
+    // the old one is exactly how you end up approving one message and sending
+    // another.
+    if (l.tgSentAt && cfg.telegramChatId) {
+      patch.dmApproved = plain(dm);
+      patch.draftApproved = plain(draft);
+      const fresh = { ...l, ...patch };
+      for (const [kind, id] of [['PM', l.tgCards?.PM], ['reply', l.tgCards?.['public reply']]]) {
+        if (id) await telegram.refreshCard(cfg.telegramChatId, id, fresh, kind, cfg).catch(() => {});
+      }
+    }
     await updateLead(l.threadId, patch);
     n++;
   }
@@ -624,7 +636,13 @@ export async function announceNew(cfg) {
     const t = await telegram.sendLeads(waiting, cfg);
     // ONLY what actually went.
     for (const id of t.sentIds || []) {
-      await updateLead(id, { tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(id)] });
+      const shown = t.approved?.[String(id)] || {};
+      await updateLead(id, {
+        tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(id)],
+        // Frozen: this is what goes to the buyer, whatever happens to the lead
+        // afterwards.
+        dmApproved: shown.dm || '', draftApproved: shown.draft || ''
+      });
     }
     const left = waiting.length - (t.sentIds?.length || 0);
     if (t.error) await log(`Telegram: ${t.sent}/${waiting.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
@@ -1093,9 +1111,11 @@ async function takeRewrite(ev, cfg) {
 
   // draftEdited matters: a staged tab still holds the OLD text, so postLead
   // has to type the new one in rather than just pressing Submit on the old.
+  // Your version IS the approved text now - the card is rewritten to show it
+  // below, so the two cannot drift apart.
   const patch = want.field === 'dm'
-    ? { dm: body, dmLint: lintDraft(body, cfg.compliance) }
-    : { draft: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
+    ? { dm: body, dmApproved: body, dmLint: lintDraft(body, cfg.compliance) }
+    : { draft: body, draftApproved: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
   await updateLead(lead.threadId, patch);
   await log(`rewrote the ${want.field === 'dm' ? 'PM' : 'public reply'} for "${lead.title}" from Telegram`);
   // Editing is a decision about this lead, so a countdown on it stops: your
@@ -1373,6 +1393,11 @@ export async function pollApprovals() {
  * locally, in the Sheet, and on Telegram.
  */
 export async function postLead(lead, cfg, { edited = false } = {}) {
+  // Same rule as the PM: what the card showed is what goes up.
+  if (lead.draftApproved && lead.draftApproved !== lead.draft) {
+    lead = { ...lead, draft: lead.draftApproved };
+  }
+
   // The same hard stop as the PM. A public reply carrying the editor's own
   // instructions would be worse, not better - it is on the thread for everyone
   // to read, and cannot be quietly deleted.
@@ -1430,7 +1455,17 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
 const PM_LOCK_MS = 3 * 60000;
 
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
-  const body = lead.dm || renderDm(lead, cfg);
+  // The text you approved on the card, verbatim - not a fresh render of it.
+  // Rendering again is how a card showing three Claude-written lines about
+  // Facebook group posting became a generic two-line PM on the forum: the
+  // lead had changed in between, and the send drew from the lead rather than
+  // from what was shown. A render here is the last resort, and says so.
+  let body = lead.dmApproved || lead.dm;
+  if (!body) {
+    body = renderDm(lead, cfg);
+    await log(`no saved PM text for "${lead.title}" - writing a fresh one, which may `
+      + 'not match what your phone showed', 'error');
+  }
   const title = lead.dmTitle || renderDmTitle(lead, cfg);
 
   // The last gate, and the one that cannot be tapped through. Not part of the

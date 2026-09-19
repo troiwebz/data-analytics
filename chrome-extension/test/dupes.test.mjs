@@ -390,5 +390,70 @@ dmResult = { ok: true, sent: true };
   ok('a normal PM still goes', good.sent === true && !good.blocked, JSON.stringify(good));
 }
 
+// --- what you approved is what the buyer gets -------------------------------
+//
+// A Telegram card showed three Claude-written lines about Facebook group
+// posting, with "No payment upfront. You pay after the first piece is with
+// you." The buyer received two generic lines and a different payment sentence.
+//
+// The card and the send each produced the text from the lead, separately. So
+// anything that changed the lead in between - a draft rewrite, a lost set of
+// Claude lines, a different close being chosen - meant approving one message
+// and sending another. The card now records exactly what it displayed, and the
+// send uses that string and never renders again.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+
+  const APPROVED = 'Hi Conor234,\n\n1. We run multi account Facebook group posting setups\n\n'
+    + 'No payment upfront. You pay after the first piece is with you.\n\nThanks!!';
+
+  // The lead has since been rewritten into something generic - the exact
+  // situation that produced the mismatch.
+  store.recentLeads = [lead('100', {
+    dmApproved: APPROVED,
+    dm: 'Hi Conor234,\n\n1. Tell us the details and we will scope it same day\n\nHappy to invoice after the first batch lands.\n\nThanks!!'
+  })];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  inboxHtml = '';
+  globalThis.__acting = '100';
+  dmResult = { ok: true, sent: true };
+
+  let typed = '';
+  const realExec = chrome.scripting.executeScript;
+  chrome.scripting.executeScript = async (opts) => {
+    if (opts.args?.[0]?.body) typed = opts.args[0].body;
+    return realExec(opts);
+  };
+  await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
+  chrome.scripting.executeScript = realExec;
+
+  ok('the buyer gets the text that was on the card', typed === APPROVED, typed.slice(0, 80));
+  ok('and not the rewritten one', !/Tell us the details/.test(typed), typed.slice(0, 80));
+  ok('specifically the Claude lines survive', /multi account Facebook group/.test(typed), typed.slice(0, 80));
+  ok('and the payment sentence you saw', /You pay after the first piece is with you/.test(typed), typed.slice(-60));
+
+  // With nothing approved it still sends, but says the text may not match.
+  store.recentLeads = [lead('101', { dm: 'a draft nobody approved' })];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  globalThis.__acting = '101';
+  await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
+  ok('a lead never announced still sends its draft', (await getLeads())[0].pmSent === true);
+
+  // An edit from the phone becomes the approved text, so the next tap sends it.
+  store.recentLeads = [lead('102', { dmApproved: 'old approved', dm: 'old approved' })];
+  await (await import('../src/store.js')).updateLead('102', { dm: 'my own wording', dmApproved: 'my own wording' });
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  globalThis.__acting = '102';
+  typed = '';
+  chrome.scripting.executeScript = async (opts) => {
+    if (opts.args?.[0]?.body) typed = opts.args[0].body;
+    return realExec(opts);
+  };
+  await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
+  chrome.scripting.executeScript = realExec;
+  ok('an edited PM sends the edit, not the original', typed === 'my own wording', typed);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -41,7 +41,10 @@ const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'pmUrl', 'postUrl',
                   'tgSentAt', 'tgCards',
                   // In-flight marker. Must survive a re-parse landing mid-send,
                   // or the lock disappears exactly when it is doing its job.
-                  'pmSending'];
+                  'pmSending',
+                  // The exact text your phone showed and the buyer will get.
+                  // A re-parse must never quietly replace it with a re-render.
+                  'dmApproved', 'draftApproved'];
 
 /**
  * Bought with a request to the forum, so a later parse that happens not to
