@@ -79,6 +79,11 @@ export const DEFAULT_CONFIG = {
   // wrong value here means leads marked done that are not.
   bhwUsername: '',
 
+  // Telegram is for threads worth acting on NOW. Anything older than this is
+  // on the dashboard and does not need to buzz your phone - a thread from two
+  // days ago has twenty replies on it already.
+  announceMaxAgeHours: 12,
+
   maxDmsPerDay: 30,            // cap on sent PMs per day; 0 = no cap at all.
                                // Deliberately high: this is a backstop against
                                // a runaway loop, not a policy about how many

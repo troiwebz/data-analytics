@@ -5,7 +5,7 @@ import { RATES } from '../claude.js';
 const PLAIN = ['webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
-            'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername',
+            'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername', 'announceMaxAgeHours',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts'];

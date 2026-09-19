@@ -270,5 +270,58 @@ ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), se
   ok('and neither is a lead you already posted or skipped', decided.waiting === 0, JSON.stringify(decided));
 }
 
+// --- only recent threads reach the phone ------------------------------------
+//
+// The "announced" stamp only started existing in v0.78, so every lead found
+// before it looked as though it had never been sent. The backlog then worked
+// through the whole table six at a time - old threads arriving on the phone
+// for days, most of them sent when they were new.
+{
+  const { getLeads: gl } = await import('../src/store.js');
+  const { getConfig: gc, setConfig: sc } = await import('../src/config.js');
+  await sc({ announceMaxAgeHours: 12 });
+  const cfg = await gc();
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+
+  store.recentLeads = [
+    { threadId: 'r1', title: 'an hour old', author: 'a', foundAt: hoursAgo(1), draft: 'd', dm: 'p', status: 'SENT' },
+    { threadId: 'r2', title: 'six hours old', author: 'b', foundAt: hoursAgo(6), draft: 'd', dm: 'p', status: 'SENT' },
+    { threadId: 'o1', title: 'two days old', author: 'c', foundAt: hoursAgo(48), draft: 'd', dm: 'p', status: 'SENT' },
+    { threadId: 'o2', title: 'a week old', author: 'd', foundAt: hoursAgo(168), draft: 'd', dm: 'p', status: 'SENT' }
+  ];
+  const r = await bg.announceNew(cfg);
+  const sent = (await gl()).filter((l) => l.tgSentAt && l.tgSentAt !== 'too old to announce').map((l) => l.threadId);
+  ok('recent threads go', sent.includes('r1') && sent.includes('r2'), JSON.stringify(sent));
+  ok('old ones do not', !sent.includes('o1') && !sent.includes('o2'), JSON.stringify(sent));
+  ok('and they are marked so they are never reconsidered',
+     (await gl()).filter((l) => l.tgSentAt === 'too old to announce').length === 2, JSON.stringify(r));
+
+  // Which means the next check has nothing to say, rather than re-offering them.
+  const again = await bg.announceNew(cfg);
+  ok('a second check does not bring them back', again.waiting === 0, JSON.stringify(again));
+
+  // 0 turns the age limit off for anyone who wants everything.
+  await sc({ announceMaxAgeHours: 0 });
+  store.recentLeads = [{ threadId: 'o3', title: 'ancient', author: 'e', foundAt: hoursAgo(500), draft: 'd', dm: 'p', status: 'SENT' }];
+  const none = await bg.announceNew(await gc());
+  ok('0 means no age limit at all', none.waiting === 1, JSON.stringify(none));
+  await sc({ announceMaxAgeHours: 12 });
+}
+
+// --- the line under everything that came before -----------------------------
+{
+  const { getLeads: gl } = await import('../src/store.js');
+  delete store.announcedBaseline;
+  store.recentLeads = [
+    { threadId: 'x1', title: 'from before', author: 'a', foundAt: new Date().toISOString(), draft: 'd', dm: 'p', status: 'SENT' },
+    { threadId: 'x2', title: 'also before', author: 'b', foundAt: new Date().toISOString(), draft: 'd', dm: 'p', status: 'SENT' }
+  ];
+  const r = await bg.settleOldLeads();
+  ok('everything already in the table is treated as dealt with', r.settled === 2, JSON.stringify(r));
+  ok('so none of it can be announced', (await gl()).every((l) => l.tgSentAt), JSON.stringify(await gl()));
+  const twice = await bg.settleOldLeads();
+  ok('and the line is drawn once, not on every start', twice.already === true, JSON.stringify(twice));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

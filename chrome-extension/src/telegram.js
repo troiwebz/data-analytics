@@ -636,9 +636,16 @@ export async function selfTest(cfg) {
 }
 
 /** A plain acknowledgement in the chat, for things with no button to edit. */
-export async function say(chatId, text) {
-  try { await call('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true }); }
-  catch { /* nothing more we can do from here */ }
+export async function say(chatId, text, { html = false } = {}) {
+  const body = { chat_id: chatId, text, disable_web_page_preview: true };
+  try {
+    await call('sendMessage', html ? { ...body, parse_mode: 'HTML' } : body);
+  } catch {
+    // Telegram rejects a whole message over one stray tag, and a status report
+    // nobody receives is worse than one without bold.
+    try { await call('sendMessage', { ...body, text: stripTags(text) }); }
+    catch { /* nothing more we can do from here */ }
+  }
 }
 
 /**

@@ -642,5 +642,60 @@ ok('the tap is in the log while the work is still running', /Telegram tap: p .*s
 postResult = { ok: true, postUrl: 'https://bhw/threads/x.1/post-9' };
 await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
 
+// --- where the day stands ---------------------------------------------------
+//
+// "Posted." tells you the tap worked and nothing about how far through you
+// are, which is the thing you actually want to know from a phone.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  const today = new Date().toLocaleDateString('en-CA');
+  store.rateState = { day: today, count: 3, lastPostAt: 0, dmCount: 5, lastDmAt: 0 };
+  store.recentLeads = [
+    lead('t1', { status: 'POSTED' }),
+    lead('t2', { pmSent: true, pmSentAt: new Date().toISOString() }),
+    lead('t3'),
+    lead('t4', { pmError: 'could not open the form', pmSentAt: new Date().toISOString() })
+  ];
+
+  const line = await bg.todayLine(cfg);
+  ok('the tally counts replies against the cap', /3\/10 replies/.test(line), line);
+  ok('and PMs against theirs', new RegExp('5/' + cfg.maxDmsPerDay + ' PMs').test(line), line);
+  ok('and names failures', /1 failed/.test(line), line);
+  ok('and what is left to do', /still to do/.test(line), line);
+
+  // It rides on the outcome of every tap.
+  globalThis.__acting = 't3';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.t3/post-1' };
+  tgCalls = [];
+  updates = [tap('p:t3')];
+  await bg.pollTaps();
+  const settled = tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text).join(' ');
+  ok('so an outcome on your phone carries it', /Today:/.test(settled), settled.slice(-160));
+  ok('alongside whether it worked', /Posted/.test(settled), settled.slice(-160));
+
+  // A cap of 0 is no cap, and must not render as "3/0".
+  const noCap = await bg.todayLine({ ...cfg, maxPostsPerDay: 0, maxDmsPerDay: 0 });
+  ok('no cap shows a plain count, not a division by nothing',
+     /\d+ replies/.test(noCap) && !noCap.includes('/'), noCap);
+}
+
+// --- asking for status ------------------------------------------------------
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 77, text: 'status', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const reply = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('typing status gets a report', /Today/.test(reply), reply.slice(0, 200));
+  ok('with what was found, posted and sent', /Found:/.test(reply) && /PMs sent:/.test(reply), reply.slice(0, 200));
+  ok('and whether Chrome is actually connected', /Connected|Chrome may not be running|never run/.test(reply),
+     reply.slice(0, 300));
+  ok('and it is not mistaken for a rewrite of a draft',
+     !(await getLeads()).some((l) => l.draft === 'status' || l.dm === 'status'));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

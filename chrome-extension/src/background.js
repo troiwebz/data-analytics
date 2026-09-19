@@ -30,7 +30,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
-  checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, log, logOnce, clearLogOnce,
+  checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
   getStaged, setStaged, removeStagedByTab, dedupeLeads
 } from './store.js';
 
@@ -174,6 +174,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // anything reads them, or the extension comes up looking configured - the
   // vault has the secrets - with every setting silently back to its default.
   const back = await restoreIfEmpty().catch(() => ({}));
+  await settleOldLeads();
   // haf-secrets.json in the extension folder, if there is one: the keys travel
   // with the folder, so a copy onto a new machine configures itself instead of
   // needing the Anthropic key and the Telegram token retyped over RDP. Runs
@@ -619,6 +620,100 @@ export async function runCheck() {
  * Decided leads are skipped: something you have already posted, skipped or let
  * expire does not need announcing days later.
  */
+/**
+ * Draw a line under everything already in the table, once.
+ *
+ * The "announced" stamp only started existing in v0.78, so every lead found
+ * before it looks as though it has never been sent. The backlog then works
+ * through the whole table six at a time - which is old threads arriving on
+ * your phone for days, most of which were sent to you when they were new.
+ *
+ * Runs once, on the first start after this version. Anything already here is
+ * treated as dealt with; only threads found from now on can be announced.
+ */
+const LINE_KEY = 'announcedBaseline';
+
+export async function settleOldLeads() {
+  const { [LINE_KEY]: done } = await chrome.storage.local.get(LINE_KEY);
+  if (done) return { already: true };
+
+  const leads = await getLeads();
+  let n = 0;
+  for (const l of leads) {
+    if (l.tgSentAt) continue;
+    await updateLead(l.threadId, { tgSentAt: 'already in the table before this version' });
+    n++;
+  }
+  await chrome.storage.local.set({ [LINE_KEY]: new Date().toISOString() });
+  if (n) await log(`${n} lead(s) already in the table will not be re-sent to Telegram; `
+    + 'only threads found from now on are announced');
+  return { settled: n };
+}
+
+/**
+ * Today, in one line: what went out, what failed, what is left.
+ *
+ * Appended to every outcome on your phone, because "Posted." on its own tells
+ * you the tap worked and nothing about where you are. Reads the same counters
+ * the dashboard meters use, so the two can never disagree.
+ */
+export async function todayLine(cfg) {
+  const r = await getRateState();
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const on = (t) => String(t || '').slice(0, 10) === day;
+
+  const failed = leads.filter((l) => on(l.pmSentAt || l.decidedAt) && (l.pmError || l.error)).length;
+  const waiting = leads.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status)
+                                   && !l.pmSent).length;
+  const cap = (used, max) => (Number(max) > 0 ? `${used}/${max}` : String(used));
+
+  return `📊 Today: ${cap(r.count || 0, cfg.maxPostsPerDay)} replies · `
+    + `${cap(r.dmCount || 0, cfg.maxDmsPerDay)} PMs`
+    + (failed ? ` · ${failed} failed` : '')
+    + ` · ${waiting} still to do`;
+}
+
+/**
+ * The fuller picture, on request. Send "status" to the bot.
+ *
+ * Everything the dashboard shows, for when you are not at the machine - which
+ * is most of the time if you are working from the phone.
+ */
+export async function statusReport(cfg) {
+  const r = await getRateState();
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const on = (t) => String(t || '').slice(0, 10) === day;
+
+  const foundToday = leads.filter((l) => on(l.foundAt)).length;
+  const postedToday = leads.filter((l) => l.status === 'POSTED' && on(l.decidedAt || l.postedAt)).length;
+  const pmToday = leads.filter((l) => l.pmSent && on(l.pmSentAt)).length;
+  const failed = leads.filter((l) => l.pmError || l.error).slice(0, 5);
+  const todo = leads.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status) && !l.pmSent);
+  const hb = await tapsHeartbeat();
+  const beat = hb ? Math.round((Date.now() - hb.at) / 1000) : null;
+
+  const lines = [
+    `📊 <b>Today</b>`,
+    `Found: ${foundToday} · Replies posted: ${postedToday} · PMs sent: ${pmToday}`,
+    `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
+    `Still to do: ${todo.length}`,
+    '',
+    beat == null ? '⚠️ The tap checker has never run - Chrome may not be running.'
+      : beat < 120 ? `✅ Connected (checked ${beat}s ago)`
+      : `⚠️ Last checked ${Math.round(beat / 60)} min ago - Chrome may not be running.`
+  ];
+
+  if (failed.length) {
+    lines.push('', `❌ <b>${failed.length} with errors</b>`);
+    for (const l of failed) {
+      lines.push(`· ${String(l.title || l.threadId).slice(0, 45)} — ${String(l.pmError || l.error).slice(0, 70)}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 export async function announceNew(cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
 
@@ -627,10 +722,28 @@ export async function announceNew(cfg) {
   // the whole board on your phone six at a time. Decided leads are skipped for
   // the obvious reason.
   const SILENT = ['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'];
-  const waiting = (await getLeads())
-    .filter((l) => !l.tgSentAt && !SILENT.includes(l.status) && String(l.threadId) !== 'sample')
+
+  // Recent only. Without an age limit the backlog reaches back through the
+  // whole table, so every thread found before the stamp existed looks
+  // unannounced and goes out six at a time - which is old threads repeating on
+  // your phone for days. A thread nobody told you about within half a day is
+  // not news; it is on the dashboard.
+  const maxAge = Math.max(0, Number(cfg.announceMaxAgeHours ?? 12)) * 3600000;
+  const cutoff = maxAge ? Date.now() - maxAge : 0;
+
+  const all = await getLeads();
+  const live = all.filter((l) => !l.tgSentAt && !SILENT.includes(l.status) && String(l.threadId) !== 'sample');
+  const waiting = live
+    .filter((l) => !cutoff || new Date(l.foundAt || 0).getTime() >= cutoff)
     .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
-  if (!waiting.length) return { waiting: 0 };
+
+  // Too old to announce is a decision, not a maybe - stamp them so they are
+  // never reconsidered, rather than re-checking the same rows every poll.
+  const stale = live.filter((l) => cutoff && new Date(l.foundAt || 0).getTime() < cutoff);
+  for (const l of stale) await updateLead(l.threadId, { tgSentAt: 'too old to announce' });
+  if (stale.length) await log(`${stale.length} older thread(s) left off Telegram - they are on the dashboard`);
+
+  if (!waiting.length) return { waiting: 0, stale: stale.length };
 
   try {
     const t = await telegram.sendLeads(waiting, cfg);
@@ -963,6 +1076,13 @@ export async function pollTaps() {
       continue;
     }
 
+    // Typed commands, answered before anything treats the message as a rewrite.
+    if (ev.kind === 'reply' && /^\/?status\b/i.test(String(ev.body || '').trim())) {
+      await telegram.say(cfg.telegramChatId, await statusReport(cfg), { html: true });
+      done++;
+      continue;
+    }
+
     if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
 
     // The self-test button belongs to no lead. Answer it here, before anything
@@ -1026,7 +1146,10 @@ export async function pollTaps() {
     // looks identical to "the tap never arrived", which are opposite problems
     // with opposite fixes.
     await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
-    const line = await runTap(ev, lead, cfg);
+    let line = await runTap(ev, lead, cfg);
+    // Say where the day stands, on every outcome. "Posted." alone tells you the
+    // tap worked and nothing about how far through you are.
+    if (line) line += `\n\n${await todayLine(cfg)}`;
     await telegram.settleTap(ev, line);
     await log(`Telegram tap on "${lead.title}": ${line || 'card rewritten in place'}`);
     done++;
