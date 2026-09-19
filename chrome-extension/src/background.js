@@ -580,11 +580,63 @@ export async function runCheck() {
   try { r = await pollFeed(); }
   catch (e) { failed = e.message; await log(`feed check: ${e.message}`, 'error'); }
 
+  // On every path, including the quiet ones. pollFeed returns early when
+  // nothing is new, and that is exactly when a backlog from a busy poll needs
+  // draining - waiting for the next new thread to carry it along could be
+  // hours, or never.
+  const told = await announceNew(await getConfig()).catch((e) => ({ error: e.message }));
+
   const pms = await syncSentPms().catch(async (e) => {
     await log(`PM check: ${e.message}`, 'error');
     return { error: e.message };
   });
-  return { ...(r || {}), ...(failed ? { error: failed } : {}), pms };
+  return { ...(r || {}), ...(failed ? { error: failed } : {}), told, pms };
+}
+
+/**
+ * Send whatever has not reached Telegram yet, newest first.
+ *
+ * Reads the table rather than taking a list, which is what makes it correct on
+ * every path. Only a handful go per poll - a quiet burst rather than a flood -
+ * and a thread is only "new" once, so the ones that did not fit used to wait
+ * for a re-find that never comes. Worse, they were stamped as announced
+ * anyway: a poll that found 33 threads sent six and silenced twenty-seven, with
+ * nothing anywhere saying so. Now only what actually went is stamped, and the
+ * rest are still here to be picked up next time.
+ *
+ * Decided leads are skipped: something you have already posted, skipped or let
+ * expire does not need announcing days later.
+ */
+export async function announceNew(cfg) {
+  if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
+
+  // BACKFILL is history recorded on first run so the table does not start
+  // empty - it is not a queue of leads to pitch, and announcing it would put
+  // the whole board on your phone six at a time. Decided leads are skipped for
+  // the obvious reason.
+  const SILENT = ['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'];
+  const waiting = (await getLeads())
+    .filter((l) => !l.tgSentAt && !SILENT.includes(l.status) && String(l.threadId) !== 'sample')
+    .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+  if (!waiting.length) return { waiting: 0 };
+
+  try {
+    const t = await telegram.sendLeads(waiting, cfg);
+    // ONLY what actually went.
+    for (const id of t.sentIds || []) {
+      await updateLead(id, { tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(id)] });
+    }
+    const left = waiting.length - (t.sentIds?.length || 0);
+    if (t.error) await log(`Telegram: ${t.sent}/${waiting.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
+    else if (t.sent) await log(`Telegram: ${t.sent} lead(s) as ${t.parts} message(s)`
+      + (left > 0 ? `, ${left} waiting for the next check` : ''));
+    return { waiting: waiting.length, sent: t.sent, left };
+  } catch (e) {
+    // The leads are saved, so nothing is lost - they are still unstamped and
+    // will be tried again on the next check.
+    await log(`Telegram failed: ${e.message}`, 'error');
+    return { waiting: waiting.length, error: e.message };
+  }
 }
 
 export async function pollFeed() {
@@ -669,32 +721,8 @@ export async function pollFeed() {
     for (const l of held) await updateLead(l.threadId, { autoBlocked: l.autoBlocked });
   }
 
-  // Telegram, straight from here: every new thread goes to your phone as it is
-  // found, no Apps Script in the way. A failure is logged and nothing else -
-  // the lead is already saved, so it is never lost to a network blip.
-  //
-  // Only threads never announced before. `seen` decides what is new, but it
-  // can be emptied - "Load last 48h", a wiped profile, a fresh install on
-  // another machine - and every thread then looks new again, which is how the
-  // whole board arrived on the phone at once. The stamp lives on the lead and
-  // survives a re-parse, so a thread is announced exactly once, ever.
-  const known = await getLeads();
-  const announced = new Set(known.filter((l) => l.tgSentAt).map((l) => String(l.threadId)));
-  const fresh2 = leads.filter((l) => !announced.has(String(l.threadId)));
-  if (fresh2.length < leads.length) {
-    await log(`${leads.length - fresh2.length} thread(s) were already sent to Telegram - not sending them again`);
-  }
-  try {
-    const t = await telegram.sendLeads(fresh2, cfg);
-    // Announced. Stamped before anything else so a crash between here and the
-    // next poll cannot cause a second alert for the same thread.
-    for (const l of fresh2) {
-      await updateLead(l.threadId, { tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(l.threadId)] });
-    }
-    if (t.error) await log(`Telegram: ${t.sent}/${fresh2.length} lead(s), ${t.parts} message(s). Failed - ${t.error}`, 'error');
-    else if (t.sent) await log(`Telegram: ${t.sent} lead(s) as ${t.parts} message(s)`);
-  } catch (e) { await log(`Telegram failed: ${e.message}`, 'error'); }
-
+  // Announcing is runCheck's job now - it has to happen on the quiet polls too,
+  // and doing it here as well would just read the table twice.
 
   if (cfg.webhookUrl) {
     try {
@@ -949,10 +977,30 @@ export async function pollTaps() {
     // thing that stops a Mac and a VPS both acting on one tap.
     const claim = await telegram.claimTap(ev.id, 'Working on it…');
     if (claim !== true) {
-      await logOnce('twocopies',
-        'Another copy of HAF Watcher took that tap. You have two running against the same bot - '
-        + 'close one, or they will both act on everything you tap.', 'error');
-      continue;
+      // Telegram returns ONE error for two different things: "someone already
+      // answered this" and "this is too old to answer". They are not the same
+      // and the text cannot tell them apart, so standing down on both meant a
+      // tap that had simply aged out - the only copy running, the server shut
+      // down, a slow poll - did nothing at all, silently. That is a worse
+      // failure than the one it was guarding against.
+      //
+      // So: pause, look again, and only stand down if the work is actually
+      // done. If another copy claimed it, it will have finished in that time
+      // and the lead will say so. If nothing has changed, this was an old tap
+      // and it is honoured.
+      await new Promise((r) => setTimeout(r, 3000 + Math.random() * 2000));
+      const now = (await getLeads()).find((l) => String(l.threadId) === String(ev.threadId));
+      const settled = (ev.action === 'd' || ev.action === 'f') ? now?.pmSent
+                    : ev.action === 'p' ? now?.status === 'POSTED'
+                    : false;
+      if (settled) {
+        await logOnce('twocopies',
+          'Another copy of HAF Watcher took that tap. You have two running against the same bot - '
+          + 'close one, or they will both act on everything you tap.', 'error');
+        continue;
+      }
+      await log(`Telegram would not let me answer that tap (${claim.why || 'unknown'}), `
+        + 'but nothing else had acted on it - carrying on');
     }
     // Logged before the work, not after. Posting opens a tab and waits on a
     // content script; if any of that stalls or the worker is killed, a line
@@ -1611,6 +1659,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'approvals-now': sendResponse(await pollApprovals().then(() => ({ ok: true })).catch((e) => ({ error: e.message }))); break;
       case 'reschedule':    await scheduleAlarms(await getConfig()); sendResponse({ ok: true }); break;
       case 'staged':        sendResponse(await getStaged()); break;
+      // Deliberately pollFeed, not runCheck: re-finding two days of threads is
+      // for the table, not for your phone. Anything genuinely new among them
+      // still reaches Telegram on the next ordinary check.
       case 'backfill':      await clearSeen(); sendResponse(await pollFeed().catch((e) => ({ error: e.message }))); break;
       case 'post-direct': {                          // 🚀 from the dashboard, no Telegram needed
         const cfg = await getConfig();

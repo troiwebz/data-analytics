@@ -165,5 +165,47 @@ ok('and you are told you have two copies running', /two running|Another copy/i.t
   ok('one already sent is refused outright', r3.blocked === true && /already sent/.test(r3.error), JSON.stringify(r3));
 }
 
+// --- an old tap must still work ---------------------------------------------
+//
+// Telegram returns ONE error for two different things: "already answered" and
+// "too old to answer". Standing down on both meant a tap that had simply aged
+// out - one copy running, the server shut down, a slow poll - did nothing at
+// all and said nothing. That is worse than the duplicate it guards against.
+{
+  store.recentLeads = [lead('90')];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  store.logOnceSeen = {};
+  store.log = [];                            // the log is cumulative across this file
+  globalThis.__acting = '90';
+  answered = new Set(['OLD-TAP']);          // already answered: the claim will fail
+  inboxHtml = '';                            // and nothing has been sent
+
+  updates = [tap('d:90', 'OLD-TAP')];
+  await bg.pollTaps();
+  ok('a tap that cannot be answered is still honoured when nothing else acted',
+     (await getRateState()).dmCount === 1, String((await getRateState()).dmCount));
+  ok('and the PM actually went', (await getLeads())[0].pmSent === true);
+
+  const log1 = (await (await import('../src/store.js')).getLog()).map((l) => l.msg).join(' | ');
+  ok('and it is not blamed on a second copy', !/two running/.test(log1), log1.slice(0, 160));
+  ok('while still saying the answer was refused', /would not let me answer/.test(log1), log1.slice(0, 160));
+}
+
+// But when the work IS already done, it stands down - that is the real duplicate.
+{
+  store.recentLeads = [lead('91', { pmSent: true })];
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  store.logOnceSeen = {};
+  store.log = [];
+  globalThis.__acting = '91';
+  answered = new Set(['DONE-TAP']);
+  updates = [tap('d:91', 'DONE-TAP')];
+  await bg.pollTaps();
+  ok('a tap for work already done sends nothing', (await getRateState()).dmCount === 0,
+     String((await getRateState()).dmCount));
+  const log2 = (await (await import('../src/store.js')).getLog()).map((l) => l.msg).join(' | ');
+  ok('and THAT is when you are told about a second copy', /two running/.test(log2), log2.slice(0, 200));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

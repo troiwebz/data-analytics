@@ -106,12 +106,12 @@ await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours
 const TG = await import('../src/telegram.js');
 await TG.setToken('1234567890:AAtesttoken');
 
-let r = await bg.pollFeed();                    // first run seeds the database
+let r = await bg.runCheck();                    // first run seeds the database
 ok('first run seeds without Apps Script', r.seeded === 3, JSON.stringify(r));
 
 // Forget the seeded ids so the same threads come back as new.
 store.seenThreads = { 'x': Date.now() };
-r = await bg.pollFeed();
+r = await bg.runCheck();
 ok('second poll finds the threads', r.matched === 3, JSON.stringify(r));
 ok('Claude called once for the batch', aiCalls === 1, 'calls=' + aiCalls);
 
@@ -214,6 +214,61 @@ THREAD += `
 await bg.rebuildDrafts({ withAi: true });
 ok('a new reply on the thread does buy another call', aiCalls > callsAtRest, `calls=${aiCalls} was=${callsAtRest}`);
 ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), sentToClaude.slice(0, 300));
+
+// --- a busy poll must not silence the overflow ------------------------------
+//
+// sendLeads sends at most six per poll, on purpose - a quiet burst, not a
+// flood. But the whole batch was stamped as announced, so a poll that found 33
+// threads sent six and marked twenty-seven as done. A thread is only "new"
+// once, so those twenty-seven waited for a re-find that never comes: silent
+// for ever, with nothing anywhere saying so.
+{
+  const { getLeads: gl } = await import('../src/store.js');
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+
+  const many = [];
+  for (let i = 1; i <= 15; i++) {
+    many.push({ threadId: `b${i}`, title: `waiting ${i}`, author: `a${i}`,
+                url: `https://bhw/threads/x.b${i}/`, foundAt: new Date(Date.now() - i * 60000).toISOString(),
+                draft: 'reply body', dm: 'pm body', dmTitle: `waiting ${i}`, status: 'SENT' });
+  }
+  store.recentLeads = many;
+
+  tg = [];
+  const r1 = await bg.announceNew(cfg);
+  const stamped1 = (await gl()).filter((l) => l.tgSentAt).length;
+  ok('only a handful go on one poll', r1.sent > 0 && r1.sent < 15, JSON.stringify(r1));
+  ok('and ONLY those are stamped as announced', stamped1 === r1.sent, `${stamped1} stamped, ${r1.sent} sent`);
+  ok('the rest are reported as waiting, not silently dropped', r1.left === 15 - r1.sent, JSON.stringify(r1));
+
+  // The next check drains more, without waiting for a new thread to carry them.
+  tg = [];
+  const r2 = await bg.announceNew(cfg);
+  const stamped2 = (await gl()).filter((l) => l.tgSentAt).length;
+  ok('the next check sends more of them', stamped2 > stamped1, `${stamped1} → ${stamped2}`);
+  ok('and never re-sends one already announced', r2.sent + r1.sent === stamped2,
+     `${r1.sent} + ${r2.sent} vs ${stamped2}`);
+
+  // Drain it completely.
+  for (let i = 0; i < 5; i++) await bg.announceNew(cfg);
+  ok('every lead reaches Telegram eventually', (await gl()).every((l) => l.tgSentAt),
+     String((await gl()).filter((l) => !l.tgSentAt).length) + ' left');
+  const done = await bg.announceNew(cfg);
+  ok('and then it goes quiet', done.waiting === 0, JSON.stringify(done));
+
+  // History recorded on first run is not a queue of leads to pitch.
+  store.recentLeads = [{ threadId: 'h1', title: 'old', author: 'x', foundAt: new Date().toISOString(),
+                         draft: 'd', dm: 'p', status: 'BACKFILL' }];
+  const hist = await bg.announceNew(cfg);
+  ok('backfilled history is never announced', hist.waiting === 0, JSON.stringify(hist));
+
+  // Nor is anything you have already dealt with.
+  store.recentLeads = [{ threadId: 'p1', status: 'POSTED', title: 'x', draft: 'd', dm: 'p', foundAt: new Date().toISOString() },
+                       { threadId: 's1', status: 'SKIPPED', title: 'y', draft: 'd', dm: 'p', foundAt: new Date().toISOString() }];
+  const decided = await bg.announceNew(cfg);
+  ok('and neither is a lead you already posted or skipped', decided.waiting === 0, JSON.stringify(decided));
+}
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

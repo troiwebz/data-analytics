@@ -340,10 +340,15 @@ export async function sendLeads(leads, cfg) {
   let sent = 0, parts = 0;
   const errors = [];
   const cards = {};
+  // Which threads actually went. The caller stamps these as announced, and it
+  // must stamp ONLY these: a poll that finds 33 threads sends six, and marking
+  // the other 27 as announced silenced them for ever.
+  const sentIds = [];
   for (const lead of leads.slice(0, MAX_PER_POLL)) {
     try {
       const r = await sendLead(lead, cfg, { onPart: () => parts++ });
       if (r?.ids && Object.keys(r.ids).length) cards[String(lead.threadId)] = r.ids;
+      sentIds.push(String(lead.threadId));
       sent++;
     } catch (e) {
       // One lead failing no longer stops the rest: they are unrelated, and
@@ -360,7 +365,7 @@ export async function sendLeads(leads, cfg) {
         text: `…and ${skipped} more on the dashboard.`, parse_mode: 'HTML' });
     } catch { /* the count is a nicety */ }
   }
-  return { sent, parts, error, skipped, cards };
+  return { sent, parts, error, skipped, cards, sentIds };
 }
 
 /** Prove the token and chat id work, from the Settings page. */
