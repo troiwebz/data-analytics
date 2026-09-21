@@ -323,5 +323,44 @@ ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), se
   ok('and the line is drawn once, not on every start', twice.already === true, JSON.stringify(twice));
 }
 
+// --- a thread you already posted to must never bump again -------------------
+//
+// Named for the exact complaint: "why is it bumping threads that are posted
+// already". Once a lead is POSTED and announced, recordLeads has to keep BOTH
+// facts on every later re-parse of the same thread - the RSS feed re-lists it
+// the moment anyone else replies, which is often, since it is a thread you
+// already answered.
+{
+  const { getLeads: gl, recordLeads } = await import('../src/store.js');
+  const { getConfig: gc } = await import('../src/config.js');
+
+  store.recentLeads = [{
+    threadId: 'done1', title: 'a thread I already answered', author: 'buyer',
+    url: 'https://bhw/threads/x.done1/', foundAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+    draft: 'd', dm: 'p', status: 'POSTED', tgSentAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+    postUrl: 'https://bhw/threads/x.done1/post-1'
+  }];
+
+  // Someone else replies, the forum bumps it, and our next poll re-parses the
+  // same thread with a fresh snapshot - title/body reread, status defaulted
+  // back to SENT as a brand new parse always does, no tgSentAt on the fresh
+  // copy either, because the fresh copy has never been announced itself.
+  await recordLeads([{
+    threadId: 'done1', title: 'a thread I already answered', author: 'buyer',
+    url: 'https://bhw/threads/x.done1/', foundAt: new Date().toISOString(),
+    replyCount: 12
+  }]);
+
+  const row = (await gl()).find((l) => l.threadId === 'done1');
+  ok('the POSTED status survives the re-parse', row.status === 'POSTED', row.status);
+  ok('and the announced stamp survives it too', !!row.tgSentAt, JSON.stringify(row.tgSentAt));
+
+  const r = await bg.announceNew(await gc());
+  ok('so it is never queued for Telegram again', r.waiting === 0, JSON.stringify(r));
+
+  const tgCount = tg.filter((c) => c.method === 'sendMessage').length;
+  ok('and nothing was actually sent', tgCount === 0, String(tgCount));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

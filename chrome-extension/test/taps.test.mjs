@@ -695,6 +695,10 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
      reply.slice(0, 300));
   ok('and it is not mistaken for a rewrite of a draft',
      !(await getLeads()).some((l) => l.draft === 'status' || l.dm === 'status'));
+  ok('and says which version is running, so an old-build repeat is never guessed at',
+     /Running v/.test(reply), reply.slice(0, 200));
+  ok('and how much is queued for Telegram versus held back as too old',
+     /Telegram queue:/.test(reply), reply.slice(0, 300));
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

@@ -694,10 +694,24 @@ export async function statusReport(cfg) {
   const hb = await tapsHeartbeat();
   const beat = hb ? Math.round((Date.now() - hb.at) / 1000) : null;
 
+  // Whether an old-thread repeat is even possible on this install. The stamp
+  // that stops it (tgSentAt) only exists from v0.78 - an install still running
+  // an older build has none of this, and no amount of auditing the current
+  // code proves anything about what an older build is doing. This is the one
+  // line that tells the two apart without guessing.
+  const running = chrome.runtime.getManifest().version;
+  const { announcedBaseline } = await chrome.storage.local.get('announcedBaseline');
+  const queued = leads.filter((l) => !l.tgSentAt && !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status)
+                                  && String(l.threadId) !== 'sample').length;
+  const stale = leads.filter((l) => l.tgSentAt === 'too old to announce').length;
+
   const lines = [
     `📊 <b>Today</b>`,
+    `Running v${running}`,
     `Found: ${foundToday} · Replies posted: ${postedToday} · PMs sent: ${pmToday}`,
     `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
+    `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
+      + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
     `Still to do: ${todo.length}`,
     '',
     beat == null ? '⚠️ The tap checker has never run - Chrome may not be running.'
