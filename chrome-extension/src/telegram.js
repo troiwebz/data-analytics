@@ -260,12 +260,17 @@ export async function editIntoCard(chatId, messageId, lead, kind, cfg) {
   if (!text) return false;
   const body = { chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
                  disable_web_page_preview: true, reply_markup: keyboard(lead, kind, cfg) };
+  // "message is not modified" means the card already shows this text - that is
+  // success, not failure, and a caller treating it as failure would refuse to
+  // approve text that was already correctly on the phone.
+  const already = (e) => /message is not modified/i.test(e?.message || '');
   try {
     await call('editMessageText', { ...body, text });
     return true;
-  } catch {
+  } catch (e) {
+    if (already(e)) return true;
     try { await call('editMessageText', { ...body, text: stripTags(text), parse_mode: undefined }); return true; }
-    catch { return false; }
+    catch (e2) { return already(e2); }
   }
 }
 

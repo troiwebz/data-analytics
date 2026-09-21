@@ -216,7 +216,7 @@ async function refreshIfTemplatesChanged(cfg) {
     const stamp = templateStamp(cfg);
     const { draftStamp } = await chrome.storage.local.get('draftStamp');
     if (draftStamp === stamp) return;
-    const r = await rebuildDrafts({ withAi: false });
+    const r = await rebuildDrafts({ withAi: false, syncApproved: false });
     await chrome.storage.local.set({ draftStamp: stamp });
     if (r.updated) await log(`templates changed: ${r.updated} stored draft(s) brought up to date`);
   } catch (e) {
@@ -481,7 +481,7 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
  * worth paying for again; a draft that already had the post to work from is
  * left alone.
  */
-export async function rebuildDrafts({ withAi = false } = {}) {
+export async function rebuildDrafts({ withAi = false, syncApproved = true } = {}) {
   const cfg = await getConfig();
   const leads = await getLeads();
   const open = (l) => !['POSTED', 'SKIPPED'].includes(l.status);
@@ -534,16 +534,38 @@ export async function rebuildDrafts({ withAi = false } = {}) {
       lint: lintDraft(draft, cfg.compliance), dmLint: lintDraft(dm, cfg.compliance)
     };
     patch.card = buildCard({ ...l, ...patch });
-    // A lead already on your phone: update the card there too, and move the
-    // approved text with it. Rewriting the draft and leaving the card showing
-    // the old one is exactly how you end up approving one message and sending
-    // another.
-    if (l.tgSentAt && cfg.telegramChatId) {
-      patch.dmApproved = plain(dm);
-      patch.draftApproved = plain(draft);
+
+    // A lead already on your phone: only touch the frozen, approved text when
+    // the caller explicitly asked for that (the "Rewrite drafts" button). This
+    // is what went wrong before - refreshIfTemplatesChanged calls this
+    // automatically on every reload, and every release this week changed the
+    // template wording, so every reload silently re-approved every announced
+    // lead's text to whatever the NEW wording was. The Telegram edit that was
+    // supposed to keep the card in step could fail without anyone noticing -
+    // Telegram will not edit a message older than 48 hours, and the failure
+    // was swallowed - and even when it worked, an edited message is easy to
+    // miss if you already read it. Either way the card kept showing what you
+    // approved, dmApproved silently became something else, and days later you
+    // sent text you had never seen. draft/dm (the CANDIDATE, shown on the
+    // dashboard) still update on every path; only the FROZEN copy is gated.
+    if (syncApproved && l.tgSentAt && l.tgCards && cfg.telegramChatId) {
       const fresh = { ...l, ...patch };
+      let synced = true;
       for (const [kind, id] of [['PM', l.tgCards?.PM], ['reply', l.tgCards?.['public reply']]]) {
-        if (id) await telegram.refreshCard(cfg.telegramChatId, id, fresh, kind, cfg).catch(() => {});
+        if (!id) continue;
+        const ok = await telegram.refreshCard(cfg.telegramChatId, id, fresh, kind, cfg).catch(() => false);
+        if (!ok) synced = false;
+      }
+      if (synced) {
+        patch.dmApproved = plain(dm);
+        patch.draftApproved = plain(draft);
+      } else {
+        // The card on the phone could not be updated - most likely the 48-hour
+        // edit window has passed. Leaving the approved text as it was keeps
+        // "what is shown" and "what is sent" agreeing; it is stale, not wrong.
+        await log(`could not update the Telegram card for "${l.title}" - it may be past `
+          + 'the 48h edit window. Re-send it to get the new wording, or it will '
+          + 'send with the text already approved.', 'error');
       }
     }
     await updateLead(l.threadId, patch);

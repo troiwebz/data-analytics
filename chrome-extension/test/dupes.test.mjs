@@ -10,7 +10,7 @@
 // the rules could be that loose and still look fine.
 const store = {};
 const msgListeners = [], tabWatchers = [];
-let tgCalls = [], inboxHtml = '', inboxFail = '', fetched = 0;
+let tgCalls = [], inboxHtml = '', inboxFail = '', fetched = 0, editFails = false;
 let dmResult = { ok: true, sent: true };
 
 globalThis.chrome = {
@@ -59,6 +59,11 @@ globalThis.fetch = async (url, opts) => {
     const method = u.split('/').pop();
     tgCalls.push({ method, body: opts?.body ? JSON.parse(opts.body) : {} });
     if (method === 'getUpdates') return { ok: true, status: 200, json: async () => ({ ok: true, result: updates }) };
+    // Simulates Telegram refusing to edit a message past its 48-hour window.
+    if (method === 'editMessageText' && editFails) {
+      return { ok: false, status: 400,
+               json: async () => ({ ok: false, description: "Bad Request: message can't be edited" }) };
+    }
     return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
   }
   if (u.includes('/direct-messages')) {
@@ -453,6 +458,97 @@ dmResult = { ok: true, sent: true };
   await bg.sendDm((await getLeads())[0], cfg, { mode: 'send' });
   chrome.scripting.executeScript = realExec;
   ok('an edited PM sends the edit, not the original', typed === 'my own wording', typed);
+}
+
+// --- an automatic template refresh must never silently re-approve ----------
+//
+// A real buyer received wording nobody had signed off on. Cause: every
+// release this week changed the template wording, refreshIfTemplatesChanged
+// runs automatically on every reload and calls rebuildDrafts for every open
+// lead, and rebuildDrafts used to push the freshly-rendered text straight into
+// dmApproved/draftApproved for any already-announced lead - whether or not the
+// Telegram card actually got updated to match. Telegram refuses to edit a
+// message older than 48 hours, and that failure was swallowed, so the card
+// kept showing the old, approved wording while storage silently moved on to
+// the new wording. Tapping Post DM Now days later sent the new wording - text
+// that had never been shown to anyone.
+{
+  const { getConfig, setConfig } = await import('../src/config.js');
+  const { updateLead, getLeads: gl } = await import('../src/store.js');
+
+  store.recentLeads = [lead('200', {
+    tgSentAt: new Date().toISOString(),
+    tgCards: { PM: 501, 'public reply': 502 },
+    dm: 'Hi buyer200,\n\nOLD WORDING - this is what the card on the phone shows.\n\nThanks!!',
+    dmApproved: 'Hi buyer200,\n\nOLD WORDING - this is what the card on the phone shows.\n\nThanks!!',
+    draft: 'OLD public reply wording.',
+    draftApproved: 'OLD public reply wording.'
+  })];
+
+  // A release changes the template wording - the everyday trigger.
+  await setConfig({ dmTemplates: { generic: 'Hi {{author}},\n\nNEW WORDING after the release.\n\nThanks!!' } });
+  const cfg = await getConfig();
+
+  // The automatic path: refreshIfTemplatesChanged calls exactly this.
+  tgCalls = [];
+  editFails = true;                       // the card is past its 48h edit window
+  await bg.rebuildDrafts({ withAi: false, syncApproved: false });
+  let row = (await gl())[0];
+  ok('the underlying draft is refreshed for the dashboard', /NEW WORDING/.test(row.dm), row.dm);
+  ok('but the approved, frozen text is NOT touched automatically',
+     /OLD WORDING/.test(row.dmApproved), row.dmApproved);
+  ok('and Telegram is never even asked to edit anything on this path',
+     !tgCalls.some((c) => c.method === 'editMessageText'), JSON.stringify(tgCalls.map((c) => c.method)));
+
+  // Which means a tap on the OLD card sends the OLD, still-matching text.
+  store.rateState = { day: today, count: 0, lastPostAt: 0, dmCount: 0, lastDmAt: 0 };
+  inboxHtml = '';
+  globalThis.__acting = '200';
+  let typed = '';
+  const realExec = chrome.scripting.executeScript;
+  chrome.scripting.executeScript = async (opts) => {
+    if (opts.args?.[0]?.body) typed = opts.args[0].body;
+    return realExec(opts);
+  };
+  await bg.sendDm((await gl())[0], cfg, { mode: 'send' });
+  chrome.scripting.executeScript = realExec;
+  ok('so what gets sent still matches the card, not the new release wording',
+     /OLD WORDING/.test(typed) && !/NEW WORDING/.test(typed), typed);
+
+  // The explicit "Rewrite drafts" button IS allowed to sync, but only when the
+  // Telegram card can actually be updated to match.
+  store.recentLeads = [lead('201', {
+    tgSentAt: new Date().toISOString(),
+    tgCards: { PM: 601, 'public reply': 602 },
+    dm: 'Hi buyer201,\n\nOLD WORDING here too.\n\nThanks!!',
+    dmApproved: 'Hi buyer201,\n\nOLD WORDING here too.\n\nThanks!!'
+  })];
+  tgCalls = [];
+  editFails = false;                      // this one CAN still be edited
+  await bg.rebuildDrafts({ withAi: false });
+  row = (await gl())[0];
+  ok('when the card can be updated, the explicit rewrite does sync it',
+     /NEW WORDING/.test(row.dmApproved), row.dmApproved);
+  ok('and Telegram was actually asked to edit it',
+     tgCalls.some((c) => c.method === 'editMessageText'), JSON.stringify(tgCalls.map((c) => c.method)));
+
+  // And when it explicitly cannot (still 48h-locked), the explicit rewrite
+  // still refuses to let the approved text drift from the card, and says why.
+  store.recentLeads = [lead('202', {
+    tgSentAt: new Date().toISOString(),
+    tgCards: { PM: 701, 'public reply': 702 },
+    dm: 'Hi buyer202,\n\nOLD WORDING, locked card.\n\nThanks!!',
+    dmApproved: 'Hi buyer202,\n\nOLD WORDING, locked card.\n\nThanks!!'
+  })];
+  editFails = true;
+  await bg.rebuildDrafts({ withAi: false });
+  row = (await gl())[0];
+  ok('a card that truly cannot be updated keeps its old approved text even on an explicit rewrite',
+     /OLD WORDING/.test(row.dmApproved), row.dmApproved);
+  const said = (await (await import('../src/store.js')).getLog()).map((l) => l.msg).join(' | ');
+  ok('and you are told, rather than it happening silently', /could not update the Telegram card/.test(said),
+     said.slice(0, 200));
+  editFails = false;
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
