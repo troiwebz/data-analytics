@@ -129,7 +129,8 @@ export const ACTIONS = {
   d: 'send the PM', p: 'post the public reply', s: 'skip this lead',
   m: 'rewrite the PM', e: 'rewrite the public reply',
   f: 'send the PM anyway, past the duplicate check',
-  c: 'cancel an edit and put the card back'
+  c: 'cancel an edit and put the card back',
+  noop: 'the in-progress placeholder - does nothing on its own'
 };
 
 export function keyboard(lead, kind, cfg) {
@@ -721,6 +722,35 @@ export async function claimTap(id, text = '') {
 export async function ackTap(id, text = '') {
   try { await call('answerCallbackQuery', { callback_query_id: id, text: text.slice(0, 190) }); }
   catch { /* only the little toast on your phone is lost */ }
+}
+
+/**
+ * The visible middle: not silent, not done.
+ *
+ * A tap used to change nothing you could see until the whole job finished -
+ * up to a minute for a post or a PM, tab load and a human-length pause and
+ * the content script all included. In that window the card looked exactly
+ * like it had before the tap, and exactly like it would if the tap had never
+ * arrived at all or the worker had been killed mid-job. There was no way to
+ * tell "still working" from "stuck" from "nothing happened" without waiting
+ * and hoping.
+ *
+ * Swaps the real buttons for one that does nothing (`noop`), carrying the
+ * verb and the clock time the job started - so a card that still says this
+ * five minutes later is legible proof something is actually wrong, not
+ * ambiguous silence. settleTap's own edit removes it along with everything
+ * else once the job is done, whichever way it went.
+ */
+export async function markWorking(chatId, messageId, verb) {
+  if (!chatId || !messageId) return false;
+  const when = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  try {
+    await call('editMessageReplyMarkup', {
+      chat_id: chatId, message_id: messageId,
+      reply_markup: { inline_keyboard: [[{ text: `⏳ ${verb}… (started ${when})`, callback_data: 'noop' }]] }
+    });
+    return true;
+  } catch { return false; }             // never fatal - the job runs either way
 }
 
 /**

@@ -726,6 +726,11 @@ export async function statusReport(cfg) {
   const { announcedBaseline } = await chrome.storage.local.get('announcedBaseline');
   const { queued, stale } = queueCounts(leads, cfg);
 
+  // Anything actually mid-send right now - the same lock sendDm sets and
+  // checks against a second tap. status answers "is something happening"
+  // without needing to find the right card and read its button.
+  const inFlight = leads.filter((l) => l.pmSending && Date.now() - l.pmSending < PM_LOCK_MS);
+
   const lines = [
     `📊 <b>Today</b>`,
     `Running v${running}`,
@@ -734,6 +739,10 @@ export async function statusReport(cfg) {
     `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
       + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
     `Still to do: ${todo.length}`,
+    inFlight.length
+      ? `⏳ Right now: ${inFlight.map((l) => `"${String(l.title).slice(0, 30)}" `
+          + `(${Math.round((Date.now() - l.pmSending) / 1000)}s)`).join(', ')}`
+      : '⏳ Right now: nothing in progress',
     '',
     beat == null ? '⚠️ The tap checker has never run - Chrome may not be running.'
       : beat < 120 ? `✅ Connected (checked ${beat}s ago)`
@@ -1056,6 +1065,12 @@ const BEAT_KEY = 'tapsHeartbeat';
 const beat = (r) => chrome.storage.local.set({ [BEAT_KEY]: { at: Date.now(), ...r } });
 export const tapsHeartbeat = async () => (await chrome.storage.local.get(BEAT_KEY))[BEAT_KEY] || null;
 
+/** What each button tap is actually doing, for the card's "in progress" state. */
+const TAP_VERBS = {
+  p: 'Posting', d: 'Sending the PM', f: 'Sending the PM',
+  s: 'Skipping', h: 'Holding', e: 'Opening the editor', m: 'Opening the editor'
+};
+
 export async function pollTaps() {
   const cfg = await getConfig();
 
@@ -1106,6 +1121,15 @@ export async function pollTaps() {
     }
 
     if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
+
+    // The "in progress" placeholder itself. markWorking swaps the real
+    // buttons for this one specifically so a second tap during the job lands
+    // somewhere harmless instead of on a button that no longer means what it
+    // says.
+    if (ev.action === 'noop') {
+      await telegram.ackTap(ev.id, 'Still working on it - this will update when it is done.');
+      continue;
+    }
 
     // The self-test button belongs to no lead. Answer it here, before anything
     // tries to look one up.
@@ -1168,6 +1192,12 @@ export async function pollTaps() {
     // looks identical to "the tap never arrived", which are opposite problems
     // with opposite fixes.
     await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
+    // Visible on the card itself, not just in a log you are not looking at.
+    // What comes next can take close to a minute; without this the card sits
+    // unchanged the whole time and looks identical whether it is working,
+    // stuck, or never got the tap at all.
+    const verb = TAP_VERBS[ev.action] || 'Working on it';
+    await telegram.markWorking(cfg.telegramChatId, ev.messageId, verb).catch(() => {});
     let line = await runTap(ev, lead, cfg);
     // Say where the day stands, on every outcome. "Posted." alone tells you the
     // tap worked and nothing about how far through you are.

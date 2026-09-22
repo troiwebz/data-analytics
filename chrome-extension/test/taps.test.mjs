@@ -701,5 +701,68 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
      /Telegram queue:/.test(reply), reply.slice(0, 300));
 }
 
+// --- the visible "in progress" state ----------------------------------------
+//
+// The card used to sit unchanged for up to a minute while a post or PM was in
+// flight - identical whether it was working, stuck, or the tap had never
+// arrived. Nothing distinguished those three from your phone.
+{
+  const { setConfig, getConfig } = await import('../src/config.js');
+  await setConfig({ maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+  store.recentLeads = [...(await getLeads()).filter((l) => l.threadId !== '1'), lead('50')];
+  globalThis.__acting = '50';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.50/post-1' };
+  tgCalls = [];
+  updates = [tap('p:50')];
+  await bg.pollTaps();
+
+  const working = tgCalls.find((c) => c.method === 'editMessageReplyMarkup');
+  ok('the card is marked as working before the job runs', !!working, JSON.stringify(tgCalls.map((c) => c.method)));
+  const btn = working?.body?.reply_markup?.inline_keyboard?.[0]?.[0];
+  ok('with a verb that matches the actual action', /Posting/.test(btn?.text || ''), JSON.stringify(btn));
+  ok('and when it started, so a stale one is provably stuck rather than ambiguous',
+     /started \d/.test(btn?.text || ''), JSON.stringify(btn));
+  ok('the placeholder button does nothing on its own', btn?.callback_data === 'noop', JSON.stringify(btn));
+
+  const order = tgCalls.map((c) => c.method);
+  const workingIdx = order.indexOf('editMessageReplyMarkup');
+  const doneIdx = order.lastIndexOf('editMessageText');
+  ok('and it happens BEFORE the final result, not after', workingIdx >= 0 && workingIdx < doneIdx,
+     JSON.stringify(order));
+
+  const finalText = tgCalls.filter((c) => c.method === 'editMessageText').pop()?.body?.text || '';
+  ok('the final edit removes it (no reply_markup passed, which is how buttons are cleared)',
+     !tgCalls.filter((c) => c.method === 'editMessageText').pop()?.body?.reply_markup);
+  ok('and shows the real outcome, not the placeholder', /Posted/.test(finalText), finalText.slice(0, 80));
+
+  // Tapping the placeholder itself must be harmless - answered, nothing acted on.
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               callback_query: { id: 'q' + Math.random(), data: 'noop', from: { id: 5 },
+                 message: { message_id: 999, chat: { id: 999 }, text: 'x' } } }];
+  const before = (await getRateState()).count;
+  await bg.pollTaps();
+  ok('tapping the working-placeholder does not post anything',
+     (await getRateState()).count === before, `${before} -> ${(await getRateState()).count}`);
+  ok('and just acknowledges that it is still running',
+     tgCalls.some((c) => c.method === 'answerCallbackQuery'), JSON.stringify(tgCalls.map((c) => c.method)));
+  ok('with no lead lookup or further Telegram edit',
+     !tgCalls.some((c) => c.method === 'editMessageText'), JSON.stringify(tgCalls.map((c) => c.method)));
+}
+
+// --- status names what is actually running right now ------------------------
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  store.recentLeads = [lead('60', { pmSending: Date.now() - 5000, title: 'a PM in flight right now' })];
+  const rep = await bg.statusReport(cfg);
+  ok('status names the lead actually in flight', /a PM in flight right now/.test(rep), rep);
+  ok('with how long it has been running', /\(\d+s\)/.test(rep), rep);
+
+  store.recentLeads = [lead('61')];                 // nothing in flight
+  const idle = await bg.statusReport(cfg);
+  ok('and says plainly when nothing is happening', /nothing in progress/.test(idle), idle);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
