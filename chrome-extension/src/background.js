@@ -25,6 +25,7 @@ import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive } from './alive.js';
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
+import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
@@ -663,7 +664,7 @@ export async function settleOldLeads() {
   let n = 0;
   for (const l of leads) {
     if (l.tgSentAt) continue;
-    await updateLead(l.threadId, { tgSentAt: 'already in the table before this version' });
+    await updateLead(l.threadId, { tgSentAt: BASELINE });
     n++;
   }
   await chrome.storage.local.set({ [LINE_KEY]: new Date().toISOString() });
@@ -686,8 +687,7 @@ export async function todayLine(cfg) {
   const on = (t) => String(t || '').slice(0, 10) === day;
 
   const failed = leads.filter((l) => on(l.pmSentAt || l.decidedAt) && (l.pmError || l.error)).length;
-  const waiting = leads.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status)
-                                   && !l.pmSent).length;
+  const waiting = leads.filter((l) => !SILENT_STATUSES.includes(l.status) && !l.pmSent).length;
   const cap = (used, max) => (Number(max) > 0 ? `${used}/${max}` : String(used));
 
   return `📊 Today: ${cap(r.count || 0, cfg.maxPostsPerDay)} replies · `
@@ -712,7 +712,7 @@ export async function statusReport(cfg) {
   const postedToday = leads.filter((l) => l.status === 'POSTED' && on(l.decidedAt || l.postedAt)).length;
   const pmToday = leads.filter((l) => l.pmSent && on(l.pmSentAt)).length;
   const failed = leads.filter((l) => l.pmError || l.error).slice(0, 5);
-  const todo = leads.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status) && !l.pmSent);
+  const todo = leads.filter((l) => !SILENT_STATUSES.includes(l.status) && !l.pmSent);
   const hb = await tapsHeartbeat();
   const beat = hb ? Math.round((Date.now() - hb.at) / 1000) : null;
 
@@ -723,9 +723,7 @@ export async function statusReport(cfg) {
   // line that tells the two apart without guessing.
   const running = chrome.runtime.getManifest().version;
   const { announcedBaseline } = await chrome.storage.local.get('announcedBaseline');
-  const queued = leads.filter((l) => !l.tgSentAt && !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status)
-                                  && String(l.threadId) !== 'sample').length;
-  const stale = leads.filter((l) => l.tgSentAt === 'too old to announce').length;
+  const { queued, stale } = queueCounts(leads, cfg);
 
   const lines = [
     `📊 <b>Today</b>`,
@@ -753,30 +751,17 @@ export async function statusReport(cfg) {
 export async function announceNew(cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
 
-  // BACKFILL is history recorded on first run so the table does not start
-  // empty - it is not a queue of leads to pitch, and announcing it would put
-  // the whole board on your phone six at a time. Decided leads are skipped for
-  // the obvious reason.
-  const SILENT = ['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'];
-
-  // Recent only. Without an age limit the backlog reaches back through the
-  // whole table, so every thread found before the stamp existed looks
-  // unannounced and goes out six at a time - which is old threads repeating on
-  // your phone for days. A thread nobody told you about within half a day is
-  // not news; it is on the dashboard.
-  const maxAge = Math.max(0, Number(cfg.announceMaxAgeHours ?? 12)) * 3600000;
-  const cutoff = maxAge ? Date.now() - maxAge : 0;
-
+  // The whole "is this new" rule lives in announce.js now, as one pure
+  // function proven against the bug history in its own test file - not
+  // re-derived here from status/age/tgSentAt separately, which is what let
+  // three near-identical copies of this rule drift out of sync with each
+  // other over the last dozen releases.
   const all = await getLeads();
-  const live = all.filter((l) => !l.tgSentAt && !SILENT.includes(l.status) && String(l.threadId) !== 'sample');
-  const waiting = live
-    .filter((l) => !cutoff || new Date(l.foundAt || 0).getTime() >= cutoff)
-    .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+  const { send: waiting, stale } = selectQueue(all, cfg);
 
   // Too old to announce is a decision, not a maybe - stamp them so they are
   // never reconsidered, rather than re-checking the same rows every poll.
-  const stale = live.filter((l) => cutoff && new Date(l.foundAt || 0).getTime() < cutoff);
-  for (const l of stale) await updateLead(l.threadId, { tgSentAt: 'too old to announce' });
+  for (const l of stale) await updateLead(l.threadId, { tgSentAt: TOO_OLD });
   if (stale.length) await log(`${stale.length} older thread(s) left off Telegram - they are on the dashboard`);
 
   if (!waiting.length) return { waiting: 0, stale: stale.length };
