@@ -345,6 +345,32 @@ $('importFile').addEventListener('change', async (e) => {
   refreshTg(); showBackup();
 });
 
+// --- automatic setup via Chrome Sync ----------------------------------------
+
+async function showSync() {
+  const el = $('syncState');
+  if (!el) return;
+  const r = await ai('sync-status');
+  if (!r || r.error) { el.innerHTML = `<b style="color:#dc2626">✗ ${esc(r?.error || 'could not check')}</b>`; return; }
+  const idLine = `Extension id: <code>${esc(r.extensionId || '?')}</code> — the same on every machine `
+    + 'this version is unpacked on. If a machine ever shows a different id here, that install did not get '
+    + 'this version\'s fixed identity and Sync cannot match it up.';
+  if (!r.available) {
+    el.innerHTML = `<b style="color:#b45309">⚠ Chrome Sync is off in this profile.</b> `
+      + `Turn it on (chrome://settings/syncSetup) and sign in, or use the file below instead.<br>${idLine}`;
+    return;
+  }
+  el.innerHTML = (r.hasSecrets
+    ? `<b style="color:#16a34a">✓ Your keys are in Chrome Sync</b> — saved `
+      + `${r.savedAt ? new Date(r.savedAt).toLocaleString() : 'previously'}. Any machine signed in to this `
+      + 'same Google account, with this version installed, already has them.'
+    : `<b>No keys in Chrome Sync yet.</b> Save your Claude key and bot token below, on this machine, and `
+      + 'they will appear here — and on every other machine signed in to this account.')
+    + `<br>${idLine}`;
+}
+
+$('syncCheck')?.addEventListener('click', () => busy('syncCheck', 'Checking…', showSync));
+
 // --- the seed file ----------------------------------------------------------
 
 async function showSeed() {
@@ -512,4 +538,4 @@ $('testAlert').addEventListener('click', async () => {
 $('playSound').addEventListener('click', () => preview('sound'));
 $('playHot').addEventListener('click', () => preview('soundHot'));
 
-getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup).then(showSeed);
+getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup).then(showSeed).then(showSync);

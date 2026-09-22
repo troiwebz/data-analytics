@@ -25,6 +25,7 @@ import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive } from './alive.js';
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
+import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
@@ -2085,6 +2086,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'seed-status':   sendResponse(await seedStatus().catch((e) => ({ error: e.message }))); break;
+      case 'sync-status':
+        sendResponse(await syncStatus()
+          .then((r) => ({ ...r, extensionId: chrome.runtime.id }))
+          .catch((e) => ({ error: e.message })));
+        break;
       case 'seed-apply':
         sendResponse(await applySeed({ force: msg.force !== false })
           .then((r) => ({ ...r, file: SEED_FILE }))

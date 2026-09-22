@@ -64,6 +64,26 @@ export async function read() {
 export const getSecret = async (name) => (await read())[SECRETS[name]] || '';
 export const getKey = () => getSecret('anthropic');
 
+/**
+ * Is chrome.storage.sync actually carrying the keys right now?
+ *
+ * Answers the question "will a new machine, signed into the same Google
+ * account, pick these up by itself" without needing to move anything there
+ * to find out. False for two different reasons the caller cannot tell apart
+ * from here - Sync is off in this Chrome profile, or nothing has been saved
+ * yet - so it is reported alongside `available` (Sync reachable at all) and
+ * `hasSecrets` (something is actually in it), not collapsed into one flag.
+ */
+export async function syncStatus() {
+  try {
+    const mirror = (await chrome.storage.sync.get(VAULT))[VAULT] || {};
+    const hasSecrets = Object.values(SECRETS).some((f) => mirror[f]);
+    return { available: true, hasSecrets, savedAt: mirror.savedAt || 0 };
+  } catch {
+    return { available: false, hasSecrets: false, savedAt: 0 };
+  }
+}
+
 export async function setSecret(name, value) {
   const field = SECRETS[name];
   if (!field) throw new Error(`Unknown secret: ${name}`);

@@ -66,6 +66,32 @@ ok('Remove clears the profile copy too', !sync.vault);
 wipeLocal();
 ok('and it does not come back', !(await C.aiStatus()).configured);
 
+// 7.5 syncStatus: "would a new machine, signed in and synced, already have
+// this" - answered without moving anything anywhere to find out.
+{
+  const wipeSync = () => { for (const k of Object.keys(sync)) delete sync[k]; };
+  wipeSync();
+  let st = await V.syncStatus();
+  ok('nothing saved yet reads as available but empty', st.available === true && st.hasSecrets === false,
+     JSON.stringify(st));
+
+  await C.saveKey('sk-ant-api03-SYNCSTATUSCHK1');
+  st = await V.syncStatus();
+  ok('once a key is saved, sync reports it has one', st.hasSecrets === true, JSON.stringify(st));
+  ok('with when it was saved', st.savedAt > 0, JSON.stringify(st));
+
+  // The whole point: a SEPARATE machine reading only the sync copy (its own
+  // local is empty) must see the same answer - that is what "arrives by
+  // itself" actually means.
+  wipeLocal();
+  st = await V.syncStatus();
+  ok('and that answer does not depend on anything being in THIS machine\'s local storage',
+     st.hasSecrets === true, JSON.stringify(st));
+
+  await C.clearKey();
+  wipeSync();
+}
+
 // 8. Chrome sync unavailable: everything still works, just without the backup.
 chrome.storage.sync.set = async () => { throw new Error('sync off'); };
 chrome.storage.sync.get = async () => { throw new Error('sync off'); };

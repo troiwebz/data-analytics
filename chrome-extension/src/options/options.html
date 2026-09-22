@@ -294,7 +294,44 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
-    <h2>Set it up once <span class="hint">keys that travel with the folder, so a new machine configures itself</span></h2>
+    <h2>Set it up once, automatically <span class="hint">Chrome carries the keys for you — nothing to download</span></h2>
+    <div id="syncState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      This install now has a fixed identity, so Chrome treats it as the SAME extension wherever it is
+      unpacked — your Mac, the VPS, a laptop, anywhere. Chrome already mirrors your Claude key and bot token
+      to your Google account the moment you save them here (that has always been true). What was missing was
+      the fixed identity: without it, every machine got a different, unrelated copy, so there was nothing for
+      Chrome to match up. With it, sign in to the SAME Google account with Sync turned on in Chrome on the new
+      machine, install the extension, and the keys are there before you even open Settings — on this install
+      and on every future version update, forever, with nothing to download or move.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="syncCheck" class="sec" style="flex:0 0 auto">Check sync status</button>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>The one-time step <span class="hint">only needed once, to move onto this fixed identity</span></h2>
+    <div class="hint" style="line-height:1.7">
+      Pinning the identity changes it — Chrome sees this as a new, different extension the moment it reloads,
+      which is the one time your current keys will not carry over by themselves. After this single reload,
+      it never happens again. Two ways to carry them across just this once:
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>Easiest:</b> if you are already signed in to Chrome with Sync on, on the machine that already has
+      your keys — do nothing. Reload the extension there first; the keys stay, because Sync already matches
+      the old copy to itself. Then on every OTHER machine, sign in to that same account, install this version,
+      and press "Check sync status" above to confirm it arrived.
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>If Sync was never on anywhere:</b> paste the Claude key and bot token back in by hand, this one time,
+      on whichever machine you normally use. Settings → the Claude and Telegram sections below. That is the
+      last time — from this reload on, the fixed identity carries them for you.
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Old-style file (fallback) <span class="hint">only if Sync is off and staying off</span></h2>
     <div id="seedState" class="hint" style="line-height:1.7"></div>
     <div class="hint" style="margin-top:8px;line-height:1.7">
       Keys normally live in this Chrome profile, which is why copying the extension to a server copies the
