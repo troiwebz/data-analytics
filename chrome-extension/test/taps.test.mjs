@@ -833,5 +833,156 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('and it says how many more are waiting', /3 more waiting/.test(note || ''), note);
 }
 
+// --- "today": what actually went out, with links -----------------------
+{
+  await setConfig({ telegramChatId: '999' });
+  const today = new Date().toISOString();
+  store.recentLeads = [
+    lead('80', { status: 'POSTED', decidedAt: today, postUrl: 'https://bhw/threads/x.80/post-1', title: 'posted today' }),
+    lead('81', { pmSent: true, pmSentAt: today, pmUrl: 'https://bhw/direct-messages/1', title: 'PMd today' }),
+    lead('82', { status: 'SENT', title: 'not yet actioned' })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 91, text: 'today', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"today" names what was posted', /posted today/.test(sent), sent);
+  ok('with the post link', /post-1/.test(sent), sent);
+  ok('and what was PM\'d', /PMd today/.test(sent), sent);
+  ok('with the PM link', /direct-messages\/1/.test(sent), sent);
+  ok('but not a lead still waiting', !/not yet actioned/.test(sent), sent);
+
+  store.recentLeads = [lead('83', { status: 'SENT' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'today', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const empty = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('nothing sent yet today says so plainly', /Nothing sent yet today/.test(empty), empty);
+}
+
+// --- "digest": found/posted/PM'd per day ------------------------------------
+{
+  store.recentLeads = [
+    lead('90', { foundAt: new Date().toISOString(), status: 'POSTED', decidedAt: new Date().toISOString() }),
+    lead('91', { foundAt: new Date().toISOString(), pmSent: true, pmSentAt: new Date().toISOString() })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 93, text: 'digest', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"digest" reports totals over the default window', /Last 7 days/.test(sent), sent);
+  ok('found, posted and PM totals all show', /Found 2/.test(sent) && /Posted 1/.test(sent) && /PMs 1/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 94, text: 'digest 3', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const withDays = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('a number after digest changes the window', /Last 3 days/.test(withDays), withDays);
+}
+
+// --- "auto on" / "auto off" / "auto" ----------------------------------------
+{
+  await setConfig({ autoMode: false });
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 95, text: 'auto', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  let sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('"auto" alone reports the current state', /currently OFF/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 96, text: 'auto on', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto on" turns it on', (await (await import('../src/config.js')).getConfig()).autoMode === true);
+  sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('and says so', /Auto mode is ON/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 97, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto off" turns it off', (await (await import('../src/config.js')).getConfig()).autoMode === false);
+
+  // Never mistaken for a draft rewrite.
+  ok('typing it never becomes a draft', !(await getLeads()).some((l) => l.draft === 'auto on' || l.dm === 'auto on'));
+}
+
+// --- "exclude <url or id>" ---------------------------------------------------
+{
+  await setConfig({ excludeThreadIds: [] });
+  store.recentLeads = [lead('951769', { status: 'SENT', title: 'Rules for posting in Hire a Freelancer' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 98, text: 'exclude https://www.blackhatworld.com/seo/rules-posting-in-hire-a-freelancer.951769/',
+                          chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const cfgAfter = await (await import('../src/config.js')).getConfig();
+  ok('the thread id is added to the exclude list', cfgAfter.excludeThreadIds.includes('951769'),
+     JSON.stringify(cfgAfter.excludeThreadIds));
+  ok('and the copy already in the table is cleared immediately',
+     (await getLeads()).find((l) => l.threadId === '951769').status === 'SKIPPED');
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('and you are told', /will never be recorded as a lead again/.test(sent), sent);
+  ok('and that the existing copy was cleared', /Cleared 1/.test(sent), sent);
+}
+
+// --- auto mode: the other thing that posts without a tap --------------------
+{
+  const ready = (id, over = {}) => ({
+    ...lead(id), score: 20, body: 'The buyer actually wrote this and it was read.',
+    aiSpecifics: { tips: ['We have done this'] }, lint: { ok: true }, ...over
+  });
+  await setConfig({ autoMode: true, nightMode: false, maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+
+  // Not due yet.
+  store.recentLeads = [ready('a1', { autoSendAt: Date.now() + 90000 })];
+  let ar = await bg.runAutoQueue();
+  ok('a countdown still running posts nothing', ar.due === 0, JSON.stringify(ar));
+
+  // Due, and eligible.
+  globalThis.__acting = 'a2';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.a2/post-1' };
+  store.recentLeads = [ready('a2', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  let l = (await getLeads()).find((x) => x.threadId === 'a2');
+  ok('a countdown that ran out posts by itself', l.status === 'POSTED', l.status);
+  ok('and is recorded as an unattended post', !!l.autoSendedAt, JSON.stringify(l.autoSendedAt));
+  ok('and the countdown is cleared', !l.autoSendAt, String(l.autoSendAt));
+
+  // Re-checked at posting time.
+  store.recentLeads = [ready('a3', { autoSendAt: Date.now() - 1000, body: '' })];
+  globalThis.__acting = 'a3';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'a3');
+  ok('a draft that lost its post body is held at the last moment', l.status === 'SENT', l.status);
+  ok('and says why', /never read/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+
+  // Switched off, nothing happens.
+  await setConfig({ autoMode: false });
+  store.recentLeads = [ready('a4', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  ok('switched off it does nothing', ar.skipped === 'off', JSON.stringify(ar));
+
+  // Hold, from the phone - the same button night mode uses.
+  await setConfig({ autoMode: true });
+  store.recentLeads = [ready('a5', { autoSendAt: Date.now() + 90000 })];
+  tgCalls = [];
+  updates = [tap('h:a5')];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 'a5');
+  ok('tapping Hold stops the auto-mode countdown too', !l.autoSendAt && l.autoSendHeld === true,
+     JSON.stringify({ at: l.autoSendAt, held: l.autoSendHeld }));
+  store.recentLeads = [{ ...l }];
+  await bg.runAutoQueue();
+  ok('a held lead never posts itself afterwards', (await getLeads()).find((x) => x.threadId === 'a5').status === 'SENT');
+
+  await setConfig({ autoMode: false, maxPostsPerDay: 10 });
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

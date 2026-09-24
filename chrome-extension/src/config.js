@@ -71,6 +71,20 @@ export const DEFAULT_CONFIG = {
 
   notifyScore: 0,              // send everything; Telegram decides what buzzes
   autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
+
+  // ---- Auto mode --------------------------------------------------------
+  // Off by default. Post the PUBLIC REPLY to a qualifying thread by itself, a
+  // random 1-3 minutes after it was found - no tap needed. Toggle it by
+  // sending "auto on" / "auto off" to the bot; "status" says whether it is on.
+  //
+  // Same safety rule night mode uses, and for the same reason: PUBLIC REPLIES
+  // ONLY. An unsolicited PM is the thing BHW moderators actually act on, so a
+  // PM always waits for your tap, whether auto mode is on or off. Every lead
+  // still gets a Telegram card with a Hold button while it counts down - tap
+  // it and that one lead waits for you, same as night mode.
+  autoMode: false,
+  autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
+
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
   // Your BHW username. Normally worked out from your own message list - you
@@ -208,6 +222,17 @@ export const DEFAULT_CONFIG = {
     'accounts? for sale', 'selling (my|our|aged|bulk|\\d)',
     'i am (selling|offering)', "i'm (selling|offering)"
   ],
+
+  // Threads that are never leads at all, whatever their words say - a mod's
+  // "how to post in this forum" thread, forum rules, and the like. These
+  // never become a lead, never reach Telegram, and never sit on the
+  // dashboard looking unactioned. A sticky/pinned thread is caught
+  // automatically (see src/listing.js); this is the exact, permanent way to
+  // silence one specific thread whatever the listing markup does. Seeded with
+  // the HAF rules thread, since a mod bumping it kept making it look like a
+  // fresh lead.
+  excludeThreadIds: ['951769'],
+  excludeAuthors: [],          // usernames (case-insensitive) to always ignore, e.g. mod accounts
 
   // ---- BHW compliance ---------------------------------------------------
   // Every public reply and PM is checked before it goes anywhere. A failing

@@ -270,6 +270,21 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Auto mode <span class="hint">post the public reply itself, any time of day, 1-3 minutes after a thread is found</span></h2>
+    <label class="sw"><input type="checkbox" id="autoMode"> Post qualifying threads by myself, 1-3 min after they are found</label>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Same rules as night mode, all day instead of only overnight. <b>Public replies only</b> — a PM always
+      waits for your tap. <b>Only drafts worth posting</b> — Claude must have written it from the actual post,
+      and it must pass the compliance check. Every lead still gets its Telegram card with a
+      <b>✋ Hold</b> button while it counts down — tap it and that one lead waits for you.<br>
+      You can also turn this on or off by sending <code>auto on</code> or <code>auto off</code> to the bot.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>Only at or above score</label><input type="number" id="autoModeMinScore" min="0"></div>
+    </div>
+  </div>
+
+  <div class="c">
     <h2>Moving to another machine <span class="hint">so a new install comes up already set up</span></h2>
     <div id="backupState" class="hint" style="line-height:1.7"></div>
     <div class="hint" style="margin-top:8px;line-height:1.7">
@@ -367,6 +382,10 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
     <label>Categories</label><textarea id="categories"></textarea>
     <label>Boosts</label><textarea id="boosts"></textarea>
     <label>Excludes <span class="hint">any hit kills the lead</span></label><textarea id="excludes"></textarea>
+    <label>Never-a-lead thread ids <span class="hint">JSON array of thread ids, e.g. the HAF rules thread — a mod
+      bumping one of these must never make it look like a new lead</span></label><textarea id="excludeThreadIds" style="min-height:60px"></textarea>
+    <label>Never-a-lead authors <span class="hint">JSON array of usernames (case-insensitive) — e.g. mod accounts</span></label>
+    <textarea id="excludeAuthors" style="min-height:60px"></textarea>
   </div>
 
   <div class="c">

@@ -12,11 +12,12 @@
 import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
 import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced } from './backup.js';
 import * as night from './night.js';
-import { fetchFeed } from './feed.js';
+import * as auto from './auto.js';
+import { fetchFeed, threadIdFromUrl } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThreads } from './thread.js';
 import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
-import { matchLead } from './matcher.js';
+import { matchLead, isExcludedThread } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle, plain } from './templates.js';
 import { lintDraft, botTextIn, stripBotText } from './compliance.js';
@@ -370,8 +371,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
     }
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === TAP_ALARM) await pollTaps();
-    if (alarm.name === UPDATE_ALARM) {          // the minute tick doubles as the night runner
+    if (alarm.name === UPDATE_ALARM) {          // the minute tick doubles as the night/auto runner
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
+      await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
     }
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
@@ -609,6 +611,28 @@ export function enrich(m, cfg, status, aiSpecifics) {
  * The sweep never fails a check. An unreadable list leaves the leads as they
  * are and logs why.
  */
+/**
+ * Sweep every lead not yet posted or PM'd against the current exclude rules,
+ * and clear out any that now match - marked SKIPPED, exactly like tapping
+ * Skip yourself. Catches two cases pollFeed's own filter cannot: a thread
+ * already recorded before you added it (or its author) to the exclude list,
+ * and one recorded before sticky detection existed. Runs every check, so
+ * adding an id with the "exclude" command clears it out on the next poll
+ * rather than only for future threads.
+ */
+export async function settleExcludedLeads(cfg) {
+  const leads = await getLeads();
+  let n = 0;
+  for (const l of leads) {
+    if (['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) || l.pmSent) continue;
+    if (!isExcludedThread(l, cfg)) continue;
+    await updateLead(l.threadId, { status: 'SKIPPED', decidedAt: new Date().toISOString() });
+    n++;
+  }
+  if (n) await log(`${n} mod/rules thread(s) cleared from the queue (excluded by rule)`);
+  return { settled: n };
+}
+
 export async function runCheck() {
   // The two halves are independent, so neither may take the other down with
   // it. A forum that will not load says nothing about your message list, and
@@ -617,11 +641,14 @@ export async function runCheck() {
   try { r = await pollFeed(); }
   catch (e) { failed = e.message; await log(`feed check: ${e.message}`, 'error'); }
 
+  const cfg0 = await getConfig();
+  await settleExcludedLeads(cfg0).catch((e) => log(`exclude sweep: ${e.message}`, 'error'));
+
   // On every path, including the quiet ones. pollFeed returns early when
   // nothing is new, and that is exactly when a backlog from a busy poll needs
   // draining - waiting for the next new thread to carry it along could be
   // hours, or never.
-  const told = await announceNew(await getConfig()).catch((e) => ({ error: e.message }));
+  const told = await announceNew(cfg0).catch((e) => ({ error: e.message }));
 
   const pms = await syncSentPms().catch(async (e) => {
     await log(`PM check: ${e.message}`, 'error');
@@ -730,6 +757,7 @@ export async function statusReport(cfg) {
   // checks against a second tap. status answers "is something happening"
   // without needing to find the right card and read its button.
   const inFlight = leads.filter((l) => l.pmSending && Date.now() - l.pmSending < PM_LOCK_MS);
+  const autoQueue = auto.pending(leads);
 
   const lines = [
     `📊 <b>Today</b>`,
@@ -739,6 +767,8 @@ export async function statusReport(cfg) {
     `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
       + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
     `Still to do: ${todo.length}`,
+    `⚡ Auto mode: ${cfg.autoMode ? 'ON' : 'off'}`
+      + (cfg.autoMode && autoQueue.length ? ` — ${autoQueue.length} counting down` : ''),
     inFlight.length
       ? `⏳ Right now: ${inFlight.map((l) => `"${String(l.title).slice(0, 30)}" `
           + `(${Math.round((Date.now() - l.pmSending) / 1000)}s)`).join(', ')}`
@@ -815,6 +845,83 @@ export async function sendPending(cfg) {
   }
 }
 
+/**
+ * The recap. "today" to the bot: exactly what went out today, with links,
+ * rather than the counts alone that "status" gives - for when you want to
+ * check what was actually said, not just how many.
+ */
+export async function sendToday(cfg) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const on = (t) => String(t || '').slice(0, 10) === day;
+
+  const posted = leads.filter((l) => l.status === 'POSTED' && on(l.decidedAt || l.postedAt))
+    .sort((a, b) => new Date(b.decidedAt || 0) - new Date(a.decidedAt || 0));
+  const pmd = leads.filter((l) => l.pmSent && on(l.pmSentAt))
+    .sort((a, b) => new Date(b.pmSentAt || 0) - new Date(a.pmSentAt || 0));
+
+  if (!posted.length && !pmd.length) {
+    await telegram.say(cfg.telegramChatId, '📭 Nothing sent yet today.');
+    return { posted: 0, pmd: 0 };
+  }
+
+  const lines = [`📬 <b>Today</b> — ${posted.length} repl${posted.length === 1 ? 'y' : 'ies'} posted, `
+    + `${pmd.length} PM${pmd.length === 1 ? '' : 's'} sent`];
+  if (posted.length) {
+    lines.push('', '🚀 <b>Replies</b>');
+    for (const l of posted.slice(0, 20)) lines.push(`· ${String(l.title || l.threadId).slice(0, 50)}`
+      + (l.postUrl ? `\n  ${l.postUrl}` : ''));
+  }
+  if (pmd.length) {
+    lines.push('', '✉️ <b>PMs</b>');
+    for (const l of pmd.slice(0, 20)) lines.push(`· ${String(l.title || l.threadId).slice(0, 50)}`
+      + (l.pmUrl ? `\n  ${l.pmUrl}` : ''));
+  }
+  await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+  return { posted: posted.length, pmd: pmd.length };
+}
+
+/**
+ * The trend. "digest" (or "digest 14") to the bot: found/posted/PM'd per day
+ * over the last N days (7 by default), so a slow week shows up as a shape
+ * rather than something you have to notice yourself.
+ */
+export async function sendDigest(cfg, days = 7) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+  const n = Math.min(30, Math.max(1, Number(days) || 7));
+
+  const leads = await getLeads();
+  const key = (t) => t ? new Date(t).toLocaleDateString('en-CA') : null;
+  const order = Array.from({ length: n }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (n - 1 - i));
+    return d.toLocaleDateString('en-CA');
+  });
+  const byDay = Object.fromEntries(order.map((d) => [d, { found: 0, posted: 0, pm: 0 }]));
+
+  for (const l of leads) {
+    const f = key(l.foundAt); if (f && byDay[f]) byDay[f].found++;
+    if (l.status === 'POSTED') { const p = key(l.decidedAt || l.postedAt); if (p && byDay[p]) byDay[p].posted++; }
+    if (l.pmSent) { const m = key(l.pmSentAt); if (m && byDay[m]) byDay[m].pm++; }
+  }
+
+  const totals = order.reduce((acc, d) => ({
+    found: acc.found + byDay[d].found, posted: acc.posted + byDay[d].posted, pm: acc.pm + byDay[d].pm
+  }), { found: 0, posted: 0, pm: 0 });
+
+  const lines = [
+    `📈 <b>Last ${n} day${n === 1 ? '' : 's'}</b>`,
+    `Found ${totals.found} · Posted ${totals.posted} · PMs ${totals.pm}`, ''
+  ];
+  for (const d of order) {
+    const b = byDay[d];
+    lines.push(`${d}: ${b.found} found · ${b.posted} posted · ${b.pm} PM${b.pm === 1 ? '' : 's'}`);
+  }
+  await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+  return { days: n, ...totals };
+}
+
 export async function announceNew(cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
 
@@ -873,11 +980,13 @@ export async function pollFeed() {
     const cutoff = Date.now() - (cfg.backfillHours || 0) * 3600000;
     const recent = items.filter((i) => new Date(i.postedAt).getTime() >= cutoff);
     const listing = recent.length ? await fetchListing(forumUrlFromFeed(cfg.feedUrl)) : {};
-    const backfill = recent.map((raw) => {
-      const item = withListing(raw, listing[raw.threadId]);
-      const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
-      return enrich(m, cfg, 'BACKFILL');
-    });
+    const backfill = recent
+      .map((raw) => withListing(raw, listing[raw.threadId]))
+      .filter((item) => !isExcludedThread(item, cfg))
+      .map((item) => {
+        const m = matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
+        return enrich(m, cfg, 'BACKFILL');
+      });
     await markSeen(items.map((i) => i.threadId));
     if (backfill.length) {
       await recordLeads(backfill);
@@ -896,12 +1005,14 @@ export async function pollFeed() {
   if (!fresh.length) return { new: 0, matched: 0 };
 
   // Every new thread goes through. matchLead only decides category/score;
-  // an unmatched thread still gets sent with score 0 and a generic draft.
+  // an unmatched thread still gets sent with score 0 and a generic draft. A
+  // mod/rules/sticky thread never gets this far - see isExcludedThread - so
+  // it never becomes a lead, never buzzes your phone, and never sits on the
+  // dashboard looking like something you missed.
   const matched = fresh
-    .map((raw) => {
-      const item = withListing(raw, listing[raw.threadId]);
-      return matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 };
-    })
+    .map((raw) => withListing(raw, listing[raw.threadId]))
+    .filter((item) => !isExcludedThread(item, cfg))
+    .map((item) => matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 })
     .filter((m) => m.score >= cfg.notifyScore);
 
   // Read each thread before drafting, so the reply answers the post rather than
@@ -938,6 +1049,23 @@ export async function pollFeed() {
     }
     const held = leads.filter((l) => l.autoBlocked);
     for (const l of held) await updateLead(l.threadId, { autoBlocked: l.autoBlocked });
+  } else if (cfg.autoMode) {
+    // Auto mode: the same countdown-and-Hold-button pattern as night mode,
+    // just not gated to a time window - see src/auto.js. Mutually exclusive
+    // with night mode on any one lead so a thread never counts down twice.
+    const armed = [];
+    for (const l of leads) {
+      const why = auto.blockedReason(l, cfg);
+      if (why) { l.autoSendBlocked = why; continue; }
+      l.autoSendAt = auto.postAt(cfg);
+      armed.push(l);
+    }
+    if (armed.length) {
+      for (const l of armed) await updateLead(l.threadId, { autoSendAt: l.autoSendAt, autoSendBlocked: '' });
+      await log(`auto mode: ${armed.length} reply/replies posting in 1-3 min unless held`);
+    }
+    const held = leads.filter((l) => l.autoSendBlocked);
+    for (const l of held) await updateLead(l.threadId, { autoSendBlocked: l.autoSendBlocked });
   }
 
   // Announcing is runCheck's job now - it has to happen on the quiet polls too,
@@ -1026,7 +1154,7 @@ export async function deepBackfill({ pages = 5, sinceDays = 0, fromDate = '', to
     if (!r.threadId || !r.url || seen[r.threadId]) return false;
     const t = r.startedAt ? new Date(r.startedAt).getTime() : NaN;
     return isFinite(t) ? t >= from && t <= to : from === -Infinity;
-  });
+  }).filter((r) => !isExcludedThread(r, cfg));
 
   const leads = rows.map((r) => {
     const item = {
@@ -1189,6 +1317,67 @@ export async function pollTaps() {
       await sendPending(cfg);
       done++;
       continue;
+    }
+
+    // "today" - the recap, with links, of what actually went out.
+    if (ev.kind === 'reply' && /^\/?today\b/i.test(String(ev.body || '').trim())) {
+      await sendToday(cfg);
+      done++;
+      continue;
+    }
+
+    // "digest" or "digest 14" - found/posted/PM'd per day, last N days (7 default).
+    {
+      const dm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?digest\b\s*(\d+)?/i);
+      if (dm) {
+        await sendDigest(cfg, dm[1] ? Number(dm[1]) : 7);
+        done++;
+        continue;
+      }
+    }
+
+    // "auto" / "auto on" / "auto off" - toggle unattended posting of public
+    // replies. Same rule everywhere else in the extension: a PM is never
+    // sent without a tap, whatever this is set to.
+    {
+      const am = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?auto\b\s*(on|off)?\s*$/i);
+      if (am) {
+        if (am[1]) {
+          const on = am[1].toLowerCase() === 'on';
+          await setConfig({ autoMode: on });
+          await telegram.say(cfg.telegramChatId, on
+            ? '⚡ Auto mode is ON — a qualifying new thread posts its public reply itself, 1-3 min after it is found, unless you tap Hold. PMs still need your tap.'
+            : '⚡ Auto mode is OFF — everything waits for your tap again.');
+        } else {
+          await telegram.say(cfg.telegramChatId,
+            `⚡ Auto mode is currently ${cfg.autoMode ? 'ON' : 'OFF'}. Send "auto on" or "auto off" to change it.`);
+        }
+        done++;
+        continue;
+      }
+    }
+
+    // "exclude <thread url or id>" - never treat this thread as a lead again,
+    // and clear out any copy already sitting in the table. For a mod/rules
+    // thread a sticky check misses, or any other thread you never want to see.
+    {
+      const em = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?exclude\s+(\S+)/i);
+      if (em) {
+        const id = threadIdFromUrl(em[1]) || em[1].replace(/\D/g, '');
+        if (!id) {
+          await telegram.say(cfg.telegramChatId, '❌ Could not find a thread id in that - send a thread URL or its numeric id.');
+        } else {
+          const ids = new Set((cfg.excludeThreadIds || []).map(String));
+          ids.add(String(id));
+          const next = await setConfig({ excludeThreadIds: [...ids] });
+          const swept = await settleExcludedLeads(next);
+          await telegram.say(cfg.telegramChatId,
+            `🚫 Thread ${id} will never be recorded as a lead again.`
+            + (swept.settled ? ` Cleared ${swept.settled} copy already in the table.` : ''));
+        }
+        done++;
+        continue;
+      }
     }
 
     if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
@@ -1487,9 +1676,15 @@ async function runTap(tap, lead, cfg) {
     }
 
     if (tap.action === 'h') {
-      if (!lead.autoPostAt) return '✋ Nothing was counting down on this one.';
-      await updateLead(lead.threadId, { autoPostAt: 0, autoHeld: true, autoBlocked: 'you held it' });
-      return '✋ Held. It will not post by itself - it is waiting for you.';
+      if (lead.autoPostAt) {
+        await updateLead(lead.threadId, { autoPostAt: 0, autoHeld: true, autoBlocked: 'you held it' });
+        return '✋ Held. It will not post by itself - it is waiting for you.';
+      }
+      if (lead.autoSendAt) {
+        await updateLead(lead.threadId, { autoSendAt: 0, autoSendHeld: true, autoSendBlocked: 'you held it' });
+        return '✋ Held. It will not post by itself - it is waiting for you.';
+      }
+      return '✋ Nothing was counting down on this one.';
     }
 
     if (tap.action === 's') {
@@ -1584,6 +1779,46 @@ export async function runNightQueue() {
       done++;
       await telegram.say(cfg.telegramChatId,
         `🌙 Posted while you were asleep: ${lead.title}${r.postUrl ? `\n${r.postUrl}` : ''}`).catch(() => {});
+    }
+  }
+  return { due: due.length, posted: done };
+}
+
+/**
+ * The unattended post, auto mode's version. Runs on the same minute alarm as
+ * runNightQueue and follows the same shape: re-check everything at posting
+ * time, never throw, only ever post the public reply.
+ */
+export async function runAutoQueue() {
+  const cfg = await getConfig();
+  if (!cfg.autoMode) return { skipped: 'off' };
+
+  const leads = await getLeads();
+  const due = auto.dueNow(leads);
+  if (!due.length) return { due: 0 };
+
+  let done = 0;
+  for (const lead of due) {
+    // Re-check: you may have edited it, the cap may have filled, or it may
+    // already be decided some other way since it was armed.
+    const why = auto.blockedReason(lead, cfg);
+    if (why) { await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: why }); continue; }
+
+    const gate = await checkRateLimit(cfg);
+    if (!gate.ok) {
+      await log(`auto mode: holding "${lead.title}" - ${gate.reason}`);
+      continue;      // not a refusal, just not yet - try again on the next tick
+    }
+
+    const r = await postLead(lead, cfg, { edited: !!lead.draftEdited });
+    await updateLead(lead.threadId, r?.ok
+      ? { autoSendAt: 0, autoSendedAt: new Date().toISOString(), autoSendBlocked: '' }
+      : { autoSendAt: 0, autoSendBlocked: `posting failed: ${r?.error || 'unknown'}` });
+    await log(`auto mode: ${r?.ok ? 'posted' : 'failed'} "${lead.title}"${r?.ok ? '' : ` - ${r?.error}`}`);
+    if (r?.ok) {
+      done++;
+      await telegram.say(cfg.telegramChatId,
+        `⚡ Auto-posted: ${lead.title}${r.postUrl ? `\n${r.postUrl}` : ''}`).catch(() => {});
     }
   }
   return { due: due.length, posted: done };

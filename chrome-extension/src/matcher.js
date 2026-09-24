@@ -2,6 +2,29 @@
 
 function rx(src) { return new RegExp(src, 'i'); }
 
+/**
+ * Is this a thread that should never become a lead at all - a mod/rules
+ * sticky, or one you named yourself - rather than one that simply failed to
+ * match a category (those still get recorded, with a generic draft).
+ *
+ * Three independent gates, any one of which is enough:
+ *   - its thread id is in cfg.excludeThreadIds (the durable, exact way to
+ *     silence one specific thread forever, however its content changes)
+ *   - its author is in cfg.excludeAuthors (case-insensitive - staff/mod
+ *     accounts that post the same kind of thread over and over)
+ *   - the forum listing marked it sticky/pinned (structItem--sticky) - the
+ *     general case, so a NEW mod thread is caught without you naming it
+ */
+export function isExcludedThread(item, cfg) {
+  if (!item) return false;
+  const ids = (cfg?.excludeThreadIds || []).map(String);
+  if (ids.includes(String(item.threadId))) return true;
+  const authors = (cfg?.excludeAuthors || []).map((a) => String(a).toLowerCase());
+  if (item.author && authors.includes(String(item.author).toLowerCase())) return true;
+  if (item.sticky) return true;
+  return false;
+}
+
 /** Pull a budget out of free text. Returns { raw, amount } or null. */
 export function parseBudget(text) {
   const patterns = [

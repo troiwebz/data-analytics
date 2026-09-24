@@ -7,6 +7,11 @@
 // All markup assumptions live in these patterns.
 const THREAD_SPLIT = /class="[^"]*\bstructItem--thread\b/;
 const THREAD_ID    = /js-threadListItem-(\d+)/;
+// XenForo appends this modifier class to a pinned thread. Caught here, at the
+// listing, so a mod/rules thread never becomes a lead in the first place -
+// not filtered out afterwards, which is what let one keep resurfacing every
+// time it got bumped.
+const STICKY       = /\bstructItem--sticky\b/;
 const REPLY_COUNT  = /<dt>\s*Replies\s*<\/dt>\s*<dd>\s*([\d.,]+\s*[KkMm]?)\s*<\/dd>/;
 // The thread's own start date: <li class="structItem-startDate">…<time data-timestamp="…">
 const TITLE_LINK   = /<div class="structItem-title"[\s\S]{0,600}?<a href="([^"]*\/threads\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/;
@@ -63,7 +68,8 @@ export function parseListing(html) {
       lastActivityAt: timeOf((b.match(LATEST_BLOCK) || [])[0]),
       title: link ? text(link[2]) : '',
       author: author ? text(author[1]) : '',
-      url: link ? new URL(link[1], 'https://www.blackhatworld.com').href : ''
+      url: link ? new URL(link[1], 'https://www.blackhatworld.com').href : '',
+      sticky: STICKY.test(b)
     };
   }
   return out;
@@ -77,7 +83,8 @@ export function withListing(item, info) {
     replyCount: info.replyCount ?? item.replyCount ?? null,
     postedAt: info.startedAt || item.postedAt,
     postedAtSource: info.startedAt ? 'listing' : (item.postedAtSource || 'feed'),
-    lastActivityAt: info.lastActivityAt || item.lastActivityAt || null
+    lastActivityAt: info.lastActivityAt || item.lastActivityAt || null,
+    sticky: info.sticky ?? item.sticky ?? false
   };
 }
 
