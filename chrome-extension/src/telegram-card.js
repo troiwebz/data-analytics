@@ -45,6 +45,13 @@ export function buildCard(lead) {
   const head =
     `${tier} <b>${score} pts</b> · ${esc(lead.categoryLabel || lead.category || '—')}${lead.budget ? ' · ' + esc(lead.budget) : ''}\n` +
     `<b>${esc(lead.title)}</b>\n\n` +
+    // A generic draft never looks wrong on its own - nothing about it says
+    // "this is the fallback", so it has to be said here, loud, before the
+    // text itself. Only shown when Claude was actually asked and did not
+    // answer; a lead you never turned AI on for is not a failure.
+    (lead.draftedByNote
+      ? `⚠️ <b>Generic draft — Claude did not write the technical lines</b> (${esc(lead.draftedByNote)}). Read before sending.\n\n`
+      : '') +
     `👤 ${esc(lead.author)}   💬 ${replies} replies\n` +
     `🕒 Posted ${esc(when(lead.postedAt))} (${ago(lead.postedAt)})${lead.postedAtSource !== 'listing' ? ' ~approx' : ''}\n` +
     (lead.lastActivityAt && lead.lastActivityAt !== lead.postedAt

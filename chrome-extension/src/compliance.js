@@ -27,7 +27,8 @@ export const BOT_MARKERS = [
   /Your BHW inbox/i,
   /\u{1F319}\s*Night mode:/iu,
   /Might already be a duplicate/i,
-  /full text is on the dashboard/i
+  /full text is on the dashboard/i,
+  /Generic draft — Claude did not write/i
 ];
 
 /**

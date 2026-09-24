@@ -28,7 +28,7 @@ const call = () => C.writeSpecifics([{ threadId: 't', title: 'x', snippet: 'y' }
 
 await C.saveKey('sk-ant-api03-SPENDTEST00001');
 let st = await C.aiStatus();
-ok('the daily limit defaults to $1', st.budget === 1, String(st.budget));
+ok('the daily limit defaults to $5', st.budget === 5, String(st.budget));
 ok('nothing spent yet', st.spentToday === 0 && st.spentTotal === 0);
 ok('no balance claimed without a top-up', st.credits === 0 && st.balance === 0);
 
@@ -38,7 +38,7 @@ st = await C.aiStatus();
 ok('today counts the call', Math.abs(st.spentToday - 0.003) < 1e-9, String(st.spentToday));
 ok('all time counts it too', Math.abs(st.spentTotal - 0.003) < 1e-9, String(st.spentTotal));
 ok('leads counted all time', st.leadsTotal === 1);
-ok('left today is the rest of the $1', Math.abs(st.remaining - 0.997) < 1e-9, String(st.remaining));
+ok('left today is the rest of the $5', Math.abs(st.remaining - 4.997) < 1e-9, String(st.remaining));
 
 // A top-up gives a balance to count down from.
 await C.addCredits(5);
@@ -80,12 +80,13 @@ st = await C.aiStatus();
 ok('reset clears the running total', st.spentTotal === 0 && st.credits === 0 && st.leadsTotal === 0);
 ok('and keeps the key', st.configured);
 
-// An upgrade from the old $0.50 default lifts it once, and only once.
+// An upgrade from the old $0.50 default carries straight through both lifts
+// to the current default, in one call - not stuck halfway at $1.
 for (const k of Object.keys(bags.local)) delete bags.local[k];
 for (const k of Object.keys(bags.sync)) delete bags.sync[k];
 await C.saveKey('sk-ant-api03-SPENDTEST00002');
 bags.local.ai = { model: 'claude-sonnet-5', budget: 0.5, enabled: true, usage: {} };
-ok('the old $0.50 default is lifted to $1', (await C.aiStatus()).budget === 1);
+ok('the old $0.50 default is lifted all the way to $5', (await C.aiStatus()).budget === 5);
 await C.setBudget(0.5);                      // a figure deliberately chosen
 ok('a chosen $0.50 is left alone', (await C.aiStatus()).budget === 0.5);
 

@@ -437,7 +437,7 @@ export async function withThreads(leads, cfg) {
 }
 
 export async function specificsFor(leads, cfg, { force = false } = {}) {
-  if (!cfg.aiSpecifics || !leads.length) return {};
+  if (!cfg.aiSpecifics || !leads.length) return { specifics: {}, note: '' };
 
   // Claude is only asked when there is an upgrade in it. A lead whose post and
   // whose competition have not changed since its lines were written would come
@@ -447,7 +447,7 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
   const skipped = leads.length - wanted.length;
   if (!wanted.length) {
     if (skipped) await log(`Claude not needed: ${skipped} draft(s) already answer the thread as it stands`);
-    return {};
+    return { specifics: {}, note: '' };
   }
 
   const payload = wanted.map(({ l }) => ({
@@ -468,7 +468,7 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
     await log(`Claude wrote specifics for ${n}/${wanted.length} lead(s) (${why})`
       + (skipped ? `; ${skipped} skipped, nothing new to say` : ''));
   } else if (note) await log(`Claude stood down (${note}); using built-in rules`);
-  return specifics;
+  return { specifics, note };
 }
 
 /**
@@ -492,6 +492,8 @@ export async function rebuildDrafts({ withAi = false, syncApproved = true } = {}
   const candidates = leads.filter(open);
 
   let aiCount = 0, readCount = 0, missing = [];
+  const answered = new Set();
+  let lastStandDownNote = '';
   if (withAi && cfg.aiSpecifics && candidates.length) {
     // Read the threads FIRST, then decide whether Claude is worth calling.
     //
@@ -514,16 +516,32 @@ export async function rebuildDrafts({ withAi = false, syncApproved = true } = {}
       missing = missing.concat(worth);
       if (!worth.length) continue;
 
-      const fresh = await specificsFor(worth, cfg);
+      const { specifics: fresh, note } = await specificsFor(worth, cfg);
+      if (note) lastStandDownNote = note;
       for (const [id, parts] of Object.entries(fresh)) {
         const from = worth.find((b) => String(b.threadId) === String(id));
         const aiFrom = from ? sourceOf(from) : undefined;
-        await updateLead(id, { aiSpecifics: parts, aiFrom });
+        await updateLead(id, { aiSpecifics: parts, aiFrom, draftedBy: 'claude', draftedByNote: '' });
         const lead = leads.find((l) => String(l.threadId) === String(id));
-        if (lead) { lead.aiSpecifics = parts; lead.aiFrom = aiFrom; }
+        if (lead) { lead.aiSpecifics = parts; lead.aiFrom = aiFrom; lead.draftedBy = 'claude'; lead.draftedByNote = ''; }
         aiCount++;
+        answered.add(String(id));
       }
       if (!Object.keys(fresh).length) break;        // stood down; stop asking
+    }
+
+    // Anything worth re-asking that did NOT get a fresh answer this round -
+    // budget, a bad key, a network error - keeps running on the built-in
+    // rules. A lead with no earlier real answer either is generic from here
+    // on, and the card has to say so rather than reading like a real one.
+    for (const b of missing) {
+      const id = String(b.threadId);
+      if (answered.has(id)) continue;
+      const lead = leads.find((l) => String(l.threadId) === id);
+      if (lead?.aiSpecifics?.tips?.length || lead?.aiSpecifics?.length) continue;   // an earlier real answer stands
+      const patch = { draftedBy: 'rules', draftedByNote: lastStandDownNote || 'Claude did not write this one' };
+      await updateLead(id, patch);
+      if (lead) Object.assign(lead, patch);
     }
   }
 
@@ -581,11 +599,20 @@ export async function rebuildDrafts({ withAi = false, syncApproved = true } = {}
   return { ok: true, updated: n, ai: aiCount, read: readCount, pending: missing.length - aiCount };
 }
 
-/** Everything derived from a matched thread: public reply, PM draft, lint, Telegram card. */
-export function enrich(m, cfg, status, aiSpecifics) {
+/**
+ * Everything derived from a matched thread: public reply, PM draft, lint,
+ * Telegram card.
+ *
+ * draftedByNote - the reason Claude did not answer this round (e.g. "daily
+ * limit reached"), when the caller knows one - has to arrive BEFORE the card
+ * is built below, not be patched onto the lead afterward: the card is built
+ * here, once, and a field added after this returns never reaches it.
+ */
+export function enrich(m, cfg, status, aiSpecifics, draftedByNote) {
   setCardZone(cfg);                    // the card's times use the same zone
   // Claude returns { tips, question, offer }; older rows hold a bare array.
-  if (aiSpecifics?.tips?.length || aiSpecifics?.length) m = { ...m, aiSpecifics };
+  const hasAi = !!(aiSpecifics?.tips?.length || aiSpecifics?.length);
+  if (hasAi) m = { ...m, aiSpecifics };
   const draft = renderReply(m, cfg);
   const dm = renderDm(m, cfg);
   const dmTitle = renderDmTitle(m, cfg);
@@ -593,6 +620,12 @@ export function enrich(m, cfg, status, aiSpecifics) {
     ...m, draft, dm, dmTitle, dmUrl: dmUrl(m.author),
     lint: lintDraft(draft, cfg.compliance),
     dmLint: lintDraft(dm, cfg.compliance),
+    // Whether the technical lines above are Claude's own reading of the
+    // thread, or the built-in rules' generic fallback - shown on the card
+    // (see telegram-card.js) so a generic draft is never mistaken for a real
+    // answer.
+    draftedBy: hasAi ? 'claude' : 'rules',
+    draftedByNote: hasAi ? '' : (draftedByNote || ''),
     status, foundAt: new Date().toISOString()
   };
   lead.card = buildCard(lead);
@@ -759,6 +792,13 @@ export async function statusReport(cfg) {
   const inFlight = leads.filter((l) => l.pmSending && Date.now() - l.pmSending < PM_LOCK_MS);
   const autoQueue = auto.pending(leads);
 
+  // A generic draft was quietly indistinguishable from a real one until the
+  // card itself started saying so (see telegram-card.js). Whether that has
+  // actually been happening today belongs in the one place you check daily,
+  // not only on the card you happened to still be looking at.
+  const ai = cfg.aiSpecifics ? await aiStatus().catch(() => null) : null;
+  const genericToday = leads.filter((l) => on(l.foundAt) && l.draftedByNote).length;
+
   const lines = [
     `📊 <b>Today</b>`,
     `Running v${running}`,
@@ -769,6 +809,10 @@ export async function statusReport(cfg) {
     `Still to do: ${todo.length}`,
     `⚡ Auto mode: ${cfg.autoMode ? 'ON' : 'off'}`
       + (cfg.autoMode && autoQueue.length ? ` — ${autoQueue.length} counting down` : ''),
+    ai ? `🤖 Claude: $${ai.spentToday.toFixed(2)}/${ai.budget ? `$${ai.budget.toFixed(2)}` : '∞'} today`
+        + (ai.overBudget ? ' — OVER BUDGET, today\'s drafts are falling back to generic rules' : '')
+        + (genericToday ? ` (${genericToday} generic today)` : '')
+      : cfg.aiSpecifics ? '' : '🤖 Claude: off — every draft is the built-in generic rules',
     inFlight.length
       ? `⏳ Right now: ${inFlight.map((l) => `"${String(l.title).slice(0, 30)}" `
           + `(${Math.round((Date.now() - l.pmSending) / 1000)}s)`).join(', ')}`
@@ -1021,10 +1065,17 @@ export async function pollFeed() {
 
   // One batched request for the whole poll, so the instructions are paid for
   // once rather than once per lead. Falls back to the built-in rules.
-  const ai = await specificsFor(full, cfg);
+  const { specifics: ai, note: aiNote } = await specificsFor(full, cfg);
   const leads = full.map((m) => {
-    const lead = enrich(m, cfg, 'SENT', ai[m.threadId]);
-    if (ai[m.threadId]) lead.aiFrom = sourceOf(m);
+    const got = ai[m.threadId];
+    // Claude was asked for this batch and this lead did not get an answer -
+    // budget, a bad key, a network error. The built-in rules still write a
+    // real draft so nothing is ever blank, but it is generic, and nothing
+    // about the message itself says so - the card has to, which means this
+    // has to reach enrich() BEFORE it builds the card, not be patched on after.
+    const note = !got && cfg.aiSpecifics ? (aiNote || 'Claude did not write this one') : '';
+    const lead = enrich(m, cfg, 'SENT', got, note);
+    if (got) lead.aiFrom = sourceOf(m);
     return lead;
   });
   await markSeen(fresh.map((i) => i.threadId));
@@ -2314,7 +2365,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         // hand-written mock that could look right while the real one is broken.
         const sample = sampleThread();
         const m = matchLead(sample, cfg) || unscored(sample);
-        const ai = await specificsFor([m], cfg).catch(() => ({}));
+        const { specifics: ai } = await specificsFor([m], cfg).catch(() => ({ specifics: {} }));
         const lead = enrich(m, cfg, 'SENT', ai[m.threadId]);
 
         const done = [];

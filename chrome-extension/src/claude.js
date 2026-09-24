@@ -40,7 +40,7 @@ export const RATES = {
 
 export const AI_DEFAULTS = {
   model: 'claude-sonnet-5',
-  budget: 1,          // dollars a day; 0 means no limit
+  budget: 5,           // dollars a day; 0 means no limit
   enabled: true,
   usage: {},          // today only: { day, calls, leads, in, cached, out }
   spentTotal: 0,      // dollars since the counter was last reset
@@ -57,13 +57,26 @@ export async function getAi() {
   const { ai } = await chrome.storage.local.get('ai');
   const local = { ...AI_DEFAULTS, ...(ai || {}) };
 
-  // The daily limit's default rose from $0.50 to $1.00. Lift it once for
-  // anyone still sitting on the old default; a figure they chose stays theirs.
-  if (ai && ai.budget === 0.5 && !ai.budgetBumped) {
-    local.budget = AI_DEFAULTS.budget;
+  // The daily limit's default rose from $0.50 to $1.00, then to $5.00 - $1
+  // turned out too low for real use: hitting it mid-day silently drops every
+  // remaining lead to the built-in generic rules, with nothing on the phone
+  // saying so. Each step lifts only the untouched default it follows, once;
+  // a figure you chose yourself, at any point, is never touched again. The
+  // two are chained off `local` (already merged with the current stored
+  // value) rather than the raw stored object, so an install still on the
+  // very first default moves straight through both steps in one call.
+  let bumped = false;
+  if (local.budget === 0.5 && !local.budgetBumped) {
+    local.budget = 1;
     local.budgetBumped = true;
-    await chrome.storage.local.set({ ai: local });
+    bumped = true;
   }
+  if (local.budget === 1 && !local.budgetBumped2) {
+    local.budget = AI_DEFAULTS.budget;
+    local.budgetBumped2 = true;
+    bumped = true;
+  }
+  if (bumped) await chrome.storage.local.set({ ai: local });
 
   // Older versions kept the key in here, or in the settings mirror. Move it to
   // the vault. This has to be idempotent: getAi() runs on every dashboard

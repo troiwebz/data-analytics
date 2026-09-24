@@ -165,5 +165,29 @@ ok('a runaway brief is trimmed rather than billed',
 const blank = await systemFor({ brief: '   \n  ' });
 ok('whitespace is not a brief', !/ABOUT THE WRITER/.test(blank.text));
 
+// --- the daily budget's second bump: $1 -> $5 -------------------------------
+//
+// $1/day turned out too low for real use - hitting it mid-day drops every
+// remaining draft to the built-in generic rules with nothing on the phone
+// saying so. Same rule as the $0.50 -> $1 bump before it: only the untouched
+// shipped default moves, never a number you chose yourself.
+{
+  store.ai = { budget: 1, budgetBumped: true };     // the earlier bump already applied
+  let st2 = await C.aiStatus();
+  ok('the old $1 default is lifted to $5', st2.budget === 5, String(st2.budget));
+
+  store.ai = { budget: 2, budgetBumped: true };      // a number you chose
+  st2 = await C.aiStatus();
+  ok('a budget you set yourself is left alone', st2.budget === 2, String(st2.budget));
+
+  store.ai = { budget: 1 };                          // never went through the first bump at all
+  st2 = await C.aiStatus();
+  ok('an install that never had the first bump gets both, ending at $5', st2.budget === 5, String(st2.budget));
+
+  store.ai = { budget: 0, budgetBumped: true, budgetBumped2: true };  // explicitly uncapped
+  st2 = await C.aiStatus();
+  ok('0 (no limit) is a real choice and is never touched', st2.budget === 0, String(st2.budget));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

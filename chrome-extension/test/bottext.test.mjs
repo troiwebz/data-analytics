@@ -58,7 +58,8 @@ for (const [label, sample] of [
   ['the inbox link', 'Your BHW inbox'],
   ['the night countdown', '🌙 Night mode: posting in 18 min unless you tap Hold.'],
   ['the duplicate card', 'Might already be a duplicate'],
-  ['the truncation notice', '[cut - full text is on the dashboard]']
+  ['the truncation notice', '[cut - full text is on the dashboard]'],
+  ['the generic-draft warning', '⚠️ Generic draft — Claude did not write the technical lines (daily limit of $5.00 reached; using built-in rules until tomorrow). Read before sending.']
 ]) {
   ok(`${label} is caught too`, !!botTextIn(sample), sample);
 }
