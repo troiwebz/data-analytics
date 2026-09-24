@@ -758,6 +758,63 @@ export async function statusReport(cfg) {
   return lines.join('\n');
 }
 
+/**
+ * Everything not yet struck through, resent as real cards. "pending",
+ * "todo", or "missed" to the bot.
+ *
+ * Matches the dashboard's own definition of "unstruck" exactly - not
+ * POSTED, not SKIPPED, not EXPIRED, and no PM sent - which deliberately
+ * includes a History-labelled (BACKFILL) lead. Those are excluded from the
+ * AUTOMATIC queue on purpose (they are not news), but an audit you asked for
+ * by name is a different thing: the point is catching whatever slipped
+ * through, wherever it is sitting.
+ *
+ * Capped higher than the automatic announce batch (6) since this is a batch
+ * you explicitly asked for right now, not an unprompted buzz - but still
+ * capped, so one request cannot flood the chat with the whole table.
+ */
+const PENDING_BATCH = 8;
+
+export async function sendPending(cfg) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+
+  const leads = await getLeads();
+  const unstruck = leads
+    .filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.pmSent
+                 && String(l.threadId) !== 'sample')
+    .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+
+  if (!unstruck.length) {
+    await telegram.say(cfg.telegramChatId, '✅ Nothing pending — everything is posted, PM\'d, or skipped.');
+    return { pending: 0 };
+  }
+
+  const batch = unstruck.slice(0, PENDING_BATCH);
+  try {
+    const t = await telegram.sendLeads(batch, cfg, { max: PENDING_BATCH });
+    // Same freeze as announceNew: what this card shows is what a tap will
+    // send, whether this is the first time or the fifth.
+    for (const id of t.sentIds || []) {
+      const shown = t.approved?.[String(id)] || {};
+      await updateLead(id, {
+        tgSentAt: new Date().toISOString(), tgCards: t.cards?.[String(id)],
+        dmApproved: shown.dm || '', draftApproved: shown.draft || ''
+      });
+    }
+    const left = unstruck.length - (t.sentIds?.length || 0);
+    await telegram.say(cfg.telegramChatId,
+      `📋 ${t.sentIds?.length || 0} pending lead(s) sent above — tap to act, or Skip to clear it.`
+      + (left > 0 ? ` ${left} more waiting — send "pending" again for the next batch.` : ''));
+    await log(`sent ${t.sentIds?.length || 0} pending lead(s) to Telegram on request`
+      + (left > 0 ? `, ${left} more waiting` : ''));
+    return { pending: unstruck.length, sent: t.sentIds?.length || 0, left };
+  } catch (e) {
+    await telegram.say(cfg.telegramChatId, `❌ Could not send them: ${e.message}`);
+    await log(`pending command failed: ${e.message}`, 'error');
+    return { pending: unstruck.length, error: e.message };
+  }
+}
+
 export async function announceNew(cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
 
@@ -1116,6 +1173,20 @@ export async function pollTaps() {
     // Typed commands, answered before anything treats the message as a rewrite.
     if (ev.kind === 'reply' && /^\/?status\b/i.test(String(ev.body || '').trim())) {
       await telegram.say(cfg.telegramChatId, await statusReport(cfg), { html: true });
+      done++;
+      continue;
+    }
+
+    // "Show me everything I haven't finished" - a manual audit, not another
+    // automatic feed. Deliberately does not use announce.js's rules: those
+    // exist to stop AUTOMATIC notifications repeating or reaching back
+    // through history, which is the opposite of what asking for this on
+    // purpose wants. It matches the dashboard's own "still struck-through or
+    // not" test exactly, so what you see here is what you would see there -
+    // including a History-labelled lead, since those are exactly the ones a
+    // "did something get missed" audit exists to catch.
+    if (ev.kind === 'reply' && /^\/?(pending|todo|missed)\b/i.test(String(ev.body || '').trim())) {
+      await sendPending(cfg);
       done++;
       continue;
     }

@@ -101,8 +101,16 @@ ok('draft html is escaped', sent.some((m) => m.body.text.includes('&lt;b&gt;bold
 sent = [];
 const many = Array.from({ length: 12 }, (_, i) => lead('m' + i));
 const r = await T.sendLeads(many, cfg);
-ok('a burst is capped at 6 leads', r.sent === 6, String(r.sent));
+ok('a burst is capped at 6 leads by default', r.sent === 6, String(r.sent));
 ok('and the rest are counted', r.skipped === 6 && sent.some((m) => /6 more on the dashboard/.test(m.body.text)));
+
+// A caller answering something asked for on purpose (the "pending" command)
+// can raise that cap - it used to be hardcoded, silently overriding whatever
+// a caller intended.
+sent = [];
+const capRaised = await T.sendLeads(many, cfg, { max: 8 });
+ok('a caller can raise the cap', capRaised.sent === 8, String(capRaised.sent));
+ok('and the remainder narrows to match', capRaised.skipped === 4, String(capRaised.skipped));
 
 // Telegram failing must not throw into the poll.
 globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ ok: false, description: 'Unauthorized' }) });

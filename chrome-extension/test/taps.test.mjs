@@ -764,5 +764,74 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('and says plainly when nothing is happening', /nothing in progress/.test(idle), idle);
 }
 
+// --- resending everything not yet struck through, on request ---------------
+//
+// The dashboard showed a batch of recent, real leads all sitting unstruck
+// under "History" - a side effect of a local-storage wipe re-triggering a
+// first-run backfill, which tags everything BACKFILL. The automatic queue
+// (announceNew) correctly leaves those alone; they are not news. But asking
+// by name for "what have I missed" is a different question, and the answer
+// has to include them - that is precisely what is confusing on the screen.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  await setConfig({ telegramChatId: '999' });
+
+  store.recentLeads = [
+    lead('70', { status: 'BACKFILL', title: 'a recent thread wrongly tagged History', foundAt: new Date().toISOString() }),
+    lead('71', { status: 'SENT', title: 'an ordinary to-do' }),
+    lead('72', { status: 'POSTED', title: 'already posted' }),
+    lead('73', { status: 'SKIPPED', title: 'already skipped' }),
+    lead('74', { pmSent: true, title: 'PM already sent' })
+  ];
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 88, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage')
+    .map((c) => c.body.text || '').join(' ||| ');
+  ok('the History-labelled lead IS included', /wrongly tagged History/.test(sent), sent.slice(0, 200));
+  ok('the ordinary to-do is included too', /an ordinary to-do/.test(sent), sent.slice(0, 200));
+  ok('but a posted lead is not resent', !/already posted/.test(sent), sent.slice(0, 200));
+  ok('nor a skipped one', !/already skipped/.test(sent), sent.slice(0, 200));
+  ok('nor one whose PM already went', !/PM already sent/.test(sent), sent.slice(0, 200));
+
+  const cards = tgCalls.filter((c) => c.method === 'sendMessage' && c.body.reply_markup);
+  ok('the resent leads carry real, tappable buttons, not just text',
+     cards.length > 0, JSON.stringify(tgCalls.map((c) => c.method)));
+
+  // Resending stamps them, so the automatic queue does not ALSO pick them up
+  // and send a second, uncoordinated copy later.
+  const after = (await getLeads()).find((l) => l.threadId === '70');
+  ok('the resent lead is stamped as announced', !!after.tgSentAt, JSON.stringify(after.tgSentAt));
+  ok('with a frozen approved copy of what the card actually shows', !!after.dmApproved, after.dmApproved);
+
+  // Nothing pending at all: told plainly, not silently.
+  store.recentLeads = [lead('75', { status: 'POSTED' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 89, text: 'todo', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const empty = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('"todo" is accepted as a synonym', /Nothing pending/.test(empty), empty);
+
+  // Not mistaken for a draft rewrite.
+  ok('typing it never becomes a draft', !(await getLeads()).some((l) => l.draft === 'pending' || l.dm === 'pending'));
+
+  // More than one batch's worth: capped, not a flood, and told how many are
+  // left rather than silently dropping the rest.
+  store.recentLeads = Array.from({ length: 11 }, (_, i) => lead(`p${i}`, { title: `queued ${i}` }));
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 90, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const stampedNow = (await getLeads()).filter((l) => l.tgSentAt).length;
+  ok('only one batch worth is sent at a time', stampedNow === 8, String(stampedNow));
+  const note = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').pop();
+  ok('and it says how many more are waiting', /3 more waiting/.test(note || ''), note);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

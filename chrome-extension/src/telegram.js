@@ -347,7 +347,7 @@ const stripTags = (html) => String(html)
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&')
   .slice(0, LIMIT);
 
-export async function sendLeads(leads, cfg) {
+export async function sendLeads(leads, cfg, { max = MAX_PER_POLL } = {}) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId || !(await getToken())) return { sent: 0 };
   let sent = 0, parts = 0;
   const errors = [];
@@ -356,7 +356,13 @@ export async function sendLeads(leads, cfg) {
   // must stamp ONLY these: a poll that finds 33 threads sends six, and marking
   // the other 27 as announced silenced them for ever.
   const sentIds = [];
-  for (const lead of leads.slice(0, MAX_PER_POLL)) {
+  // `max` defaults to the automatic-feed cap. Every caller that means "one
+  // quiet burst, not a flood" can just take the default; a caller answering
+  // something you explicitly asked for right now can raise it - the cap this
+  // hardcoded to 6 used to override every caller silently, which made a
+  // "sends up to 8" comment elsewhere in the codebase false without anyone
+  // noticing, because nothing ever exercised a batch bigger than 6 to catch it.
+  for (const lead of leads.slice(0, max)) {
     try {
       const r = await sendLead(lead, cfg, { onPart: () => parts++ });
       if (r?.ids && Object.keys(r.ids).length) cards[String(lead.threadId)] = r.ids;
@@ -371,7 +377,7 @@ export async function sendLeads(leads, cfg) {
     }
   }
   const error = errors.join(' · ');
-  const skipped = Math.max(0, leads.length - MAX_PER_POLL);
+  const skipped = Math.max(0, leads.length - max);
   if (skipped) {
     try {
       await call('sendMessage', { chat_id: cfg.telegramChatId,
