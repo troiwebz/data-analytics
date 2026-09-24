@@ -833,6 +833,42 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('and it says how many more are waiting', /3 more waiting/.test(note || ''), note);
 }
 
+// --- "pending 24" - the same audit, narrowed to the last N hours -----------
+{
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  store.recentLeads = [
+    lead('80', { title: 'found an hour ago', foundAt: hoursAgo(1) }),
+    lead('81', { title: 'found twelve hours ago', foundAt: hoursAgo(12) }),
+    lead('82', { title: 'found two days ago', foundAt: hoursAgo(48) })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 91, text: 'pending 24', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"pending 24" includes a lead from within the window', /found an hour ago/.test(sent), sent.slice(0, 200));
+  ok('and one right at the edge of it', /found twelve hours ago/.test(sent), sent.slice(0, 200));
+  ok('but not one from outside the window', !/found two days ago/.test(sent), sent.slice(0, 200));
+
+  // Bare "pending" (no number) is unaffected - the full audit, as before.
+  store.recentLeads = [lead('83', { title: 'found two days ago again', foundAt: hoursAgo(48) })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const full = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('plain "pending" still reaches back through the whole table', /found two days ago again/.test(full), full.slice(0, 200));
+
+  // A window with nothing in it says so, distinctly from the unfiltered case.
+  store.recentLeads = [lead('84', { title: 'old one', foundAt: hoursAgo(48) })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 93, text: 'pending 6', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const emptyWindow = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('an empty window says so, naming the window', /Nothing pending from the last 6h/.test(emptyWindow), emptyWindow);
+}
+
 // --- "today": what actually went out, with links -----------------------
 {
   await setConfig({ telegramChatId: '999' });

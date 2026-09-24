@@ -834,14 +834,16 @@ export async function statusReport(cfg) {
 
 /**
  * Everything not yet struck through, resent as real cards. "pending",
- * "todo", or "missed" to the bot.
+ * "todo", or "missed" to the bot - optionally "pending 24" to narrow it to
+ * leads found in the last N hours, when what you want is a catch-up on
+ * TODAY rather than an audit of the whole table.
  *
  * Matches the dashboard's own definition of "unstruck" exactly - not
  * POSTED, not SKIPPED, not EXPIRED, and no PM sent - which deliberately
  * includes a History-labelled (BACKFILL) lead. Those are excluded from the
  * AUTOMATIC queue on purpose (they are not news), but an audit you asked for
  * by name is a different thing: the point is catching whatever slipped
- * through, wherever it is sitting.
+ * through, wherever it is sitting - unless you narrowed it yourself.
  *
  * Capped higher than the automatic announce batch (6) since this is a batch
  * you explicitly asked for right now, not an unprompted buzz - but still
@@ -849,17 +851,21 @@ export async function statusReport(cfg) {
  */
 const PENDING_BATCH = 8;
 
-export async function sendPending(cfg) {
+export async function sendPending(cfg, hours = 0) {
   if (!cfg.telegramChatId) return { skipped: 'off' };
 
   const leads = await getLeads();
+  const windowMs = Math.max(0, Number(hours) || 0) * 3600000;
+  const cutoff = windowMs ? Date.now() - windowMs : 0;
   const unstruck = leads
     .filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.pmSent
-                 && String(l.threadId) !== 'sample')
+                 && String(l.threadId) !== 'sample'
+                 && (!cutoff || new Date(l.foundAt || 0).getTime() >= cutoff))
     .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
 
+  const windowLabel = windowMs ? ` from the last ${hours}h` : '';
   if (!unstruck.length) {
-    await telegram.say(cfg.telegramChatId, '✅ Nothing pending — everything is posted, PM\'d, or skipped.');
+    await telegram.say(cfg.telegramChatId, `✅ Nothing pending${windowLabel} — everything is posted, PM'd, or skipped.`);
     return { pending: 0 };
   }
 
@@ -877,9 +883,9 @@ export async function sendPending(cfg) {
     }
     const left = unstruck.length - (t.sentIds?.length || 0);
     await telegram.say(cfg.telegramChatId,
-      `📋 ${t.sentIds?.length || 0} pending lead(s) sent above — tap to act, or Skip to clear it.`
-      + (left > 0 ? ` ${left} more waiting — send "pending" again for the next batch.` : ''));
-    await log(`sent ${t.sentIds?.length || 0} pending lead(s) to Telegram on request`
+      `📋 ${t.sentIds?.length || 0} pending lead(s)${windowLabel} sent above — tap to act, or Skip to clear it.`
+      + (left > 0 ? ` ${left} more waiting — send "pending${hours ? ' ' + hours : ''}" again for the next batch.` : ''));
+    await log(`sent ${t.sentIds?.length || 0} pending lead(s)${windowLabel} to Telegram on request`
       + (left > 0 ? `, ${left} more waiting` : ''));
     return { pending: unstruck.length, sent: t.sentIds?.length || 0, left };
   } catch (e) {
@@ -1363,11 +1369,15 @@ export async function pollTaps() {
     // purpose wants. It matches the dashboard's own "still struck-through or
     // not" test exactly, so what you see here is what you would see there -
     // including a History-labelled lead, since those are exactly the ones a
-    // "did something get missed" audit exists to catch.
-    if (ev.kind === 'reply' && /^\/?(pending|todo|missed)\b/i.test(String(ev.body || '').trim())) {
-      await sendPending(cfg);
-      done++;
-      continue;
+    // "did something get missed" audit exists to catch. "pending 24" narrows
+    // that same audit to leads found in the last 24 hours.
+    {
+      const pm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:pending|todo|missed)\b\s*(\d+)?/i);
+      if (pm) {
+        await sendPending(cfg, pm[1] ? Number(pm[1]) : 0);
+        done++;
+        continue;
+      }
     }
 
     // "today" - the recap, with links, of what actually went out.
