@@ -39,25 +39,22 @@ ok('the reply is the claim and the PM line, nothing else',
 // interrogation before a price, which is not what a buyer who has just posted
 // wants. The question is still written, for the reply you send once they
 // answer; it just is not in the opening message.
-{
-  const scoped = { ...lead('5001'), aiSpecifics: { ...lead('5001').aiSpecifics, offer: 'scope' } };
-  const d2 = renderDm(scoped, cfg);
-  ok('the scope close does not interrogate them', !d2.includes(scoped.aiSpecifics.question),
+for (const offer of Object.keys(cfg.offers)) {
+  const withQ = { ...lead('5001'), aiSpecifics: { ...lead('5001').aiSpecifics, offer } };
+  const d2 = renderDm(withQ, cfg);
+  ok(`the ${offer} close does not interrogate them`, !d2.includes(withQ.aiSpecifics.question),
      d2.split('\n\n').slice(-3)[0]);
-  ok('and asks nothing at all', !d2.includes('?'), (d2.match(/[^.\n]*\?/) || [''])[0]);
-  ok('it still promises a price and a date', /fixed price and a date/i.test(d2), d2.split('\n\n').slice(-3)[0]);
-  ok('and no longer demands the market and the volume',
-     !/market and the volume|geo and the monthly volume/i.test(d2));
-  ok('no template slot is left showing', !/\{\{|\}\}/.test(d2), (d2.match(/\{\{\w+\}\}/) || [''])[0]);
+  ok(`and the ${offer} close asks nothing at all`, !d2.includes('?'), (d2.match(/[^.\n]*\?/) || [''])[0]);
+  ok(`no template slot is left showing for ${offer}`, !/\{\{|\}\}/.test(d2), (d2.match(/\{\{\w+\}\}/) || [''])[0]);
 
   // Every close works with no question, because none of them uses it now.
-  const noQ = { ...scoped, aiSpecifics: { ...scoped.aiSpecifics, question: '' } };
-  ok('a lead with no question still renders a whole PM', !/\{\{|\}\}/.test(renderDm(noQ, cfg)));
+  const noQ = { ...withQ, aiSpecifics: { ...withQ.aiSpecifics, question: '' } };
+  ok(`a lead with no question still renders a whole PM (${offer})`, !/\{\{|\}\}/.test(renderDm(noQ, cfg)));
 }
 
 // Every PM offers real samples and a short plan on reply, which is what gets
 // an answer - and is a portfolio, not free work, so the linter allows it.
-for (const offer of ['pilot', 'ready', 'formula', 'terms', 'scope']) {
+for (const offer of ['pilot', 'ready', 'formula', 'terms']) {
   const l = { ...lead('6001'), aiSpecifics: { ...lead('6001').aiSpecifics, offer } };
   const d = renderDm(l, cfg);
   ok(`the ${offer} PM offers real samples`, /real samples/i.test(d), d.split('\n\n').slice(-2)[0]);
@@ -149,7 +146,7 @@ ok('the PM does not mention the budget', !d.includes('$400'), d);
 
   // Every category and every close, linted.
   for (const cat of ['seo', 'ads', 'design', 'social', 'web', 'content', 'generic']) {
-    for (const offer of ['pilot', 'ready', 'formula', 'terms', 'scope']) {
+    for (const offer of ['pilot', 'ready', 'formula', 'terms']) {
       const dm = renderDm({ ...lead('7003'), category: cat,
                             aiSpecifics: { ...lead('7003').aiSpecifics, offer } }, cfg);
       ok(`${cat}/${offer} passes the compliance check`, lintDraft(dm, cfg.compliance).ok !== false,
@@ -197,14 +194,14 @@ ok('a different thread renders differently', renderDm(lead('1002'), cfg) !== d.r
 // Falls back to the built-in rules with no Claude lines.
 // Every close, checked for the things that must never appear.
 const allOffers = Object.keys(cfg.offers);
-ok('there are five closes', allOffers.length === 5, allOffers.join(','));
+ok('there are four closes', allOffers.length === 4, allOffers.join(','));
 const rendered = allOffers.map((o) => renderDm({ ...lead('5' + o), aiSpecifics: { ...lead('1').aiSpecifics, offer: o } }, cfg));
 // Compared whole, not by paragraph position. The payment line added a
 // paragraph and the "terms" close suppresses it, so counting back from the end
 // no longer lands on the close - it lands on different things per offer.
-ok('each close is different', new Set(rendered).size === 5, String(new Set(rendered).size));
+ok('each close is different', new Set(rendered).size === allOffers.length, String(new Set(rendered).size));
 ok('and the difference is the close itself, not the rest of the PM',
-   new Set(allOffers.map((o) => cfg.offers[o])).size === 5);
+   new Set(allOffers.map((o) => cfg.offers[o])).size === allOffers.length);
 ok('no close offers free work', !rendered.some((t) => /\bfree\b|no charge|at no cost/i.test(t)),
    rendered.find((t) => /\bfree\b/i.test(t))?.slice(-120));
 ok('no close promises a guarantee or a discount', !rendered.some((t) => /guarantee|\d+% off|discount/i.test(t)));
@@ -218,7 +215,7 @@ ok('offerOf reports it', offerOf({ ...lead('6'), aiSpecifics: { ...lead('1').aiS
 const noOffer = renderDm({ ...lead('7'), aiSpecifics: { tips: lead('1').aiSpecifics.tips, question: 'q?', offer: 'nonsense' } }, cfg);
 ok('an unknown offer falls back to a real one', noOffer.length > 200 && !/\{\{/.test(noOffer));
 const picked = new Set([...Array(40)].map((_, i) => offerOf({ ...lead('8' + i), aiSpecifics: { tips: ['x'] } }, cfg)));
-ok('leads with no offer spread across all five', picked.size === 5, [...picked].join(','));
+ok('leads with no offer spread across all four', picked.size === 4, [...picked].join(','));
 
 const noAi = renderDm({ ...lead('3001'), aiSpecifics: undefined }, cfg);
 ok('works with no Claude lines', noAi.length > 100 && !/\{\{/.test(noAi));

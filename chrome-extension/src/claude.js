@@ -210,8 +210,7 @@ export const OFFERS = {
   pilot:   'a small paid first order, when the buyer sounds cautious, burned before, or is buying at volume for the first time',
   ready:   'the list or assets already exist, when the post is urgent, has a deadline, or complains about slow suppliers',
   formula: 'give away the method, when the post is vague, technical, or written by someone who clearly knows the subject',
-  terms:   'invoice after the first batch, when the budget is large, or the post worries about being scammed',
-  scope:   'two questions then a fixed price and date today, when the brief is thin and the real job is unclear'
+  terms:   'invoice after the first batch, when the budget is large, or the post worries about being scammed'
 };
 
 const SYSTEM = [

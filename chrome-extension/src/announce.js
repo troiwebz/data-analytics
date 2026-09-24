@@ -47,11 +47,25 @@ export function maxAgeMs(cfg) {
   return hours * 3600000;
 }
 
-/** Is this lead older than the cutoff? False when there is no cutoff. */
+/**
+ * Is this lead older than the cutoff? False when there is no cutoff.
+ *
+ * Measured from when the THREAD was actually posted (postedAt, read off the
+ * forum listing's own start date), not from when we happened to find it
+ * (foundAt). Those two only differ when a thread sat off the listing's first
+ * page or out of the RSS window until something bumped it back into view -
+ * exactly a thread from yesterday getting a reply today. foundAt for that
+ * thread is "just now", so the age check on foundAt alone let it straight
+ * through looking brand new, which is the whole bug: "previous day bumped
+ * thread" reaching Telegram as if it were recent. postedAt does not move when
+ * a thread is bumped, so this is the number that actually answers "is this
+ * recent" rather than "did we only just notice it".
+ */
 export function isTooOld(lead, cfg, now = Date.now()) {
   const max = maxAgeMs(cfg);
   if (!max) return false;
-  return now - new Date(lead?.foundAt || 0).getTime() >= max;
+  const at = lead?.postedAt || lead?.foundAt || 0;
+  return now - new Date(at).getTime() >= max;
 }
 
 /**
@@ -66,7 +80,7 @@ export function selectQueue(leads, cfg, now = Date.now()) {
   const send = [];
   const stale = [];
   for (const l of candidates) (isTooOld(l, cfg, now) ? stale : send).push(l);
-  send.sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+  send.sort((a, b) => new Date(b.postedAt || b.foundAt || 0) - new Date(a.postedAt || a.foundAt || 0));
   return { send, stale };
 }
 

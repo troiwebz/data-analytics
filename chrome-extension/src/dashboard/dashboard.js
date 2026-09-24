@@ -272,7 +272,7 @@ function detail(l, staged, cfg) {
   try { parts = partsFor(l, cfg); } catch { /* shown as built-in below */ }
   const byClaude = !!(l.aiSpecifics?.tips?.length || l.aiSpecifics?.length);
   const OFFER_LABEL = { pilot: 'small first order', ready: 'already built', formula: 'the method, given away',
-                        terms: 'pay after the first batch', scope: 'fixed price today' };
+                        terms: 'pay after the first batch' };
   const who = byClaude
     ? `<div class="sub" style="margin-bottom:8px;color:#16a34a">Claude wrote the ${parts.tips.length} technical line(s):
         ${parts.tips.map((b) => `<span style="opacity:.85">"${esc(b)}"</span>`).join(' ')}

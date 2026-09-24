@@ -85,5 +85,33 @@ ok('a missing setting defaults to 12h, not "no limit"',
   ok('and selectQueue agrees', selectQueue([reposted], CFG).send.length === 0);
 }
 
+// --- the newest regression: a thread from yesterday, first SEEN today -------
+//
+// A thread can sit off the RSS window and off page 1 of the listing until
+// something bumps it - a reply, an edit - back into view. The first time our
+// own poll ever notices it is today, so foundAt is "just now" even though the
+// thread itself is a day old. Checking age against foundAt alone said "brand
+// new" and sent it straight to Telegram: exactly "I still get a previous day
+// bumped thread". postedAt - the forum's own start date for the thread, read
+// off the listing page - does not move when it gets bumped, so it is the one
+// that has to decide "is this recent", not foundAt.
+{
+  const bumpedYesterday = lead('late1', { postedAt: hoursAgo(30), foundAt: hoursAgo(0.01) });
+  ok('a thread posted yesterday is too old however recently WE found it',
+     isTooOld(bumpedYesterday, CFG), JSON.stringify(bumpedYesterday));
+  ok('and selectQueue holds it back, not sends it',
+     selectQueue([bumpedYesterday], CFG).stale.map((l) => l.threadId).join() === 'late1',
+     JSON.stringify(selectQueue([bumpedYesterday], CFG)));
+
+  // The ordinary case is unaffected: a thread with no listing data yet (no
+  // postedAt) still falls back to foundAt exactly as before.
+  ok('with no postedAt at all, foundAt still decides it', !isTooOld(lead('nolisting', { foundAt: hoursAgo(1) }), CFG));
+
+  // And a thread that really was posted minutes ago, found minutes ago, still
+  // goes straight out.
+  const trulyNew = lead('late2', { postedAt: hoursAgo(0.05), foundAt: hoursAgo(0.05) });
+  ok('a genuinely fresh thread is unaffected', !isTooOld(trulyNew, CFG));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

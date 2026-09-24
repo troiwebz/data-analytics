@@ -389,7 +389,7 @@ export const DEFAULT_CONFIG = {
 
 {Sent you a PM|PM sent with the detail|Dropped you a PM}.`
   },
-  // ---- The five closes -------------------------------------------------
+  // ---- The four closes -------------------------------------------------
   // Claude picks whichever fits the thread and never repeats the one it used
   // last, so a buyer reading two of your PMs does not see the same pitch.
   // None of them offers free work: that was the rule from the start, and on a
@@ -399,7 +399,10 @@ export const DEFAULT_CONFIG = {
   //   ready    the asset or list already exists, so there is nothing to wait for
   //   formula  the method, given away openly, which proves it better than claiming it
   //   terms    money after delivery, not before
-  //   scope    two questions and a fixed price and date back the same day
+  //
+  // There used to be a fifth, "scope" ("tell me the shape you want and it is
+  // priced the same day") - removed on request, it read as a weaker close
+  // than the other four.
   //
   // Each is one sentence. The line about starting immediately and the sign-off
   // come after them, from the template, so no close repeats either.
@@ -410,15 +413,7 @@ export const DEFAULT_CONFIG = {
 
     formula: `{That is the whole method, in that order|That is the entire approach, and the order matters|Those three, in that order, are the whole method}. {The sequence is the part most people get wrong|Run it out of order and the later work inherits the earlier errors|Most of the failures we see are that sequence run backwards}.`,
 
-    terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`,
-
-    // This one used to carry Claude's technical question about the thread -
-    // "is the filter setup using URL parameters or a JS layer?" - which read as
-    // an interrogation dropped into a quote. A buyer who has just written a
-    // post does not want a quiz before a price; they want to know they will get
-    // a price. The question is still written and still useful, but it belongs
-    // in the reply you type when they answer, not in the opening message.
-    scope: `{Tell me the shape you want and it is priced the same day|Say how you want it scoped and you will have a price the same day}: {per item or as one job, whichever suits|priced per item or as one job, your call}, {with a fixed price and a date, no call needed|fixed price and a date, nothing to book}.`
+    terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`
   },
 
   // ---- When they pay -----------------------------------------------------
