@@ -1348,6 +1348,11 @@ export async function pollTaps() {
   if (!events.length) return { taps: 0 };
 
   let done = 0;
+  // Lead-posting taps (post the reply, send the PM) are claimed and marked
+  // "working" as soon as they are found, below, but the actual slow work is
+  // deferred to here and run one at a time afterward - see the comment where
+  // they are queued.
+  const queued = [];
   for (const ev of events) {
     if (ev.chatId && String(ev.chatId) !== String(cfg.telegramChatId)) {
       await log(`ignored a Telegram ${ev.kind} from chat ${ev.chatId}, which is not yours`, 'error');
@@ -1512,16 +1517,42 @@ export async function pollTaps() {
     // written afterwards is never written at all - and "no log entry" then
     // looks identical to "the tap never arrived", which are opposite problems
     // with opposite fixes.
-    await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
-    // Visible on the card itself, not just in a log you are not looking at.
-    // What comes next can take close to a minute; without this the card sits
-    // unchanged the whole time and looks identical whether it is working,
-    // stuck, or never got the tap at all.
     const verb = TAP_VERBS[ev.action] || 'Working on it';
+    // Visible on the card itself, not just in a log you are not looking at.
+    // Posting or sending a PM opens a real tab and waits on a content script
+    // - close to a minute, tab load and a human-length pause included. Tap
+    // two different leads within that window and this loop used to reach the
+    // second one only after the first fully finished, which meant its card
+    // sat showing its ORIGINAL buttons, unchanged, for that whole minute -
+    // indistinguishable from the tap never having arrived at all, and if the
+    // second tap is still queued when you go looking, there is nothing that
+    // looks like a failure to see. So every lead-posting tap is claimed and
+    // marked "working" here, immediately, in the order taps were found - the
+    // actual posting is still done one at a time below, never two tabs
+    // racing BHW at once, but every card you tapped says so straight away.
+    if (['p', 'd', 'f'].includes(ev.action)) {
+      await telegram.markWorking(cfg.telegramChatId, ev.messageId, verb).catch(() => {});
+      await log(`Telegram tap: ${ev.action} on "${lead.title}" - queued`);
+      queued.push({ ev, lead });
+      continue;
+    }
+    await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
     await telegram.markWorking(cfg.telegramChatId, ev.messageId, verb).catch(() => {});
     let line = await runTap(ev, lead, cfg);
     // Say where the day stands, on every outcome. "Posted." alone tells you the
     // tap worked and nothing about how far through you are.
+    if (line) line += `\n\n${await todayLine(cfg)}`;
+    await telegram.settleTap(ev, line);
+    await log(`Telegram tap on "${lead.title}": ${line || 'card rewritten in place'}`);
+    done++;
+  }
+
+  // The actual posting/sending, one at a time and in the order tapped - every
+  // queued card already says "working" (above), so this is purely the slow
+  // part happening in the background, not the first sign any of it is real.
+  for (const { ev, lead } of queued) {
+    await log(`Telegram tap: ${ev.action} on "${lead.title}" - starting`);
+    let line = await runTap(ev, lead, cfg);
     if (line) line += `\n\n${await todayLine(cfg)}`;
     await telegram.settleTap(ev, line);
     await log(`Telegram tap on "${lead.title}": ${line || 'card rewritten in place'}`);

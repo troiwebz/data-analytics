@@ -36,9 +36,14 @@ globalThis.chrome = {
   scripting: {
     executeScript: async ({ files }) => {
       if (files) setTimeout(() => {
+        // Sequential taps queued for real posting arrive here in the order
+        // they are processed - a queue lets a test cover two of them in one
+        // pollTaps() call without needing to interleave code between them.
+        const threadId = (globalThis.__actingQueue && globalThis.__actingQueue.length)
+          ? globalThis.__actingQueue.shift() : globalThis.__acting;
         const type = files.some((f) => /content-dm/.test(f)) ? 'haf-dm-result' : 'haf-post-result';
         const result = type === 'haf-dm-result' ? dmResult : postResult;
-        for (const f of [...msgListeners]) f({ type, threadId: globalThis.__acting, mode: 'full', result }, {}, () => {});
+        for (const f of [...msgListeners]) f({ type, threadId, mode: 'full', result }, {}, () => {});
       }, 5);
       return [{ result: {} }];
     }
@@ -1018,6 +1023,53 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('a held lead never posts itself afterwards', (await getLeads()).find((x) => x.threadId === 'a5').status === 'SENT');
 
   await setConfig({ autoMode: false, maxPostsPerDay: 10 });
+}
+
+// --- two different leads tapped at once ------------------------------------
+//
+// "clicking 2 HAF to send at the same time only one is sending, not even
+// getting a failed status" - taps used to be handled strictly one at a time,
+// including the actual posting (open a tab, wait for it, a human-length
+// pause, the content script, up to 45s waiting for the result). The SECOND
+// card sat showing its original buttons, completely unchanged, for however
+// long the first one took - indistinguishable from the tap never having
+// arrived. Both are now claimed and marked "working" as soon as they are
+// found, before either is actually posted, so neither card is ever silent -
+// the real posting still happens one at a time, never two tabs open on BHW
+// together.
+{
+  await setConfig({ maxPostsPerDay: 10, maxDmsPerDay: 10, minSecondsBetweenPosts: 0, minSecondsBetweenDms: 0 });
+  store.recentLeads = [lead('w1', { title: 'reply lead' }), lead('w2', { title: 'PM lead' })];
+  globalThis.__actingQueue = ['w1', 'w2'];      // resolved in the order they are actually processed
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.w1/post-1' };
+  dmResult = { ok: true, sent: true };
+  tgCalls = [];
+  updates = [
+    tap('p:w1', { message: { message_id: 201, chat: { id: 999 }, text: 'reply lead' } }),
+    tap('d:w2', { message: { message_id: 202, chat: { id: 999 }, text: 'PM lead' } })
+  ];
+  await bg.pollTaps();
+
+  const working = tgCalls.filter((c) => c.method === 'editMessageReplyMarkup');
+  ok('both cards are marked working',
+     working.some((c) => c.body.message_id === 201) && working.some((c) => c.body.message_id === 202),
+     JSON.stringify(working.map((c) => c.body.message_id)));
+
+  const settled = tgCalls.filter((c) => c.method === 'editMessageText');
+  const lastWorkingAt = Math.max(...working.map((c) => tgCalls.indexOf(c)));
+  const firstSettleAt = tgCalls.findIndex((c) => c.method === 'editMessageText');
+  ok('both are marked working BEFORE either is actually settled - neither card is left looking untouched',
+     lastWorkingAt < firstSettleAt, `working at ${lastWorkingAt}, first settle at ${firstSettleAt}`);
+
+  const w1 = (await getLeads()).find((x) => x.threadId === 'w1');
+  const w2 = (await getLeads()).find((x) => x.threadId === 'w2');
+  ok('the first lead actually posted', w1.status === 'POSTED', w1.status);
+  ok('the second lead is not silently dropped - it actually sends too', w2.pmSent === true, JSON.stringify(w2));
+  ok('the second card gets a real settled outcome, not silence',
+     settled.some((c) => c.body.message_id === 202 && /PM sent/i.test(c.body.text)),
+     JSON.stringify(settled.filter((c) => c.body.message_id === 202).map((c) => c.body.text)));
+
+  delete globalThis.__actingQueue;
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
