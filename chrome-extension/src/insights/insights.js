@@ -11,9 +11,10 @@
 // found since the extension started watching, so "Load older threads…" is the
 // honest way to make these charts mean more.
 
-import { getLeads } from '../store.js';
+import { getLeads, getTrafficSamples } from '../store.js';
 import { getConfig } from '../config.js';
 import { partsIn, todayKey, hourLabel, dayLabel, longDay } from '../timefmt.js';
+import { hourlyAverages, MIN_SAMPLES } from '../traffic.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -301,9 +302,51 @@ function tips(leads, dated, byHour, complete, seen, sum, cfg) {
   return out;
 }
 
+/**
+ * BHW's own traffic, not thread activity - fed by the same readings the
+ * service-thread bump reminder (src/traffic.js) uses to decide when a busy
+ * hour actually is. Same chart component as everything else on this page:
+ * one series, no legend, identity on the axis.
+ */
+function buildTraffic(samples, cfg) {
+  const real = (samples || []).filter((s) => s.members != null);
+  const host = $('traffic');
+  if (!real.length) {
+    $('trafficSub').innerHTML = 'No readings yet - this starts once you <code>track</code> a service thread, '
+      + 'which is what turns the 30-minute check on.';
+    host.innerHTML = '<div class="empty">Nothing recorded yet.</div>';
+    return;
+  }
+
+  const avgs = hourlyAverages(real, cfg);
+  const last = real[real.length - 1];
+  const zone = cfg.timezone || 'this computer';
+  $('trafficSub').innerHTML = real.length < MIN_SAMPLES
+    ? `<b>Still learning</b> - ${real.length}/${MIN_SAMPLES} readings so far. Times in <b>${esc(zone)}</b>. `
+      + `The bump reminder is using your manual peak-hours window until there is enough here.`
+    : `${real.length} readings over ${Math.max(1, Math.round((Date.now() - real[0].ts) / 86400000))} day(s), `
+      + `in <b>${esc(zone)}</b>. Last checked: <b>${last.members}</b> members online.`;
+
+  host.dataset.col = 'Hour';
+  barChart(host, Array.from({ length: 24 }, (_, h) => {
+    const v = avgs[h] != null ? Math.round(avgs[h]) : 0;
+    return {
+      label: hourLabel(h, cfg),
+      full: `${hourLabel(h, cfg)} to ${hourLabel((h + 1) % 24, cfg)}`,
+      value: v,
+      tip: avgs[h] != null
+        ? `<b>${v}</b> members online on average<br>${esc(hourLabel(h, cfg))} to ${esc(hourLabel((h + 1) % 24, cfg))}`
+        : `No reading yet for ${esc(hourLabel(h, cfg))}`
+    };
+  }), { everyNthLabel: 3, unit: 'members online' });
+}
+
 // ------------------------------------------------------------------- the page
 
-async function render() { build(await getLeads(), await getConfig()); }
+async function render() {
+  build(await getLeads(), await getConfig());
+  buildTraffic(await getTrafficSamples(), await getConfig());
+}
 
 $('back').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/dashboard/dashboard.html');
@@ -326,6 +369,6 @@ async function fill(days) {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.recentLeads) render();
+  if (area === 'local' && (changes.recentLeads || changes.trafficSamples)) render();
 });
 render();

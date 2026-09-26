@@ -167,6 +167,31 @@ ok('an unknown label is refused', /No tracked thread matches/.test(said), said);
      !(await getLeads()).some((l) => l.draft === 'services' || l.dm === 'services'));
 }
 
+// --- "idea <label>" - wording on request, any time, no side effects --------
+{
+  const before = (await getConfig()).serviceThreads.find((t) => t.label === 'My SEO Gigs');
+  ok('the thread is not eligible right now (it was just bumped)', !services.isBumpEligible(before));
+
+  tgCalls = [];
+  updates = [msg('idea My SEO Gigs')];
+  await bg.pollTaps();
+  said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('"idea" hands back suggested wording even though it is not due', /My SEO Gigs/.test(said), said);
+  ok('and it is wrapped as copyable text', /<pre>/.test(said), said);
+  ok('it is framed as on-request, not a reminder', /not a reminder/.test(said), said);
+
+  const after = (await getConfig()).serviceThreads.find((t) => t.label === 'My SEO Gigs');
+  ok('asking for an idea does not touch bumpNotifiedAt', after.bumpNotifiedAt === before.bumpNotifiedAt);
+  ok('or lastBumpedAt', after.lastBumpedAt === before.lastBumpedAt);
+  ok('or the eligibility clock', services.isBumpEligible(after) === services.isBumpEligible(before));
+
+  tgCalls = [];
+  updates = [msg('idea Some Other Thread')];
+  await bg.pollTaps();
+  said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('an idea for an unknown label is refused, not silent', /No service thread called/.test(said), said);
+}
+
 // --- learning real traffic, and using it once there is enough --------------
 {
   const trafficMod = await import('../src/traffic.js');

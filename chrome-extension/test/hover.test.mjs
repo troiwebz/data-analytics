@@ -20,7 +20,7 @@ const T = '/tmp/haf-hover-test';
 // defined before the module loads.
 rmSync(T, { recursive: true, force: true });
 mkdirSync(T + '/src/insights', { recursive: true });
-for (const f of ['timefmt.js', 'store.js', 'config.js']) cpSync(SRC + f, `${T}/src/${f}`);
+for (const f of ['timefmt.js', 'store.js', 'config.js', 'traffic.js']) cpSync(SRC + f, `${T}/src/${f}`);
 cpSync(SRC + 'insights/insights.js', T + '/src/insights/insights.js');
 
 const stub = `<script>

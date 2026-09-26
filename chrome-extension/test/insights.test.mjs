@@ -38,10 +38,19 @@ const leads = [
   { threadId: '9', postedAt: null, postedAtSource: 'unknown', title: 'undated' }
 ];
 
+// Two readings each at 10am and 10pm IST, a day apart - enough to average.
+const trafficSamples = [
+  { ts: new Date(at(0, 10)).getTime(), members: 400 },
+  { ts: new Date(at(1, 10)).getTime(), members: 420 },
+  { ts: new Date(at(0, 22)).getTime(), members: 50 },
+  { ts: new Date(at(1, 22)).getTime(), members: 60 }
+];
+
 global.chrome = {
   runtime: { getURL: (p) => 'x/' + p, sendMessage: async () => ({}) },
   storage: { local: { get: async (k) => (k === 'recentLeads' ? { recentLeads: leads }
-                                       : k === 'config' ? { config: { timezone: 'Asia/Kolkata' } } : {}),
+                                       : k === 'config' ? { config: { timezone: 'Asia/Kolkata' } }
+                                       : k === 'trafficSamples' ? { trafficSamples } : {}),
                       set: async () => {} },
              onChanged: { addListener: () => {} } }
 };
@@ -91,8 +100,19 @@ ok('an hour with nothing is still drawn', hourRows[0].querySelector('td.n').text
 // Weekdays are averaged over how many of each we have, not summed.
 ok('all seven weekdays are drawn', $('weekly').querySelectorAll('table tbody tr').length === 7);
 
+// The BHW traffic chart - fed by src/traffic.js's readings, not thread activity.
+const trafficRows = [...$('traffic').querySelectorAll('table tbody tr')];
+ok('all 24 hours are drawn for traffic too', trafficRows.length === 24, String(trafficRows.length));
+ok('10am shows the averaged members-online reading', trafficRows[10].querySelector('td.n').textContent === '410',
+   trafficRows[10].textContent);
+ok('10pm shows its own, much lower average', trafficRows[22].querySelector('td.n').textContent === '55',
+   trafficRows[22].textContent);
+ok('an hour with no reading is zero, not a crash', trafficRows[3].querySelector('td.n').textContent === '0');
+ok('the sub-line reports how many readings this is built from, and that it is still learning',
+   /4\/20 readings/.test($('trafficSub').textContent), $('trafficSub').textContent);
+
 // Every bar has a hover target, and a table exists for every chart.
-for (const id of ['daily', 'hourly', 'weekly']) {
+for (const id of ['daily', 'hourly', 'weekly', 'traffic']) {
   const bars = $(id).querySelectorAll('rect.bar').length;
   ok(`${id}: every bar is hoverable`, $(id).querySelectorAll('rect.hit').length === bars, `${bars} bars`);
   ok(`${id}: the numbers are readable as a table`, $(id).querySelectorAll('table tbody tr').length === bars);

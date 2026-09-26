@@ -1035,6 +1035,29 @@ export async function markBumped(cfg, label) {
   return { marked: true, thread: found };
 }
 
+function pickBumpText(cfg) {
+  const templates = cfg.bumpTemplates?.length ? cfg.bumpTemplates : DEFAULT_CONFIG.bumpTemplates;
+  return spin(templates[Math.floor(Math.random() * templates.length)] || '');
+}
+
+/** "idea <label>" - suggested wording on request, any time. Read-only: never
+ * touches bumpNotifiedAt or the eligibility clock, unlike the due-reminder. */
+export async function sendBumpIdea(cfg, label) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+  const found = findServiceThread(cfg, label);
+  if (!found) {
+    await telegram.say(cfg.telegramChatId, `No service thread called "${escHtml(label)}". Send "services" to see what's tracked.`, { html: true });
+    return { ok: false };
+  }
+  const text = pickBumpText(cfg);
+  await telegram.say(cfg.telegramChatId,
+    `💡 Suggested update for <b>${escHtml(found.label || found.id)}</b>:\n\n<pre>${escHtml(text)}</pre>\n\n`
+    + (found.url ? `<a href="${escHtml(found.url)}">Open thread</a>\n\n` : '')
+    + `This is just wording, not a reminder - post it whenever you like, then send "bumped ${escHtml(found.label || found.id)}" if you do.`,
+    { html: true });
+  return { ok: true, thread: found };
+}
+
 export async function sendServicesStatus(cfg) {
   if (!cfg.telegramChatId) return { skipped: 'off' };
   const threads = cfg.serviceThreads || [];
@@ -1079,9 +1102,8 @@ export async function checkServiceBumps() {
   const due = services.newlyDue(threads);
   if (!due.length) return { due: 0 };
 
-  const templates = cfg.bumpTemplates?.length ? cfg.bumpTemplates : DEFAULT_CONFIG.bumpTemplates;
   for (const t of due) {
-    const text = spin(templates[Math.floor(Math.random() * templates.length)] || '');
+    const text = pickBumpText(cfg);
     await telegram.say(cfg.telegramChatId,
       `🔔 <b>${escHtml(t.label || t.id)}</b> is due to bump.\n\n`
       + `Suggested update (tap to copy, post it yourself on BHW):\n<pre>${escHtml(text)}</pre>\n\n`
@@ -1640,6 +1662,17 @@ export async function pollTaps() {
         await telegram.say(cfg.telegramChatId, r.marked
           ? `✅ "${r.thread.label}" marked bumped — eligible again in ${services.PROMO_BUMP_HOURS}h.`
           : `❌ No tracked thread matches "${bm[1].trim()}".`);
+        done++;
+        continue;
+      }
+    }
+    // "idea <label>" - suggested bump wording for a tracked thread, on
+    // request, at any time. Unlike the automatic due+peak-hour reminder,
+    // this never touches bumpNotifiedAt or the eligibility clock.
+    {
+      const im = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?idea\s+(.+)/i);
+      if (im) {
+        await sendBumpIdea(cfg, im[1]);
         done++;
         continue;
       }
