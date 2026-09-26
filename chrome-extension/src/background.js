@@ -21,6 +21,7 @@ import { matchLead, isExcludedThread } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
 import { renderReply, renderDm, renderDmTitle, plain, spin } from './templates.js';
 import * as services from './services.js';
+import * as traffic from './traffic.js';
 import { lintDraft, botTextIn, stripBotText } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
@@ -35,7 +36,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
-  getStaged, setStaged, removeStagedByTab, dedupeLeads
+  getStaged, setStaged, removeStagedByTab, dedupeLeads, getTrafficSamples, addTrafficSample
 } from './store.js';
 
 const FEED_ALARM = 'poll-feed';
@@ -1054,7 +1055,18 @@ export async function checkServiceBumps() {
   const cfg = await getConfig();
   const threads = cfg.serviceThreads || [];
   if (!threads.length || !cfg.telegramChatId) return { skipped: 'off' };
-  if (!services.isPeakHours(cfg)) return { skipped: 'outside peak hours' };
+
+  // Learn real traffic on every check, whether or not anything is due - the
+  // sample is only useful if it keeps arriving on a schedule, not only when
+  // there happens to be a thread to bump. Never fails the check: a missed
+  // reading is one lost data point, not a broken poll.
+  const counts = await traffic.fetchOnlineCounts();
+  if (counts) await addTrafficSample(counts);
+  const learned = traffic.isHighTrafficNow(await getTrafficSamples(), cfg);
+  // Once there is enough real data, use it; until then, the manually
+  // configured window (Options -> Your service threads) is the fallback.
+  const isPeak = learned.ready ? learned.high : services.isPeakHours(cfg);
+  if (!isPeak) return { skipped: 'outside peak hours', learned: learned.ready };
 
   const due = services.newlyDue(threads);
   if (!due.length) return { due: 0 };
@@ -1074,6 +1086,27 @@ export async function checkServiceBumps() {
   await setConfig({ serviceThreads: next });
   await log(`${due.length} service thread(s) due to bump — sent to Telegram`);
   return { due: due.length };
+}
+
+/** "traffic" - the live BHW online count, and what the learned pattern says about right now. */
+export async function sendTrafficStatus(cfg) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+  const counts = await traffic.fetchOnlineCounts();
+  const samples = await getTrafficSamples();
+  const learned = traffic.isHighTrafficNow(samples, cfg);
+
+  const lines = [`📶 <b>BHW traffic</b>`];
+  lines.push(counts
+    ? `Right now: ${counts.members} members online (${counts.total} total visitors)`
+    : 'Could not read the online count just now.');
+  lines.push(learned.ready
+    ? `This hour is usually <b>${learned.high ? 'busier' : 'quieter'}</b> than average`
+      + (learned.hourAvg != null ? ` (${Math.round(learned.hourAvg)} vs ${Math.round(learned.dayAvg)} members typically)` : '')
+      + ` — learned from ${learned.samples} readings.`
+    : `Still learning — ${learned.samples}/${traffic.MIN_SAMPLES} readings so far. `
+      + `Using your manual peak-hours window (${cfg.servicesPeakStartHour ?? 9}–${cfg.servicesPeakEndHour ?? 22}) until then.`);
+  await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+  return { counts, learned };
 }
 
 export async function announceNew(cfg) {
@@ -1582,6 +1615,13 @@ export async function pollTaps() {
     }
     if (ev.kind === 'reply' && /^\/?services\b/i.test(String(ev.body || '').trim())) {
       await sendServicesStatus(cfg);
+      done++;
+      continue;
+    }
+    // "traffic" - the live BHW online count right now, and whether this hour
+    // is actually busier than average once enough real data exists.
+    if (ev.kind === 'reply' && /^\/?traffic\b/i.test(String(ev.body || '').trim())) {
+      await sendTrafficStatus(cfg);
       done++;
       continue;
     }

@@ -32,6 +32,7 @@ globalThis.chrome = {
   }
 };
 
+let onlineHtml = '';   // empty by default = "could not read it", exactly like a page that changed shape
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes('api.telegram.org')) {
@@ -41,8 +42,11 @@ globalThis.fetch = async (url, opts) => {
     if (method === 'getUpdates') return { ok: true, status: 200, json: async () => ({ ok: true, result: updates }) };
     return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
   }
+  if (u.includes('blackhatworld.com/online/')) return { ok: true, status: 200, text: async () => onlineHtml };
   return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
 };
+const onlinePage = (members) =>
+  `<div>Members online: ${members}</div><div>Guests online: 9000</div><div>Total visitors: ${members + 9000}</div>`;
 
 let updates = [];
 const bg = await import('../src/background.js');
@@ -163,13 +167,74 @@ ok('an unknown label is refused', /No tracked thread matches/.test(said), said);
      !(await getLeads()).some((l) => l.draft === 'services' || l.dm === 'services'));
 }
 
+// --- learning real traffic, and using it once there is enough --------------
+{
+  const trafficMod = await import('../src/traffic.js');
+
+  // Before any data exists, "traffic" says so plainly and names the fallback.
+  onlineHtml = '';
+  tgCalls = [];
+  updates = [msg('traffic')];
+  await bg.pollTaps();
+  said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('with no data yet, "traffic" admits it could not read the count', /Could not read the online count/.test(said), said);
+  ok('and names the manual fallback', /Still learning/.test(said) && /manual peak-hours window/.test(said), said);
+
+  // A working page reports the live count.
+  onlineHtml = onlinePage(500);
+  tgCalls = [];
+  updates = [msg('traffic')];
+  await bg.pollTaps();
+  said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('with a working page, the live count shows', /500 members online/.test(said), said);
+
+  // Track a thread again so there is something for checkServiceBumps to
+  // actually act on, and set the MANUAL window to exclude the current hour -
+  // so any reminder that goes out below can only be explained by the
+  // LEARNED traffic pattern overriding that fallback, not the manual one.
+  await bg.trackServiceThread(await getConfig(),
+    'https://www.blackhatworld.com/seo/another-thread.777888/', 'Learning Test');
+  const nowHour = new Date().getUTCHours();
+  const farHour = (nowHour + 12) % 24;
+  await setConfig({ servicesPeakStartHour: farHour, servicesPeakEndHour: (farHour + 1) % 24, timezone: 'UTC' });
+
+  // Seed a real pattern: busy at the current hour, quiet twelve hours away -
+  // enough readings, spread over enough days, to clear the minimum before
+  // the learned data is trusted over the guess.
+  const atHourDaysAgo = (hour, daysAgo) => {
+    const d = new Date(); d.setUTCDate(d.getUTCDate() - daysAgo); d.setUTCHours(hour, 0, 0, 0);
+    return d.getTime();
+  };
+  const seeded = [];
+  for (let i = 1; i <= trafficMod.MIN_SAMPLES; i++) {
+    seeded.push({ ts: atHourDaysAgo(nowHour, i), members: 500 });
+    seeded.push({ ts: atHourDaysAgo(farHour, i), members: 10 });
+  }
+  store.trafficSamples = seeded;
+
+  tgCalls = [];
+  const r = await bg.checkServiceBumps();
+  ok('the learned pattern overrides the manual window and lets the bump through',
+     r.due === 1, JSON.stringify(r));
+  const bumpMsg = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('and the reminder actually names the tracked thread', /Learning Test/.test(bumpMsg), bumpMsg);
+
+  // Once there is enough data, "traffic" reports it as learned, not "still learning".
+  tgCalls = [];
+  updates = [msg('traffic')];
+  await bg.pollTaps();
+  said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('"traffic" now reports the learned pattern instead of "still learning"',
+     /usually <b>busier<\/b>/.test(said) || /busier.*than average/.test(said), said);
+}
+
 // --- untracking ---------------------------------------------------------------
 tgCalls = [];
 updates = [msg('untrack My SEO Gigs')];
 await bg.pollTaps();
 said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
 ok('untracking confirms', /Stopped tracking "My SEO Gigs"/.test(said), said);
-ok('and it is gone from config', (await getConfig()).serviceThreads.length === 0);
+ok('and it is gone from config', !(await getConfig()).serviceThreads.some((t) => t.label === 'My SEO Gigs'));
 
 tgCalls = [];
 updates = [msg('untrack My SEO Gigs')];

@@ -5,6 +5,22 @@ const LEADS_KEY = 'recentLeads';  // last 500 leads, newest first (dashboard)
 const RATE_KEY = 'rateState';     // { day: 'YYYY-MM-DD', count: n, lastPostAt: epochMs }
 const LOG_KEY = 'log';            // last 100 log lines
 const SEEN_TTL_MS = 21 * 24 * 60 * 60 * 1000;
+const TRAFFIC_KEY = 'trafficSamples';   // [{ ts: epochMs, members, guests, total }]
+const TRAFFIC_TTL_MS = 14 * 24 * 60 * 60 * 1000;   // 14 days is enough to learn an hourly pattern
+
+export async function getTrafficSamples() {
+  const { [TRAFFIC_KEY]: samples } = await chrome.storage.local.get(TRAFFIC_KEY);
+  return samples || [];
+}
+
+/** Record one reading of BHW's own "members online" count, pruning old ones. */
+export async function addTrafficSample(counts) {
+  const now = Date.now();
+  const samples = (await getTrafficSamples()).filter((s) => now - s.ts <= TRAFFIC_TTL_MS);
+  samples.push({ ts: now, ...counts });
+  await chrome.storage.local.set({ [TRAFFIC_KEY]: samples });
+  return samples;
+}
 
 export async function getSeen() {
   const { [SEEN_KEY]: seen } = await chrome.storage.local.get(SEEN_KEY);
