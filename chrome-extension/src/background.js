@@ -865,11 +865,19 @@ export async function sendPending(cfg, hours = 24) {
   const leads = await getLeads();
   const windowMs = Math.max(0, Number(hours) || 0) * 3600000;
   const cutoff = windowMs ? Date.now() - windowMs : 0;
+  // Measured from the THREAD's own post date, not foundAt (when we happened
+  // to record it) - the exact bug already fixed once for the announce queue
+  // in announce.js's isTooOld. foundAt is "did we only just notice it", which
+  // a backfilled or re-swept lead can satisfy while the thread itself is
+  // days old; postedAt is "is this actually recent", which is what a 24h
+  // window is supposed to mean. Falls back to foundAt only when postedAt
+  // was never recorded at all.
+  const ageOf = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
   const unstruck = leads
     .filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.pmSent
                  && String(l.threadId) !== 'sample'
-                 && (!cutoff || new Date(l.foundAt || 0).getTime() >= cutoff))
-    .sort((a, b) => new Date(b.foundAt || 0) - new Date(a.foundAt || 0));
+                 && (!cutoff || ageOf(l) >= cutoff))
+    .sort((a, b) => ageOf(b) - ageOf(a));
 
   const windowLabel = windowMs ? ` from the last ${hours}h` : '';
   if (!unstruck.length) {

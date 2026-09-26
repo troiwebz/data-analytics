@@ -886,6 +886,33 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('an empty window says so, naming the window', /Nothing pending from the last 6h/.test(emptyWindow), emptyWindow);
 }
 
+// --- the exact regression: a thread genuinely old but only recently found --
+//
+// "I tried running 'pending' and still it gives me 8 days ago threads." A
+// BACKFILL-tagged lead (deliberately included in a pending audit) or a
+// re-swept one can have a FRESH foundAt - we only just recorded it - while
+// the actual BHW thread, and its postedAt, is over a week old. Filtering the
+// window on foundAt let it straight through a "last 24h" pending exactly
+// the way it once let a bumped thread straight through the announce queue
+// (announce.js's isTooOld, fixed the same way for the same reason).
+{
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  store.recentLeads = [
+    lead('90', { title: 'genuinely posted eight days ago', status: 'BACKFILL',
+                 postedAt: hoursAgo(192), foundAt: hoursAgo(0.1) }),
+    lead('91', { title: 'actually posted an hour ago', postedAt: hoursAgo(1), foundAt: hoursAgo(1) })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 94, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('an 8-day-old thread is excluded however recently WE recorded it',
+     !/genuinely posted eight days ago/.test(sent), sent.slice(0, 200));
+  ok('a thread actually posted an hour ago still comes through',
+     /actually posted an hour ago/.test(sent), sent.slice(0, 200));
+}
+
 // --- "today": what actually went out, with links -----------------------
 {
   await setConfig({ telegramChatId: '999' });

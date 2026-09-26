@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArjI7ByQmIfc8mY+pXO0pquZ5ityQM09kfx9YEWHJEPq4O+lZ3NQc0AVcjetAKjCAes3+EO4hK+3ywaVN/TfJzjHwCHYrv4AHuRKkE+tniqwAbzZWInzsAqo1cmK6nWTxMw/9bA6lytGEBC6CvmQUV/823N7NS5WmemTh7WFPmw2UDt0n0hOFJdzJ+ad7/2d+DxnaSY+J4mQ3Pb99vsw3hSfID2rrIx/77lS589r06B8x4MV7nVxDTIpgzHdXxYuEfz+DjHbw53SmWohl9eV8dHkzVqk8dNwHAzsrnlYs6ke7Ho/vI6Lzi4Vl+EtoRSk/jleKaOdJEnZUEvH9J7A6qQIDAQAB",
   "name": "HAF Watcher — BlackHatWorld Hire a Freelancer",
-  "version": "0.96.0",
+  "version": "0.97.0",
   "description": "Watches the Hire a Freelancer forum, scores every new thread, and has Claude write the technical lines of your reply and PM. Nothing posts without your tap.",
   "permissions": [
     "alarms",
