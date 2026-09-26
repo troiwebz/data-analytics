@@ -468,9 +468,11 @@ assert.strictEqual(co("Ltd company in Manchester, VAT registered").key, "uk");
 assert.strictEqual(co("Toronto, Ontario — what is a good postal code radius").key, "ca");
 assert.strictEqual(co("Sydney, NSW, ABN registered").key, "au");
 for (const k of ["us", "uk", "ca", "au"]) assert.strictEqual(V.COUNTRY[k].tier1, true);
-// a low-budget market is recognised even when a dollar sign is in the text
-assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").key, "low");
+// a low-budget market is recognised even when a dollar sign is in the text,
+// and it is named specifically rather than lumped into one bucket
+assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").key, "in");
 assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").tier1, false);
+assert.strictEqual(co("budget is 20000 INR, about $200, agency in India").name, "India");
 // a country's own room settles it outright
 assert.strictEqual(co("no clues at all", "smallbusinessUK").key, "uk");
 assert.strictEqual(co("no clues at all", "smallbusinessUK").sure, true);
@@ -485,7 +487,15 @@ assert.strictEqual(V.tierScore({ title: "no clues" }, { tier1Only: true, strict:
 assert.strictEqual(V.tierScore({ title: "20000 INR budget in India" }, {}).keep, true, "the filter must do nothing when it is off");
 
 // ---- targeting the United States specifically, not just "not India" -----
-assert.deepStrictEqual(Object.keys(V.TIER_MODES).sort(), ["off", "tier1", "us"]);
+// off, tier1, and one mode per country in the list — any single country can
+// be the whole target, not just the four wired in as fixed modes before
+assert.ok(V.TIER_MODES.off && V.TIER_MODES.tier1 && V.TIER_MODES.us, "the base modes are missing");
+for (const c of V.COUNTRY_LIST) assert.ok(V.TIER_MODES[c.key], c.key + " has no mode built for it");
+assert.strictEqual(Object.keys(V.TIER_MODES).length, 2 + V.COUNTRY_LIST.length);
+assert.strictEqual(V.TIER_MODES.in.name, "India only");
+assert.strictEqual(V.tierScore({ title: "I run an agency in Karachi" }, { mode: "pk" }).keep, true);
+assert.strictEqual(V.tierScore({ title: "I run an agency in Karachi" }, { mode: "in" }).keep, false, "a Pakistani post passed an India-only filter");
+assert.strictEqual(V.tierScore({ title: "Spending $4k a month, zip code" }, { mode: "in" }).keep, false, "a US post passed an India-only filter");
 assert.strictEqual(V.tierScore({ title: "Spending $4k a month, zip code area" }, { mode: "us" }).keep, true);
 assert.strictEqual(V.tierScore({ title: "Ltd company in Manchester, VAT registered" }, { mode: "us" }).keep, false, "a UK post passed a US-only filter");
 assert.strictEqual(V.tierScore({ title: "Toronto, Ontario postal code" }, { mode: "us" }).keep, false, "a Canadian post passed a US-only filter");
@@ -508,14 +518,14 @@ for (const t of [
   "Small team in Gurgaon offering SEO services",
   "Based out of Pune, want to scale our agency",
 ]) {
-  assert.strictEqual(V.countryOf(t).key, "low", "missed an Indian city/phone signal in: " + t);
+  assert.strictEqual(V.countryOf(t).key, "in", "missed an Indian city/phone signal in: " + t);
   assert.strictEqual(V.tierScore({ title: t }, { mode: "us" }).keep, false, "an Indian post passed the US filter: " + t);
   assert.strictEqual(V.tierScore({ title: t }, { mode: "tier1" }).keep, false, "an Indian post passed the tier1 filter: " + t);
 }
-// other countries' cities are caught the same way
-assert.strictEqual(V.countryOf("Our office is in Karachi, need help with ads").key, "low");
-assert.strictEqual(V.countryOf("We run a shop in Lagos").key, "low");
-assert.strictEqual(V.countryOf("Based in Manila, small ecommerce store").key, "low");
+// other countries' cities are caught the same way, each named specifically
+assert.strictEqual(V.countryOf("Our office is in Karachi, need help with ads").key, "pk");
+assert.strictEqual(V.countryOf("We run a shop in Lagos").key, "ng");
+assert.strictEqual(V.countryOf("Based in Manila, small ecommerce store").key, "ph");
 
 // ---- the audit, produced for nothing ------------------------------------
 assert.ok(V.AUDIT_KIT.steps.length >= 6);
@@ -600,10 +610,18 @@ assert.strictEqual(V.tierScore({ title: "Our site is in PHP and we spend $3k a m
 // other ordinary words that are also currencies
 assert.strictEqual(V.countryOf("the dong on our van is broken").key, "");
 assert.strictEqual(V.countryOf("we sell taka bread").key, "");
-// but the real signals still land
+// but the real signals still land — as low-budget in every case, and named
+// specifically wherever the text names a country
 for (const t of ["budget is 20000 INR a month", "we pay 2 lakh per month", "agency in India quoted us", "₹50000 a month", "Rs. 5000 per lead", "paying in naira"]) {
-  assert.strictEqual(V.countryOf(t).key, "low", "missed a low-budget market in: " + t);
+  assert.strictEqual(V.countryOf(t).tier1, false, "missed a low-budget market in: " + t);
 }
+assert.strictEqual(V.countryOf("budget is 20000 INR a month").key, "in");
+assert.strictEqual(V.countryOf("agency in India quoted us").key, "in");
+assert.strictEqual(V.countryOf("₹50000 a month").key, "in");
+assert.strictEqual(V.countryOf("paying in naira").key, "ng");
+// no city or country named at all, just an ambiguous rupee figure
+assert.strictEqual(V.countryOf("we pay 2 lakh per month").key, "other");
+assert.strictEqual(V.countryOf("Rs. 5000 per lead").key, "other");
 // the funnel names the gate that ate everything
 const nothing = V.funnelWhy({ read: 0, kept: 0, live: 0, drop: { sources: 141 } });
 assert.strictEqual(nothing.ok, false);

@@ -400,7 +400,10 @@ $("#scanStop").onclick = () => { send({ type: "v2-scan-stop" }); say("stopping�
 async function saveTierFilter() {
   const mode = $("#tierMode").value, strict = $("#tierStrict").checked;
   await send({ type: "v2-tier1", mode, strict });
-  const name = { off: "no market filter", tier1: "US, UK, Canada and Australia", us: "United States only" }[mode];
+  // built from the same list the worker uses, so a new country needs no
+  // second edit here — the bug this replaced said "targeting undefined"
+  // for every country beyond the three that were hardcoded
+  const name = mode === "off" ? "no market filter" : mode === "tier1" ? "US, UK, Canada and Australia" : (V2.TIER_MODES[mode] || {}).name || mode;
   say(`targeting ${name}${strict ? ", unmarked posts dropped too" : ""} from now on — rescan to apply it`, "var(--go)");
 }
 $("#tierMode").onchange = saveTierFilter;
@@ -1059,8 +1062,19 @@ async function showVersion() {
 }
 
 // ------------------------------------------------------------------- boot
+// One country per option, built from the same list the worker filters
+// against, so a country added there shows up here without a second edit.
+function fillCountryOptions() {
+  const box = $("#tierCountries");
+  if (!box) return;
+  box.innerHTML = (V2.COUNTRY_LIST || []).filter((c) => c.key !== "us")
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => `<option value="${esc(c.key)}">${esc(c.name)} only</option>`).join("");
+}
+
 (async function boot() {
   try { $("#ver").textContent = "v" + chrome.runtime.getManifest().version; } catch (_) { /* opened as a file */ }
+  fillCountryOptions();
   showVersion();
   setInterval(showVersion, 30000);
   await drawPlan();

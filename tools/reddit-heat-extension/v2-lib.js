@@ -1932,45 +1932,65 @@ V2.freeIdeas = function (campaign, seed) {
 // ------------------------------------------------------- where they are
 // Reddit does not hand out a country, but people give themselves away in
 // every other line. This is free and deterministic, and it is what keeps the
-// queue to the places where a lead is worth having.
+// queue to the places where a lead is worth having — and it names each
+// country specifically rather than lumping everything non-tier-one into one
+// bucket, so a target can be any single country, not just "not India".
+//
+// Every token here has to be unambiguous. "PHP" was reading the programming
+// language as the Philippine peso and throwing away a $3k-a-month buyer, so
+// the peso is never matched by the language code, only by the country name,
+// a city, or the phone code. "dong" and "taka" are ordinary-looking words
+// too, so those only count sitting next to a digit. A currency code only
+// counts next to a number; the language is never a country.
 V2.COUNTRY = {
   us: { name: "United States", tier1: true, re: /\b(zip ?code|\d{5}(-\d{4})?\b|LLC\b|S-?corp|realtor|sidewalk|gasoline|HOA\b|IRS\b|W-?2\b|1099\b|DMV\b|401k)\b|\$\s?\d|\b(texas|florida|california|ohio|georgia|arizona|colorado|michigan|illinois|nevada|virginia|tennessee|oregon|utah|kansas|iowa)\b/i },
   uk: { name: "United Kingdom", tier1: true, re: /\bpost ?code\b|\bLtd\b|\bVAT\b|\bHMRC\b|\bcompanies house\b|\bhigh street\b|\bcouncil\b|\blimited company\b|£\s?\d|\b(london|manchester|birmingham|leeds|glasgow|bristol|liverpool|sheffield|edinburgh|cardiff|belfast|nottingham)\b/i },
   ca: { name: "Canada", tier1: true, re: /\bpostal code\b|\bGST\b|\bHST\b|\bCRA\b|\bprovince\b|\bloonie\b|\bCAD\b|C\$\s?\d|\b(toronto|vancouver|calgary|edmonton|ottawa|montreal|winnipeg|mississauga|hamilton|halifax|saskatoon)\b|\b(ontario|alberta|quebec|manitoba|saskatchewan|nova scotia|british columbia)\b/i },
   au: { name: "Australia", tier1: true, re: /\bABN\b|\bGST\b.*\baustralia|\bBAS\b|\bsuburb\b|\bAUD\b|A\$\s?\d|\b(sydney|melbourne|brisbane|perth|adelaide|canberra|gold coast|newcastle)\b|\b(nsw|qld|vic|wa|sa|nt|act)\b/i },
-  // Every token here has to be unambiguous. "PHP" was reading the programming
-  // language as the Philippine peso and throwing away a $3k-a-month buyer;
-  // "dong" and "taka" are ordinary words too. A currency code only counts
-  // next to a number, and the language is never a country. City names carry
-  // the weight here rather than currency alone — a huge share of posts from
-  // India, Pakistan, Nigeria and the Philippines name a city and never a
-  // currency or the country itself, and those were sliding through as
-  // "unknown" before.
-  low: { name: "somewhere with a small budget", tier1: false,
-    re: /₹\s?\d|\brs\.? ?\d|\b\d+\s?(inr|pkr|ngn|bdt|idr|vnd)\b|\b(inr|pkr|ngn|bdt|idr|vnd)\s?\d|\b\d+\s?(lakh|crore)\b|\b(lakhs?|crores?)\b|\bnaira\b|\brupees?\b|\brupiah\b|\+91[\s-]?\d|\+92[\s-]?\d|\+880[\s-]?\d|\+234[\s-]?\d|\+63[\s-]?\d|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b|\b(bangalore|bengaluru|mumbai|new delhi|delhi ncr|hyderabad|chennai|pune|kolkata|gurgaon|gurugram|noida|ahmedabad|jaipur|lucknow|surat|indore|chandigarh|karachi|lahore|islamabad|rawalpindi|dhaka|chittagong|lagos|abuja|nairobi|mombasa|manila|quezon city|cebu|jakarta|surabaya|bandung|hanoi|ho chi minh|karachi)\b/i },
+  in: { name: "India", tier1: false, re: /₹\s?\d|\binr\b\s?\d|\d\s?inr\b|\+91[\s-]?\d{2,}|\b(india|indian)\b|\b(bangalore|bengaluru|mumbai|new delhi|delhi ncr|hyderabad|chennai|pune|kolkata|gurgaon|gurugram|noida|ahmedabad|jaipur|lucknow|surat|indore|chandigarh)\b/i },
+  pk: { name: "Pakistan", tier1: false, re: /\bpkr\b\s?\d|\d\s?pkr\b|\+92[\s-]?\d{2,}|\bpakistan(i)?\b|\b(karachi|lahore|islamabad|rawalpindi)\b/i },
+  bd: { name: "Bangladesh", tier1: false, re: /\bbdt\b\s?\d|\d\s?bdt\b|\d\s?taka\b|\btaka\s?\d|\+880[\s-]?\d{2,}|\bbangladesh(i)?\b|\b(dhaka|chittagong)\b/i },
+  ng: { name: "Nigeria", tier1: false, re: /\bngn\b\s?\d|\d\s?ngn\b|\bnaira\b|\+234[\s-]?\d{2,}|\bnigeria(n)?\b|\b(lagos|abuja)\b/i },
+  ph: { name: "the Philippines", tier1: false, re: /\+63[\s-]?\d{2,}|\bphilippin(e|es)\b|\bfilipino\b|\b(manila|quezon city|\bcebu\b)\b/i },
+  id: { name: "Indonesia", tier1: false, re: /\bidr\b\s?\d|\d\s?idr\b|\brupiah\b|\+62[\s-]?\d{2,}|\bindonesia(n)?\b|\b(jakarta|surabaya|bandung)\b/i },
+  vn: { name: "Vietnam", tier1: false, re: /\bvnd\b\s?\d|\d\s?vnd\b|\+84[\s-]?\d{2,}|\bvietnam(ese)?\b|\b(hanoi|ho chi minh)\b/i },
+  ke: { name: "Kenya", tier1: false, re: /\bkes\b\s?\d|\d\s?kes\b|\+254[\s-]?\d{2,}|\bkenya(n)?\b|\b(nairobi|mombasa)\b/i },
+  np: { name: "Nepal", tier1: false, re: /\bnpr\b\s?\d|\d\s?npr\b|\+977[\s-]?\d{2,}|\bnepal(i|ese)?\b|\bkathmandu\b/i },
+  lk: { name: "Sri Lanka", tier1: false, re: /\blkr\b\s?\d|\d\s?lkr\b|\+94[\s-]?\d{2,}|\bsri lanka(n)?\b|\bcolombo\b/i },
+  // A bare rupee figure, "Rs. 5000", or "2 lakh" with no city or country
+  // named is real money but not attributable to one of the above — India,
+  // Pakistan, Nepal and Sri Lanka all write it the same way. Kept as its own
+  // entry rather than guessed into one of them.
+  other: { name: "an unnamed low-budget market", tier1: false, re: /\brs\.? ?\d|\b\d+\s?(lakh|crore)\b|\b(lakhs?|crores?)\b|\brupees?\b/i },
 };
-V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca", IndianStartups: "low" };
+V2.COUNTRY_LIST = Object.entries(V2.COUNTRY).filter(([k]) => k !== "other").map(([key, c]) => ({ key, name: c.name, tier1: c.tier1 }));
+V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca", IndianStartups: "in" };
 V2.countryOf = function (text, sub) {
   const t = String(text || "");
   if (sub && V2.COUNTRY_SUB[sub]) return { key: V2.COUNTRY_SUB[sub], ...V2.COUNTRY[V2.COUNTRY_SUB[sub]], why: "r/" + sub + " is a country's own room", sure: true };
   const hits = [];
   for (const [key, c] of Object.entries(V2.COUNTRY)) if (c.re.test(t)) hits.push({ key, ...c });
   if (!hits.length) return { key: "", name: "", tier1: null, why: "nothing in it says where they are", sure: false };
-  // a currency or a tax office beats a place name, and a low-budget market
-  // signal is never overridden by an incidental dollar sign
-  const low = hits.find((h) => h.key === "low");
-  const pick = low || hits[0];
-  return { ...pick, why: low ? "the money and the places named are not a tier-one market" : "reads as " + pick.name, sure: hits.length === 1 };
+  // a low-budget signal — a named country, city, phone code, or an
+  // unattributed rupee figure — always beats an incidental tier-one signal
+  // like a bare dollar sign: someone freelancing out of Mumbai who quotes a
+  // client in USD is still in Mumbai. Among the low-budget hits, a named
+  // country or city beats the unnamed catch-all.
+  const low = hits.filter((h) => h.tier1 === false);
+  const named = low.find((h) => h.key !== "other");
+  const pick = named || low[0] || hits[0];
+  return { ...pick, why: pick.key === "other" ? "the money named is not a tier-one market, but no specific country is named" : "reads as " + pick.name, sure: hits.length === 1 };
 };
 
 // What "on target" means is a choice, not a fact — asked for explicitly so it
 // says so on the tab rather than being buried in a checkbox. "off" keeps
-// everyone; "tier1" is the four English-speaking markets; "us" is the US
-// alone, for someone who said so plainly.
+// everyone; "tier1" is the four English-speaking markets; every other key is
+// exactly one country, built from the list above so picking a target is not
+// limited to the four already wired in as fixed modes.
 V2.TIER_MODES = {
   off: { name: "no filter", test: () => true },
   tier1: { name: "US, UK, Canada, Australia", test: (c) => c.tier1 === true },
-  us: { name: "United States only", test: (c) => c.key === "us" },
+  ...Object.fromEntries(V2.COUNTRY_LIST.map((c) => [c.key, { name: c.name + " only", test: (x) => x.key === c.key }])),
 };
 
 // ------------------------------------------------------- the audit itself
