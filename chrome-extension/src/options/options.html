@@ -285,6 +285,24 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Your service threads <span class="hint">separate from everything above - a short list of threads YOU run, checked against BHW's own bump rule</span></h2>
+    <div class="hint" style="margin-bottom:8px;line-height:1.7">
+      Add one from Telegram: <code>track &lt;thread url&gt; &lt;label&gt;</code>. <code>services</code> lists them
+      with a countdown to when each is next eligible to bump. Nothing here posts by itself - you're told when a
+      thread is due, with suggested wording to copy, and you post it yourself on BHW, then send
+      <code>bumped &lt;label&gt;</code> so the clock resets.
+    </div>
+    <div class="row">
+      <div><label>Peak hours start <span class="hint">your buyers' timezone, set above</span></label><input type="number" id="servicesPeakStartHour" min="0" max="23"></div>
+      <div><label>Peak hours end</label><input type="number" id="servicesPeakEndHour" min="0" max="23"></div>
+    </div>
+    <label style="margin-top:10px">Tracked threads <span class="hint">JSON - usually easier to manage from Telegram</span></label>
+    <textarea id="serviceThreads" style="min-height:80px"></textarea>
+    <label>Suggested bump wording <span class="hint">{a|b} spintax, one is picked at random each time</span></label>
+    <textarea id="bumpTemplates" style="min-height:100px"></textarea>
+  </div>
+
+  <div class="c">
     <h2>Moving to another machine <span class="hint">so a new install comes up already set up</span></h2>
     <div id="backupState" class="hint" style="line-height:1.7"></div>
     <div class="hint" style="margin-top:8px;line-height:1.7">

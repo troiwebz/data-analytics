@@ -19,7 +19,8 @@ import { fetchThreads } from './thread.js';
 import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead, isExcludedThread } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
-import { renderReply, renderDm, renderDmTitle, plain } from './templates.js';
+import { renderReply, renderDm, renderDmTitle, plain, spin } from './templates.js';
+import * as services from './services.js';
 import { lintDraft, botTextIn, stripBotText } from './compliance.js';
 import { buildCard, setCardZone } from './telegram-card.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
@@ -42,6 +43,7 @@ const APPROVAL_ALARM = 'poll-approvals';
 const UPDATE_ALARM = 'check-update';
 const PM_ALARM = 'sync-pms';
 const TAP_ALARM = 'telegram-taps';
+const BUMP_ALARM = 'bump-check';
 
 // ---------------------------------------------------------------- sound
 
@@ -326,6 +328,9 @@ export async function scheduleAlarms(cfg) {
   // Hourly is plenty: it is a safety net for PMs sent elsewhere, and the
   // button on the dashboard covers wanting it now.
   chrome.alarms.create(PM_ALARM, { periodInMinutes: 60, delayInMinutes: 2 });
+  // Your own service threads: a short, fixed list, so checking every 30
+  // minutes is plenty to catch a bump becoming eligible without being noisy.
+  chrome.alarms.create(BUMP_ALARM, { periodInMinutes: 30, delayInMinutes: 3 });
 
   // Your taps on the Telegram buttons. Chrome clamps alarms to 30 seconds, so
   // anything faster than that is the same as 30 seconds - the setting says so.
@@ -380,6 +385,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
     // The hourly alarm stays as a backstop: polling can be switched off, or a
     // cycle can fail, and the list should still be reconciled eventually.
     if (alarm.name === PM_ALARM) await syncSentPms().catch((e) => log(`PM check: ${e.message}`, 'error'));
+    if (alarm.name === BUMP_ALARM) await checkServiceBumps().catch((e) => log(`bump check: ${e.message}`, 'error'));
   } catch (e) {
     await log(`${alarm.name}: ${e.message}`, 'error');
   }
@@ -972,6 +978,103 @@ export async function sendDigest(cfg, days = 7) {
   return { days: n, ...totals };
 }
 
+// ---------------------------------------------------------- service threads
+//
+// A short, fixed list of threads YOU run (your own "SEO services" / "social
+// accounts" / etc. listing) - separate from everything above, which watches
+// OTHER people's buyer threads. There is no keyword matching here: you add a
+// thread by hand with "track", because there is nothing to discover.
+//
+// Nothing here posts to BHW by itself. A due thread gets a suggested update
+// on Telegram; you post it yourself and tell the bot "bumped <label>" so the
+// clock resets. See src/services.js for the actual 24h/72h cadence rule.
+const escHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function findServiceThread(cfg, label) {
+  const needle = String(label || '').trim().toLowerCase();
+  if (!needle) return null;
+  return (cfg.serviceThreads || []).find((t) =>
+    String(t.id).toLowerCase() === needle || String(t.label || '').toLowerCase() === needle);
+}
+
+export async function trackServiceThread(cfg, url, label) {
+  const id = threadIdFromUrl(url);
+  if (!id) return { ok: false, error: 'Could not find a thread id in that URL.' };
+  const threads = (cfg.serviceThreads || []).filter((t) => String(t.id) !== String(id));
+  const clean = String(label || '').trim() || `thread ${id}`;
+  threads.push({ id: String(id), url: String(url), label: clean });
+  await setConfig({ serviceThreads: threads });
+  return { ok: true, id: String(id), label: clean };
+}
+
+export async function untrackServiceThread(cfg, label) {
+  const found = findServiceThread(cfg, label);
+  if (!found) return { removed: false };
+  await setConfig({ serviceThreads: (cfg.serviceThreads || []).filter((t) => t !== found) });
+  return { removed: true, thread: found };
+}
+
+/** "bumped <label>" - you posted the update yourself; reset the clock. */
+export async function markBumped(cfg, label) {
+  const found = findServiceThread(cfg, label);
+  if (!found) return { marked: false };
+  const threads = (cfg.serviceThreads || []).map((t) => t !== found ? t : {
+    ...t, lastBumpedAt: new Date().toISOString(), lastBumpKind: 'promo', bumpNotifiedAt: ''
+  });
+  await setConfig({ serviceThreads: threads });
+  return { marked: true, thread: found };
+}
+
+export async function sendServicesStatus(cfg) {
+  if (!cfg.telegramChatId) return { skipped: 'off' };
+  const threads = cfg.serviceThreads || [];
+  if (!threads.length) {
+    await telegram.say(cfg.telegramChatId,
+      'No service threads tracked yet. Send "track <thread url> <label>" to add one.');
+    return { tracked: 0 };
+  }
+  const lines = [`🧵 <b>Your service threads</b>`];
+  for (const t of threads) {
+    const status = services.isBumpEligible(t) ? '🔔 eligible now' : `⏳ eligible in ${services.hoursUntilEligible(t)}h`;
+    lines.push(`· <b>${escHtml(t.label || t.id)}</b> — ${status}`
+      + (t.url ? `\n  <a href="${escHtml(t.url)}">${escHtml(t.url)}</a>` : ''));
+  }
+  await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+  return { tracked: threads.length };
+}
+
+/**
+ * Runs on the 30-minute bump alarm. Held to your configured peak-traffic
+ * window rather than firing the moment a thread is technically eligible - a
+ * bump landing while buyers are actually browsing is worth more than one
+ * fired at 3am and buried by morning.
+ */
+export async function checkServiceBumps() {
+  const cfg = await getConfig();
+  const threads = cfg.serviceThreads || [];
+  if (!threads.length || !cfg.telegramChatId) return { skipped: 'off' };
+  if (!services.isPeakHours(cfg)) return { skipped: 'outside peak hours' };
+
+  const due = services.newlyDue(threads);
+  if (!due.length) return { due: 0 };
+
+  const templates = cfg.bumpTemplates?.length ? cfg.bumpTemplates : DEFAULT_CONFIG.bumpTemplates;
+  for (const t of due) {
+    const text = spin(templates[Math.floor(Math.random() * templates.length)] || '');
+    await telegram.say(cfg.telegramChatId,
+      `🔔 <b>${escHtml(t.label || t.id)}</b> is due to bump.\n\n`
+      + `Suggested update (tap to copy, post it yourself on BHW):\n<pre>${escHtml(text)}</pre>\n\n`
+      + (t.url ? `<a href="${escHtml(t.url)}">Open thread</a>\n\n` : '')
+      + `Once posted, send "bumped ${escHtml(t.label || t.id)}" so the timer resets.`,
+      { html: true });
+  }
+  const dueIds = new Set(due.map((t) => t.id));
+  const next = threads.map((t) => dueIds.has(t.id) ? { ...t, bumpNotifiedAt: new Date().toISOString() } : t);
+  await setConfig({ serviceThreads: next });
+  await log(`${due.length} service thread(s) due to bump — sent to Telegram`);
+  return { due: due.length };
+}
+
 export async function announceNew(cfg) {
   if (!cfg.telegramEnabled || !cfg.telegramChatId) return { skipped: 'off' };
 
@@ -1441,6 +1544,49 @@ export async function pollTaps() {
             `🚫 Thread ${id} will never be recorded as a lead again.`
             + (swept.settled ? ` Cleared ${swept.settled} copy already in the table.` : ''));
         }
+        done++;
+        continue;
+      }
+    }
+
+    // "track <thread url> <label>" - add one of YOUR OWN service threads to
+    // the bump tracker. "untrack <label>" removes it. "services" lists them
+    // all with their bump-eligibility countdown. "bumped <label>" - you
+    // posted the suggested update yourself; reset the clock.
+    {
+      const trm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?track\s+(\S+)(?:\s+(.+))?/i);
+      if (trm) {
+        const r = await trackServiceThread(cfg, trm[1], trm[2]);
+        await telegram.say(cfg.telegramChatId, r.ok
+          ? `🧵 Tracking "${r.label}" — you'll hear about it here once it's due to bump.`
+          : `❌ ${r.error}`);
+        done++;
+        continue;
+      }
+    }
+    {
+      const utm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?untrack\s+(.+)/i);
+      if (utm) {
+        const r = await untrackServiceThread(cfg, utm[1]);
+        await telegram.say(cfg.telegramChatId, r.removed
+          ? `🗑️ Stopped tracking "${r.thread.label}".`
+          : `❌ No tracked thread matches "${utm[1].trim()}".`);
+        done++;
+        continue;
+      }
+    }
+    if (ev.kind === 'reply' && /^\/?services\b/i.test(String(ev.body || '').trim())) {
+      await sendServicesStatus(cfg);
+      done++;
+      continue;
+    }
+    {
+      const bm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?bumped\s+(.+)/i);
+      if (bm) {
+        const r = await markBumped(cfg, bm[1]);
+        await telegram.say(cfg.telegramChatId, r.marked
+          ? `✅ "${r.thread.label}" marked bumped — eligible again in ${services.PROMO_BUMP_HOURS}h.`
+          : `❌ No tracked thread matches "${bm[1].trim()}".`);
         done++;
         continue;
       }

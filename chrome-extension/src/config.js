@@ -234,6 +234,34 @@ export const DEFAULT_CONFIG = {
   excludeThreadIds: ['951769'],
   excludeAuthors: [],          // usernames (case-insensitive) to always ignore, e.g. mod accounts
 
+  // ---- Your own service threads ------------------------------------------
+  // Separate from everything above: HAF watches OTHER people's buyer threads
+  // across the whole forum, this watches a short, fixed list of threads YOU
+  // run - your own "SEO services" / "social accounts" / etc. listing threads
+  // - and tells you when one is due to bump. Nothing here posts by itself
+  // yet: the bot suggests the wording and you post it on BHW yourself, then
+  // tell it "bumped <label>" so the clock resets.
+  //
+  // BHW's own rule: a bump with a real update behind it is fine every 24h; a
+  // bump with nothing new to say is capped at once per 72h. Every self-only
+  // bump from this feature is treated as the slower, safer 72h kind - a
+  // faster cadence is only earned by answering a real reply on the thread,
+  // which is a separate, later piece.
+  serviceThreads: [],          // [{ id, url, label, lastBumpedAt, lastBumpKind, bumpNotifiedAt }]
+  // Your buyers' peak browsing window, in the timezone set above. A bump
+  // held until this window starts is worth more than one fired the instant
+  // it becomes eligible at 3am and buried by the time anyone is looking.
+  servicesPeakStartHour: 9,
+  servicesPeakEndHour: 22,
+  // Rotated at random so two bumps in a row never read identically. {a|b}
+  // spintax, same mechanism as the reply templates. Kept deliberately vague
+  // about specifics so one set of lines works across any service thread.
+  bumpTemplates: [
+    'Quick update - {a fresh slot has opened up this week|taking on one more project this week|room in the schedule this week}.',
+    '{Bumping with|Small update -} {a couple of spots free for new work|availability just opened up|capacity freed up this week}.',
+    '{Still taking on new projects|Open for new work} this week - {drop a reply or a PM with what you need|reply below or PM with the details}.'
+  ],
+
   // ---- BHW compliance ---------------------------------------------------
   // Every public reply and PM is checked before it goes anywhere. A failing
   // draft is never auto-posted; it still reaches you, flagged with the rule.

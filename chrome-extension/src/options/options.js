@@ -8,11 +8,13 @@ const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHou
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername', 'announceMaxAgeHours',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
-            'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore'];
+            'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
+            'servicesPeakStartHour', 'servicesPeakEndHour'];
 const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
              'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode'];
 const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeAuthors',
-              'templates', 'offers', 'dmTemplates', 'compliance', 'specifics'];
+              'templates', 'offers', 'dmTemplates', 'compliance', 'specifics',
+              'serviceThreads', 'bumpTemplates'];
 const $ = (id) => document.getElementById(id);
 
 function fill(cfg) {
