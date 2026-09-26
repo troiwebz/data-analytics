@@ -75,6 +75,7 @@
   <nav>
     <button data-tab="camp" class="on">Campaign</button>
     <button data-tab="ideas">Ideas</button>
+    <button data-tab="trend">Trending</button>
     <button data-tab="plan">Calendar</button>
     <button data-tab="answer">Answer</button>
     <button data-tab="leads">Leads</button>
@@ -125,6 +126,18 @@
       </div>
     </div>
     <div class="grid" id="ideaGrid"></div>
+  </section>
+
+  <section id="trend">
+    <div class="note">Not what worked here before — what is pulling right now, anywhere, and worth running in a room your leads actually read. Only the <b>shape</b> of a winning post is taken: the hook, the pacing, what made people argue in the comments. Every fact, name and number from the original is thrown away on purpose, and a check refuses anything that copies a phrase or a figure from it. The room it lands in goes through the same audience gate as everything else, and the finished draft is checked that it is concretely about that room's own trade — a recreated post that never mentions the trade is rejected, not posted.</div>
+    <div class="bar">
+      <button class="act" id="viralScan">Scan for what is working</button>
+      <button class="ghost" id="viralStop" style="display:none">Stop</button>
+      <label class="f"><input type="checkbox" id="viralWide"> also look outside this campaign's rooms</label>
+      <span id="viralLive" class="faint"></span>
+    </div>
+    <div class="grid" id="viralGrid"></div>
+    <div id="viralDraft"></div>
   </section>
 
   <section id="audit">

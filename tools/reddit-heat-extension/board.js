@@ -22,6 +22,7 @@ $$("nav button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "boost") drawBoost();
   if (b.dataset.tab === "fit") drawFit();
   if (b.dataset.tab === "ideas") drawIdeas();
+  if (b.dataset.tab === "trend") drawViral();
   if (b.dataset.tab === "costs") drawCosts();
   if (b.dataset.tab === "audit") drawAudit();
 });
@@ -766,6 +767,58 @@ async function drawIdeas(force, seed, engine) {
 }
 $("#mkIdeas").onclick = () => drawIdeas(true, $("#seed").value.trim());
 $("#mkIdeasAi").onclick = () => drawIdeas(true, $("#seed").value.trim(), "ai");
+
+// ------------------------------------------------------------ trending
+async function drawViral() {
+  const r = await send({ type: "v2-viral-list" });
+  if (!r || !r.ok) return;
+  $("#viralLive").textContent = r.at ? "last scanned " + ago(r.at) + " ago" : "not scanned yet";
+  $("#viralGrid").innerHTML = (r.rows || []).map((p) => `<div class="card">
+    <div class="faint">${p.inCampaign ? `<span class="tag t-magnet">in this campaign</span>` : `<span class="tag t-value">wider net</span>`} r/${esc(p.sub)} · ${p.score} points, ${p.comments} comments, ${p.perHour}/hr</div>
+    <h3 style="margin-top:6px"><a href="${esc(p.permalink)}" target="_blank">${esc(p.title)}</a></h3>
+    <div class="faint">${esc(p.why)}</div>
+    ${p.format ? `<div class="draft" style="margin-top:8px;font:12px/1.6 -apple-system,Segoe UI,sans-serif">
+        <b>Hook:</b> ${esc(p.format.hook)}<br><b>Structure:</b> ${esc(p.format.structure)}<br><b>What makes people comment:</b> ${esc(p.format.comment_bait)}
+        ${(p.format.issues || []).length ? `<div class="issue" style="margin-top:6px">⚠ ${p.format.issues.map(esc).join("; ")}</div>` : ""}
+      </div>` : ""}
+    <div class="bar" style="margin-top:10px">
+      ${p.format ? `<button class="act" data-place="${esc(p.id)}">recreate it here</button><button class="ghost" data-fmt="${esc(p.id)}">extract again</button>`
+        : `<button class="act" data-fmt="${esc(p.id)}">extract the format</button>`}
+    </div></div>`).join("") || `<div class="card"><h3>Nothing scanned yet</h3><div class="faint">Press Scan for what is working — it reads today's top posts from this campaign's own rooms first, since a post already doing numbers inside the trade is inherently the right subject for it.</div></div>`;
+  $$("#viralGrid button[data-fmt]").forEach((b) => b.onclick = () => extractFormat(b.dataset.fmt));
+  $$("#viralGrid button[data-place]").forEach((b) => b.onclick = () => placeViral(b.dataset.place));
+}
+async function extractFormat(id) {
+  say("reading the shape of it, not the content…");
+  const r = await send({ type: "v2-viral-format", id });
+  if (!r || !r.ok) return say((r && r.error) || "could not read it", "var(--warn)");
+  say(r.cached ? "already extracted" : `extracted · ${r.format.cents || 0}¢${r.issues && r.issues.length ? " · " + r.issues.join("; ") : ""}`, r.issues && r.issues.length ? "var(--warn)" : "var(--go)");
+  drawViral();
+}
+async function placeViral(id) {
+  say("finding a room this actually fits…");
+  const res = await send({ type: "v2-viral-plan", id });
+  if (!res || !res.ok) return say((res && res.error) || "could not place it", "var(--warn)");
+  say(`on day ${res.n}, ${when(res.at)} in r/${res.sub} — recreated from r/${res.movedFrom}, writing it now`, "var(--go)");
+  await drawPlan();
+  $$("nav button").find((x) => x.dataset.tab === "plan").click();
+  write(res.n, true);
+}
+$("#viralScan").onclick = async () => {
+  $("#viralScan").disabled = true; $("#viralStop").style.display = "";
+  send({ type: "v2-viral-scan", wide: $("#viralWide").checked }).then((r) => {
+    $("#viralScan").disabled = false; $("#viralStop").style.display = "none"; $("#viralLive").textContent = "";
+    if (!r || !r.ok) return say((r && r.error) || "could not scan", "var(--warn)");
+    say(`read ${r.read} posts across ${r.sources} sources, ${r.kept} worth a look`, r.kept ? "var(--go)" : "var(--warn)");
+    drawViral();
+  });
+  const tick = setInterval(async () => {
+    const s = await send({ type: "v2-viral-state" });
+    if (!s || !s.running) { clearInterval(tick); return; }
+    $("#viralLive").textContent = `${esc(s.where)} · ${s.done} of ${s.total}`;
+  }, 700);
+};
+$("#viralStop").onclick = () => { send({ type: "v2-viral-stop" }); say("stopping…"); };
 
 // ------------------------------------------------------------ audit kit
 async function drawAudit() {

@@ -707,4 +707,60 @@ assert.match(bp.room, /Roofing/);
 assert.match(bp.judge, /cost per comment/);
 assert.strictEqual(V.boostPlan(0, 0).daily, 7, "an empty budget falls back to the default");
 
-console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles and " + V.POSTURES.length + " postures, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + Object.keys(V.JOBS).length + " jobs across " + Object.keys(V.PRICES).length + " models, " + V.SEARCHES.length + " money searches");
+// ---- recreate what is working: shape detection, not content -------------
+const H = 3600000;
+const vs = (title, ageMs, score, comments) => V.viralScore({ title, created: NOWB - ageMs, score, comments }, NOWB);
+assert.strictEqual(vs("5 mistakes I keep seeing new business owners make", 2 * H, 900, 4).transplantable, true);
+assert.strictEqual(vs("5 mistakes I keep seeing new business owners make", 2 * H, 900, 4).shape, "ranked_list");
+assert.strictEqual(vs("What 3 years of running ads taught me", 5 * H, 300, 120).transplantable, true);
+assert.strictEqual(vs("We went from 12 calls to 90 in four months", 3 * H, 150, 60).shape, "before_after");
+assert.strictEqual(vs("Shopify vs WooCommerce, which is actually better in 2026", 8 * H, 80, 40).shape, "comparison_fmt");
+assert.strictEqual(vs("I roasted my own landing page, here is what I found", 6 * H, 200, 90).shape, "teardown_fmt");
+assert.strictEqual(vs("I am the founder of a startup, AMA", 10 * H, 400, 150).shape, "ama_fmt");
+// jokes, reactions and pure personal stories have nowhere to put a hook
+assert.strictEqual(vs("lol when you finally get a client", 1 * H, 50, 5).transplantable, false);
+assert.strictEqual(vs("My journey building this company, an update", 20 * H, 60, 10).transplantable, false);
+assert.strictEqual(vs("Just a normal Tuesday at the shop", 4 * H, 10, 2).transplantable, false);
+// every transplantable shape maps onto a real post type the writer already knows
+for (const s2 of V.VIRAL_SHAPES) if (s2.transplantable) assert.ok(V.POST_TYPES.some((t) => t.key === s2.postType), s2.key + " maps to an unknown post type: " + s2.postType);
+
+// viralRank: only transplantable, only fresh, deduped, best first
+const vlist = [
+  { title: "5 mistakes I keep seeing new business owners make", created: NOWB - 2 * H, score: 900, comments: 4, sub: "a" },
+  { title: "5 mistakes I keep seeing new business owners make", created: NOWB - 3 * H, score: 800, comments: 3, sub: "b" }, // same story, different room — deduped
+  { title: "lol when you finally get a client", created: NOWB - 1 * H, score: 50, comments: 5, sub: "c" },
+  { title: "What 3 years of running ads taught me", created: NOWB - 6 * 24 * H, score: 5000, comments: 900, sub: "d" }, // huge but stale
+];
+const vr = V.viralRank(vlist, NOWB);
+assert.strictEqual(vr.length, 1, "expected one deduped, transplantable, fresh post: " + JSON.stringify(vr.map((r) => r.sub)));
+assert.strictEqual(vr[0].sub, "a");
+
+// the anti-plagiarism gate: structure only, never a fact
+const ORIG = { title: "5 mistakes I keep seeing new founders make with their $40,000 raise", body: "When I sold my company for 2.3 million last year I noticed a pattern in every failed pitch." };
+const CLEAN_FMT = { hook: "opens with a number that sounds implausible until explained", structure: "a numbered list of observations, each with a short fix",
+  pacing: "short punchy paragraphs, one per point", comment_bait: "invites readers to argue which point matters most",
+  length: "400-600 words", avoid: "do not reuse any dollar figure or company detail from an original", confidence: "high" };
+assert.deepStrictEqual(V.formatChecks(CLEAN_FMT, ORIG), []);
+assert.match(V.formatChecks({ ...CLEAN_FMT, hook: "opens with the founder mentioning their $40,000 raise directly" }, ORIG).join(" | "), /repeated the specific figure \$40,000/);
+assert.match(V.formatChecks({ ...CLEAN_FMT, structure: "When I sold my company for 2.3 million last year I noticed a pattern" }, ORIG).join(" | "), /copied a phrase/);
+assert.match(V.formatChecks({ ...CLEAN_FMT, hook: "short" }, ORIG).join(" | "), /too thin/);
+assert.match(V.formatChecks({ ...CLEAN_FMT, confidence: "certain" }, ORIG).join(" | "), /how clean a transplant/);
+assert.deepStrictEqual(V.formatChecks(null, ORIG), ["nothing came back"]);
+assert.match(V.formatSystem(), /extract structure only/i);
+assert.match(V.formatSystem(), /Never repeat a number/);
+assert.match(V.formatUser({ title: "x", body: "y", score: 5, comments: 9 }), /Describe the shape/);
+
+// the trend block reaches the post writer, same mechanism as a room's shape
+assert.match(V.trendBlock(CLEAN_FMT, { sub: "AskReddit" }), /source: r\/AskReddit/);
+assert.match(V.trendBlock(CLEAN_FMT, { sub: "AskReddit" }), /not to be copied/);
+assert.match(V.postUser(V.TARGETS.find((t) => t.sub === "Roofing"), "gbp_audit", "mistakes", {}, "", { trend: CLEAN_FMT, trendSource: { sub: "AskReddit" } }), /pulling strong engagement elsewhere/);
+assert.ok(!/pulling strong engagement/.test(V.postUser(V.TARGETS.find((t) => t.sub === "Roofing"), "gbp_audit", "mistakes", {})), "the trend block appeared without a trend");
+
+// "related subreddit" is enforced on the finished draft, not assumed
+const roofRoom = V.TARGETS.find((t) => t.sub === "Roofing");
+const tradeLock = V.campaign("trade_lock");
+assert.deepStrictEqual(V.trendRelevance({ title: "5 mistakes I keep seeing roofing companies make with their Google ads", body: "as a roofing business owner you..." }, roofRoom, tradeLock), []);
+assert.match(V.trendRelevance({ title: "5 mistakes I keep seeing new founders make", body: "generic business talk, no trade named" }, roofRoom, tradeLock).join(" | "), /never mentions roofing company/);
+assert.deepStrictEqual(V.trendRelevance({ title: "5 mistakes plumbers make with dispatch", body: "as a plumbing company you..." }, V.TARGETS.find((t) => t.sub === "Plumbing"), tradeLock), []);
+
+console.log("v2: all checks pass — " + V.TARGETS.length + " rooms, " + V.OFFERS.length + " shipped offers on " + V.OFFER_ANGLES.length + " angles and " + V.POSTURES.length + " postures, " + V.POST_TYPES.length + " shapes, " + V.LANES.length + " lanes a day, " + V.CAMPAIGNS.length + " campaigns, " + Object.keys(V.JOBS).length + " jobs across " + Object.keys(V.PRICES).length + " models, " + V.SEARCHES.length + " money searches, " + V.VIRAL_SHAPES.filter((s) => s.transplantable).length + " transplantable formats");

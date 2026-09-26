@@ -679,6 +679,7 @@ V2.postUser = function (target, offer, type, profile = {}, extra = "", opts = {}
     );
   }
   if (opts && opts.shape) lines.push(V2.shapeBlock(opts.shape), "");
+  if (opts && opts.trend) lines.push(V2.trendBlock(opts.trend, opts.trendSource), "");
   if (profile.credit) lines.push("True things about us that may be used, in our own words, and only if they fit naturally: " + profile.credit, "");
   if (profile.wins) lines.push("Real results we can cite: " + profile.wins, "");
   if (extra) lines.push("Extra instruction for this one: " + extra, "");
@@ -1718,16 +1719,21 @@ V2.ideaUser = function (seed, campaign, profile = {}) {
   lines.push("", "Give me eight.");
   return lines.join("\n");
 };
-V2.ideaClean = function (d, i) {
+// `stamp` lets a deterministic caller (freeIdeas) pass a seed-derived value
+// instead of Date.now(), so two calls with the same seed produce byte-identical
+// output. The AI path (v2Ideas) leaves it unset — real model output is never
+// reproducible across calls anyway, so the wall clock costs nothing there.
+V2.ideaClean = function (d, i, stamp) {
   const shape = V2.POST_TYPES.some((t) => t.key === d.shape) ? d.shape : "playbook";
   const kind = ["ads", "owner", "biz"].includes(d.room_kind) ? d.room_kind : "biz";
+  const at = stamp === undefined ? Date.now() : stamp;
   return {
-    id: "idea_" + Date.now().toString(36) + "_" + i,
+    id: "idea_" + at.toString(36) + "_" + i,
     title: String(d.title || "").slice(0, 300),
     angle: String(d.angle || ""), shape, kind,
     gives: String(d.gives || ""), hook: String(d.hook || ""),
     risk: String(d.risk || ""), magnet: !!V2.postType(shape).magnet,
-    at: Date.now(),
+    at,
   };
 };
 V2.ideaChecks = function (list) {
@@ -1925,7 +1931,7 @@ V2.freeIdeas = function (campaign, seed) {
       room_kind: type.magnet ? "owner" : i % 2 ? "ads" : "owner",
       gives: "the method, in full, for nothing",
       hook: "", risk: type.magnet ? "it is an offer, so it needs a room that allows one" : "none",
-    }, i);
+    }, i, V2.fnv(s + "|stamp" + i));
   });
 };
 
@@ -2202,4 +2208,196 @@ V2.funnelWhy = function (f) {
     headline: kept ? kept + " new, " + live + " waiting" : live ? "nothing new, " + live + " still waiting" : "nothing kept",
     lines: out, ok: kept > 0 || live > 0,
   };
+};
+
+// -------------------------------------------------- recreate what is working
+// Not "what offer survived here" (that is the Fit tab) — this is upstream of
+// an offer entirely: spot the shape of post that is winning right now,
+// anywhere, and run that shape in a room where your leads actually live.
+// Two rules make the difference between this and a repost bot:
+// 1. Only the *structure* is extracted — hook, pacing, what the comments
+//    argued about. Every fact specific to the original author is thrown
+//    away on purpose, and a shingle check catches anything that slipped
+//    through as copied wording.
+// 2. The target room is chosen by the same audience gate every other post
+//    goes through, so "related subreddit" means the trade actually matches,
+//    not just that a format happened to work somewhere.
+
+// A title pattern that is both common in genuinely viral posts and has a
+// natural slot for an offer or a hook once it is rebuilt. Each maps onto an
+// existing post shape so a recreated post drafts through the normal pipeline
+// — same checks, same calendar row, same everything downstream.
+V2.VIRAL_SHAPES = [
+  { key: "ranked_list", postType: "mistakes", transplantable: true,
+    re: /^\d+\s+(things|reasons|mistakes|signs|ways|lessons|red flags)\b/i,
+    why: "a numbered list is the easiest shape to rebuild with your own points" },
+  { key: "lookback", postType: "result_story", transplantable: true,
+    re: /\b(after|update:?)\s+\d+\s+(years?|months?|weeks?)\b|\bwhat i (wish i knew|learned)\b|\bwhat \d+\s+(years?|months?|weeks?)\s+of\b|\b\d+\s+(years?|months?)\s+(later|in|of)\b/i,
+    why: "a time-and-numbers story is easy to rebuild on your own real numbers" },
+  { key: "before_after", postType: "result_story", transplantable: true,
+    re: /\bwent from\b.{0,40}\bto\b|\bbefore\s*(and|\/|vs\.?)\s*after\b/i,
+    why: "a before/after has an obvious slot for a real client result" },
+  { key: "unpopular", postType: "question_ask", transplantable: true,
+    re: /\bunpopular opinion\b|\bhot take\b|\bchange my mind\b/i,
+    why: "an opinion post invites an argument, which is where leads self-identify" },
+  { key: "comparison_fmt", postType: "comparison", transplantable: true,
+    re: /\b\w+\s+vs\.?\s+\w+\b|\bwhich is (actually )?better\b/i,
+    why: "a head-to-head format transplants cleanly onto two channels or two tools" },
+  { key: "teardown_fmt", postType: "teardown", transplantable: true,
+    re: /\bi (roasted|reviewed|tore apart|broke down)\b|\broast (my|this)\b/i,
+    why: "a public teardown is a format, not a story — the subject changes freely" },
+  { key: "ama_fmt", postType: "ama", transplantable: true,
+    re: /\bAMA\b|\bask me anything\b/i,
+    why: "an AMA needs only a real person and a real trade to answer as" },
+  { key: "story_fmt", postType: "local_case", transplantable: false,
+    re: /\bmy (story|journey)\b|\btw\b|\bupdate on\b/i,
+    why: "a personal story does not transplant — it is one person's specific facts" },
+  { key: "meme_fmt", postType: "", transplantable: false,
+    re: /^(lol|lmao|bruh|when you\b)|\[image\]|\[video\]/i,
+    why: "a joke or a reaction has nowhere to put a hook or an offer" },
+];
+V2.viralShapeOf = function (title) {
+  const t = String(title || "");
+  for (const s of V2.VIRAL_SHAPES) if (s.re.test(t)) return s;
+  return null;
+};
+
+// How hard a post is pulling right now. Same idea as the boost score — early
+// velocity is the tell — but tuned for spotting a format worth stealing
+// rather than a post worth paying to widen.
+V2.viralScore = function (p, now) {
+  const at = now || Date.now();
+  const hours = Math.max(1, (at - (p.created || at)) / 3600000);
+  const comments = p.comments || 0;
+  const score = p.score || 0;
+  const perHour = (comments + score * 0.3) / Math.min(hours, 24);
+  const ageDays = hours / 24;
+  const shape = V2.viralShapeOf(p.title);
+  const s = Math.round(perHour * 12 + Math.min(comments, 800) / 5 + (shape && shape.transplantable ? 25 : 0));
+  return {
+    score: s, perHour: Math.round(perHour * 10) / 10, ageDays: Math.round(ageDays * 10) / 10,
+    shape: shape ? shape.key : "", transplantable: !!(shape && shape.transplantable),
+    why: shape ? shape.why : "no recognisable transplantable format in the title",
+  };
+};
+// One list, best and freshest first, and a post is only worth showing once —
+// the same story crossposted six times should not fill six rows.
+V2.viralRank = function (posts, now) {
+  const at = now || Date.now();
+  const seen = {};
+  const rows = [];
+  for (const p of posts || []) {
+    const key = (p.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
+    if (seen[key]) continue;
+    seen[key] = 1;
+    const v = V2.viralScore(p, at);
+    if (!v.transplantable) continue;
+    if (v.ageDays > 4) continue;                 // a viral post is a today thing
+    rows.push({ ...p, ...v });
+  }
+  rows.sort((a, b) => b.score - a.score);
+  return rows;
+};
+
+// Six-word shingles, self-contained (v2-lib.js is loaded on its own on the
+// board page and in the test runner, without lib.js alongside it).
+V2.shingles = function (text, n = 6) {
+  const w = String(text || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let i = 0; i + n <= w.length; i += 1) out.push(w.slice(i, i + n).join(" "));
+  return out;
+};
+
+// ------------------------------------------------ extracting the format only
+V2.FORMAT_SCHEMA = {
+  type: "object",
+  properties: {
+    hook: { type: "string", description: "The mechanic of the opening line — what kind of line it is, not the line itself. E.g. 'opens with a specific number that contradicts expectation'." },
+    structure: { type: "string", description: "How the post is built, start to finish, as a sequence of moves — not the content, the moves." },
+    pacing: { type: "string", description: "Long or short, one block or numbered, where the turn or reveal sits." },
+    comment_bait: { type: "string", description: "What specifically made people argue or add their own in the comments — the mechanism, not the topic." },
+    length: { type: "string", description: "Roughly how long, and how it is broken up." },
+    avoid: { type: "string", description: "The one thing that would make a copy of this feel like a copy rather than the same idea done independently." },
+    confidence: { type: "string", description: "'high', 'medium' or 'low' — how clean a transplant this format is." },
+  },
+  required: ["hook", "structure", "pacing", "comment_bait", "length", "avoid", "confidence"],
+  additionalProperties: false,
+};
+V2.formatSystem = function () {
+  return [
+    "You study one Reddit post that is performing well right now and describe the SHAPE it uses, so someone can build a new, unrelated post in the same shape.",
+    "",
+    "The one rule that matters: extract structure only. Never repeat a number, a name, a place, a specific claim, an anecdote detail, or any sentence-length phrase from the original. If you cannot describe the shape without borrowing a specific fact, describe it more abstractly instead.",
+    "",
+    "Bad: 'opens by saying they made $40k in a weekend doing X'. Good: 'opens with a specific dollar figure that sounds implausible until the mechanism is explained'.",
+    "Bad: 'compares Shopify to WooCommerce'. Good: 'a head-to-head between two well-known tools in the category, structured as a scorecard'.",
+    "",
+    "You are not summarising the post. You are describing the mechanism a completely different post, about a completely different subject, could reuse.",
+  ].join("\n");
+};
+V2.formatUser = function (post) {
+  return [
+    "Title: " + String(post.title || ""),
+    post.body ? "Body: " + String(post.body).slice(0, 2000) : "(no body, title-only post)",
+    "Score: " + (post.score || 0) + ", comments: " + (post.comments || 0),
+    "",
+    "Describe the shape.",
+  ].join("\n");
+};
+// The anti-plagiarism gate. Six-word shingles from the original must not
+// survive into the description at all — if one does, the model paraphrased
+// instead of abstracting, and the output is rejected rather than repaired.
+V2.formatChecks = function (fmt, original) {
+  const bad = [];
+  if (!fmt) return ["nothing came back"];
+  if (!["high", "medium", "low"].includes(String(fmt.confidence || "").toLowerCase())) bad.push("it did not say how clean a transplant this is");
+  for (const f of ["hook", "structure", "comment_bait"]) if (!fmt[f] || fmt[f].length < 15) bad.push("the " + f + " is too thin to build from");
+  const origShingles = new Set(V2.shingles([original.title, original.body].filter(Boolean).join(" ")));
+  if (origShingles.size) {
+    const mine = V2.shingles(Object.values(fmt).filter((v) => typeof v === "string").join(" "));
+    const hit = mine.find((s) => origShingles.has(s));
+    if (hit) bad.push('it copied a phrase from the original: "' + hit + '"');
+  }
+  // a number or proper noun repeated verbatim is the other way facts leak
+  const nums = (String(original.title || "") + " " + String(original.body || "")).match(/\$\s?\d[\d,]*|\b\d{3,}\b/g) || [];
+  const out = Object.values(fmt).filter((v) => typeof v === "string").join(" ");
+  for (const n of nums) if (n.length > 2 && out.includes(n)) { bad.push("it repeated the specific figure " + n + " from the original"); break; }
+  return bad;
+};
+// Folded into the post prompt exactly like a room's survivor shape — same
+// mechanism, different source: a format seen working elsewhere rather than
+// a shape that survived in this exact room.
+V2.trendBlock = function (fmt, source) {
+  if (!fmt) return "";
+  return [
+    "",
+    "A format that is pulling strong engagement elsewhere right now (source: r/" + (source && source.sub ? source.sub : "") + ", not to be copied — only its mechanics):",
+    "- Hook: " + fmt.hook,
+    "- Structure: " + fmt.structure,
+    "- Pacing: " + fmt.pacing,
+    "- What makes people comment: " + fmt.comment_bait,
+    "- Length: " + fmt.length,
+    "- What would make a copy feel like a copy — avoid this specifically: " + fmt.avoid,
+    "Use this shape. The subject, the numbers, the story and every specific fact must be entirely our own — this format was seen working, nothing about its content is being reused.",
+  ].join("\n");
+};
+
+// ------------------------------------------------------ actually relevant
+// "Related subreddit" has to mean the trade matches, not just that a format
+// worked somewhere. This checks the finished draft is concretely about the
+// target room's own trade — not merely structurally borrowed from elsewhere.
+V2.trendRelevance = function (draft, room, campaign) {
+  const bad = [];
+  const t = V2.tradeOf(room && room.sub, campaign);
+  const text = (String(draft.title || "") + " " + String(draft.body || "")).toLowerCase();
+  // the trade's own vocabulary (what V2.tradeOf already knows this room calls
+  // itself and its unit of work) is a stronger test than matching the
+  // campaign's prose, which varies in word form ("roofers" vs "roofing")
+  // in ways a plain substring check misses
+  const stems = [t.biz, t.unit, t.units, room && room.sub]
+    .filter(Boolean).map((w) => String(w).toLowerCase())
+    .flatMap((w) => [w, w.replace(/s$/, ""), w.replace(/y$/, "ing").replace(/e$/, "ing")]);
+  const hasTradeWord = stems.some((w) => w.length > 3 && text.includes(w));
+  if (!hasTradeWord) bad.push("the draft never mentions " + t.biz + " or " + t.units + " — it reads as the borrowed format with nothing tying it to this room's trade");
+  return bad;
 };

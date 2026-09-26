@@ -3,7 +3,7 @@
 // and changes nothing that v1 depends on.
 
 const V2_STORE = "v2";
-const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, ideas: [], extraRooms: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
+const V2_EMPTY = { plan: [], drafts: {}, posts: {}, leads: {}, queue: {}, targets: {}, settings: {}, pool: [], made: [], roomOffers: {}, briefs: {}, ideas: [], extraRooms: [], viral: [], mine: {}, boosts: {}, answered: 0, lastPlan: 0, lastLeads: 0, lastScan: 0, lastMine: 0 };
 
 async function v2Get() {
   const { v2 = {} } = await chrome.storage.local.get([V2_STORE]);
@@ -180,10 +180,10 @@ async function v2Draft(n, force, engine) {
   const profile = config.profile || {};
   const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub, kind: row.kind, promo: row.promo, note: "" };
   const how = engine || v2Settings(st).engine;
+  const camp = V2.campaign(v2Settings(st).campaign);
   // the free engine assembles the post from templates and the offer, costs
   // nothing, and is checked by exactly the same gate as the written one
   if (how === "free") {
-    const camp = V2.campaign(v2Settings(st).campaign);
     const seed = row.sub + "|" + row.typeKey + "|" + row.offerKey + "|" + (force === true ? Date.now() : (st.drafts[n] ? st.drafts[n].at : 0));
     const made = V2.freePost({ room: target, offer: V2.offer(row.offerKey), type: row.typeKey, profile, campaign: camp, seed });
     const out = { ...made, why_this_sub: "assembled for this room from the template bank", risk: "none", at: Date.now(), model: "free", cents: 0 };
@@ -198,11 +198,16 @@ async function v2Draft(n, force, engine) {
   let out = null, issues = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const shape = ((st.briefs || {})[row.sub] || {}).shape || null;
+    const trendOpts = row.fromTrend ? { shape: shape || null, trend: row.fromTrend.format, trendSource: { sub: row.fromTrend.sourceSub } } : { shape };
     if (row.fromIdea && !extra) extra = "This post was chosen from a brainstorm. Write up this idea in particular — keep its angle, and use this as the title unless it breaks a rule above: \"" + row.fromIdea.title + "\"" + (row.fromIdea.hook ? "\nIts opening line was meant to be: " + row.fromIdea.hook : "");
-    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }), V2.POST_SCHEMA, 3000, "board post", "post");
+    const res = await v2Ai(system, V2.postUser(target, row.offerKey, row.typeKey, profile, extra, trendOpts), V2.POST_SCHEMA, 3000, "board post", "post");
     if (!res.ok) return res;
     issues = V2.postChecks(res.parsed, target, row.typeKey);
     out = { ...res.parsed, at: Date.now(), model: res.model, cents: res.cents, issues };
+    if (row.fromTrend) {
+      const target2 = V2.TARGETS.find((t) => t.sub === row.sub) || target;
+      issues = issues.concat(V2.trendRelevance(out, target2, camp));
+    }
     if (!issues.length) break;
     extra = "Your last draft was rejected for these reasons, fix every one of them: " + issues.join("; ");
   }
@@ -878,13 +883,14 @@ async function v2Prompt(n) {
   const profile = config.profile || {};
   const target = V2.TARGETS.find((t) => t.sub === row.sub) || { sub: row.sub };
   const shape = ((st.briefs || {})[row.sub] || {}).shape || null;
+  const trendOpts = row.fromTrend ? { shape: shape || null, trend: row.fromTrend.format, trendSource: { sub: row.fromTrend.sourceSub } } : { shape };
   const extra = row.fromIdea ? "This post was chosen from a brainstorm. Write up this idea in particular, keeping its angle, and use this as the title unless it breaks a rule above: \"" + row.fromIdea.title + "\"" : "";
   const text = [
     V2.postSystem(profile),
     "",
     "---",
     "",
-    V2.postUser(target, row.offerKey, row.typeKey, profile, extra, { shape }),
+    V2.postUser(target, row.offerKey, row.typeKey, profile, extra, trendOpts),
     "",
     "---",
     "",
@@ -1198,6 +1204,111 @@ async function v2FallbackAll() {
   return { ok: true, moved: moves.length, moves, stuck };
 }
 
+// -------------------------------------------------- recreate what is working
+// A viral scan is two tiers. The campaign's own rooms come first and matter
+// most — a post already doing numbers inside the trade is inherently the
+// right subject for the trade. A wider net of big, format-rich rooms is
+// optional, because a shape can be spotted anywhere; it just has to be
+// rebuilt on this trade's own facts before it goes anywhere near a post.
+V2.VIRAL_WIDE = ["AskReddit", "explainlikeimfive", "LifeProTips", "Entrepreneur", "smallbusiness",
+  "EntrepreneurRideAlong", "GetMotivated", "unpopularopinion", "TrueOffMyChest", "IAmA",
+  "personalfinance", "marketing", "socialmedia"];
+async function v2ViralScan(force, wide) {
+  const st = await v2Get();
+  v2Apply(st);
+  const camp = V2.campaign(v2Settings(st).campaign);
+  const inRooms = (camp ? V2.campaignRooms(camp) : V2.TARGETS.filter(V2.postable)).map((t) => t.sub);
+  const subs = wide ? Array.from(new Set([...inRooms, ...V2.VIRAL_WIDE])) : inRooms;
+  const urls = subs.map((sub) => ({ url: `https://old.reddit.com/r/${encodeURIComponent(sub)}/top.json?t=day&limit=25&raw_json=1`, sub, inCampaign: inRooms.includes(sub) }));
+  let i = 0, read = 0;
+  const posts = [];
+  await chrome.storage.local.set({ v2Viral: { running: true, total: urls.length, done: 0, where: "", stop: false } });
+  for (const u of urls) {
+    const { v2Viral: v = {} } = await chrome.storage.local.get(["v2Viral"]);
+    if (v.stop) break;
+    i += 1;
+    await chrome.storage.local.set({ v2Viral: { running: true, total: urls.length, done: i, where: "r/" + u.sub, stop: false } });
+    let j = null;
+    try { j = await huntFetch(u.url); } catch (_) { continue; }
+    for (const c of ((j && j.data && j.data.children) || [])) {
+      const d = c && c.data;
+      if (!d || d.stickied || d.over_18 || !d.author || d.author === "[deleted]") continue;
+      read += 1;
+      posts.push({ id: d.id, sub: d.subreddit, inCampaign: u.inCampaign, title: String(d.title || "").slice(0, 300),
+        body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 2000), score: d.score || 0, comments: d.num_comments || 0,
+        created: (d.created_utc || 0) * 1000, permalink: "https://www.reddit.com" + String(d.permalink || "") });
+    }
+    await new Promise((r) => setTimeout(r, force ? 700 : 1200));
+  }
+  const ranked = V2.viralRank(posts, Date.now())
+    // a post from inside the campaign's own rooms is inherently on-trade;
+    // give it a lift so it is not buried by a louder post from a huge
+    // unrelated subreddit that would need far more twisting to fit
+    .map((p) => ({ ...p, score: p.inCampaign ? p.score + 40 : p.score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 40);
+  await chrome.storage.local.set({ v2Viral: { running: false, total: urls.length, done: i, where: "", stop: false } });
+  await v2Set({ viral: ranked, viralAt: Date.now() });
+  return { ok: true, read, kept: ranked.length, sources: urls.length, campaign: camp ? camp.name : "" };
+}
+
+async function v2FormatExtract(id, force) {
+  const st = await v2Get();
+  const item = (st.viral || []).find((x) => x.id === id);
+  if (!item) return { ok: false, error: "that post has fallen off the list — scan again" };
+  if (item.format && !force) return { ok: true, format: item.format, cached: true };
+  let extra = "", out = null, issues = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await v2Ai(V2.formatSystem(), V2.formatUser(item) + (extra ? "\n\n" + extra : ""), V2.FORMAT_SCHEMA, 900, "extract a viral format", "shape");
+    if (!res.ok) return res;
+    issues = V2.formatChecks(res.parsed, item);
+    out = { ...res.parsed, at: Date.now(), cents: res.cents, issues };
+    if (!issues.length) break;
+    extra = "Your last answer was rejected: " + issues.join("; ") + ". Describe the mechanism only — no number, name or phrase from the original may appear in your answer.";
+  }
+  item.format = out;
+  await v2Set({ viral: st.viral });
+  return { ok: true, format: out, issues };
+}
+
+// Put a recreated format onto the calendar: the next free day, in a room the
+// fit matrix says is actually allowed — the same gate everything else on the
+// board goes through, so "related subreddit" means the audience genuinely
+// matches rather than that a format merely happened to work somewhere.
+async function v2TrendToPlan(id) {
+  const st = await v2Get();
+  v2Apply(st);
+  const item = (st.viral || []).find((x) => x.id === id);
+  if (!item) return { ok: false, error: "that post has fallen off the list — scan again" };
+  if (!item.format) return { ok: false, error: "extract the format first" };
+  const shape = V2.viralShapeOf(item.title);
+  const type = V2.postType(shape ? shape.postType : "playbook");
+  const camp = V2.campaign(v2Settings(st).campaign);
+  const sourceRoom = V2.TARGETS.find((t) => t.sub === item.sub);
+  // reuses exactly the room-picking pass the Ideas tab uses: same fit chain,
+  // same audience gate, same dedupe against what has already run
+  const pseudo = [{ kind: (sourceRoom && sourceRoom.kind) || "biz", magnet: !!type.magnet }];
+  await v2IdeaRooms(st, pseudo, camp);
+  const pick = pseudo[0];
+  if (!pick.room) return { ok: false, error: pick.roomWhy || "no room in this campaign will take this right now" };
+  const now = Date.now();
+  const free = (st.plan || []).find((r) => r.sub && r.state === "planned" && r.at >= now - 86400000 && !st.drafts[r.n]);
+  if (!free) return { ok: false, error: "no free day left on the calendar — build a longer one first" };
+  const room = V2.TARGETS.find((t) => t.sub === pick.room);
+  Object.assign(free, {
+    sub: pick.room, kind: room ? room.kind : free.kind, group: room ? room.kind : free.group,
+    promo: room ? room.promo : free.promo, weekly: room ? room.promo === "weekly" : false,
+    typeKey: type.key, typeName: type.name, magnet: !!type.magnet,
+    offerKey: pick.offerKey || free.offerKey,
+    offerName: pick.offerKey ? V2.offer(pick.offerKey).name : free.offerName,
+    fromTrend: { id: item.id, sourceSub: item.sub, sourceTitle: item.title, sourcePermalink: item.permalink, format: item.format },
+    why: "recreated from what is working in r/" + item.sub,
+  });
+  delete st.drafts[free.n];
+  await v2Set({ plan: st.plan, drafts: st.drafts });
+  return { ok: true, n: free.n, sub: free.sub, at: free.at, typeName: type.name, movedFrom: item.sub };
+}
+
 // -------------------------------------------------- the buyer hunt (v2)
 // v1 hunted intent. This hunts money: a post only enters the queue if
 // somebody in it has a budget, an agency, or a business of their own.
@@ -1340,6 +1451,12 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-prompt": return go(v2Prompt(msg.n));
     case "v2-paste": return go(v2Paste(msg.n, msg.text));
     case "v2-ideas": return go(v2Ideas(msg.seed, !!msg.force, msg.engine));
+    case "v2-viral-scan": return go(v2ViralScan(true, !!msg.wide));
+    case "v2-viral-state": return go(chrome.storage.local.get(["v2Viral"]).then((x) => x.v2Viral || { running: false }));
+    case "v2-viral-stop": return go(chrome.storage.local.get(["v2Viral"]).then((x) => chrome.storage.local.set({ v2Viral: { ...(x.v2Viral || {}), stop: true } })).then(() => ({ ok: true })));
+    case "v2-viral-list": return go(v2Get().then((st) => ({ ok: true, rows: st.viral || [], at: st.viralAt || 0 })));
+    case "v2-viral-format": return go(v2FormatExtract(msg.id, !!msg.force));
+    case "v2-viral-plan": return go(v2TrendToPlan(msg.id));
     case "v2-idea-plan": return go(v2IdeaToPlan(msg.id));
     case "v2-costs": return go(spendReport().then((r) => chrome.storage.local.get(["spend"]).then(({ spend = {} }) => ({ ok: true, ...r, split: V2.costSplit(spend.day === (new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0") + "-" + String(new Date().getDate()).padStart(2, "0")) ? spend.log || [] : []), jobs: V2.JOBS, prices: V2.PRICES }))));
     case "v2-cheap": return go(chrome.storage.local.get(["config"]).then(({ config = {} }) => chrome.storage.local.set({ config: { ...config, profile: { ...(config.profile || {}), cheap: !!msg.on } } })).then(() => ({ ok: true })));
