@@ -325,9 +325,25 @@ function drawBrief(b, box) {
 // ------------------------------------------------------------ buyer queue
 async function drawQueue() {
   const q = await send({ type: "v2-queue", limit: 80 });
-  if (!q || !q.ok) return;
+  if (!q || !q.ok) {
+    // the worker not answering looks exactly like an empty queue, so say so
+    $("#qWhy").innerHTML = `<div class="note" style="border-color:rgba(214,45,32,.4);background:rgba(214,45,32,.08);color:#f3b3ad"><b>The extension's worker did not answer.</b> That looks the same as an empty queue but is not one. Press <b>Update now</b>, or reload the extension on chrome://extensions, then come back.</div>`;
+    return;
+  }
   $("#qStat").innerHTML = [["Already spending", q.tiers.spending], ["Owners", q.tiers.owner], ["Asking", q.tiers.asking], ["In the queue", q.total]]
     .map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  // when the queue looks empty, say which gate ate everything rather than
+  // leaving a blank table to be interpreted
+  const f = q.funnel;
+  $("#qWhy").innerHTML = (!q.rows.length || (f && !f.why.ok)) && f
+    ? `<div class="note" style="border-color:${f.why.ok ? "rgba(96,165,250,.3)" : "rgba(245,158,11,.4)"};background:${f.why.ok ? "rgba(96,165,250,.07)" : "rgba(245,158,11,.08)"};color:${f.why.ok ? "#cfe0f7" : "#f6d79b"}">
+        <b>${esc(f.why.headline)}</b> — last scan read ${f.read.toLocaleString()} posts across ${f.sources} sources${f.campaign ? " for " + esc(f.campaign) : ""}.
+        <ul class="tight" style="margin-top:6px">${f.why.lines.map((l) => `<li>${l.bad ? "⚠ " : ""}${esc(l.say)}${l.fix ? ` — <span class="faint">${esc(l.fix)}</span>` : ""}</li>`).join("")}</ul>
+        <div class="faint" style="margin-top:6px">dropped: ${[["no money signal", f.drop.noMoney], ["selling or studying", f.drop.selling], ["wrong country", f.drop.country], ["already known", f.drop.known], ["pinned or adult", f.drop.stickied], ["too old", f.drop.old]].filter(([, n]) => n).map(([k, n]) => n.toLocaleString() + " " + k).join(" · ") || "none"}</div>
+      </div>`
+    : !q.rows.length
+      ? `<div class="note">Nothing in the queue yet. Press <b>Scan for buyers</b> — it reads every room and every money search, and tells you exactly what it dropped and why.</div>`
+      : "";
   $("#qRows").innerHTML = (q.rows || []).map((p) => `<tr>
     <td><span class="tag t-${esc(p.badge)}">${esc(p.badge)}</span>${p.amount ? `<div class="faint">${esc(p.amount)}</div>` : ""}</td>
     <td class="faint">r/${esc(p.sub)}${p.countryName ? `<div style="color:${p.tier1 ? "var(--go)" : "var(--faint)"}">${esc(p.countryName)}</div>` : ""}</td>
@@ -368,7 +384,11 @@ async function answer(id) {
 }
 $("#scan").onclick = async () => {
   $("#scan").disabled = true; $("#scanStop").style.display = "";
-  send({ type: "v2-scan" }).then((r) => { $("#scan").disabled = false; $("#scanStop").style.display = "none"; if (r && r.ok) say(`read ${r.seen} posts across ${r.sources} sources, kept ${r.found}`, "var(--go)"); drawQueue(); });
+  send({ type: "v2-scan" }).then((r) => {
+    $("#scan").disabled = false; $("#scanStop").style.display = "none";
+    if (r && r.ok) say(`read ${r.seen} posts across ${r.sources} sources, kept ${r.found}${r.funnel ? " — " + r.funnel.why.headline : ""}`, r.found ? "var(--go)" : "var(--warn)");
+    drawQueue();
+  });
   const tick = setInterval(async () => {
     const s = await send({ type: "v2-scan-state" });
     if (!s || !s.running) { clearInterval(tick); return; }

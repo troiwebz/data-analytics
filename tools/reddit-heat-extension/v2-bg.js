@@ -1219,6 +1219,9 @@ async function v2Scan(force) {
   for (const s of subs) urls.push({ url: `https://old.reddit.com/r/${encodeURIComponent(s)}/new.json?limit=100&raw_json=1`, why: "r/" + s });
   const queue = { ...(st.queue || {}) };
   let seen = 0, found = 0, i = 0;
+  // Every post that does not make it counts against a reason. "Nothing is
+  // coming through" then has an answer instead of a shrug.
+  const drop = { stickied: 0, noMoney: 0, selling: 0, country: 0, known: 0, old: 0, sources: 0, empty: 0 };
   await chrome.storage.local.set({ v2Scan: { running: true, total: urls.length, done: 0, seen: 0, found: 0, where: "", stop: false } });
   for (const u of urls) {
     i += 1;
@@ -1226,17 +1229,19 @@ async function v2Scan(force) {
     if (sc.stop) break;
     await chrome.storage.local.set({ v2Scan: { running: true, total: urls.length, done: i, seen, found, where: u.why, stop: false } });
     let j = null;
-    try { j = await huntFetch(u.url); } catch (_) { continue; }
-    for (const c of ((j && j.data && j.data.children) || [])) {
+    try { j = await huntFetch(u.url); } catch (_) { drop.sources += 1; continue; }
+    const kids = ((j && j.data && j.data.children) || []);
+    if (!kids.length) drop.empty += 1;
+    for (const c of kids) {
       const d = c && c.data;
-      if (!d || d.stickied || d.over_18 || !d.author || d.author === "[deleted]") continue;
+      if (!d || d.stickied || d.over_18 || !d.author || d.author === "[deleted]") { drop.stickied += 1; continue; }
       seen += 1;
-      if (queue[d.id]) continue;
+      if (queue[d.id]) { drop.known += 1; continue; }
       const cls = V2.classifyBuyer(d.title, d.selftext, d.subreddit);
-      if (!cls.keep) continue;
+      if (!cls.keep) { if (/selling|studying|free help/.test(cls.why)) drop.selling += 1; else drop.noMoney += 1; continue; }
       // a lead is only worth having if the money behind it is
       const where = V2.tierScore({ title: d.title, body: d.selftext, sub: d.subreddit }, { tier1Only: v2Settings(st).tier1Only });
-      if (!where.keep) continue;
+      if (!where.keep) { drop.country += 1; continue; }
       queue[d.id] = { id: d.id, author: d.author, sub: d.subreddit, title: String(d.title || "").slice(0, 300), body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 4000),
         permalink: "https://www.reddit.com" + String(d.permalink || ""), created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0,
         tier: cls.tier + (u.question ? 1 : 0), badge: cls.badge, why: u.question ? "one of the questions this niche asks over and over — holding the top answer here pays for months" : cls.why,
@@ -1248,10 +1253,14 @@ async function v2Scan(force) {
   }
   // nothing older than a fortnight stays in the queue
   const cutoff = Date.now() - 14 * 86400000;
-  for (const [id, p] of Object.entries(queue)) if (p.state === "new" && (p.created || 0) < cutoff) delete queue[id];
+  for (const [id, p] of Object.entries(queue)) if (p.state === "new" && (p.created || 0) < cutoff) { delete queue[id]; drop.old += 1; }
+  const funnel = { at: Date.now(), sources: urls.length, read: seen, kept: found, drop,
+    live: Object.values(queue).filter((p) => p.state !== "done" && p.state !== "dropped").length,
+    campaign: camp ? camp.name : "", tier1Only: !!v2Settings(st).tier1Only };
+  funnel.why = V2.funnelWhy(funnel);
   await chrome.storage.local.set({ v2Scan: { running: false, total: urls.length, done: i, seen, found, where: "", stop: false } });
-  await v2Set({ queue, lastScan: Date.now() });
-  return { ok: true, seen, found, sources: urls.length };
+  await v2Set({ queue, lastScan: Date.now(), funnel });
+  return { ok: true, seen, found, sources: urls.length, funnel };
 }
 
 async function v2QueueList(limit) {
@@ -1263,7 +1272,8 @@ async function v2QueueList(limit) {
   const all = Object.values(st.queue || {});
   return { ok: true, rows, total: all.length,
     tiers: { spending: all.filter((p) => p.badge === "spending").length, owner: all.filter((p) => p.badge === "owner").length, asking: all.filter((p) => p.badge === "asking").length },
-    tier1: all.filter((p) => p.tier1).length, lastScan: st.lastScan || 0, tier1Only: v2Settings(st).tier1Only };
+    tier1: all.filter((p) => p.tier1).length, lastScan: st.lastScan || 0, tier1Only: v2Settings(st).tier1Only,
+    funnel: st.funnel || null };
 }
 
 async function v2Answer(id, force) {

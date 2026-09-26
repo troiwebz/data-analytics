@@ -1938,7 +1938,12 @@ V2.COUNTRY = {
   uk: { name: "United Kingdom", tier1: true, re: /\bpost ?code\b|\bLtd\b|\bVAT\b|\bHMRC\b|\bcompanies house\b|\bhigh street\b|\bcouncil\b|\blimited company\b|£\s?\d|\b(london|manchester|birmingham|leeds|glasgow|bristol|liverpool|sheffield|edinburgh|cardiff|belfast|nottingham)\b/i },
   ca: { name: "Canada", tier1: true, re: /\bpostal code\b|\bGST\b|\bHST\b|\bCRA\b|\bprovince\b|\bloonie\b|\bCAD\b|C\$\s?\d|\b(toronto|vancouver|calgary|edmonton|ottawa|montreal|winnipeg|mississauga|hamilton|halifax|saskatoon)\b|\b(ontario|alberta|quebec|manitoba|saskatchewan|nova scotia|british columbia)\b/i },
   au: { name: "Australia", tier1: true, re: /\bABN\b|\bGST\b.*\baustralia|\bBAS\b|\bsuburb\b|\bAUD\b|A\$\s?\d|\b(sydney|melbourne|brisbane|perth|adelaide|canberra|gold coast|newcastle)\b|\b(nsw|qld|vic|wa|sa|nt|act)\b/i },
-  low: { name: "somewhere with a small budget", tier1: false, re: /\b(₹|rs\.? ?\d|inr\b|lakh|crore|pkr\b|ngn\b|naira|bdt\b|taka|php\b|peso|idr\b|rupiah|vnd\b|dong)\b|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b/i },
+  // Every token here has to be unambiguous. "PHP" was reading the programming
+  // language as the Philippine peso and throwing away a $3k-a-month buyer;
+  // "dong" and "taka" are ordinary words too. A currency code only counts
+  // next to a number, and the language is never a country.
+  low: { name: "somewhere with a small budget", tier1: false,
+    re: /₹\s?\d|\brs\.? ?\d|\b\d+\s?(inr|pkr|ngn|bdt|idr|vnd)\b|\b(inr|pkr|ngn|bdt|idr|vnd)\s?\d|\b\d+\s?(lakh|crore)\b|\b(lakhs?|crores?)\b|\bnaira\b|\brupees?\b|\brupiah\b|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b/i },
 };
 V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca" };
 V2.countryOf = function (text, sub) {
@@ -2119,5 +2124,38 @@ V2.discoverRank = function (hits, known) {
     verdict: rows.length
       ? rows.filter((r) => r.survived > 0).length + " rooms have let a post like this stand, and " + rows.filter((r) => !r.known && r.survived > 0).length + " of them are not in the room list yet"
       : "nobody has posted anything like this anywhere Reddit will show us — which is either an opening or a warning",
+  };
+};
+
+// ------------------------------------------- why is nothing coming through
+// A scan that keeps nothing should say which gate ate everything, in the
+// order a person would check: did we read anything at all, is a filter too
+// tight, or is it simply that nobody is asking this week.
+V2.funnelWhy = function (f) {
+  const d = (f && f.drop) || {};
+  const read = (f && f.read) || 0;
+  const kept = (f && f.kept) || 0;
+  const live = (f && f.live) || 0;
+  const out = [];
+  if (!read) {
+    out.push({ bad: true, say: "no posts were read at all", fix: d.sources ? "Reddit did not answer — open a Reddit tab, make sure you are logged in, and scan again" : "every source came back empty, which usually means the Reddit tab is not logged in" });
+    return { headline: "Nothing was read", lines: out, ok: false };
+  }
+  if (d.known >= read * 0.9 && kept === 0) {
+    out.push({ bad: false, say: Math.round((d.known / read) * 100) + "% of what was read is already in the queue", fix: "nothing new has been posted since the last scan — this is normal an hour after one" });
+  }
+  if (d.country > 0 && d.country >= kept) {
+    out.push({ bad: true, say: d.country + " were dropped for being outside the US, UK, Canada and Australia", fix: "untick that filter on this tab if you will work other markets" });
+  }
+  if (d.noMoney + d.selling > 0 && kept < 3) {
+    out.push({ bad: false, say: (d.noMoney + d.selling) + " had no money signal — no budget, no agency, no business of their own", fix: "that filter is doing its job; it is what keeps students and freelancers out" });
+  }
+  if (live > 0 && kept === 0) {
+    out.push({ bad: false, say: live + " are already waiting in the queue from earlier scans", fix: "work those first — the scan only adds what it has not seen" });
+  }
+  if (!out.length) out.push({ bad: false, say: kept + " kept out of " + read + " read", fix: "" });
+  return {
+    headline: kept ? kept + " new, " + live + " waiting" : live ? "nothing new, " + live + " still waiting" : "nothing kept",
+    lines: out, ok: kept > 0 || live > 0,
   };
 };

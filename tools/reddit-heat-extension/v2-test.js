@@ -559,6 +559,37 @@ assert.strictEqual(disc.rows[0].best.comments, 40);
 assert.strictEqual(disc.rows.find((r) => r.sub === "juststart").best, null);
 assert.match(V.discoverRank([]).verdict, /nobody has posted anything like this/);
 
+
+// ---- why nothing came through -------------------------------------------
+// the bug that emptied a queue: PHP the language read as the Philippine peso
+assert.strictEqual(V.countryOf("Our site is in PHP and we spend $3k/mo on ads").key, "us");
+assert.strictEqual(V.tierScore({ title: "Our site is in PHP and we spend $3k a month on ads" }, { tier1Only: true }).keep, true);
+// other ordinary words that are also currencies
+assert.strictEqual(V.countryOf("the dong on our van is broken").key, "");
+assert.strictEqual(V.countryOf("we sell taka bread").key, "");
+// but the real signals still land
+for (const t of ["budget is 20000 INR a month", "we pay 2 lakh per month", "agency in India quoted us", "₹50000 a month", "Rs. 5000 per lead", "paying in naira"]) {
+  assert.strictEqual(V.countryOf(t).key, "low", "missed a low-budget market in: " + t);
+}
+// the funnel names the gate that ate everything
+const nothing = V.funnelWhy({ read: 0, kept: 0, live: 0, drop: { sources: 141 } });
+assert.strictEqual(nothing.ok, false);
+assert.match(nothing.lines[0].say, /no posts were read/);
+assert.match(nothing.lines[0].fix, /logged in/);
+const filtered = V.funnelWhy({ read: 900, kept: 0, live: 0, drop: { noMoney: 700, country: 200 } });
+assert.strictEqual(filtered.ok, false);
+assert.match(filtered.lines.map((l) => l.say).join(" | "), /outside the US, UK, Canada/);
+assert.ok(filtered.lines.some((l) => l.bad), "a filter eating everything should be flagged");
+// nothing new but a full queue is not a fault
+const quietHour = V.funnelWhy({ read: 900, kept: 0, live: 12, drop: { known: 880, noMoney: 20 } });
+assert.strictEqual(quietHour.ok, true);
+assert.match(quietHour.headline, /12 still waiting/);
+assert.ok(!quietHour.lines.some((l) => l.bad), "a quiet hour was reported as a fault");
+// a healthy scan says so plainly
+const good = V.funnelWhy({ read: 900, kept: 14, live: 14, drop: { noMoney: 800 } });
+assert.strictEqual(good.ok, true);
+assert.match(good.headline, /14 new/);
+
 // ---- campaigns: one niche, its rooms, its questions ---------------------
 assert.ok(V.CAMPAIGNS.length >= 6, "not enough campaigns");
 assert.strictEqual(new Set(V.CAMPAIGNS.map((c) => c.key)).size, V.CAMPAIGNS.length);
