@@ -187,6 +187,8 @@ The CSV also carries author, flair, the post body excerpt, the outbound link if 
 
 **Fully automatic updates.** Run `./autoupdate-install.sh` once (Mac/Linux) or double-click `autoupdate-install.bat` (Windows). It schedules the updater every hour in the background; the extension sees the new version on disk and reloads itself within a minute, never mid-sweep. Turn it off with `autoupdate-uninstall.sh` / `.bat`. Pass a number of seconds to change the interval, e.g. `./autoupdate-install.sh 1800` for every 30 minutes. Progress is logged to `autoupdate.log` in the same folder.
 
+**Extension id changing, or "Update now" broken?** Run `./fix-extension-id.sh` once. It moves the folder to one permanent place (so old Downloads copies like " 2", " 7" can't cause a mismatch), turns automatic updates on, and opens `chrome://extensions` for you. All that's left is two clicks: Remove the old extension, then Load unpacked from the folder it points you to. After that the id never changes again, on this machine or any other.
+
 ## Optional background crawler
 
 The **Crawl in background** button walks each subreddit's `new` listing through Reddit's JSON endpoints without you browsing. Without an API key Reddit allows ~10 requests a minute (about 35 minutes for the default 17 subreddits); with a free "installed app" client id pasted in Options it is ~4 minutes. It shares the same store as the page scraper.
