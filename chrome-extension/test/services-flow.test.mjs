@@ -43,8 +43,16 @@ globalThis.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
   }
   if (u.includes('blackhatworld.com/online/')) return { ok: true, status: 200, text: async () => onlineHtml };
+  // A thread page, for batch-tracking's own title lookup - keyed by the id in
+  // the URL so each fixture thread gets a distinguishable, checkable title.
+  const tm = u.match(/\.(\d+)\/?$/);
+  if (tm) {
+    if (noTitleIds.has(tm[1])) return { ok: true, status: 200, text: async () => '<html><body>no title here</body></html>' };
+    return { ok: true, status: 200, text: async () => `<h1 class="p-title-value">Fetched Title ${tm[1]}</h1>` };
+  }
   return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
 };
+let noTitleIds = new Set();   // thread ids whose page fetch should yield no title, for that one test
 const onlinePage = (members) =>
   `<div>Members online: ${members}</div><div>Guests online: 9000</div><div>Total visitors: ${members + 9000}</div>`;
 
@@ -251,6 +259,43 @@ ok('an unknown label is refused', /No tracked thread matches/.test(said), said);
   said = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
   ok('"traffic" now reports the learned pattern instead of "still learning"',
      /usually <b>busier<\/b>/.test(said) || /busier.*than average/.test(said), said);
+}
+
+// --- adding several threads at once by pasting links (Settings page) --------
+{
+  const pasted = `here's my stuff:
+https://www.blackhatworld.com/seo/thread-one.918273/
+some text in between
+https://www.blackhatworld.com/seo/thread-two.918274/#post-1
+https://www.blackhatworld.com/seo/thread-two.918274/  (duplicate of the one above)
+not a url at all`;
+  const before = (await getConfig()).serviceThreads.length;
+  const r = await bg.batchTrackServiceThreads(await getConfig(), pasted);
+  ok('two distinct threads are found among the noise', r.added.length === 2, JSON.stringify(r));
+  ok('a link repeated in the same paste is only added once', r.added.filter((t) => t.id === '918274').length === 1, JSON.stringify(r.added));
+  ok('each one is labelled from its own real title, not a placeholder',
+     r.added.every((t) => /^Fetched Title \d+$/.test(t.label)), JSON.stringify(r.added));
+
+  const cfg = await getConfig();
+  ok('both are actually saved to config', cfg.serviceThreads.length === before + 2, String(cfg.serviceThreads.length));
+
+  // Pasting the same links again finds nothing new to add.
+  const again = await bg.batchTrackServiceThreads(await getConfig(), pasted);
+  ok('re-pasting the same links adds nothing new', again.added.length === 0, JSON.stringify(again));
+  ok('and reports them as already tracked instead of silently doing nothing', again.already.length === 2, JSON.stringify(again));
+
+  // A thread whose page cannot be read still gets tracked, just without a
+  // real title - refusing to track it at all would be worse than a guess.
+  noTitleIds = new Set(['918275']);
+  const untitled = await bg.batchTrackServiceThreads(await getConfig(),
+    'https://www.blackhatworld.com/seo/thread-three.918275/');
+  noTitleIds = new Set();
+  ok('a thread with no readable title is still tracked', untitled.added.length === 1, JSON.stringify(untitled));
+  ok('with a fallback label instead of an empty one', untitled.added[0].label === 'thread 918275', JSON.stringify(untitled));
+  ok('and it is reported as needing a title', untitled.noTitle.length === 1, JSON.stringify(untitled));
+
+  ok('text with no BHW links at all finds nothing to add',
+     (await bg.batchTrackServiceThreads(await getConfig(), 'just some notes, no links here')).added.length === 0);
 }
 
 // --- untracking ---------------------------------------------------------------

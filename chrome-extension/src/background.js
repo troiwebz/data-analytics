@@ -15,7 +15,7 @@ import * as night from './night.js';
 import * as auto from './auto.js';
 import { fetchFeed, threadIdFromUrl } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
-import { fetchThreads } from './thread.js';
+import { fetchThreads, fetchThreadTitle } from './thread.js';
 import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead, isExcludedThread } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
@@ -1015,6 +1015,45 @@ export async function trackServiceThread(cfg, url, label) {
   threads.push({ id: String(id), url: String(url), label: clean });
   await setConfig({ serviceThreads: threads });
   return { ok: true, id: String(id), label: clean };
+}
+
+// Matches multiple thread links pasted in one go, however they're separated
+// (new lines, spaces, a numbered list) - the box on the Settings page, not
+// Telegram, because reading each thread's real title needs your logged-in
+// session, which only the extension itself has.
+const BHW_URL = /https?:\/\/(?:www\.)?blackhatworld\.com\/[^\s"'<>]+/gi;
+
+export async function batchTrackServiceThreads(cfg, rawText) {
+  const seen = new Set();
+  const urls = [];
+  for (const raw of String(rawText || '').match(BHW_URL) || []) {
+    // Strip a "jump to this post" fragment - a link copied straight off BHW's
+    // own share button carries one, and threadIdFromUrl only recognises a
+    // thread id sitting at the end of the URL.
+    const url = raw.split('#')[0];
+    const id = threadIdFromUrl(url);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    urls.push({ url, id });
+  }
+  if (!urls.length) return { added: [], already: [], noTitle: [] };
+
+  const threads = [...(cfg.serviceThreads || [])];
+  const added = [], already = [], noTitle = [];
+  for (const { url, id } of urls) {
+    const existing = threads.find((t) => String(t.id) === id);
+    if (existing) { already.push({ id, url, label: existing.label }); continue; }
+    const title = await fetchThreadTitle(url);
+    const label = title || `thread ${id}`;
+    if (!title) noTitle.push({ id, url });
+    threads.push({ id, url, label });
+    added.push({ id, url, label });
+    // One at a time, with a pause - this reads as a signed-in account
+    // browsing its own threads, not a scraper firing off a burst.
+    if (urls.length > 1) await new Promise((r) => setTimeout(r, 1200));
+  }
+  if (added.length) await setConfig({ serviceThreads: threads });
+  return { added, already, noTitle };
 }
 
 export async function untrackServiceThread(cfg, label) {
@@ -2541,6 +2580,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'regen': sendResponse(await rebuildDrafts({ withAi: true })); break;
+      case 'batch-track-services': {                // Settings page: paste links, read titles live
+        const cfg = await getConfig();
+        sendResponse(await batchTrackServiceThreads(cfg, msg.text || '').catch((e) => ({ error: e.message })));
+        break;
+      }
       case 'fill-thread': {                          // 📝 open the thread with the reply typed in
         const cfg = await getConfig();
         const staged = (await getStaged())[msg.lead.threadId];

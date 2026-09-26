@@ -4,7 +4,7 @@
 // operations across several chains. The buyer wanted someone to run crypto ads
 // and keep the accounts off suspension - which the post says plainly, and the
 // title does not say at all. Claude only ever saw the title.
-import { parseThread } from '../src/thread.js';
+import { parseThread, titleFromHtml, fetchThreadTitle } from '../src/thread.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -66,6 +66,27 @@ ok('junk gives nothing too', parseThread('<html><body>login required</body></htm
 const alone = parseThread(HTML.split('<article').slice(0, 2).join('<article'));
 ok('a thread with no replies still gives the body', /run my ads/i.test(alone.body), JSON.stringify(alone.body.slice(0, 40)));
 ok('and an empty competitor list', alone.replies.length === 0, String(alone.replies.length));
+
+// The title read for a thread you only have a URL for - a pasted link that
+// was never seen in the feed, so there is no title in the database at all.
+const TITLE_PAGE = `<html><head><title>Guest Blogging Outreach | BlackHatWorld</title></head>
+<body><div class="p-title"><h1 class="p-title-value">Guest Blogging Outreach &amp; Niche Links</h1></div></body></html>`;
+ok('the real page title is read, not the <title> tag', titleFromHtml(TITLE_PAGE) === 'Guest Blogging Outreach & Niche Links',
+   titleFromHtml(TITLE_PAGE));
+ok('a page with no title heading gives nothing', titleFromHtml('<html><body>login required</body></html>') === '');
+ok('empty input gives nothing rather than throwing', titleFromHtml('') === '');
+
+{
+  global.fetch = async () => ({ ok: true, text: async () => TITLE_PAGE });
+  const title = await fetchThreadTitle('https://www.blackhatworld.com/seo/x.111/');
+  ok('fetchThreadTitle reads the title from a real page', title === 'Guest Blogging Outreach & Niche Links', title);
+
+  global.fetch = async () => ({ ok: false });
+  ok('a failed fetch gives an empty title, not a throw', await fetchThreadTitle('https://x/') === '');
+
+  global.fetch = async () => { throw new Error('network down'); };
+  ok('a thrown fetch also degrades to an empty title', await fetchThreadTitle('https://x/') === '');
+}
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

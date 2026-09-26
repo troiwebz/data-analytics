@@ -84,6 +84,30 @@ $('reset').addEventListener('click', async () => {
   status('Defaults loaded — press Save to apply. Your Claude key was not touched.');
 });
 
+$('bulkTrackBtn').addEventListener('click', async () => {
+  const text = $('bulkTrack').value.trim();
+  const bs = $('bulkTrackStatus');
+  if (!text) { bs.style.color = '#dc2626'; bs.textContent = 'Paste at least one BHW thread link first.'; return; }
+  bs.style.color = ''; bs.textContent = 'Reading each thread…';
+  $('bulkTrackBtn').disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ cmd: 'batch-track-services', text });
+    if (r?.error) { bs.style.color = '#dc2626'; bs.textContent = r.error; return; }
+    const parts = [];
+    if (r.added.length) parts.push(`${r.added.length} added`);
+    if (r.already.length) parts.push(`${r.already.length} already tracked`);
+    if (r.noTitle.length) parts.push(`${r.noTitle.length} could not be titled, added anyway`);
+    bs.style.color = '';
+    bs.textContent = parts.length ? parts.join(', ') + '.' : 'No BHW thread links found in that text.';
+    if (r.added.length) {
+      $('bulkTrack').value = '';
+      $('serviceThreads').value = JSON.stringify((await getConfig()).serviceThreads, null, 2);
+    }
+  } finally {
+    $('bulkTrackBtn').disabled = false;
+  }
+});
+
 // ---- Anthropic key: entered here, kept on this machine, used by the worker
 function showAi(r, err) {
   const el = $('aiStatus');

@@ -25,6 +25,7 @@ const BODY_LOOSE = /<div class="bbWrapper">([\s\S]*?)<\/article>/;
 const QUOTE      = /<blockquote[\s\S]*?<\/blockquote>/g;
 // Signatures are advertising, not an answer to the job.
 const SIGNATURE  = /<div class="message-signature"[\s\S]*$/;
+const TITLE      = /<h1[^>]*class="[^"]*\bp-title-value\b[^"]*"[^>]*>([\s\S]*?)<\/h1>/;
 
 function text(html) {
   return String(html || '')
@@ -83,6 +84,26 @@ export async function fetchThread(url) {
     return parseThread(html);
   } catch {
     return { body: '', replies: [] };
+  }
+}
+
+/** The thread's own title, straight off its page - not the feed's copy, which
+ * a hand-pasted URL never had one of in the first place. */
+export function titleFromHtml(html) {
+  const m = String(html || '').match(TITLE);
+  return m ? text(m[1]).trim() : '';
+}
+
+/** Read just the title of a thread you only have a URL for (nothing tracked
+ * it from the feed). Never throws: an unreadable page just yields no title,
+ * and the caller falls back to something built from the URL itself. */
+export async function fetchThreadTitle(url) {
+  try {
+    const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+    if (!res.ok) return '';
+    return titleFromHtml(await res.text());
+  } catch {
+    return '';
   }
 }
 
