@@ -346,7 +346,7 @@ async function drawQueue() {
       : "";
   $("#qRows").innerHTML = (q.rows || []).map((p) => `<tr>
     <td><span class="tag t-${esc(p.badge)}">${esc(p.badge)}</span>${p.amount ? `<div class="faint">${esc(p.amount)}</div>` : ""}</td>
-    <td class="faint">r/${esc(p.sub)}${p.countryName ? `<div style="color:${p.tier1 ? "var(--go)" : "var(--faint)"}">${esc(p.countryName)}</div>` : ""}</td>
+    <td class="faint">r/${esc(p.sub)}${p.countryName ? `<div style="color:${p.country === "us" ? "var(--go)" : p.tier1 ? "var(--blue)" : "var(--faint)"}">${esc(p.countryName)}</div>` : `<div class="faint">unknown market</div>`}</td>
     <td><a href="${esc(p.permalink)}" target="_blank">${esc(p.title)}</a><div class="faint">${esc(p.why)}</div></td>
     <td class="faint">${ago(p.created)}</td>
     <td><button class="ghost" data-a="${esc(p.id)}">write an answer</button><button class="ghost" data-d="${esc(p.id)}">drop</button></td></tr>`).join("")
@@ -354,8 +354,9 @@ async function drawQueue() {
   $$("#qRows button[data-a]").forEach((b) => b.onclick = () => answer(b.dataset.a));
   $$("#qRows button[data-d]").forEach((b) => b.onclick = async () => { await send({ type: "v2-queue-act", id: b.dataset.d, action: "drop" }); drawQueue(); });
   $("#scanLive").textContent = q.lastScan ? "last scan " + ago(q.lastScan) + " ago" : "";
-  $("#tier1").checked = q.tier1Only !== false;
-  if (q.tier1) $("#qStat").innerHTML += `<div><b style="color:var(--go)">${q.tier1}</b><span>US/UK/CA/AU</span></div>`;
+  $("#tierMode").value = q.tierMode || "tier1";
+  $("#tierStrict").checked = !!q.tierStrict;
+  if (q.us || q.tier1) $("#qStat").innerHTML += `<div><b style="color:var(--go)">${q.us || 0}</b><span>United States</span></div><div><b style="color:var(--blue)">${q.tier1 || 0}</b><span>US/UK/CA/AU</span></div>`;
 }
 async function answer(id) {
   say("writing an answer…");
@@ -396,7 +397,14 @@ $("#scan").onclick = async () => {
   }, 900);
 };
 $("#scanStop").onclick = () => { send({ type: "v2-scan-stop" }); say("stopping…"); };
-$("#tier1").onchange = async () => { await send({ type: "v2-tier1", on: $("#tier1").checked }); say($("#tier1").checked ? "scanning tier-one markets only from now on" : "scanning everywhere", "var(--go)"); };
+async function saveTierFilter() {
+  const mode = $("#tierMode").value, strict = $("#tierStrict").checked;
+  await send({ type: "v2-tier1", mode, strict });
+  const name = { off: "no market filter", tier1: "US, UK, Canada and Australia", us: "United States only" }[mode];
+  say(`targeting ${name}${strict ? ", unmarked posts dropped too" : ""} from now on — rescan to apply it`, "var(--go)");
+}
+$("#tierMode").onchange = saveTierFilter;
+$("#tierStrict").onchange = saveTierFilter;
 
 // ----------------------------------------------------------------- leads
 async function drawLeads() {

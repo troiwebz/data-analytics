@@ -182,7 +182,12 @@
     <div class="bar">
       <button class="act" id="scan">Scan for buyers</button>
       <button class="ghost" id="scanStop" style="display:none">Stop</button>
-      <label class="f"><input type="checkbox" id="tier1"> United States, UK, Canada and Australia only</label>
+      <label class="f">market <select id="tierMode">
+        <option value="off">no filter — everywhere</option>
+        <option value="tier1">US, UK, Canada, Australia</option>
+        <option value="us">United States only</option>
+      </select></label>
+      <label class="f"><input type="checkbox" id="tierStrict"> also drop anything with no country signal at all</label>
       <span id="scanLive" class="faint"></span>
     </div>
     <table><thead><tr>

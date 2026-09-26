@@ -1941,11 +1941,15 @@ V2.COUNTRY = {
   // Every token here has to be unambiguous. "PHP" was reading the programming
   // language as the Philippine peso and throwing away a $3k-a-month buyer;
   // "dong" and "taka" are ordinary words too. A currency code only counts
-  // next to a number, and the language is never a country.
+  // next to a number, and the language is never a country. City names carry
+  // the weight here rather than currency alone — a huge share of posts from
+  // India, Pakistan, Nigeria and the Philippines name a city and never a
+  // currency or the country itself, and those were sliding through as
+  // "unknown" before.
   low: { name: "somewhere with a small budget", tier1: false,
-    re: /₹\s?\d|\brs\.? ?\d|\b\d+\s?(inr|pkr|ngn|bdt|idr|vnd)\b|\b(inr|pkr|ngn|bdt|idr|vnd)\s?\d|\b\d+\s?(lakh|crore)\b|\b(lakhs?|crores?)\b|\bnaira\b|\brupees?\b|\brupiah\b|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b/i },
+    re: /₹\s?\d|\brs\.? ?\d|\b\d+\s?(inr|pkr|ngn|bdt|idr|vnd)\b|\b(inr|pkr|ngn|bdt|idr|vnd)\s?\d|\b\d+\s?(lakh|crore)\b|\b(lakhs?|crores?)\b|\bnaira\b|\brupees?\b|\brupiah\b|\+91[\s-]?\d|\+92[\s-]?\d|\+880[\s-]?\d|\+234[\s-]?\d|\+63[\s-]?\d|\b(india|pakistan|bangladesh|nigeria|kenya|philippines|indonesia|vietnam|nepal|sri lanka)\b|\b(bangalore|bengaluru|mumbai|new delhi|delhi ncr|hyderabad|chennai|pune|kolkata|gurgaon|gurugram|noida|ahmedabad|jaipur|lucknow|surat|indore|chandigarh|karachi|lahore|islamabad|rawalpindi|dhaka|chittagong|lagos|abuja|nairobi|mombasa|manila|quezon city|cebu|jakarta|surabaya|bandung|hanoi|ho chi minh|karachi)\b/i },
 };
-V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca" };
+V2.COUNTRY_SUB = { smallbusinessUK: "uk", AusSmallBusiness: "au", smallbusinesscanada: "ca", IndianStartups: "low" };
 V2.countryOf = function (text, sub) {
   const t = String(text || "");
   if (sub && V2.COUNTRY_SUB[sub]) return { key: V2.COUNTRY_SUB[sub], ...V2.COUNTRY[V2.COUNTRY_SUB[sub]], why: "r/" + sub + " is a country's own room", sure: true };
@@ -1957,6 +1961,16 @@ V2.countryOf = function (text, sub) {
   const low = hits.find((h) => h.key === "low");
   const pick = low || hits[0];
   return { ...pick, why: low ? "the money and the places named are not a tier-one market" : "reads as " + pick.name, sure: hits.length === 1 };
+};
+
+// What "on target" means is a choice, not a fact — asked for explicitly so it
+// says so on the tab rather than being buried in a checkbox. "off" keeps
+// everyone; "tier1" is the four English-speaking markets; "us" is the US
+// alone, for someone who said so plainly.
+V2.TIER_MODES = {
+  off: { name: "no filter", test: () => true },
+  tier1: { name: "US, UK, Canada, Australia", test: (c) => c.tier1 === true },
+  us: { name: "United States only", test: (c) => c.key === "us" },
 };
 
 // ------------------------------------------------------- the audit itself
@@ -1996,10 +2010,19 @@ V2.AUDIT_KIT = {
 };
 
 // A lead is only worth having if the money behind it is worth having.
+// `mode` is one of V2.TIER_MODES ("off" / "tier1" / "us"); `strict` decides
+// whether a post with no country signal at all is kept (the lenient default,
+// so a US buyer who never mentions a city is not thrown away) or dropped
+// (for someone who wants only confirmed matches and would rather miss a few
+// than see anything unverified).
 V2.tierScore = function (p, opts = {}) {
   const c = V2.countryOf([p.title, p.body, p.text].filter(Boolean).join(" \n "), p.sub);
-  const only = opts.tier1Only;
-  return { ...c, keep: !only || c.tier1 === true || (c.tier1 === null && !opts.strict) };
+  // opts.tier1Only is the old boolean shape, kept working: true means "tier1"
+  const mode = opts.mode || (opts.tier1Only ? "tier1" : "off");
+  const rule = V2.TIER_MODES[mode] || V2.TIER_MODES.off;
+  if (mode === "off") return { ...c, keep: true };
+  if (!c.key) return { ...c, keep: !opts.strict };   // nothing said, benefit of the doubt unless strict
+  return { ...c, keep: rule.test(c) };
 };
 
 // ------------------------------------------ does this offer fit these people
@@ -2136,6 +2159,7 @@ V2.funnelWhy = function (f) {
   const read = (f && f.read) || 0;
   const kept = (f && f.kept) || 0;
   const live = (f && f.live) || 0;
+  const mode = V2.TIER_MODES[f && f.tierMode] || V2.TIER_MODES.tier1;
   const out = [];
   if (!read) {
     out.push({ bad: true, say: "no posts were read at all", fix: d.sources ? "Reddit did not answer — open a Reddit tab, make sure you are logged in, and scan again" : "every source came back empty, which usually means the Reddit tab is not logged in" });
@@ -2145,7 +2169,7 @@ V2.funnelWhy = function (f) {
     out.push({ bad: false, say: Math.round((d.known / read) * 100) + "% of what was read is already in the queue", fix: "nothing new has been posted since the last scan — this is normal an hour after one" });
   }
   if (d.country > 0 && d.country >= kept) {
-    out.push({ bad: true, say: d.country + " were dropped for being outside the US, UK, Canada and Australia", fix: "untick that filter on this tab if you will work other markets" });
+    out.push({ bad: true, say: d.country + " were dropped for not being " + mode.name, fix: "change the market filter on this tab if that is too narrow" });
   }
   if (d.noMoney + d.selling > 0 && kept < 3) {
     out.push({ bad: false, say: (d.noMoney + d.selling) + " had no money signal — no budget, no agency, no business of their own", fix: "that filter is doing its job; it is what keeps students and freelancers out" });

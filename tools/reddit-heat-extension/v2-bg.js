@@ -16,7 +16,7 @@ async function v2Set(patch) {
   return next;
 }
 function v2Settings(st) {
-  return { auto: false, campaign: "", perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, dailyBudget: 7, engine: "free", tier1Only: true, ...(st.settings || {}) };
+  return { auto: false, campaign: "", perDay: 3, subCoolDays: 14, magnetEvery: 2, kinds: "all", days: 30, subs: [], offers: [], types: [], commentsPerPost: 5, dailyBudget: 7, engine: "free", tierMode: "tier1", tierStrict: false, ...(st.settings || {}) };
 }
 // Offers written in the studio live in storage, not in the shipped list, so
 // they are merged back onto V2 before anything resolves an offer key. The
@@ -1240,7 +1240,8 @@ async function v2Scan(force) {
       const cls = V2.classifyBuyer(d.title, d.selftext, d.subreddit);
       if (!cls.keep) { if (/selling|studying|free help/.test(cls.why)) drop.selling += 1; else drop.noMoney += 1; continue; }
       // a lead is only worth having if the money behind it is
-      const where = V2.tierScore({ title: d.title, body: d.selftext, sub: d.subreddit }, { tier1Only: v2Settings(st).tier1Only });
+      const tset = v2Settings(st);
+      const where = V2.tierScore({ title: d.title, body: d.selftext, sub: d.subreddit }, { mode: tset.tierMode, strict: tset.tierStrict });
       if (!where.keep) { drop.country += 1; continue; }
       queue[d.id] = { id: d.id, author: d.author, sub: d.subreddit, title: String(d.title || "").slice(0, 300), body: String(d.selftext || "").replace(/\s+/g, " ").slice(0, 4000),
         permalink: "https://www.reddit.com" + String(d.permalink || ""), created: (d.created_utc || 0) * 1000, comments: d.num_comments || 0,
@@ -1256,7 +1257,7 @@ async function v2Scan(force) {
   for (const [id, p] of Object.entries(queue)) if (p.state === "new" && (p.created || 0) < cutoff) { delete queue[id]; drop.old += 1; }
   const funnel = { at: Date.now(), sources: urls.length, read: seen, kept: found, drop,
     live: Object.values(queue).filter((p) => p.state !== "done" && p.state !== "dropped").length,
-    campaign: camp ? camp.name : "", tier1Only: !!v2Settings(st).tier1Only };
+    campaign: camp ? camp.name : "", tierMode: v2Settings(st).tierMode, tierStrict: !!v2Settings(st).tierStrict };
   funnel.why = V2.funnelWhy(funnel);
   await chrome.storage.local.set({ v2Scan: { running: false, total: urls.length, done: i, seen, found, where: "", stop: false } });
   await v2Set({ queue, lastScan: Date.now(), funnel });
@@ -1272,7 +1273,8 @@ async function v2QueueList(limit) {
   const all = Object.values(st.queue || {});
   return { ok: true, rows, total: all.length,
     tiers: { spending: all.filter((p) => p.badge === "spending").length, owner: all.filter((p) => p.badge === "owner").length, asking: all.filter((p) => p.badge === "asking").length },
-    tier1: all.filter((p) => p.tier1).length, lastScan: st.lastScan || 0, tier1Only: v2Settings(st).tier1Only,
+    us: all.filter((p) => p.country === "us").length, tier1: all.filter((p) => p.tier1).length, lastScan: st.lastScan || 0,
+    tierMode: v2Settings(st).tierMode, tierStrict: !!v2Settings(st).tierStrict, tierModes: V2.TIER_MODES,
     funnel: st.funnel || null };
 }
 
@@ -1333,7 +1335,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     case "v2-rooms": return go(v2Rooms(msg.picked));
     case "v2-offers": return go(v2Offers());
     case "v2-engine": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), engine: msg.engine === "ai" ? "ai" : "free" } })).then(() => ({ ok: true })));
-    case "v2-tier1": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), tier1Only: !!msg.on } })).then(() => ({ ok: true })));
+    case "v2-tier1": return go(v2Get().then((st) => v2Set({ settings: { ...v2Settings(st), tierMode: V2.TIER_MODES[msg.mode] ? msg.mode : "tier1", tierStrict: !!msg.strict } })).then(() => ({ ok: true })));
     case "v2-audit-kit": return go(Promise.resolve({ ok: true, kit: V2.AUDIT_KIT }));
     case "v2-prompt": return go(v2Prompt(msg.n));
     case "v2-paste": return go(v2Paste(msg.n, msg.text));

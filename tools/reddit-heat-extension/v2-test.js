@@ -484,6 +484,39 @@ assert.strictEqual(V.tierScore({ title: "no clues" }, { tier1Only: true }).keep,
 assert.strictEqual(V.tierScore({ title: "no clues" }, { tier1Only: true, strict: true }).keep, false);
 assert.strictEqual(V.tierScore({ title: "20000 INR budget in India" }, {}).keep, true, "the filter must do nothing when it is off");
 
+// ---- targeting the United States specifically, not just "not India" -----
+assert.deepStrictEqual(Object.keys(V.TIER_MODES).sort(), ["off", "tier1", "us"]);
+assert.strictEqual(V.tierScore({ title: "Spending $4k a month, zip code area" }, { mode: "us" }).keep, true);
+assert.strictEqual(V.tierScore({ title: "Ltd company in Manchester, VAT registered" }, { mode: "us" }).keep, false, "a UK post passed a US-only filter");
+assert.strictEqual(V.tierScore({ title: "Toronto, Ontario postal code" }, { mode: "us" }).keep, false, "a Canadian post passed a US-only filter");
+assert.strictEqual(V.tierScore({ title: "Ltd company in Manchester, VAT registered" }, { mode: "tier1" }).keep, true, "the tier1 mode should still take UK");
+// a post with no country signal is kept by default under any mode (benefit
+// of the doubt for a US buyer who never mentions a city), but dropped when
+// strict is asked for explicitly
+assert.strictEqual(V.tierScore({ title: "Anyone had luck with local SEO" }, { mode: "us" }).keep, true);
+assert.strictEqual(V.tierScore({ title: "Anyone had luck with local SEO" }, { mode: "us", strict: true }).keep, false);
+// the old boolean shape still works so nothing already calling it breaks
+assert.strictEqual(V.tierScore({ title: "spending $5k" }, { tier1Only: true }).keep, true);
+
+// ---- Indian posts that never mention a currency or the country name -----
+// this was the real leak: a city alone, or a phone code, with no rupee sign
+// and no literal word "india" anywhere in the post
+for (const t of [
+  "I run a digital marketing agency in Bangalore, need more clients",
+  "We are based in Mumbai, doing SMM for local shops",
+  "Call me on +91 98765 43210 for a quote",
+  "Small team in Gurgaon offering SEO services",
+  "Based out of Pune, want to scale our agency",
+]) {
+  assert.strictEqual(V.countryOf(t).key, "low", "missed an Indian city/phone signal in: " + t);
+  assert.strictEqual(V.tierScore({ title: t }, { mode: "us" }).keep, false, "an Indian post passed the US filter: " + t);
+  assert.strictEqual(V.tierScore({ title: t }, { mode: "tier1" }).keep, false, "an Indian post passed the tier1 filter: " + t);
+}
+// other countries' cities are caught the same way
+assert.strictEqual(V.countryOf("Our office is in Karachi, need help with ads").key, "low");
+assert.strictEqual(V.countryOf("We run a shop in Lagos").key, "low");
+assert.strictEqual(V.countryOf("Based in Manila, small ecommerce store").key, "low");
+
 // ---- the audit, produced for nothing ------------------------------------
 assert.ok(V.AUDIT_KIT.steps.length >= 6);
 assert.ok(V.AUDIT_KIT.report.length >= 6);
@@ -578,7 +611,7 @@ assert.match(nothing.lines[0].say, /no posts were read/);
 assert.match(nothing.lines[0].fix, /logged in/);
 const filtered = V.funnelWhy({ read: 900, kept: 0, live: 0, drop: { noMoney: 700, country: 200 } });
 assert.strictEqual(filtered.ok, false);
-assert.match(filtered.lines.map((l) => l.say).join(" | "), /outside the US, UK, Canada/);
+assert.match(filtered.lines.map((l) => l.say).join(" | "), /not being US, UK, Canada, Australia/);
 assert.ok(filtered.lines.some((l) => l.bad), "a filter eating everything should be flagged");
 // nothing new but a full queue is not a fault
 const quietHour = V.funnelWhy({ read: 900, kept: 0, live: 12, drop: { known: 880, noMoney: 20 } });
