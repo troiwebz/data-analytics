@@ -784,7 +784,7 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
 
   store.recentLeads = [
     lead('70', { status: 'BACKFILL', title: 'a recent thread wrongly tagged History', foundAt: new Date().toISOString() }),
-    lead('71', { status: 'SENT', title: 'an ordinary to-do' }),
+    lead('71', { status: 'SENT', title: 'an ordinary to-do', foundAt: new Date().toISOString() }),
     lead('72', { status: 'POSTED', title: 'already posted' }),
     lead('73', { status: 'SKIPPED', title: 'already skipped' }),
     lead('74', { pmSent: true, title: 'PM already sent' })
@@ -827,7 +827,8 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
 
   // More than one batch's worth: capped, not a flood, and told how many are
   // left rather than silently dropping the rest.
-  store.recentLeads = Array.from({ length: 11 }, (_, i) => lead(`p${i}`, { title: `queued ${i}` }));
+  store.recentLeads = Array.from({ length: 11 }, (_, i) =>
+    lead(`p${i}`, { title: `queued ${i}`, foundAt: new Date().toISOString() }));
   tgCalls = [];
   updates = [{ update_id: Math.floor(Math.random() * 1e6),
                message: { message_id: 90, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
@@ -855,14 +856,25 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('and one right at the edge of it', /found twelve hours ago/.test(sent), sent.slice(0, 200));
   ok('but not one from outside the window', !/found two days ago/.test(sent), sent.slice(0, 200));
 
-  // Bare "pending" (no number) is unaffected - the full audit, as before.
+  // Bare "pending" (no number) now defaults to 24h too - an old lead from
+  // days ago used to keep resurfacing on a plain "pending", which is the
+  // opposite of "what did I just miss".
   store.recentLeads = [lead('83', { title: 'found two days ago again', foundAt: hoursAgo(48) })];
   tgCalls = [];
   updates = [{ update_id: Math.floor(Math.random() * 1e6),
                message: { message_id: 92, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
   await bg.pollTaps();
-  const full = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
-  ok('plain "pending" still reaches back through the whole table', /found two days ago again/.test(full), full.slice(0, 200));
+  let out = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('plain "pending" defaults to the last 24h, so a two-day-old lead is left out',
+     !/found two days ago again/.test(out), out.slice(0, 200));
+
+  // "pending 0" is the explicit way back to the whole table, unfiltered.
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'pending 0', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  out = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"pending 0" reaches back through the whole table', /found two days ago again/.test(out), out.slice(0, 200));
 
   // A window with nothing in it says so, distinctly from the unfiltered case.
   store.recentLeads = [lead('84', { title: 'old one', foundAt: hoursAgo(48) })];
