@@ -566,6 +566,9 @@ $('deep').addEventListener('click', async () => {
 $('insights').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/insights/insights.html');
 });
+$('services').addEventListener('click', () => {
+  location.href = chrome.runtime.getURL('src/services/services.html');
+});
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('cmd').addEventListener('click', async () => {
   await navigator.clipboard.writeText($('cmd').textContent.trim());

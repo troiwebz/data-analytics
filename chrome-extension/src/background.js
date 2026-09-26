@@ -1079,16 +1079,25 @@ function pickBumpText(cfg) {
   return spin(templates[Math.floor(Math.random() * templates.length)] || '');
 }
 
-/** "idea <label>" - suggested wording on request, any time. Read-only: never
- * touches bumpNotifiedAt or the eligibility clock, unlike the due-reminder. */
+/** Suggested wording for one tracked thread, on request, any time. Read-only:
+ * never touches bumpNotifiedAt or the eligibility clock, unlike the
+ * due-reminder. Shared by the Telegram "idea <label>" command and the
+ * service-threads page's own "Get idea" button. */
+export function bumpIdeaFor(cfg, label) {
+  const found = findServiceThread(cfg, label);
+  if (!found) return { ok: false };
+  return { ok: true, thread: found, text: pickBumpText(cfg) };
+}
+
+/** "idea <label>" - the Telegram side of bumpIdeaFor. */
 export async function sendBumpIdea(cfg, label) {
   if (!cfg.telegramChatId) return { skipped: 'off' };
-  const found = findServiceThread(cfg, label);
-  if (!found) {
+  const r = bumpIdeaFor(cfg, label);
+  if (!r.ok) {
     await telegram.say(cfg.telegramChatId, `No service thread called "${escHtml(label)}". Send "services" to see what's tracked.`, { html: true });
     return { ok: false };
   }
-  const text = pickBumpText(cfg);
+  const { thread: found, text } = r;
   await telegram.say(cfg.telegramChatId,
     `💡 Suggested update for <b>${escHtml(found.label || found.id)}</b>:\n\n<pre>${escHtml(text)}</pre>\n\n`
     + (found.url ? `<a href="${escHtml(found.url)}">Open thread</a>\n\n` : '')
@@ -2580,9 +2589,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'regen': sendResponse(await rebuildDrafts({ withAi: true })); break;
-      case 'batch-track-services': {                // Settings page: paste links, read titles live
+      case 'batch-track-services': {                // Settings / service-threads page: paste links, read titles live
         const cfg = await getConfig();
         sendResponse(await batchTrackServiceThreads(cfg, msg.text || '').catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'bump-idea': {                            // service-threads page: "Get idea", no Telegram involved
+        sendResponse(bumpIdeaFor(await getConfig(), msg.label));
+        break;
+      }
+      case 'mark-bumped-thread': {                   // service-threads page: "Mark bumped"
+        sendResponse(await markBumped(await getConfig(), msg.label));
+        break;
+      }
+      case 'untrack-service-thread': {                // service-threads page: "Untrack"
+        sendResponse(await untrackServiceThread(await getConfig(), msg.label));
         break;
       }
       case 'fill-thread': {                          // 📝 open the thread with the reply typed in
