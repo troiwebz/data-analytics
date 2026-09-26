@@ -6,10 +6,15 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LABEL="com.reddit-lead-threads.update"
+# manifest.json now carries a fixed "key", so the extension's id is the same
+# every time it is loaded — same folder, a different folder, removed and
+# reloaded ten times, a different machine entirely. That id never has to be
+# copied from chrome://extensions again.
+DEFAULT_EXT_ID="fkaifecebaffgdnldpeghgekinfilkee"
 # Arguments, in any order: a number = seconds between background updates
-# (default 120); a 32-letter word = the extension's id from chrome://extensions,
-# which registers the "Update now" button's native host for that extension.
-INTERVAL=120; EXT_ID=""
+# (default 120); a 32-letter word = an extension id, only needed if you are
+# deliberately pointing this at a different build.
+INTERVAL=120; EXT_ID="$DEFAULT_EXT_ID"
 for a in "$@"; do
   case "$a" in
     [0-9]*) INTERVAL="$a" ;;
@@ -17,17 +22,29 @@ for a in "$@"; do
   esac
 done
 
-if [ -n "$EXT_ID" ]; then
-  HOST="com.redditleadthreads.updater"
-  chmod +x "$HERE/native-host.sh" 2>/dev/null || true
-  for DIR in "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" \
-             "$HOME/Library/Application Support/Chromium/NativeMessagingHosts" \
-             "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
-             "$HOME/.config/google-chrome/NativeMessagingHosts" \
-             "$HOME/.config/chromium/NativeMessagingHosts"; do
-    case "$DIR" in "$HOME/Library/"*) [ "$(uname)" = "Darwin" ] || continue ;; *) [ "$(uname)" = "Darwin" ] && continue ;; esac
-    mkdir -p "$DIR"
-    cat > "$DIR/$HOST.json" <<EOF
+HOST="com.redditleadthreads.updater"
+chmod +x "$HERE/native-host.sh" 2>/dev/null || true
+# Every Chromium-based browser keeps its own NativeMessagingHosts folder, so
+# the host is registered with each of them — whichever one is actually
+# running this extension will find it. A missing folder is skipped silently.
+for DIR in "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/Chromium/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/Arc/User Data/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/Vivaldi/NativeMessagingHosts" \
+           "$HOME/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts" \
+           "$HOME/.config/google-chrome/NativeMessagingHosts" \
+           "$HOME/.config/google-chrome-beta/NativeMessagingHosts" \
+           "$HOME/.config/chromium/NativeMessagingHosts" \
+           "$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
+           "$HOME/.config/microsoft-edge/NativeMessagingHosts" \
+           "$HOME/.config/vivaldi/NativeMessagingHosts" \
+           "$HOME/.config/opera/NativeMessagingHosts"; do
+  case "$DIR" in "$HOME/Library/"*) [ "$(uname)" = "Darwin" ] || continue ;; *) [ "$(uname)" = "Darwin" ] && continue ;; esac
+  mkdir -p "$DIR" 2>/dev/null || continue
+  cat > "$DIR/$HOST.json" <<EOF
 {
   "name": "$HOST",
   "description": "Reddit Lead Threads: runs update.sh for the Update now button",
@@ -36,9 +53,8 @@ if [ -n "$EXT_ID" ]; then
   "allowed_origins": ["chrome-extension://$EXT_ID/"]
 }
 EOF
-  done
-  echo "Update now button connected for extension $EXT_ID."
-fi
+done
+echo "Update now button connected for extension $EXT_ID (registered with every browser found on this machine)."
 
 if [ "$(uname)" = "Darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
