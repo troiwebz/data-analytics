@@ -1046,7 +1046,7 @@ function updShow(title, pct, cls) {
   $("#updFill").parentElement.className = "track " + (cls || "");
 }
 function updLine(t) { const el = $("#updLog"); el.textContent += (el.textContent ? "\n" : "") + t; el.scrollTop = el.scrollHeight; }
-function updCmdText() { return `cd "$HOME/Downloads/reddit-heat-extension 7" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
+function updCmdText() { return `cd "$HOME/reddit-heat-extension" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
 async function updBackground() {
   const r = await hostPort("status");
   const st = r.messages && r.messages.find((m) => m.status);

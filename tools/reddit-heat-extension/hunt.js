@@ -1465,7 +1465,7 @@ async function checkAhead(n = 4) {
 const HOST = "com.redditleadthreads.updater";
 function updShow(title, pct, cls) { if ($("upd").hidden) updBackground(); $("upd").hidden = false; $("updTitle").textContent = title; $("updFill").style.width = pct + "%"; $("upd").querySelector(".bar").className = "bar " + (cls || ""); }
 function updLine(t) { const el = $("updLog"); el.textContent += (el.textContent ? "\n" : "") + t; el.scrollTop = el.scrollHeight; }
-function updConnectCmd() { return `cd "$HOME/Downloads/reddit-heat-extension 7" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
+function updConnectCmd() { return `cd "$HOME/reddit-heat-extension" && ./update.sh && ./autoupdate-install.sh ${chrome.runtime.id}`; }
 function hostPort(cmd) {
   return new Promise((resolve) => {
     let port;

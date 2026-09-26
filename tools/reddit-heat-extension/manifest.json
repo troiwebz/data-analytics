@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAp1XRldYMtP2ElqXbt+Zz0LPmIsvVG31SFcat3ofl/TxR9YmrhOUpG75ftkd5P3yFu1EYoml4+EcNb6H8PW2FqwMuhULvQrYeEgdgwYkLFZqAtENccGjVLwEnipp8AsXyZhVmAmG0bwJRseMXNDaXk5z1da3tecY21YvrGqY7RkHG6756sgdJzTw+R+Jd166YByUf3JTJcyMGRUZfXn5N+jPvZEZFZsWFadewrAja0RWOA0vvpBU6nOVclgCtMSlMm26gTWGzXvsfI2GGfy3of/66OSy/sqN11Z+1m+mGkKMC+XwkAIJxBlCIVg8uf/5nibiCwCywXmjZOYT60QuNowIDAQAB",
   "name": "Reddit Lead Threads (private)",
-  "version": "4.11.2",
+  "version": "4.11.3",
   "description": "Scrapes the Reddit pages you browse (listings, searches, threads), walks next pages and threads for you, matches hundreds of keywords, scores every thread on lead evidence, and saves a CSV. Optional background crawler.",
   "permissions": [
     "storage",
