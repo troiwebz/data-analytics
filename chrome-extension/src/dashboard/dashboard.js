@@ -649,12 +649,19 @@ $('poll').addEventListener('click', () => busy('poll', 'Checking…', async func
   if (r?.error) alert(r.error);
   else if (r?.skipped) await explainSkip(r, async () => { const r2 = await chrome.runtime.sendMessage({ cmd: 'poll-now' }); if (r2?.error) alert(r2.error); });
 }));
-$('pollsrc').addEventListener('click', () => busy('pollsrc', 'Checking…', async () => {
-  const r = await chrome.runtime.sendMessage({ cmd: 'sources-now' });
+$('pollsrc').addEventListener('click', () => busy('pollsrc', 'Reading every forum… (~2 min)', async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'sources-now', all: true });
   if (r?.error) alert(r.error);
   else if (r?.skipped) await explainSkip(r, async () => { const r2 = await chrome.runtime.sendMessage({ cmd: 'sources-now' }); if (r2?.error) alert(r2.error); });
-  else alert(`${r?.sources ?? 0} source(s) read · ${r?.indexed ?? 0} thread(s) indexed · ${r?.leads ?? 0} new · ${r?.bumps ?? 0} bump(s).`
-    + (r?.errors?.length ? `\n\n${r.errors.join('\n')}` : ''));
+  else {
+    const lines = [`What's new: ${r?.indexed ?? 0} row(s) · ${r?.leads ?? 0} new · ${r?.bumps ?? 0} bump(s)` + (r?.queued != null ? ` · ${r.queued} queued` : '')];
+    for (const f of r?.forums || []) {
+      lines.push(f.error ? `${f.forum || 'forum'}: ${f.error}`
+        : `${f.forum}: ${f.rows ?? 0} row(s) · ${f.queued ?? 0} queued` + (f.loud ? ` · ${f.loud} announced` : '') + (f.mine ? ` · ${f.mine} already yours` : ''));
+    }
+    if (r?.errors?.length) lines.push('', ...r.errors);
+    alert(lines.join('\n'));
+  }
 }));
 $('loadsrc').addEventListener('click', async () => {
   const label = prompt('Which watched forum? (its label from Settings, e.g. Google Ads)', 'Google Ads');

@@ -1317,12 +1317,14 @@ async function wall(why) {
   await log(`${why} - pausing every BHW read for 30 minutes, then trying again quietly`, 'error');
 }
 
-export async function pollSources() {
+export async function pollSources({ all = false } = {}) {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
   if (cfg.readMode === 'feeds') return pollSourcesFeeds(cfg);
   const r = await pollWhatsNew(cfg);
-  if (!r.skipped) r.forumTurn = await pollForumTurn(cfg).catch((e) => ({ error: e.message }));
+  // Automatic: one forum page per check, in turn. By hand: every forum, one
+  // after another with a human gap - you pressed the button, you want it all.
+  if (!r.skipped) r.forums = await pollForumTurn(cfg, { all }).catch((e) => [{ error: e.message }]);
   return r;
 }
 
@@ -1398,26 +1400,38 @@ async function queueRecent(cfg, rows, srcOf, { me = '', loud = () => false } = {
  * twenty things on the whole site; a forum's own page shows its bumps for
  * days back. Thirteen forums, one per check, is each forum every ~80 minutes.
  */
-async function pollForumTurn(cfg) {
+async function pollForumTurn(cfg, { all = false } = {}) {
   const forums = sourcesOf(cfg).filter((s) => s.kind === 'forum' && s.enabled);
-  if (!forums.length || await walled()) return { skipped: 'none' };
+  if (!forums.length || await walled()) return [];
   const { forumTurn = 0 } = await chrome.storage.local.get('forumTurn');
-  const src = forums[forumTurn % forums.length];
-  await chrome.storage.local.set({ forumTurn: (forumTurn + 1) % forums.length });
-  await new Promise((r) => setTimeout(r, 5000 + Math.random() * 6000));   // a breath after What's new
+  const list = all ? forums : [forums[forumTurn % forums.length]];
+  if (!all) await chrome.storage.local.set({ forumTurn: (forumTurn + 1) % forums.length });
+  const results = [];
+  for (const src of list) {
+    await new Promise((r) => setTimeout(r, 5000 + Math.random() * 6000));   // a breath between pages
+    const one = await readForumPage(cfg, src);
+    results.push(one);
+    if (one.blocked) break;
+  }
+  return results;
+}
+
+/** One forum's own page: index it, queue what is recent, note what you already answered. */
+async function readForumPage(cfg, src) {
   let page;
   try { page = await readListingTab(src.url); }
   catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message); else await log(`${src.label} page: ${e.message}`, 'error');
-    return { error: e.message };
+    if (/blocked/i.test(e.message)) { await wall(e.message); return { forum: src.label, error: e.message, blocked: true }; }
+    await log(`${src.label} page: ${e.message}`, 'error');
+    return { forum: src.label, error: e.message };
   }
   const me = await whoAmI(cfg, page);
   const rows = page.rows.filter((r) => !r.sticky).map((r) => ({ ...r, forumNode: r.forumNode || src.node, forum: r.forum || src.label }));
   const { bumped } = await upsertIndex(rows.map((r) => rowItem(r, src.key)), src.key, { days: cfg.indexDays });
   const bumpedIds = new Set(bumped.map((b) => String(b.threadId)));
   const n = await queueRecent(cfg, rows, () => src, { me, loud: (r) => src.bumpAlerts && bumpedIds.has(String(r.threadId)) });
-  await log(`${src.label} page: ${n.queued} recent thread(s) queued${n.loud ? `, ${n.loud} announced` : ''}${n.mine ? `, ${n.mine} already answered by you` : ''}`);
-  return { forum: src.label, ...n };
+  await log(`${src.label} page: ${rows.length} row(s), ${n.queued} recent thread(s) queued${n.loud ? `, ${n.loud} announced` : ''}${n.mine ? `, ${n.mine} already answered by you` : ''}`);
+  return { forum: src.label, rows: rows.length, ...n };
 }
 
 
@@ -1440,6 +1454,7 @@ async function pollWhatsNew(cfg) {
 
   const seen = await getSeen();
   let rows = [];
+  let lastPage = null;
   const pages = Math.max(1, Number(cfg.whatsNewPages) || 1);
   for (let p = 1; p <= pages; p++) {
     let page;
@@ -1451,6 +1466,7 @@ async function pollWhatsNew(cfg) {
       break;
     }
     out.sources = 1;
+    lastPage = page;
     if (!page.loggedIn) await logOnce('bhwLogin', 'BlackHatWorld shows you as logged OUT in this Chrome profile - open blackhatworld.com and sign in, or threads cannot be read or posted', 'error');
     else await clearLogOnce('bhwLogin');
     rows = rows.concat(page.rows);
@@ -1473,7 +1489,7 @@ async function pollWhatsNew(cfg) {
   const { whatsNewSeenAt } = await chrome.storage.local.get('whatsNewSeenAt');
   await chrome.storage.local.set({ whatsNewSeenAt: Date.now() });
   if (!whatsNewSeenAt) {
-    const me = await whoAmI(cfg, { me: rows.length ? undefined : '' });
+    const me = await whoAmI(cfg, lastPage);
     const srcOf = (r) => byNode.get(String(r.forumNode)) || ((siteOn && wordHits(r.title, words).length) ? siteSrc : null);
     const n = await queueRecent(cfg, rows.filter((r) => !r.sticky), srcOf, { me });
     await log(`What's new: first look, ${items.length} thread(s) indexed, ${n.queued} recent one(s) queued for "next" and the dashboard${n.mine ? `, ${n.mine} already answered by you` : ''} - alerts from now on`);
@@ -3351,7 +3367,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.cmd) {
       case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
-      case 'sources-now':   sendResponse(await pollSources().catch((e) => ({ error: e.message }))); break;
+      case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'sources-status': {                       // the dashboard's Other sources view
         const cfg = await getConfig();
