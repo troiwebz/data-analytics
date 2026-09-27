@@ -1746,7 +1746,7 @@ const HELP = [
   '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> · <b>unwatch …</b> · <b>watching</b>',
   '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
   '<b>load Google Ads 2</b> - put that forum\'s last 2 days of threads into the queue for <b>next</b>',
-  '<b>stats</b> · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
+  '<b>stats</b> - the dashboard numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
   '',
   'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
   + 'Write your answer (Claude/ChatGPT on your phone), then <b>reply to the card</b> with it - Chrome posts it when you tap 🚀.'
@@ -1761,6 +1761,7 @@ async function takeHuntCommand(ev, cfg) {
     return true;
   }
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
+  if ((m = body.match(/^\/?log\b\s*(\d+)?/i))) { await sendLog(cfg, m[1] ? Number(m[1]) : 15); return true; }
   if (/^\/?watching\b/i.test(body)) { await sendWatching(cfg); return true; }
   if ((m = body.match(/^\/?watch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await watchCmd(cfg, m[1])); return true; }
   if ((m = body.match(/^\/?unwatch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await unwatchCmd(cfg, m[1])); return true; }
@@ -1878,6 +1879,26 @@ async function takeSearch(ev, cfg) {
   return true;
 }
 
+/** When the last check ran, when the next is due, and whether BHW has us paused. */
+async function checkLine(cfg) {
+  const { lastPollAt = 0, whatsNewSeenAt = 0 } = await chrome.storage.local.get(['lastPollAt', 'whatsNewSeenAt']);
+  const ago = (t) => (t ? `${Math.max(0, Math.round((Date.now() - t) / 60000))} min ago` : 'never');
+  const until = await walled();
+  let alarm = null;
+  try { alarm = await chrome.alarms.get(FEED_ALARM); } catch { /* no alarms API */ }
+  const next = alarm?.scheduledTime ? `${Math.max(0, Math.round((alarm.scheduledTime - Date.now()) / 60000))} min` : '?';
+  return `Checks: last ${ago(lastPollAt)} · What's new ${ago(whatsNewSeenAt)} · next in ${next}`
+    + (until ? ` · ⏸ paused by a BHW wall until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '');
+}
+
+/** The dashboard log, on your phone. */
+async function sendLog(cfg, n = 15) {
+  const lines = (await getLog()).slice(0, Math.min(40, Math.max(1, n)));
+  if (!lines.length) { await telegram.say(cfg.telegramChatId, 'The log is empty.'); return; }
+  const text = lines.map((e) => `${e.level === 'error' ? '❗' : '·'} ${String(e.t).slice(11, 16)} ${escHtml(e.msg)}`).join('\n');
+  await telegram.say(cfg.telegramChatId, `🧾 <b>Last ${lines.length} log line(s)</b> (newest first, UTC)\n${text}`.slice(0, 3900), { html: true });
+}
+
 async function sendStats(cfg) {
   const leads = await getLeads();
   const day = new Date().toLocaleDateString('en-CA');
@@ -1904,7 +1925,8 @@ async function sendStats(cfg) {
     `Waiting: ${waiting} unanswered from the last ${hours}h - send "next"`,
     `Caps: ${cap(r.count || 0, cfg.maxPostsPerDay)} replies · ${cap(r.dmCount || 0, cfg.maxDmsPerDay)} PMs`,
     `Index: ${idx.size} threads (${idx.bumped} bumped) · Bank: ${bank.threads} threads / ${bank.replies} replies`,
-    `Watching: ${escHtml(srcs.join(', ') || 'no forums')} · words: ${escHtml(words.join(', ') || 'none')}`
+    `Watching: ${escHtml(srcs.join(', ') || 'no forums')} · words: ${escHtml(words.join(', ') || 'none')}`,
+    await checkLine(cfg)
   ].join('\n'), { html: true });
 }
 
