@@ -79,7 +79,9 @@ export function parseThread(html) {
   const forumNode = (String(html || '').match(NODE) || [])[1] || '';
   const crumbs = [...String(html || '').matchAll(CRUMB)].map((m) => text(m[1]));
   const forum = crumbs.length >= 2 ? crumbs[crumbs.length - 2] : '';
-  return { body: posts[0].text, replies: posts.slice(1), startedAt, forumNode, forum };
+  // "Home › Forums › The Marketplace › SEO - Packages › <thread>" -> "The Marketplace › SEO - Packages"
+  const section = crumbs.slice(2, -1).join(' › ');
+  return { body: posts[0].text, replies: posts.slice(1), startedAt, forumNode, forum, section };
 }
 
 /**

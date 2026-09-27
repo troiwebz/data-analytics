@@ -88,8 +88,13 @@ export function isSalesThread(title) {
 }
 
 /** Sections of BHW that are shops, not conversations - known only once the thread page is read. */
-const MARKET_RX = /marketplace|buy,? ?sell|classified|for sale|services? (?:offered|for sale)|affiliate programs?|joint ventures?|freebies/i;
-export const isMarketForum = (name) => MARKET_RX.test(String(name || ''));
+const MARKET_RX = /marketplace|classified|for sale|services? (?:offered|for sale)|affiliate programs - cpa|social media - panels|seo - (?:packages|link building|other)|freebies/i;
+/** `section` is the breadcrumb path when known ("The Marketplace › Hosting"); `forum` the forum name alone. */
+export function isMarketForum(section, forum = '') {
+  const f = String(forum || '');
+  if (/want to buy/i.test(f) || /want to buy/i.test(String(section || ''))) return false;   // buyers, exactly who you want
+  return MARKET_RX.test(String(section || '')) || MARKET_RX.test(f);
+}
 
 /**
  * What kind of thread is this, for the card's tag: a BUYER you can pitch, a

@@ -1339,10 +1339,10 @@ export async function pollSources() {
   for (const l of full) {
     // Whatever else happens to it, a thread we read is bank material and the
     // index should know its real start date and forum.
-    if (l.replies?.length && !isMarketForum(l.forum)) await addToBank(l);
-    if (l.startedAt || l.forum) await patchIndex(l.threadId, { startedAt: l.startedAt || null, forum: l.forum || '', forumNode: l.forumNode || '' });
+    if (l.replies?.length && !isMarketForum(l.section || l.forum, l.forum)) await addToBank(l);
+    if (l.startedAt || l.forum) await patchIndex(l.threadId, { startedAt: l.startedAt || null, forum: l.forum || '', forumNode: l.forumNode || '', section: l.section || '' });
     if (l.forumNode === HAF_NODE) continue;                     // that forum has its own flow
-    if (isMarketForum(l.forum)) continue;                        // a shop window, not a conversation
+    if (isMarketForum(l.section || l.forum, l.forum)) continue;  // a shop window, not a conversation
     if (l.startedAt) { l.postedAt = l.startedAt; l.postedAtSource = 'thread'; }
     // "New to us" but started more than a day ago: that is a bump we are
     // seeing for the first time, and it only gets through where bumps do.
@@ -1384,10 +1384,10 @@ export async function sendMaterial(lead, cfg) {
   if (!l.body && !(l.replies || []).length) {
     const got = await fetchThread(l.url);
     if (got.body || got.replies.length) {
-      const patch = { body: got.body, replies: got.replies, startedAt: got.startedAt || l.startedAt, forum: got.forum || l.forum, forumNode: got.forumNode || l.forumNode };
+      const patch = { body: got.body, replies: got.replies, startedAt: got.startedAt || l.startedAt, forum: got.forum || l.forum, forumNode: got.forumNode || l.forumNode, section: got.section || l.section };
       await updateLead(l.threadId, patch);
       l = { ...l, ...patch };
-      if (got.replies.length && !isMarketForum(l.forum)) await addToBank(l);
+      if (got.replies.length && !isMarketForum(l.section || l.forum, l.forum)) await addToBank(l);
     }
   }
   const matches = await bankMatches(`${l.title}\n${l.body || l.snippet || ''}`, { exclude: l.threadId });
@@ -1461,6 +1461,7 @@ const HELP = [
   '<b>casino</b> - every casino thread in the index · <b>casino new</b> / <b>casino bump</b> / <b>casino done</b>',
   '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> · <b>unwatch …</b> · <b>watching</b>',
   '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
+  '<b>load Google Ads 2</b> - put that forum\'s last 2 days of threads into the queue for <b>next</b>',
   '<b>stats</b> · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
   '',
   'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
@@ -1480,6 +1481,12 @@ async function takeHuntCommand(ev, cfg) {
   if ((m = body.match(/^\/?watch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await watchCmd(cfg, m[1])); return true; }
   if ((m = body.match(/^\/?unwatch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await unwatchCmd(cfg, m[1])); return true; }
   if ((m = body.match(/^\/?seed\s+(.+)/i))) { await seedForum(cfg, m[1]); return true; }
+  if ((m = body.match(/^\/?load\s+(.+?)(?:\s+(\d+))?\s*$/i))) {
+    const r = await loadForum(cfg, m[1], m[2] ? Number(m[2]) : 2);
+    await telegram.say(cfg.telegramChatId, r.error ? `❌ ${r.error}`
+      : `📥 ${r.label}: ${r.loaded} thread(s) from the last ${r.days} day(s) added to the queue (${r.scanned} looked at). Send "next" to work through them.`);
+    return true;
+  }
   if (/^\/?(?:help|commands|start)\b/i.test(body)) { await telegram.say(cfg.telegramChatId, HELP, { html: true }); return true; }
   return false;
 }
@@ -1657,6 +1664,42 @@ async function sendWatching(cfg) {
   lines.push(`Site-wide feed: ${cfg.siteWideEnabled !== false ? 'on' : 'off'} - words: `
     + (words.length ? words.map((w) => `${escHtml(w.word)}${w.bumpAlerts ? ' (bump)' : ''}${w.enabled ? '' : ' (off)'}`).join(', ') : 'none yet - "watch casino"'));
   await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+}
+
+/**
+ * "load <forum> [days]": the last N days of a watched forum, straight into the
+ * queue - not announced (that would be a flood), but "next" and search serve
+ * them. For the first day, and for a forum you only just added.
+ */
+export async function loadForum(cfg, raw, days = 2) {
+  const t = String(raw || '').trim().toLowerCase();
+  const src = sourcesOf(cfg).find((s) => s.kind === 'forum' && (s.label.toLowerCase() === t || normalizeForumUrl(t) === s.url || s.node === t));
+  if (!src) return { error: `No watched forum matches "${raw}". Send "watching" for the list.` };
+  const span = Math.max(1, Number(days) || 2);
+  const from = Date.now() - span * 86400000;
+  let pages = 0, listing = {};
+  for (const step of [2, 2, 3, 3]) {
+    pages += step;
+    listing = await fetchListingPages(src.url, pages, {});
+    const times = Object.values(listing).map((r) => (r.startedAt ? new Date(r.startedAt).getTime() : NaN)).filter(isFinite);
+    if (!times.length || Math.min(...times) <= from) break;
+    if (Object.keys(listing).length < pages * 5) break;
+  }
+  const existing = new Set((await getLeads()).map((l) => String(l.threadId)));
+  const rows = Object.values(listing).filter((r) => r.threadId && r.url && r.startedAt
+    && new Date(r.startedAt).getTime() >= from && !existing.has(String(r.threadId))
+    && !isSalesThread(r.title) && !isExcludedThread(r, cfg));
+  const items = rows.map((r) => ({ threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+    postedAt: r.startedAt, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, postedAtSource: 'listing', replyCount: r.replyCount }));
+  await upsertIndex(items, src.key, { days: cfg.indexDays });
+  const leads = items.map((it) => enrichThread(it, cfg, { source: src, words: [] }));
+  await markSeen(leads.map((l) => l.threadId));
+  if (leads.length) {
+    await recordLeads(leads);
+    for (const l of leads) await updateLead(l.threadId, { tgSentAt: BASELINE });   // never auto-announced
+  }
+  await log(`${src.label}: loaded ${leads.length} thread(s) from the last ${span} day(s) (${pages} page(s) read)`);
+  return { ok: true, loaded: leads.length, scanned: Object.keys(listing).length, pages, days: span, label: src.label };
 }
 
 /** "seed <forum>": read that forum's recent replied threads into the answer bank, at a human pace. */
@@ -3046,6 +3089,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (!lead) { sendResponse({ error: 'That lead is not in the table.' }); break; }
         if (!cfg.telegramChatId) { sendResponse({ error: 'No Telegram chat id saved.' }); break; }
         sendResponse(await sendMaterial(lead, cfg).then((r) => ({ ok: true, sent: r.sent, replies: r.replies, matches: r.matches })).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'load-forum': {                           // the last N days of a watched forum into the queue
+        sendResponse(await loadForum(await getConfig(), msg.label || '', msg.days || 2).catch((e) => ({ error: e.message })));
         break;
       }
       case 'seed-bank': {                            // fill the answer bank from a watched forum

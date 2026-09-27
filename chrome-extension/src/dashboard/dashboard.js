@@ -640,6 +640,16 @@ $('pollsrc').addEventListener('click', () => busy('pollsrc', 'Checking…', asyn
   else alert(`${r?.sources ?? 0} source(s) read · ${r?.indexed ?? 0} thread(s) indexed · ${r?.leads ?? 0} new · ${r?.bumps ?? 0} bump(s).`
     + (r?.errors?.length ? `\n\n${r.errors.join('\n')}` : ''));
 }));
+$('loadsrc').addEventListener('click', async () => {
+  const label = prompt('Which watched forum? (its label from Settings, e.g. Google Ads)', 'Google Ads');
+  if (!label) return;
+  const days = parseInt(prompt('Threads started in the last how many days?', '2'), 10);
+  if (!isFinite(days) || days < 1) return;
+  await busy('loadsrc', 'Reading…', async () => {
+    const r = await chrome.runtime.sendMessage({ cmd: 'load-forum', label, days });
+    alert(r?.error ? r.error : `${r?.label}: ${r?.loaded ?? 0} thread(s) from the last ${days} day(s) added (${r?.scanned ?? 0} looked at). Switch to Other sources to see them.`);
+  });
+});
 $('seedbank').addEventListener('click', async () => {
   const label = prompt('Which watched forum? (its label from Settings, e.g. Google Ads)', 'Google Ads');
   if (!label) return;
