@@ -90,6 +90,38 @@ let edited = {}, editedDm = {};
 // ---------------------------------------------------------------- rendering
 
 let rendering = false, rerun = false;
+
+// ---------------------------------------------------------------- two views
+// The HAF job board and everything else are different work: one is scored and
+// drafted for you, the other is a thread you answer in public with your own
+// words. Same table, two column sets, remembered per browser.
+const view = () => {
+  try { return localStorage.getItem('hafView') === 'other' ? 'other' : 'haf'; }
+  catch { return 'haf'; }                      // no storage (tests, a blocked profile): the HAF view
+};
+const HAF_COLS = COLS;
+const colOf = (k) => HAF_COLS.find((c) => c.key === k);
+const hasAnswer = (l) => !!String(l.draftApproved || l.draft || '').trim();
+const COLS2 = [
+  { ...colOf('posted'), label: 'Started' },
+  colOf('replies'),
+  { key: 'tag', label: 'Tag', sortable: true, dir: 1, get: (l) => (l.status === 'POSTED' ? 2 : l.bump ? 1 : 0),
+    cell: (l) => { const t = l.status === 'POSTED' ? 'DONE' : l.bump ? 'BUMP' : 'NEW';
+      return `<span class="tag ${t}">${t}</span>${l.bump && l.bumpedAt ? `<br><span class="sub">${esc(ago(l.bumpedAt))}</span>` : ''}`; } },
+  { key: 'intent', label: 'Intent', sortable: true, dir: 1, get: (l) => ({ BUYER: 0, QUESTION: 1 }[l.intent] ?? 2),
+    cell: (l) => `<span class="tag ${esc(l.intent || 'INFO')}">${esc(l.intent || 'INFO')}</span>` },
+  { key: 'title', label: 'Thread', sortable: false,
+    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span> `
+      + `<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>${doneTag(l)}`
+      + `<br><span class="srcline">${esc(l.author || '')} · ${esc(l.sourceLabel || '')}`
+      + `${l.forum && l.forum !== l.sourceLabel ? ' · ' + esc(l.forum) : ''}`
+      + `${tags(l.watchWords).length ? ' · ' + esc(tags(l.watchWords).join(', ')) : ''}</span>` },
+  { key: 'answer', label: 'Answer', sortable: true, dir: -1, get: (l) => (hasAnswer(l) ? 1 : 0),
+    cell: (l) => (hasAnswer(l) ? '<span class="done">✓ ready</span>' : '<span class="sub">—</span>') },
+  colOf('status')
+];
+const cols = () => (view() === 'other' ? COLS2 : HAF_COLS);
+
 async function render() {
   // Never re-enter: a nested render spins. But a render asked for while one is
   // running (a click landing mid-refresh) must not be dropped either, or the
@@ -98,7 +130,7 @@ async function render() {
   rendering = true;
   try { await renderInner(); }
   catch (e) {
-    $('rows').innerHTML = `<tr><td colspan="${COLS.length}"><div class="empty" style="color:var(--red)">` +
+    $('rows').innerHTML = `<tr><td colspan="${cols().length}"><div class="empty" style="color:var(--red)">` +
       `<b>The table failed to render.</b><br>${esc(e && e.message ? e.message : e)}<br><br>` +
       `<span class="sub">Press <b>Update now</b>; if it persists open DevTools (⌥⌘I) → Console and send me the red line.</span>` +
       `</div></td></tr>`;
@@ -110,10 +142,15 @@ async function render() {
 }
 
 async function renderInner() {
-  const [cfg, leads, log, rate, staged] = await Promise.all(
+  const [cfg, allLeads, log, rate, staged] = await Promise.all(
     [getConfig(), getLeads(), getLog(), getRateState(), getStaged()]);
   // Cheap and cached by the service worker; never blocks the table.
   const ai = await chrome.runtime.sendMessage({ cmd: 'ai-status' }).catch(() => ({}));
+  const v = view();
+  const leads = allLeads.filter((l) => (v === 'other' ? l.kind === 'thread' : l.kind !== 'thread'));
+  for (const b of document.querySelectorAll('#seg button')) b.classList.toggle('on', b.dataset.view === v);
+  if ($('pollsrc')) $('pollsrc').hidden = v !== 'other';
+  if ($('regen')) $('regen').hidden = v === 'other';
 
   tz = cfg;                                  // every when() below uses this zone
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
@@ -166,9 +203,27 @@ async function renderInner() {
       return `<div class="k"${warn ? ' style="border-color:#fecaca"' : ''}><b>${v}</b><span>${k}</span></div>`;
     })
     .join('');
+  if (v === 'other') {
+    const ss = await chrome.runtime.sendMessage({ cmd: 'sources-status' }).catch(() => null);
+    const hours = Number(cfg.threadMaxAgeHours) || 48;
+    const act = (l) => time((l.bump && l.bumpedAt) || l.postedAt || l.foundAt);
+    const waiting = leads.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status)
+                                     && act(l) > Date.now() - hours * 3600000).length;
+    const t2 = [
+      [leads.length, 'in database'], [today.length, 'found today'], [today.filter((l) => l.bump).length, 'bumps today'],
+      [n('POSTED'), 'answered'], [waiting, `waiting · last ${hours}h`], [n('SKIPPED'), 'skipped'],
+      [ss?.index?.size ?? '—', 'in search index'], [ss?.bank?.threads ?? '—', 'threads in answer bank']
+    ];
+    $('stats').innerHTML = t2.map(([x, k]) => `<div class="k"><b>${x}</b><span>${k}</span></div>`).join('');
+    const forums = (ss?.sources || []).filter((x) => x.kind === 'forum' && x.enabled).map((x) => x.label);
+    const words = (ss?.words || []).filter((w) => w.enabled).map((w) => w.word);
+    $('state').textContent = cfg.enabled
+      ? `Watching ${forums.length ? forums.join(', ') : 'no forums'} · site-wide words: ${words.length ? words.join(', ') : 'none'}`
+      : 'Not watching · turn it on in Settings';
+  }
 
   // header
-  $('head').innerHTML = COLS.map((c) => {
+  $('head').innerHTML = cols().map((c) => {
     if (!c.sortable) return `<th>${c.label}</th>`;
     const on = sortKey === c.key;
     return `<th class="s${on ? ' on' : ''}${c.num ? ' num' : ''}" data-sort="${c.key}">` +
@@ -186,7 +241,7 @@ async function renderInner() {
     return `${l.title} ${l.author} ${tags(l.matched).join(' ')} ${l.category}`.toLowerCase().includes(q);
   });
 
-  const col = COLS.find((c) => c.key === sortKey) || COLS[0];
+  const col = cols().find((c) => c.key === sortKey) || cols()[0];
   list.sort((a, b) => {
     const x = col.get(a), y = col.get(b);
     const r = x < y ? -1 : x > y ? 1 : 0;
@@ -196,8 +251,12 @@ async function renderInner() {
 
   $('rows').innerHTML = list.length
     ? list.map((l) => row(l, staged, cfg)).join('')
-    : `<tr><td colspan="${COLS.length}"><div class="empty">No threads here yet.<br>` +
-      `New ones appear on their own within ${cfg.pollMinutes} minutes. To see past threads now, press <b>Load last 48h</b>.</div></td></tr>`;
+    : v === 'other'
+      ? `<tr><td colspan="${cols().length}"><div class="empty">No threads from the other sources yet.<br>` +
+        `They appear within ${cfg.pollMinutes} minutes of being posted on a watched forum, or matching a watch word site-wide. ` +
+        `Press <b>Check other sources</b> to look now; add forums and words in <b>Settings → More sources</b>.</div></td></tr>`
+      : `<tr><td colspan="${cols().length}"><div class="empty">No threads here yet.<br>` +
+        `New ones appear on their own within ${cfg.pollMinutes} minutes. To see past threads now, press <b>Load last 48h</b>.</div></td></tr>`;
 
   $('log').innerHTML = log.slice(0, 12)
     .map((e) => `<div class="${e.level}">${when(e.t).split(', ')[1] || ''} ${esc(e.msg)}</div>`).join('');
@@ -252,13 +311,13 @@ function row(l, staged, cfg) {
               : ['SKIPPED', 'EXPIRED'].includes(l.status) ? 'dim'
               : l.status === 'FILLED' ? 'filling'
               : l.pmSent ? 'pmdone' : '';
-  const cells = COLS.map((c) => {
+  const cells = cols().map((c) => {
     let html;
     try { html = c.cell(l); } catch { html = '<span class="sub">—</span>'; }
     return `<td class="${c.num ? 'num' : ''}">${html}</td>`;
   }).join('');
   return `<tr class="r ${tier} ${state}" data-row="${id}">${cells}</tr>` +
-         (openRow === String(l.threadId) ? detail(l, staged, cfg) : '');
+         (openRow === String(l.threadId) ? (l.kind === 'thread' ? detailThread(l, cfg) : detail(l, staged, cfg)) : '');
 }
 
 function detail(l, staged, cfg) {
@@ -297,7 +356,7 @@ function detail(l, staged, cfg) {
         ${rivals.map((r) => `<div class="rival"><b>${esc(r.author || 'someone')}</b> ${esc(String(r.text || '').slice(0, 300))}</div>`).join('')}
        </div>`
     : '';
-  return `<tr class="detail"><td colspan="${COLS.length}">
+  return `<tr class="detail"><td colspan="${cols().length}">
     ${post ? `<div class="snip">${esc(post)}</div>` : ''}
     ${said}
     ${who}
@@ -339,6 +398,48 @@ function detail(l, staged, cfg) {
   </td></tr>`;
 }
 
+
+/** The open row for a thread from a watched forum or the site-wide feed: the question, what others said, and your answer. */
+function detailThread(l, cfg) {
+  const id = esc(String(l.threadId));
+  const done = ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status);
+  const post = l.body || l.snippet || '';
+  const replies = l.replies || [];
+  const said = replies.length
+    ? `<div class="rivals"><div class="lbl">Existing replies (${replies.length})</div>
+        ${replies.map((r) => `<div class="rival"><b>${esc(r.author || 'member')}</b> ${esc(String(r.text || '').slice(0, 600))}</div>`).join('')}
+       </div>`
+    : `<div class="sub" style="margin-bottom:8px">No replies yet${post ? '' : ' — the thread has not been read yet; 📋 Material reads it'}.</div>`;
+  const why = l.intent === 'BUYER' ? 'Someone asking for a service — you can pitch in public.'
+            : l.intent === 'QUESTION' ? 'A question — answer it properly, no pitch; your signature sells.'
+            : 'Sharing, not asking — reply only if you add something.';
+  const answer = plain(edited[l.threadId] ?? l.draftApproved ?? l.draft ?? '');
+  return `<tr class="detail"><td colspan="${cols().length}">
+    <div class="sub" style="margin-bottom:8px"><span class="tag ${esc(l.intent || 'INFO')}">${esc(l.intent || 'INFO')}</span> ${why}
+      · ${esc(l.sourceLabel || '')}${l.forum ? ' · ' + esc(l.forum) : ''} · <b>public reply only, no PM</b></div>
+    ${post ? `<div class="snip">${esc(post)}</div>` : ''}
+    ${said}
+    <div>
+      <div class="lbl">Your answer</div>
+      <textarea data-draft="${id}" ${done ? 'readonly' : ''} placeholder="Write it here, or paste what Claude/ChatGPT gave you. 📋 Material sends the question and the replies to Telegram as copy blocks.">${esc(answer)}</textarea>
+      <div class="acts">
+        <button data-act="material" data-id="${id}" title="Send the question, the existing replies and similar past answers to Telegram as copy blocks">📋 Material → Telegram</button>
+        <button data-act="tg" data-id="${id}" title="Send this thread's card to Telegram now">✈️ Card → Telegram</button>
+        <button data-act="copyans" data-id="${id}" title="Copy the answer text only - does not mark anything">📋 Copy answer</button>
+        <button data-act="open" data-id="${id}">🔗 Thread</button>
+        ${done ? `<button data-act="undo" data-id="${id}" title="Put it back on the to-do list">↩︎ Undo</button>`
+               : `<button data-act="save" data-id="${id}" title="Keep this answer on the lead and on its Telegram card">💾 Save answer</button>
+                  <button class="go" data-act="post" data-id="${id}">🚀 Post now</button>
+                  <button data-act="done" data-id="${id}">✅ I posted it</button>
+                  <button class="warn" data-act="skip" data-id="${id}">⏭ Skip</button>`}
+      </div>
+    </div>
+    ${l.error ? `<div class="msg err">${esc(l.error)}</div>` : ''}
+    ${l.postUrl ? `<div class="msg ok"><a href="${esc(l.postUrl)}" target="_blank" rel="noopener">view your reply</a></div>` : ''}
+    <div class="msg${flash[id]?.ok === false ? ' err' : flash[id] ? ' ok' : ''}" id="msg-${id}">${esc(flash[id]?.text || '')}</div>
+  </td></tr>`;
+}
+
 /**
  * A row's message has to survive the re-render that usually follows the action
  * that produced it, or the confirmation flashes away before it can be read.
@@ -370,7 +471,7 @@ $('head').addEventListener('click', (e) => {
   const key = e.target.closest('th[data-sort]')?.dataset.sort;
   if (!key) return;
   if (sortKey === key) sortDir = -sortDir;
-  else { sortKey = key; sortDir = (COLS.find((c) => c.key === key) || {}).dir ?? -1; }
+  else { sortKey = key; sortDir = (cols().find((c) => c.key === key) || {}).dir ?? -1; }
   render();
 });
 
@@ -398,6 +499,20 @@ async function rowAction(btn) {
   const cfg = await getConfig();
   const lead = (await getLeads()).find((l) => String(l.threadId) === String(id));
   if (!lead) return;
+  if (act === 'copyans') { await navigator.clipboard.writeText(plain(draft)); say(id, 'Copied.', true); return; }
+  if (act === 'material') {
+    const r = await chrome.runtime.sendMessage({ cmd: 'tg-material', threadId: id });
+    say(id, r?.error ? `Could not send: ${r.error}`
+      : `Sent ${r.sent} message(s) to Telegram: the question, ${r.replies} existing repl${r.replies === 1 ? 'y' : 'ies'}, ${r.matches} similar past answer(s).`, !r?.error);
+    return;
+  }
+  if (act === 'save') {
+    const draft = edited[id] ?? lead.draft ?? '';
+    const r = await chrome.runtime.sendMessage({ cmd: 'save-answer', threadId: id, draft });
+    delete edited[id];
+    say(id, r?.error ? r.error : (r?.card ? 'Saved. The Telegram card now shows it with 🚀.' : 'Saved on the lead.'), !r?.error);
+    return render();
+  }
   const draft = edited[id] ?? lead.draft ?? '';
   let dm = editedDm[id] ?? lead.dm;
   if (dm == null) { try { dm = renderDm(lead, cfg); } catch { dm = ''; } }
@@ -518,6 +633,28 @@ $('poll').addEventListener('click', () => busy('poll', 'Checking…', async () =
   if (r?.error) alert(r.error);
   else if (r?.skipped) alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
 }));
+$('pollsrc').addEventListener('click', () => busy('pollsrc', 'Checking…', async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'sources-now' });
+  if (r?.error) alert(r.error);
+  else if (r?.skipped) alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
+  else alert(`${r?.sources ?? 0} source(s) read · ${r?.indexed ?? 0} thread(s) indexed · ${r?.leads ?? 0} new · ${r?.bumps ?? 0} bump(s).`
+    + (r?.errors?.length ? `\n\n${r.errors.join('\n')}` : ''));
+}));
+$('seedbank').addEventListener('click', async () => {
+  const label = prompt('Which watched forum? (its label from Settings, e.g. Google Ads)', 'Google Ads');
+  if (!label) return;
+  await busy('seedbank', 'Reading…', async () => {
+    const r = await chrome.runtime.sendMessage({ cmd: 'seed-bank', label });
+    alert(r?.error ? r.error : `Answer bank now holds ${r?.threads ?? 0} threads / ${r?.replies ?? 0} replies.`);
+  });
+});
+$('seg').addEventListener('click', (e) => {
+  const v = e.target.closest('button')?.dataset.view;
+  if (!v) return;
+  localStorage.setItem('hafView', v);
+  openRow = null;
+  render();
+});
 $('update').addEventListener('click', () => busy('update', 'Looking…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'check-update' });
   if (r?.reloading) return;

@@ -117,6 +117,11 @@ function countdownLine(lead) {
 }
 
 const replyMessage = (lead) => {
+  if (lead.kind === 'thread') {
+    const card = String(lead.card || `<b>${esc(lead.title)}</b>`);
+    const body = plain(lead.draftApproved || lead.draft || '').trim();
+    return body ? card + preBlock('✍️ Your answer (tap to copy)', body, LIMIT - card.length) : card;
+  }
   const head = '📋 <b>Public reply</b>' + (lead.url ? ` · <a href="${esc(lead.url)}">open the thread</a>` : '')
     + countdownLine(lead);
   const body = plain(lead.draft || '').trim();
@@ -138,6 +143,7 @@ export const ACTIONS = {
   m: 'rewrite the PM', e: 'rewrite the public reply',
   f: 'send the PM anyway, past the duplicate check',
   c: 'cancel an edit and put the card back',
+  o: 'send the material pack for a thread',
   noop: 'the in-progress placeholder - does nothing on its own'
 };
 
@@ -145,6 +151,15 @@ export function keyboard(lead, kind, cfg) {
   if (!cfg.telegramApprovals) return undefined;
   const id = String(lead.threadId || '');
   if (!id || id === 'sample') return undefined;        // a sample must never post
+
+  // A thread from a watched forum or the site-wide feed: public reply only.
+  // There is no PM button because an unsolicited PM there is what gets an
+  // account banned, and Post only appears once you have given it an answer.
+  if (lead.kind === 'thread') {
+    const top = [{ text: '📋 Material', callback_data: `o:${id}` }];
+    if (String(lead.draftApproved || lead.draft || '').trim()) top.unshift({ text: '🚀 Post Public Now', callback_data: `p:${id}` });
+    return { inline_keyboard: [top, [{ text: '✍️ My answer', callback_data: `e:${id}` }, { text: '⏭ Skip', callback_data: `s:${id}` }]] };
+  }
 
   // A lead counting down to an unattended post leads with the way to stop it -
   // whether night mode armed it or auto mode did. Hold is the only button
@@ -309,8 +324,11 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
   const what = cfg.telegramSend || 'both';
 
   const parts = [];
-  if (what !== 'reply') parts.push(['PM', pmMessage(lead)]);
-  if (what !== 'pm') parts.push(['public reply', replyMessage(lead)]);
+  if (lead.kind === 'thread') parts.push(['public reply', replyMessage(lead)]);   // one card, no PM
+  else {
+    if (what !== 'reply') parts.push(['PM', pmMessage(lead)]);
+    if (what !== 'pm') parts.push(['public reply', replyMessage(lead)]);
+  }
 
   const failed = [];
   // Which message holds which card. Kept so a card can be corrected later - a
@@ -349,6 +367,20 @@ export async function sendLead(lead, cfg, { onPart } = {}) {
   }
   if (failed.length) throw new Error(failed.join(' | '));
   return { ids, shown };
+}
+
+/** Several HTML messages in order, each falling back to plain text. Returns how many went. */
+export async function sendMany(chatId, htmls) {
+  let n = 0;
+  for (const text of htmls || []) {
+    if (!text) continue;
+    try { await call('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }); n++; }
+    catch (e) {
+      if (!/pars|entit|tag|markup/i.test(e.message)) throw e;
+      await call('sendMessage', { chat_id: chatId, text: stripTags(text), disable_web_page_preview: true }); n++;
+    }
+  }
+  return n;
 }
 
 /** Last resort when Telegram will not accept the markup: send the words. */

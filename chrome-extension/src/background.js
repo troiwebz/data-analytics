@@ -15,7 +15,7 @@ import * as night from './night.js';
 import * as auto from './auto.js';
 import { fetchFeed, threadIdFromUrl } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
-import { fetchThreads, fetchThreadTitle } from './thread.js';
+import { fetchThread, fetchThreads, fetchThreadTitle } from './thread.js';
 import { rivalBrief, upgradeReason, sourceOf } from './rivals.js';
 import { matchLead, isExcludedThread } from './matcher.js';
 import { sampleThread, unscored } from './sample.js';
@@ -23,7 +23,11 @@ import { renderReply, renderDm, renderDmTitle, plain, spin } from './templates.j
 import * as services from './services.js';
 import * as traffic from './traffic.js';
 import { lintDraft, botTextIn, stripBotText } from './compliance.js';
-import { buildCard, setCardZone } from './telegram-card.js';
+import { buildCard, buildThreadCard, setCardZone } from './telegram-card.js';
+import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intentOf, normalizeForumUrl, labelFromUrl, forumNodeOf, HAF_NODE, SITE_KEY } from './sources.js';
+import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
+import { addToBank, bankMatches, bankStats } from './bank.js';
+import { materialMessages } from './material.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive } from './alive.js';
@@ -495,7 +499,8 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
 export async function rebuildDrafts({ withAi = false, syncApproved = true } = {}) {
   const cfg = await getConfig();
   const leads = await getLeads();
-  const open = (l) => !['POSTED', 'SKIPPED'].includes(l.status);
+  // Thread leads from the watched forums are yours to write, never templated.
+  const open = (l) => !['POSTED', 'SKIPPED'].includes(l.status) && l.kind !== 'thread';
   const candidates = leads.filter(open);
 
   let aiCount = 0, readCount = 0, missing = [];
@@ -681,6 +686,11 @@ export async function runCheck() {
   try { r = await pollFeed(); }
   catch (e) { failed = e.message; await log(`feed check: ${e.message}`, 'error'); }
 
+  // The watched forums and the site-wide feed, after HAF so HAF keeps its own.
+  let sources;
+  try { sources = await pollSources(); }
+  catch (e) { sources = { error: e.message }; await log(`sources check: ${e.message}`, 'error'); }
+
   const cfg0 = await getConfig();
   await settleExcludedLeads(cfg0).catch((e) => log(`exclude sweep: ${e.message}`, 'error'));
 
@@ -694,7 +704,7 @@ export async function runCheck() {
     await log(`PM check: ${e.message}`, 'error');
     return { error: e.message };
   });
-  return { ...(r || {}), ...(failed ? { error: failed } : {}), told, pms };
+  return { ...(r || {}), ...(failed ? { error: failed } : {}), sources, told, pms };
 }
 
 /**
@@ -859,7 +869,7 @@ export async function statusReport(cfg) {
  */
 const PENDING_BATCH = 8;
 
-export async function sendPending(cfg, hours = 24) {
+export async function sendPending(cfg, hours = 24, { only = '' } = {}) {
   if (!cfg.telegramChatId) return { skipped: 'off' };
 
   const leads = await getLeads();
@@ -875,6 +885,7 @@ export async function sendPending(cfg, hours = 24) {
   const ageOf = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
   const unstruck = leads
     .filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.pmSent
+                 && (!only || (only === 'haf' ? l.kind !== 'thread' : l.kind === 'thread'))
                  && String(l.threadId) !== 'sample'
                  && (!cutoff || ageOf(l) >= cutoff))
     .sort((a, b) => ageOf(b) - ageOf(a));
@@ -1230,6 +1241,448 @@ export async function announceNew(cfg) {
   }
 }
 
+
+// ---------------------------------------------------------------- v1.1: more sources
+
+/** A lead from a watched forum or the site-wide feed. Public reply only; no draft until you give it one. */
+export function enrichThread(item, cfg, { source, bump = false, bumpedAt = null, words = [], bumpWanted = false } = {}) {
+  setCardZone(cfg);
+  const lead = {
+    ...item, kind: 'thread', source: source.key, sourceLabel: source.label,
+    intent: intentOf(`${item.title}\n${item.snippet || ''}`),
+    watchWords: words.map((w) => w.word), bump, bumpedAt, bumpWanted,
+    score: 0, category: source.kind === 'forum' ? 'forum' : 'site', categoryLabel: source.label,
+    allCategories: [], matched: words.map((w) => w.word), budget: '', budgetAmount: 0,
+    draft: item.draft || '', dm: '', dmTitle: '', dmUrl: '',
+    lint: lintDraft(item.draft || '', cfg.compliance), dmLint: null,
+    draftedBy: 'you', draftedByNote: '',
+    status: 'SENT', foundAt: new Date().toISOString()
+  };
+  lead.card = buildThreadCard(lead);
+  return lead;
+}
+
+async function hasIndexed(sourceKey) {
+  return Object.values(await getIndex()).some((e) => e.source === sourceKey);
+}
+
+function sourceLabelOf(cfg, key) {
+  if (!key || key === 'haf') return 'Hire a Freelancer';
+  return sourcesOf(cfg).find((s) => s.key === key)?.label || (key === SITE_KEY ? 'Site-wide' : key);
+}
+
+/**
+ * The watched forums and the site-wide feed, once per check.
+ *
+ * Runs after the HAF poll so a HAF thread - which the site-wide feed also
+ * carries - is already marked seen and stays with its own flow. Every item
+ * goes into the search index; only the ones that pass become leads: any new
+ * thread on a watched forum, a site-wide thread hitting a watch word, and a
+ * bump where you asked for bump alerts. Sales threads never do.
+ */
+export async function pollSources() {
+  const cfg = await getConfig();
+  if (!cfg.enabled) return { skipped: 'disabled' };
+  const sources = sourcesOf(cfg).filter((s) => s.enabled);
+  const words = watchWordsOf(cfg).filter((w) => w.enabled);
+  const seen = await getSeen();
+  const out = { sources: 0, indexed: 0, leads: 0, bumps: 0, errors: [] };
+  const picked = [];
+
+  for (const src of sources) {
+    if (src.kind === 'site' && !words.length) continue;          // nothing to look for
+    let items;
+    try { items = await fetchFeed(src.feedUrl); }
+    catch (e) { out.errors.push(`${src.label}: ${e.message}`); await log(`${src.label} feed: ${e.message}`, 'error'); continue; }
+    out.sources++;
+
+    let listing = {};
+    if (src.kind === 'forum') { try { listing = await fetchListing(src.url); } catch { /* the feed alone will do */ } }
+    const rows = items.map((raw) => (src.kind === 'forum' ? withListing(raw, listing[raw.threadId]) : raw));
+
+    const first = !(await hasIndexed(src.key));
+    const { fresh, bumped } = await upsertIndex(rows, src.key, { days: cfg.indexDays });
+    out.indexed += rows.length;
+    if (first) {
+      // First look at a source: remember what is there, alert on nothing.
+      await markSeen(rows.map((r) => r.threadId));
+      await log(`${src.label}: first look, ${rows.length} thread(s) indexed quietly - new ones from now on`);
+      continue;
+    }
+    for (const it of fresh) {
+      if (seen[it.threadId]) continue;                          // HAF or another source has it
+      if (isExcludedThread(it, cfg) || isSalesThread(it.title)) continue;
+      const hits = src.kind === 'site' ? wordHits(`${it.title}\n${it.snippet || ''}`, words) : [];
+      if (src.kind === 'site' && !hits.length) continue;
+      const bumpWanted = src.kind === 'forum' ? src.bumpAlerts : hits.some((w) => w.bumpAlerts);
+      picked.push({ it, src, hits, bump: false, bumpWanted });
+    }
+    for (const it of bumped) {
+      const hits = src.kind === 'site' ? wordHits(`${it.title}\n${it.snippet || ''}`, words) : [];
+      const bumpWanted = src.kind === 'forum' ? src.bumpAlerts : hits.some((w) => w.bumpAlerts);
+      if (!bumpWanted) continue;
+      if (isExcludedThread(it, cfg) || isSalesThread(it.title)) continue;
+      picked.push({ it, src, hits, bump: true, bumpWanted });
+    }
+  }
+  if (!picked.length) return out;
+
+  const leads = picked.map(({ it, src, hits, bump, bumpWanted }) =>
+    enrichThread(it, cfg, { source: src, words: hits, bump, bumpedAt: bump ? it.lastActivityAt : null, bumpWanted }));
+  await markSeen(leads.map((l) => l.threadId));
+
+  // Read the thread itself: the question, the replies already on it (into
+  // the bank), the real start time, and which forum it is actually in.
+  const full = await withThreads(leads, cfg);
+  const before = new Map((await getLeads()).map((l) => [String(l.threadId), l]));
+  const kept = [];
+  for (const l of full) {
+    // Whatever else happens to it, a thread we read is bank material and the
+    // index should know its real start date and forum.
+    if (l.replies?.length && !isMarketForum(l.forum)) await addToBank(l);
+    if (l.startedAt || l.forum) await patchIndex(l.threadId, { startedAt: l.startedAt || null, forum: l.forum || '', forumNode: l.forumNode || '' });
+    if (l.forumNode === HAF_NODE) continue;                     // that forum has its own flow
+    if (isMarketForum(l.forum)) continue;                        // a shop window, not a conversation
+    if (l.startedAt) { l.postedAt = l.startedAt; l.postedAtSource = 'thread'; }
+    // "New to us" but started more than a day ago: that is a bump we are
+    // seeing for the first time, and it only gets through where bumps do.
+    if (!l.bump && l.startedAt && Date.now() - new Date(l.startedAt).getTime() > 24 * 3600000) {
+      l.bump = true; l.bumpedAt = l.lastActivityAt || new Date().toISOString();
+    }
+    if (l.bump && !l.bumpWanted) continue;
+    const old = before.get(String(l.threadId));
+    if (l.bump && old && (SILENT_STATUSES.includes(old.status) || old.pmSent)) continue;   // answered already
+    l.card = buildThreadCard(l);
+    kept.push(l);
+  }
+  if (!kept.length) return out;
+
+  await recordLeads(kept);
+  // A bump of a thread already in the table must be announced again.
+  for (const l of kept) {
+    if (l.bump && before.has(String(l.threadId))) {
+      await updateLead(l.threadId, { bump: true, bumpedAt: l.bumpedAt, tgSentAt: '', status: 'SENT', card: l.card });
+    }
+  }
+  out.leads = kept.filter((l) => !l.bump).length;
+  out.bumps = kept.filter((l) => l.bump).length;
+  await log(`sources: ${out.leads} new thread(s), ${out.bumps} bump(s) from ${out.sources} source(s)`);
+  await playSound(cfg, cfg.sound);
+  const best = kept[0];
+  await notify(`${kept.length} thread(s) to answer · ${best.sourceLabel}`, best.title);
+  return out;
+}
+
+// ---------------------------------------------------------------- v1.1: hunting from Telegram
+
+/**
+ * The material pack to Telegram: read the thread first if it never was, bank
+ * its replies, then send the question, the replies and the closest past answers.
+ */
+export async function sendMaterial(lead, cfg) {
+  let l = lead;
+  if (!l.body && !(l.replies || []).length) {
+    const got = await fetchThread(l.url);
+    if (got.body || got.replies.length) {
+      const patch = { body: got.body, replies: got.replies, startedAt: got.startedAt || l.startedAt, forum: got.forum || l.forum, forumNode: got.forumNode || l.forumNode };
+      await updateLead(l.threadId, patch);
+      l = { ...l, ...patch };
+      if (got.replies.length && !isMarketForum(l.forum)) await addToBank(l);
+    }
+  }
+  const matches = await bankMatches(`${l.title}\n${l.body || l.snippet || ''}`, { exclude: l.threadId });
+  const n = await telegram.sendMany(cfg.telegramChatId, materialMessages({ ...l, tagLabel: l.bump ? 'BUMP' : 'NEW' }, matches));
+  await log(`material for "${l.title}": ${n} message(s), ${(l.replies || []).length} reply/replies, ${matches.length} bank match(es)`);
+  return { ok: true, sent: n, replies: (l.replies || []).length, matches: matches.length, lead: l };
+}
+
+/** Which lead a Telegram message carries, and which half (PM or reply). */
+function cardOwner(leads, messageId) {
+  const want = Number(messageId);
+  if (!want) return null;
+  for (const l of leads) {
+    for (const [kind, id] of Object.entries(l.tgCards || {})) if (Number(id) === want) return { lead: l, kind };
+    for (const h of l.tgHistory || []) if (Number(h.id) === want) return { lead: l, kind: h.kind };
+  }
+  return null;
+}
+
+/** Remember which messages carry this lead's cards, old and new. */
+async function stampCards(threadId, cards, patch = {}) {
+  const l = (await getLeads()).find((x) => String(x.threadId) === String(threadId));
+  const hist = [...(l?.tgHistory || [])];
+  const seenId = (mid) => hist.some((h) => Number(h.id) === Number(mid));
+  for (const [kind, mid] of Object.entries(l?.tgCards || {})) if (!seenId(mid)) hist.push({ kind, id: mid });
+  for (const [kind, mid] of Object.entries(cards || {})) if (!seenId(mid)) hist.push({ kind, id: mid });
+  await updateLead(threadId, { tgCards: cards || l?.tgCards, tgHistory: hist.slice(-12), ...patch });
+}
+
+/** Put the card back with its buttons and say something underneath, instead of settling (which strips them). */
+async function keepCard(tap, lead, cfg, msg) {
+  await telegram.editIntoCard(cfg.telegramChatId, tap.messageId, lead, 'reply', cfg).catch(() => {});
+  if (msg) await telegram.say(cfg.telegramChatId, msg);
+  return '';
+}
+
+/**
+ * Your own answer. Reply (swipe) to a card with text and that text becomes
+ * the post for that thread - or the PM, if the card you replied to was the PM.
+ * Then the card shows it, with the Post button.
+ */
+async function takeAnswerReply(ev, cfg) {
+  const own = cardOwner(await getLeads(), ev.replyTo);
+  if (!own) return false;
+  const { lead, kind } = own;
+  let body = String(ev.body || '').trim();
+  if (!body) return false;
+  const cleaned = stripBotText(body);
+  if (!cleaned.text) { await telegram.say(cfg.telegramChatId, '⚠️ That was only my own instructions - nothing was changed.'); return true; }
+  body = cleaned.text;
+  await setEdit(String(ev.replyTo), null);              // this answers any editor open on that card
+  const field = kind === 'PM' ? 'dm' : 'draft';
+  const patch = field === 'dm'
+    ? { dm: body, dmApproved: body, dmLint: lintDraft(body, cfg.compliance) }
+    : { draft: body, draftApproved: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
+  if (lead.autoPostAt) { patch.autoPostAt = 0; patch.autoBlocked = 'you answered it yourself'; }
+  if (lead.autoSendAt) { patch.autoSendAt = 0; patch.autoSendBlocked = 'you answered it yourself'; }
+  const fresh = { ...lead, ...patch };
+  fresh.card = fresh.kind === 'thread' ? buildThreadCard(fresh) : buildCard(fresh);
+  await updateLead(lead.threadId, { ...patch, card: fresh.card });
+  const back = await telegram.editIntoCard(cfg.telegramChatId, ev.replyTo, fresh, kind === 'PM' ? 'PM' : 'reply', cfg);
+  if (!back) await telegram.resend(fresh, cfg, kind === 'PM' ? 'PM' : 'reply');
+  await log(`took your answer for "${lead.title}" from Telegram (${field === 'dm' ? 'PM' : 'public reply'})`);
+  return true;
+}
+
+const HELP = [
+  '🧭 <b>Commands</b>',
+  '<b>next</b> / <b>next 3</b> - the next unanswered thread(s), newest first · <b>next reset</b> starts over',
+  '<b>haf</b> / <b>haf 24</b> - Hire a Freelancer threads with no DM and no reply yet',
+  '<b>casino</b> - every casino thread in the index · <b>casino new</b> / <b>casino bump</b> / <b>casino done</b>',
+  '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> · <b>unwatch …</b> · <b>watching</b>',
+  '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
+  '<b>stats</b> · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
+  '',
+  'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
+  + 'Write your answer (Claude/ChatGPT on your phone), then <b>reply to the card</b> with it - Chrome posts it when you tap 🚀.'
+].join('\n');
+
+async function takeHuntCommand(ev, cfg) {
+  const body = String(ev.body || '').trim();
+  let m;
+  if ((m = body.match(/^\/?next\b\s*(\d+|reset)?\s*$/i))) { await sendNext(cfg, m[1]); return true; }
+  if ((m = body.match(/^\/?haf\b\s*(\d+)?\s*$/i))) {
+    await sendPending(cfg, m[1] ? Number(m[1]) : (Number(cfg.threadMaxAgeHours) || 48), { only: 'haf' });
+    return true;
+  }
+  if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
+  if (/^\/?watching\b/i.test(body)) { await sendWatching(cfg); return true; }
+  if ((m = body.match(/^\/?watch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await watchCmd(cfg, m[1])); return true; }
+  if ((m = body.match(/^\/?unwatch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await unwatchCmd(cfg, m[1])); return true; }
+  if ((m = body.match(/^\/?seed\s+(.+)/i))) { await seedForum(cfg, m[1]); return true; }
+  if (/^\/?(?:help|commands|start)\b/i.test(body)) { await telegram.say(cfg.telegramChatId, HELP, { html: true }); return true; }
+  return false;
+}
+
+const UNSTRUCK = (l) => !SILENT_STATUSES.includes(l.status) && !l.pmSent && String(l.threadId) !== 'sample';
+const activityOf = (l) => new Date((l.bump && l.bumpedAt) || l.postedAt || l.foundAt || 0).getTime();
+
+/** "next": the queue of unanswered threads, newest first, one page at a time. */
+async function sendNext(cfg, arg) {
+  if (!cfg.telegramChatId) return;
+  const { nextCursor: cur0 } = await chrome.storage.local.get('nextCursor');
+  let cur = cur0 && Date.now() - (cur0.at || 0) < 12 * 3600000 ? cur0 : { served: [], at: Date.now() };
+  if (String(arg || '').toLowerCase() === 'reset') cur = { served: [], at: Date.now() };
+  const n = Math.min(Math.max(1, Number(arg) || 1), 8);
+  const hours = Number(cfg.threadMaxAgeHours) || 48;
+  const cutoff = Date.now() - hours * 3600000;
+  const queue = (await getLeads()).filter((l) => UNSTRUCK(l) && activityOf(l) >= cutoff).sort((a, b) => activityOf(b) - activityOf(a));
+  if (!queue.length) { await telegram.say(cfg.telegramChatId, `✅ Queue empty - nothing unanswered from the last ${hours}h.`); return; }
+  const todo = queue.filter((l) => !cur.served.includes(String(l.threadId)));
+  if (!todo.length) {
+    await chrome.storage.local.set({ nextCursor: { served: [], at: Date.now() } });
+    await telegram.say(cfg.telegramChatId, `🔁 You have seen all ${queue.length} unanswered thread(s) from the last ${hours}h. `
+      + 'Send "next" again to go round once more, or Skip the ones you will not answer.');
+    return;
+  }
+  const batch = todo.slice(0, n);
+  const t = await telegram.sendLeads(batch, cfg, { max: n });
+  for (const id of t.sentIds || []) {
+    const shown = t.approved?.[String(id)] || {};
+    const l = batch.find((x) => String(x.threadId) === String(id)) || {};
+    await stampCards(id, t.cards?.[String(id)], { tgSentAt: l.tgSentAt || new Date().toISOString(),
+      dmApproved: shown.dm || '', draftApproved: shown.draft || '' });
+  }
+  cur.served.push(...(t.sentIds || []).map(String)); cur.at = Date.now();
+  await chrome.storage.local.set({ nextCursor: cur });
+  const left = Math.max(0, todo.length - (t.sent || 0));
+  await telegram.say(cfg.telegramChatId, `▶️ ${t.sent || 0} sent · ${left} more unanswered in the last ${hours}h.`
+    + (left ? ' Send "next" for the next one, "next 3" for three.' : ''));
+}
+
+const SEARCH_BATCH = 8;
+
+/**
+ * A word on its own is a search: "casino", "casino new", "casino bump",
+ * "casino done". Results come as cards, newest activity first, a page at a
+ * time - the same query again continues where it left off.
+ */
+async function takeSearch(ev, cfg) {
+  const raw = String(ev.body || '').trim();
+  if (!raw || raw.startsWith('/')) return false;
+  const words = raw.split(/\s+/);
+  if (words.length > 6 || raw.length > 80) {
+    await telegram.say(cfg.telegramChatId, '✍️ To use that as an answer, reply to the thread card (swipe it, or tap ✍️ My answer first). '
+      + 'To search, send a word or two: "casino", "casino bump". Send "help" for everything.');
+    return true;
+  }
+  let mode = 'all';
+  const last = words[words.length - 1].toLowerCase();
+  if (words.length > 1 && ['new', 'bump', 'bumped', 'done'].includes(last)) { mode = last === 'bumped' ? 'bump' : last; words.pop(); }
+  const query = words.join(' ');
+  const leads = await getLeads();
+  const found = await searchIndex(query, { mode, leads, limit: 200 });
+  if (!found.length) {
+    await telegram.say(cfg.telegramChatId, `🔎 Nothing for "${query}"${mode !== 'all' ? ` (${mode})` : ''} in the last ${cfg.indexDays || 7} days. `
+      + `The index only holds threads seen since install. "watch ${query}" makes every new one come here.`);
+    return true;
+  }
+  const { searchCursor: cur } = await chrome.storage.local.get('searchCursor');
+  let offset = cur && cur.query === query && cur.mode === mode && Date.now() - cur.at < 3600000 ? cur.offset : 0;
+  if (offset >= found.length) offset = 0;
+  const page = found.slice(offset, offset + SEARCH_BATCH);
+  await chrome.storage.local.set({ searchCursor: { query, mode, offset: offset + page.length, at: Date.now() } });
+
+  const byId = new Map(leads.map((l) => [String(l.threadId), l]));
+  const batch = [], made = [];
+  for (const e of page) {
+    let l = byId.get(String(e.threadId));
+    if (!l) {
+      const src = { key: e.source || SITE_KEY, label: sourceLabelOf(cfg, e.source), kind: String(e.source || '').startsWith('forum:') ? 'forum' : 'site' };
+      l = enrichThread({ threadId: e.threadId, url: e.url, title: e.title, author: e.author, snippet: e.snippet,
+                         postedAt: e.startedAt || e.lastActivityAt, lastActivityAt: e.lastActivityAt,
+                         postedAtSource: e.startedAt ? 'listing' : 'feed', startedAt: e.startedAt, forum: e.forum, forumNode: e.forumNode },
+                       cfg, { source: src, bump: e.tag === 'BUMP', bumpedAt: e.bumpedAt || null, bumpWanted: true });
+      made.push(l);
+    } else if (l.kind === 'thread') {
+      l = { ...l, bump: e.tag === 'BUMP' || !!l.bump, bumpedAt: l.bumpedAt || e.bumpedAt || null };
+    }
+    l = { ...l, searchTag: e.tag };
+    if (l.kind === 'thread') l.card = buildThreadCard(l);
+    batch.push(l);
+  }
+  if (made.length) await recordLeads(made);
+  const t = await telegram.sendLeads(batch, cfg, { max: SEARCH_BATCH });
+  for (const id of t.sentIds || []) {
+    const shown = t.approved?.[String(id)] || {};
+    const l = batch.find((x) => String(x.threadId) === String(id)) || {};
+    await stampCards(id, t.cards?.[String(id)], { tgSentAt: l.tgSentAt || new Date().toISOString(),
+      dmApproved: shown.dm || '', draftApproved: shown.draft || '' });
+  }
+  const tally = (tag) => found.filter((e) => e.tag === tag).length;
+  const left = found.length - offset - page.length;
+  await telegram.say(cfg.telegramChatId, `🔎 "${query}"${mode !== 'all' ? ` · ${mode}` : ''}: ${t.sent || 0} of ${found.length} `
+    + `(${tally('NEW')} new · ${tally('BUMP')} bump · ${tally('DONE')} done)`
+    + (left > 0 ? ` - send it again for the next ${Math.min(SEARCH_BATCH, left)}.` : ' - that is all of them.'));
+  return true;
+}
+
+async function sendStats(cfg) {
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const on = (t) => String(t || '').slice(0, 10) === day;
+  const today = leads.filter((l) => on(l.foundAt));
+  const haf = today.filter((l) => l.kind !== 'thread').length;
+  const forums = today.filter((l) => l.kind === 'thread' && String(l.source).startsWith('forum:')).length;
+  const site = today.filter((l) => l.kind === 'thread' && l.source === SITE_KEY).length;
+  const posted = leads.filter((l) => l.status === 'POSTED' && on(l.decidedAt || l.foundAt)).length;
+  const pms = leads.filter((l) => l.pmSent && on(l.pmSentAt)).length;
+  const hours = Number(cfg.threadMaxAgeHours) || 48;
+  const cutoff = Date.now() - hours * 3600000;
+  const waiting = leads.filter((l) => UNSTRUCK(l) && activityOf(l) >= cutoff).length;
+  const idx = await indexStats();
+  const bank = await bankStats();
+  const r = await getRateState();
+  const srcs = sourcesOf(cfg).filter((s) => s.enabled && s.kind === 'forum').map((s) => s.label);
+  const words = watchWordsOf(cfg).filter((w) => w.enabled).map((w) => w.word);
+  const cap = (used, max) => (Number(max) > 0 ? `${used}/${max}` : `${used}`);
+  await telegram.say(cfg.telegramChatId, [
+    '📊 <b>Hunt today</b>',
+    `Found: ${haf} HAF · ${forums} forum · ${site} site-wide`,
+    `Answered: ${posted} posted · ${pms} PM${pms === 1 ? '' : 's'}`,
+    `Waiting: ${waiting} unanswered from the last ${hours}h - send "next"`,
+    `Caps: ${cap(r.count || 0, cfg.maxPostsPerDay)} replies · ${cap(r.dmCount || 0, cfg.maxDmsPerDay)} PMs`,
+    `Index: ${idx.size} threads (${idx.bumped} bumped) · Bank: ${bank.threads} threads / ${bank.replies} replies`,
+    `Watching: ${escHtml(srcs.join(', ') || 'no forums')} · words: ${escHtml(words.join(', ') || 'none')}`
+  ].join('\n'), { html: true });
+}
+
+async function watchCmd(cfg, raw) {
+  const arg = String(raw || '').trim();
+  const bump = /\bbump\b/i.test(arg);
+  const target = arg.replace(/\bbump\b/ig, '').trim();
+  const url = normalizeForumUrl(target);
+  if (url) {
+    if (forumNodeOf(url) === HAF_NODE) return 'That is Hire a Freelancer - already watched, always.';
+    const list = (cfg.watchForums || []).filter((f) => normalizeForumUrl(f.url) !== url);
+    const label = labelFromUrl(url);
+    list.push({ url, label, enabled: true, bumpAlerts: bump });
+    await setConfig({ watchForums: list });
+    return `👀 Watching forum "${label}"${bump ? ' with bump alerts' : ''}. Its first look indexes quietly; new threads after that come here. "seed ${label}" fills the answer bank from it.`;
+  }
+  if (!target) return '❌ Send a forum URL or a word: "watch casino", "watch casino bump", or "watch https://www.blackhatworld.com/forums/x.83/".';
+  const list = (cfg.watchWords || []).filter((w) => String(w.word).toLowerCase() !== target.toLowerCase());
+  list.push({ word: target, enabled: true, bumpAlerts: bump });
+  await setConfig({ watchWords: list, siteWideEnabled: true });
+  return `👀 Watching the whole site for "${target}"${bump ? ' with bump alerts' : ''}. Send "${target}" any time to search what is already indexed.`;
+}
+
+async function unwatchCmd(cfg, raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  const url = normalizeForumUrl(t);
+  const forums = (cfg.watchForums || []).filter((f) =>
+    !(normalizeForumUrl(f.url) === url || String(f.label || '').toLowerCase() === t || labelFromUrl(f.url).toLowerCase() === t));
+  const words = (cfg.watchWords || []).filter((w) => String(w.word).toLowerCase() !== t);
+  const removed = ((cfg.watchForums || []).length - forums.length) + ((cfg.watchWords || []).length - words.length);
+  if (!removed) return `❌ Nothing called "${raw}" is being watched. Send "watching" for the list.`;
+  await setConfig({ watchForums: forums, watchWords: words });
+  return `🗑️ Stopped watching "${String(raw).trim()}".`;
+}
+
+async function sendWatching(cfg) {
+  const srcs = sourcesOf(cfg).filter((s) => s.kind === 'forum');
+  const words = watchWordsOf(cfg);
+  const lines = ['👀 <b>Watching</b>', '• Hire a Freelancer (always)'];
+  for (const s of srcs) lines.push(`• ${escHtml(s.label)} - ${s.enabled ? 'on' : 'off'}${s.bumpAlerts ? ', bump alerts' : ''}\n  ${escHtml(s.url)}`);
+  lines.push(`Site-wide feed: ${cfg.siteWideEnabled !== false ? 'on' : 'off'} - words: `
+    + (words.length ? words.map((w) => `${escHtml(w.word)}${w.bumpAlerts ? ' (bump)' : ''}${w.enabled ? '' : ' (off)'}`).join(', ') : 'none yet - "watch casino"'));
+  await telegram.say(cfg.telegramChatId, lines.join('\n'), { html: true });
+}
+
+/** "seed <forum>": read that forum's recent replied threads into the answer bank, at a human pace. */
+async function seedForum(cfg, raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  const src = sourcesOf(cfg).find((s) => s.kind === 'forum' && (s.label.toLowerCase() === t || normalizeForumUrl(t) === s.url || s.node === t));
+  if (!src) { await telegram.say(cfg.telegramChatId, `❌ No watched forum matches "${raw}". Send "watching" for the list.`); return; }
+  await telegram.say(cfg.telegramChatId, `🌱 Seeding the answer bank from "${src.label}" - reading up to 15 recent threads with replies, at a human pace…`);
+  let listing = {};
+  try { listing = await fetchListingPages(src.url, 2); }
+  catch (e) { await telegram.say(cfg.telegramChatId, `❌ Could not read the forum: ${e.message}`); return; }
+  const rows = Object.values(listing).filter((r) => r.url && (r.replyCount || 0) > 0).slice(0, 15);
+  const got = await fetchThreads(rows, { max: 15, delayMs: 2000 });
+  let added = 0;
+  for (const r of rows) {
+    const th = got[r.threadId];
+    if (!th?.replies?.length) continue;
+    const a = await addToBank({ threadId: r.threadId, title: r.title, url: r.url, forum: th.forum || src.label, body: th.body, replies: th.replies });
+    if (a.added) added++;
+  }
+  await upsertIndex(rows.map((r) => ({ threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+    postedAt: r.startedAt, lastActivityAt: r.lastActivityAt, startedAt: r.startedAt })), src.key, { days: cfg.indexDays });
+  const b = await bankStats();
+  await telegram.say(cfg.telegramChatId, `🌱 Done: ${added} thread(s) added. The bank now holds ${b.threads} threads / ${b.replies} replies.`);
+}
+
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
@@ -1525,7 +1978,7 @@ export const tapsHeartbeat = async () => (await chrome.storage.local.get(BEAT_KE
 /** What each button tap is actually doing, for the card's "in progress" state. */
 const TAP_VERBS = {
   p: 'Posting', d: 'Sending the PM', f: 'Sending the PM',
-  s: 'Skipping', h: 'Holding', e: 'Opening the editor', m: 'Opening the editor'
+  s: 'Skipping', h: 'Holding', e: 'Opening the editor', m: 'Opening the editor', o: 'Sending the material'
 };
 
 export async function pollTaps() {
@@ -1726,7 +2179,15 @@ export async function pollTaps() {
       }
     }
 
-    if (ev.kind === 'reply') { if (await takeRewrite(ev, cfg)) done++; continue; }
+    // v1.1: hunting commands, then a reply to a card as your own answer, then
+    // an open editor, then a bare word as a search.
+    if (ev.kind === 'reply') {
+      if (await takeHuntCommand(ev, cfg)) { done++; continue; }
+      if (ev.replyTo && await takeAnswerReply(ev, cfg)) { done++; continue; }
+      if (await takeRewrite(ev, cfg)) { done++; continue; }
+      if (await takeSearch(ev, cfg)) done++;
+      continue;
+    }
 
     // The "in progress" placeholder itself. markWorking swaps the real
     // buttons for this one specifically so a second tap during the job lands
@@ -1930,7 +2391,8 @@ async function takeRewrite(ev, cfg) {
   if (lead.autoPostAt) await updateLead(lead.threadId, { autoPostAt: 0, autoBlocked: 'you edited it' });
 
   const fresh = { ...lead, ...patch };
-  fresh.card = buildCard(fresh);
+  fresh.card = fresh.kind === 'thread' ? buildThreadCard(fresh) : buildCard(fresh);
+  await updateLead(lead.threadId, { card: fresh.card });
   const kind = want.kind || (want.field === 'dm' ? 'PM' : 'reply');
 
   // Put the card back on the message that became the editor, so the chat ends
@@ -2009,6 +2471,19 @@ async function runTap(tap, lead, cfg) {
       const ok = await telegram.editIntoCard(cfg.telegramChatId, tap.messageId, lead,
                                              open?.kind || 'PM', cfg);
       return ok ? '' : '✖️ Left as it was.';
+    }
+
+    // The material pack: the question, the replies already there, similar
+    // past answers. The card keeps its buttons - this is not an outcome.
+    if (tap.action === 'o') {
+      const r = await sendMaterial(lead, cfg);
+      return keepCard(tap, r.lead, cfg, '');
+    }
+    if (lead.kind === 'thread' && ['d', 'f', 'm'].includes(tap.action)) {
+      return keepCard(tap, lead, cfg, '🚫 Public reply only on this thread - no PMs outside Hire a Freelancer.');
+    }
+    if (lead.kind === 'thread' && tap.action === 'p' && !String(lead.draftApproved || lead.draft || '').trim()) {
+      return keepCard(tap, lead, cfg, '✍️ No answer on this card yet. Tap 📋 Material, write it, then reply to the card with your answer.');
     }
 
     if (tap.action === 'e' || tap.action === 'm') {
@@ -2544,6 +3019,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.cmd) {
       case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
+      case 'sources-now':   sendResponse(await pollSources().catch((e) => ({ error: e.message }))); break;
+      case 'sources-status': {                       // the dashboard's Other sources view
+        const cfg = await getConfig();
+        sendResponse({ sources: sourcesOf(cfg), words: watchWordsOf(cfg).map((w) => ({ word: w.word, enabled: w.enabled, bumpAlerts: w.bumpAlerts })),
+                       index: await indexStats(), bank: await bankStats() });
+        break;
+      }
+      case 'save-answer': {                          // 💾 from the dashboard: your answer, kept on the lead and its card
+        const cfg = await getConfig();
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
+        if (!lead) { sendResponse({ error: 'That lead is not in the table.' }); break; }
+        const body = String(msg.draft || '').trim();
+        const patch = { draft: body, draftApproved: body, draftEdited: true, lint: lintDraft(body, cfg.compliance) };
+        const fresh = { ...lead, ...patch };
+        fresh.card = fresh.kind === 'thread' ? buildThreadCard(fresh) : buildCard(fresh);
+        await updateLead(lead.threadId, { ...patch, card: fresh.card });
+        const mid = lead.tgCards?.['public reply'];
+        const card = mid && cfg.telegramChatId ? await telegram.editIntoCard(cfg.telegramChatId, mid, fresh, 'reply', cfg).catch(() => false) : false;
+        sendResponse({ ok: true, card });
+        break;
+      }
+      case 'tg-material': {                          // 📋 from the dashboard
+        const cfg = await getConfig();
+        const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));
+        if (!lead) { sendResponse({ error: 'That lead is not in the table.' }); break; }
+        if (!cfg.telegramChatId) { sendResponse({ error: 'No Telegram chat id saved.' }); break; }
+        sendResponse(await sendMaterial(lead, cfg).then((r) => ({ ok: true, sent: r.sent, replies: r.replies, matches: r.matches })).catch((e) => ({ error: e.message })));
+        break;
+      }
+      case 'seed-bank': {                            // fill the answer bank from a watched forum
+        const cfg = await getConfig();
+        await seedForum(cfg, msg.label || '').catch((e) => log(`seed: ${e.message}`, 'error'));
+        sendResponse({ ok: true, ...(await bankStats()) });
+        break;
+      }
       case 'approvals-now': sendResponse(await pollApprovals().then(() => ({ ok: true })).catch((e) => ({ error: e.message }))); break;
       case 'reschedule':    await scheduleAlarms(await getConfig()); sendResponse({ ok: true }); break;
       case 'staged':        sendResponse(await getStaged()); break;
@@ -2555,7 +3065,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const cfg = await getConfig();
         const gate = await checkRateLimit(cfg);
         if (!gate.ok) { sendResponse({ ok: false, error: gate.reason }); break; }
-        sendResponse(await postLead(msg.lead, cfg, { edited: !!msg.edited }));
+        // An edit made in the dashboard is the approved text now - otherwise
+        // postLead would put the older Telegram-approved wording back.
+        const toPost = msg.edited ? { ...msg.lead, draftApproved: msg.lead.draft } : msg.lead;
+        sendResponse(await postLead(toPost, cfg, { edited: !!msg.edited }));
         break;
       }
       case 'mark': {                                 // ✅ posted by hand / ⏭ skip, from the dashboard
@@ -2793,7 +3306,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const done = [];
         sendResponse(await telegram
           .sendLead(lead, { ...cfg, telegramEnabled: true }, { onPart: (n, e) => !e && done.push(n) })
-          .then(() => ({ ok: true, sent: done }))
+          .then(async (r) => {
+            // Remember the card, so replying to it on the phone finds this lead.
+            if (r?.ids && Object.keys(r.ids).length) await stampCards(lead.threadId, r.ids, { tgSentAt: lead.tgSentAt || new Date().toISOString() });
+            return { ok: true, sent: done };
+          })
           .catch((e) => ({ error: e.message, sent: done })));
         break;
       }

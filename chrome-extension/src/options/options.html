@@ -45,6 +45,25 @@
   </div>
 
   <div class="c">
+    <h2>More sources <span class="hint">any BHW forum, plus the site-wide feed filtered by your words — public reply only</span></h2>
+    <label>Forums to watch <span class="hint">one per line: <code>url | label | bump</code> — label and "bump" are optional; "bump" also alerts when a thread there is bumped</span></label>
+    <textarea id="watchForumsText" rows="4" placeholder="https://www.blackhatworld.com/forums/google-ads.83/ | Google Ads"></textarea>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="siteWideEnabled"> Watch the whole site (What's new) for the words below</label>
+    <label>Watch words <span class="hint">one per line: <code>word | bump</code> — matched against every new thread's title and first lines</span></label>
+    <textarea id="watchWordsText" rows="5" placeholder="casino
+google ads | bump
+ppc"></textarea>
+    <div class="row" style="margin-top:8px">
+      <div><label>"next" / "haf" look back (hours)</label><input type="number" id="threadMaxAgeHours" min="1"></div>
+      <div><label>Search index keeps (days)</label><input type="number" id="indexDays" min="1"></div>
+    </div>
+    <p class="hint" style="margin-top:8px">From Telegram: <code>watch &lt;forum url or word&gt;</code>, <code>unwatch &lt;label or word&gt;</code>,
+      <code>watching</code>, <code>next</code>, <code>haf</code>, <code>casino</code> / <code>casino new</code> / <code>casino bump</code> / <code>casino done</code>,
+      <code>stats</code>, <code>seed &lt;forum label&gt;</code>. Threads from these sources get a card with 📋 Material —
+      copy it into Claude/ChatGPT, then reply to the card with your answer and tap 🚀.</p>
+  </div>
+
+  <div class="c">
     <h2>Claude <span class="hint">writes the 2-4 technical bullets in each reply; the rest stays templated</span></h2>
     <label class="sw"><input type="checkbox" id="aiSpecifics"> Let Claude write the technical bullets</label>
     <label>Anthropic API key <span class="hint">from console.anthropic.com — stored on this Mac only, in the extension's own storage</span></label>

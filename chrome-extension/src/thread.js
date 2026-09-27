@@ -17,7 +17,14 @@
 // Regex, not DOMParser: MV3 service workers have no DOMParser. All the markup
 // assumptions live in the patterns here.
 
-const POST_SPLIT = /<article[^>]*class="[^"]*\bmessage\b[^"]*"/;
+// Only the OUTER post article. XenForo nests <article class="message-body">
+// inside <article class="message ...">, and splitting on both left every body
+// in a block with no data-author, so replies came back with no author.
+const POST_SPLIT = /<article[^>]*class="[^"]*\bmessage\b(?!-)[^"]*"/;
+// The thread's own start time is the first <time> on the page (the header).
+const START_TIME = /<time\b[^>]*data-timestamp="(\d+)"/;
+const NODE       = /data-container-key="node-(\d+)"/;
+const CRUMB      = /itemprop="name">([^<]+)</g;
 const AUTHOR     = /data-author="([^"]*)"/;
 const BODY       = /<div class="bbWrapper">([\s\S]*?)<\/div>\s*(?:<\/div>|<aside|<div class="message-signature)/;
 const BODY_LOOSE = /<div class="bbWrapper">([\s\S]*?)<\/article>/;
@@ -67,7 +74,12 @@ export function parseThread(html) {
     if (body) posts.push({ author, text: body });
   }
   if (!posts.length) return { body: '', replies: [] };
-  return { body: posts[0].text, replies: posts.slice(1) };
+  const ts = (String(html || '').match(START_TIME) || [])[1];
+  const startedAt = ts ? new Date(parseInt(ts, 10) * 1000).toISOString() : null;
+  const forumNode = (String(html || '').match(NODE) || [])[1] || '';
+  const crumbs = [...String(html || '').matchAll(CRUMB)].map((m) => text(m[1]));
+  const forum = crumbs.length >= 2 ? crumbs[crumbs.length - 2] : '';
+  return { body: posts[0].text, replies: posts.slice(1), startedAt, forumNode, forum };
 }
 
 /**

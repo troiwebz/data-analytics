@@ -11,6 +11,25 @@ export const DEFAULT_CONFIG = {
   // in, so there is nothing to start early.
   enabled: true,
   feedUrl: FEED_URL,
+
+  // ---- More sources (v1.1) ---------------------------------------------
+  // Any BHW forum, by URL: every new thread there is a lead (public reply
+  // only). And the site-wide new-threads feed, kept only where a watch word
+  // hits. Bump alerts are per forum / per word, off unless you turn them on;
+  // search from Telegram always shows bumps regardless.
+  watchForums: [
+    { url: 'https://www.blackhatworld.com/forums/google-ads.83/', label: 'Google Ads', enabled: true, bumpAlerts: false }
+  ],
+  watchWords: [
+    { word: 'google ads', enabled: true, bumpAlerts: false },
+    { word: 'ppc', enabled: true, bumpAlerts: false },
+    { word: 'meta ads', enabled: true, bumpAlerts: false },
+    { word: 'facebook ads', enabled: true, bumpAlerts: false }
+  ],
+  siteWideEnabled: true,
+  siteFeedUrl: 'https://www.blackhatworld.com/forums/-/index.rss',
+  threadMaxAgeHours: 48,       // "next" and "haf" on Telegram look back this far
+  indexDays: 7,                // how long the search index remembers a thread
   pollMinutes: 3,              // how often to check the forum
   jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals

@@ -66,3 +66,31 @@ export function buildCard(lead) {
 
   return head;
 }
+
+/**
+ * The card for a lead from a watched forum or the site-wide feed. No score,
+ * no offer, no PM: these are threads you answer in public, and the only thing
+ * the card has to say is what it is, who asked, and whether it is new or bumped.
+ */
+export function buildThreadCard(lead) {
+  const tag = lead.searchTag === 'DONE' || lead.status === 'POSTED' ? '✅ DONE' : lead.bump ? '🔁 BUMP' : '🆕 NEW';
+  const intent = lead.intent === 'BUYER' ? '🎯 BUYER — you can pitch'
+    : lead.intent === 'QUESTION' ? '💬 QUESTION — answer, no pitch'
+    : 'ℹ️ INFO';
+  const replies = lead.replyCount == null ? (lead.replies ? lead.replies.length : '?') : lead.replyCount;
+  const started = lead.startedAt || lead.postedAt;
+  const words = tagsOf(lead.watchWords);
+  const answer = plainLen(lead.draftApproved || lead.draft)
+    ? '✍️ Your answer is on this card — tap 🚀 to post it.'
+    : '✍️ No answer yet — tap 📋 Material, write it with Claude/ChatGPT, reply to this card with it.';
+  return `${tag} · ${esc(lead.sourceLabel || lead.forum || 'BHW')}${lead.forum && lead.forum !== lead.sourceLabel ? ' · ' + esc(lead.forum) : ''}\n`
+    + `<b>${esc(lead.title)}</b>\n`
+    + `${intent}\n\n`
+    + `👤 ${esc(lead.author || '?')}   💬 ${replies} replies\n`
+    + (started ? `🕒 Started ${esc(when(started))} (${ago(started)})\n` : '')
+    + (lead.bump && lead.bumpedAt ? `🔁 Bumped ${esc(when(lead.bumpedAt))} (${ago(lead.bumpedAt)})\n` : '')
+    + (words.length ? `🔎 ${esc(words.join(', '))}\n` : '')
+    + `${answer}\n`
+    + `\n<a href="${esc(lead.url)}">Open thread</a>`;
+}
+const plainLen = (s) => String(s || '').trim().length;

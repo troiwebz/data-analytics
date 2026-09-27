@@ -30,6 +30,7 @@
 // extension's own code can.
 
 import { importAll } from './backup.js';
+import * as vault from './vault.js';
 
 export const SEED_FILE = 'haf-secrets.json';
 const STAMP_KEY = 'seedStamp';
@@ -77,7 +78,6 @@ export async function applySeed({ force = false } = {}) {
   const { [STAMP_KEY]: seen } = await chrome.storage.local.get(STAMP_KEY);
   if (!force && seen === seed.stamp) return { already: true, stamp: seed.stamp };
 
-  const vault = await import('./vault.js');
   const data = { ...seed.data };
 
   // Accept the plain shape as well as the export shape, because someone

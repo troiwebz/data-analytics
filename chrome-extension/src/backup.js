@@ -21,6 +21,9 @@
 // instead: ~40 items, largest about 3.5KB, well inside both limits.
 
 import { DEFAULT_CONFIG } from './config.js';
+// Static, not import(): a service worker may not use dynamic import, and the
+// seed file silently failed to apply on every install because of it.
+import * as vault from './vault.js';
 
 const PREFIX = 'c:';
 const STAMP = 'cfgSavedAt';
@@ -97,7 +100,6 @@ export async function exportAll({ secrets = false } = {}) {
     config: config || {}
   };
   if (secrets) {
-    const vault = await import('./vault.js');
     out.secrets = {
       anthropic: (await vault.getSecret('anthropic')) || '',
       telegram: (await vault.getSecret('telegram')) || ''
@@ -123,7 +125,6 @@ export async function importAll(data) {
 
   let restored = [];
   if (data.secrets) {
-    const vault = await import('./vault.js');
     for (const name of ['anthropic', 'telegram']) {
       if (data.secrets[name]) { await vault.setSecret(name, data.secrets[name]); restored.push(name); }
     }

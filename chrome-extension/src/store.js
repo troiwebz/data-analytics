@@ -60,7 +60,10 @@ const DECISIONS = ['status', 'pmSent', 'pmSentAt', 'pmFrom', 'pmUrl', 'postUrl',
                   'pmSending',
                   // The exact text your phone showed and the buyer will get.
                   // A re-parse must never quietly replace it with a re-render.
-                  'dmApproved', 'draftApproved'];
+                  'dmApproved', 'draftApproved',
+                  // Every Telegram message that ever carried this lead's card, so a
+                  // reply to an older card still finds it.
+                  'tgHistory'];
 
 /**
  * Bought with a request to the forum, so a later parse that happens not to

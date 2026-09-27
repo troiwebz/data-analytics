@@ -64,7 +64,9 @@ export function maxAgeMs(cfg) {
 export function isTooOld(lead, cfg, now = Date.now()) {
   const max = maxAgeMs(cfg);
   if (!max) return false;
-  const at = lead?.postedAt || lead?.foundAt || 0;
+  // A bumped thread is news because of the bump, not because of when it
+  // started - so a bump alert is aged from the bump.
+  const at = (lead?.bump && lead?.bumpedAt) || lead?.postedAt || lead?.foundAt || 0;
   return now - new Date(at).getTime() >= max;
 }
 

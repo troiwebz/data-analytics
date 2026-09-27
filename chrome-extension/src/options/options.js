@@ -9,15 +9,38 @@ const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHou
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
-            'servicesPeakStartHour', 'servicesPeakEndHour'];
+            'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays'];
 const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
-             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode'];
+             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled'];
 const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeAuthors',
               'templates', 'offers', 'dmTemplates', 'compliance', 'specifics',
               'serviceThreads', 'bumpTemplates'];
 const $ = (id) => document.getElementById(id);
 
+// The two source lists are plain lines, not JSON: "url | label | bump" and
+// "word | bump". Easier to type on the phone-sized box than brackets.
+const forumsToText = (list) => (list || []).map((f) =>
+  [f.url, f.label || '', f.bumpAlerts ? 'bump' : ''].filter((x, i) => i === 0 || x).join(' | ')
+  + (f.enabled === false ? ' | off' : '')).join('\n');
+const wordsToText = (list) => (list || []).map((w) =>
+  [w.word, w.bumpAlerts ? 'bump' : ''].filter(Boolean).join(' | ') + (w.enabled === false ? ' | off' : '')).join('\n');
+function parseLines(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)
+    .map((l) => l.split('|').map((p) => p.trim()));
+}
+const forumsFromText = (text) => parseLines(text).map((parts) => {
+  const flags = parts.slice(1).map((p) => p.toLowerCase());
+  const label = parts.slice(1).find((p) => !/^(bump|off|on)$/i.test(p)) || '';
+  return { url: parts[0], label, enabled: !flags.includes('off'), bumpAlerts: flags.includes('bump') };
+}).filter((f) => /blackhatworld\.com\/forums\/[a-z0-9-]+\.\d+/i.test(f.url));
+const wordsFromText = (text) => parseLines(text).map((parts) => {
+  const flags = parts.slice(1).map((p) => p.toLowerCase());
+  return { word: parts[0], enabled: !flags.includes('off'), bumpAlerts: flags.includes('bump') };
+}).filter((w) => w.word);
+
 function fill(cfg) {
+  $('watchForumsText').value = forumsToText(cfg.watchForums);
+  $('watchWordsText').value = wordsToText(cfg.watchWords);
   PLAIN.forEach((k) => ($(k).value = cfg[k] ?? ''));
   NUM.forEach((k) => ($(k).value = cfg[k] ?? 0));
   BOOL.forEach((k) => ($(k).checked = !!cfg[k]));
@@ -34,6 +57,8 @@ async function save() {
   PLAIN.forEach((k) => (patch[k] = $(k).value.trim()));
   NUM.forEach((k) => (patch[k] = Number($(k).value)));
   BOOL.forEach((k) => (patch[k] = $(k).checked));
+  patch.watchForums = forumsFromText($('watchForumsText').value);
+  patch.watchWords = wordsFromText($('watchWordsText').value);
   for (const k of JSONF) {
     try { patch[k] = JSON.parse($(k).value); }
     catch (e) { return status(`${k}: invalid JSON — ${e.message}`, true); }
