@@ -628,15 +628,31 @@ const busy = async (id, label, fn) => {
   try { return await fn(); } finally { b.textContent = old; b.disabled = false; render(); refreshCountdown(); }
 };
 
-$('poll').addEventListener('click', () => busy('poll', 'Checking…', async () => {
+/** Why a check did nothing, in words - and the way out when there is one. */
+async function explainSkip(r, again) {
+  if (r?.skipped === 'backoff') {
+    const at = r.until ? new Date(r.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'later';
+    if (confirm(`BlackHatWorld showed a Cloudflare wall a little while ago, so every read is paused until ${at}.\n\n`
+      + 'If your IP has changed, or BHW opens normally in this Chrome now, press OK to resume reading immediately.')) {
+      await chrome.runtime.sendMessage({ cmd: 'clear-wall' });
+      return again();
+    }
+    return;
+  }
+  if (r?.skipped === 'asleep') return alert(`Asleep until ${r.until} - the sleep window is on under Settings → More sources.`);
+  if (r?.skipped === 'disabled') return alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
+  if (r?.skipped) alert(`Nothing was read: ${r.skipped}.`);
+}
+
+$('poll').addEventListener('click', () => busy('poll', 'Checking…', async function run() {
   const r = await chrome.runtime.sendMessage({ cmd: 'poll-now' });
   if (r?.error) alert(r.error);
-  else if (r?.skipped) alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
+  else if (r?.skipped) await explainSkip(r, async () => { const r2 = await chrome.runtime.sendMessage({ cmd: 'poll-now' }); if (r2?.error) alert(r2.error); });
 }));
 $('pollsrc').addEventListener('click', () => busy('pollsrc', 'Checking…', async () => {
   const r = await chrome.runtime.sendMessage({ cmd: 'sources-now' });
   if (r?.error) alert(r.error);
-  else if (r?.skipped) alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
+  else if (r?.skipped) await explainSkip(r, async () => { const r2 = await chrome.runtime.sendMessage({ cmd: 'sources-now' }); if (r2?.error) alert(r2.error); });
   else alert(`${r?.sources ?? 0} source(s) read · ${r?.indexed ?? 0} thread(s) indexed · ${r?.leads ?? 0} new · ${r?.bumps ?? 0} bump(s).`
     + (r?.errors?.length ? `\n\n${r.errors.join('\n')}` : ''));
 }));

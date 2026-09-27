@@ -1306,8 +1306,10 @@ const WALL_KEY = 'sourcesBackoffUntil';
 /** Is BHW currently refusing us? Both readers sit out while it is. */
 async function walled() {
   const { [WALL_KEY]: until = 0 } = await chrome.storage.local.get(WALL_KEY);
-  return Date.now() < until;
+  return Date.now() < until ? until : 0;
 }
+/** Your IP changed, or you just want to try: forget the wall. */
+async function clearWall() { await chrome.storage.local.remove(WALL_KEY); await log('BHW pause cleared by hand - reading again'); }
 /** BHW showed a wall (429 / Cloudflare). Stop asking for half an hour; asking again is what makes it longer. */
 async function wall(why) {
   const until = Date.now() + 30 * 60000;
@@ -1335,7 +1337,8 @@ async function pollWhatsNew(cfg) {
   const siteOn = cfg.siteWideEnabled !== false && words.length > 0;
   const siteSrc = sourcesOf(cfg).find((s) => s.kind === 'site');
   if (!forums.length && !siteOn) return out;
-  if (await walled()) return { ...out, skipped: 'backoff' };
+  const until = await walled();
+  if (until) return { ...out, skipped: 'backoff', until };
 
   const seen = await getSeen();
   let rows = [];
@@ -1433,7 +1436,7 @@ async function pollSourcesFeeds(cfg) {
   const out = { sources: 0, indexed: 0, leads: 0, bumps: 0, errors: [] };
   const picked = [];
 
-  if (await walled()) return { ...out, skipped: 'backoff' };
+  { const until = await walled(); if (until) return { ...out, skipped: 'backoff', until }; }
 
   // Round robin: the site-wide feed every check (it holds only 20 items), and
   // a few forums per check in turn. Thirteen forums back to back is what got
@@ -1904,7 +1907,8 @@ export async function pollFeed() {
   let items, preListing = null;
   if (cfg.readMode === 'feeds') items = await fetchFeed(cfg.feedUrl);
   else {
-    if (await walled()) return { skipped: 'backoff' };
+    const until = await walled();
+    if (until) return { skipped: 'backoff', until };
     let page;
     try { page = await readListingTab(forumUrlFromFeed(cfg.feedUrl)); }
     catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); throw e; }
@@ -3248,6 +3252,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg.cmd) {
       case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
       case 'sources-now':   sendResponse(await pollSources().catch((e) => ({ error: e.message }))); break;
+      case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'sources-status': {                       // the dashboard's Other sources view
         const cfg = await getConfig();
         sendResponse({ sources: sourcesOf(cfg), words: watchWordsOf(cfg).map((w) => ({ word: w.word, enabled: w.enabled, bumpAlerts: w.bumpAlerts })),
