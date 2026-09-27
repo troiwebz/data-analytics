@@ -2,8 +2,79 @@
 // (chrome://extensions -> HAF Watcher -> Details -> Extension options) and is
 // stored in chrome.storage.local under the key "config".
 
+import { pushConfig } from './backup.js';
+
 export const FEED_URL =
   'https://www.blackhatworld.com/forums/hire-a-freelancer.76/index.rss';
+
+// The forums a black-hat ads client hunt watches out of the box: the whole PPC
+// section, the places buyers ask (Want to Buy, Joint Ventures), and the
+// verticals' home forums. Bump alerts on: a thread bumped today is a target.
+// Add or remove in Settings; a version update only ADDS what is missing.
+export const WATCH_FORUMS = [
+  { url: 'https://www.blackhatworld.com/forums/google-ads.83/', label: 'Google Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/facebook.219/', label: 'Facebook Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/general-ppc-discussion.125/', label: 'General PPC', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/other-ppc-networks.85/', label: 'Other PPC', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/yahoo-bing-msn.93/', label: 'Bing Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/media-buying.175/', label: 'Media Buying', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/cloaking-and-content-generators.2/', label: 'Cloaking', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/cpa.50/', label: 'CPA', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/affiliate-programs.15/', label: 'Affiliate Programs', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/tiktok.279/', label: 'TikTok', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/facebook.86/', label: 'Facebook Social', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/want-to-buy.92/', label: 'Want to Buy', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/joint-ventures.65/', label: 'Joint Ventures', enabled: true, bumpAlerts: true }
+];
+
+// Words that pick black-hat ads threads out of every other forum, site-wide.
+export const WATCH_WORDS = [
+  { word: 'google ads', enabled: true, bumpAlerts: true },
+  { word: 'adwords', enabled: true, bumpAlerts: true },
+  { word: 'facebook ads', enabled: true, bumpAlerts: true },
+  { word: 'meta ads', enabled: true, bumpAlerts: true },
+  { word: 'tiktok ads', enabled: true, bumpAlerts: true },
+  { word: 'bing ads', enabled: true, bumpAlerts: false },
+  { word: 'ppc', enabled: true, bumpAlerts: true },
+  { word: 'media buying', enabled: true, bumpAlerts: true },
+  { word: 'media buyer', enabled: true, bumpAlerts: true },
+  { word: 'ad account', enabled: true, bumpAlerts: true },
+  { word: 'ads account', enabled: true, bumpAlerts: true },
+  { word: 'agency account', enabled: true, bumpAlerts: true },
+  { word: 'business manager', enabled: true, bumpAlerts: true },
+  { word: 'ad approval', enabled: true, bumpAlerts: false },
+  { word: 'disapproved', enabled: true, bumpAlerts: true },
+  { word: 'policy violation', enabled: true, bumpAlerts: true },
+  { word: 'cloak', enabled: true, bumpAlerts: true },
+  { word: 'cloaking', enabled: true, bumpAlerts: true },
+  { word: 'cloaker', enabled: true, bumpAlerts: true },
+  { word: 'prelander', enabled: true, bumpAlerts: false },
+  { word: 'pre-lander', enabled: true, bumpAlerts: false },
+  { word: 'safe page', enabled: true, bumpAlerts: false },
+  { word: 'landing page', enabled: true, bumpAlerts: false },
+  { word: 'ad creative', enabled: true, bumpAlerts: false },
+  { word: 'ad spend', enabled: true, bumpAlerts: false },
+  { word: 'roas', enabled: true, bumpAlerts: false },
+  { word: 'casino', enabled: true, bumpAlerts: true },
+  { word: 'gambling', enabled: true, bumpAlerts: true },
+  { word: 'igaming', enabled: true, bumpAlerts: true },
+  { word: 'betting', enabled: true, bumpAlerts: true },
+  { word: 'crypto ads', enabled: true, bumpAlerts: true },
+  { word: 'forex', enabled: true, bumpAlerts: true },
+  { word: 'adult', enabled: true, bumpAlerts: true },
+  { word: 'dating', enabled: true, bumpAlerts: true },
+  { word: 'nutra', enabled: true, bumpAlerts: true },
+  { word: 'cbd', enabled: true, bumpAlerts: true },
+  { word: 'pharma', enabled: true, bumpAlerts: true },
+  { word: 'peptides', enabled: true, bumpAlerts: true },
+  { word: 'supplements', enabled: true, bumpAlerts: false },
+  { word: 'weight loss', enabled: true, bumpAlerts: false },
+  { word: 'sweepstakes', enabled: true, bumpAlerts: true },
+  { word: 'black hat ads', enabled: true, bumpAlerts: true },
+  { word: 'blackhat ads', enabled: true, bumpAlerts: true },
+  { word: 'grey hat', enabled: true, bumpAlerts: false },
+  { word: 'gray hat', enabled: true, bumpAlerts: false }
+];
 
 export const DEFAULT_CONFIG = {
   // On by default. A fresh install should start watching rather than sit there
@@ -17,15 +88,8 @@ export const DEFAULT_CONFIG = {
   // only). And the site-wide new-threads feed, kept only where a watch word
   // hits. Bump alerts are per forum / per word, off unless you turn them on;
   // search from Telegram always shows bumps regardless.
-  watchForums: [
-    { url: 'https://www.blackhatworld.com/forums/google-ads.83/', label: 'Google Ads', enabled: true, bumpAlerts: false }
-  ],
-  watchWords: [
-    { word: 'google ads', enabled: true, bumpAlerts: false },
-    { word: 'ppc', enabled: true, bumpAlerts: false },
-    { word: 'meta ads', enabled: true, bumpAlerts: false },
-    { word: 'facebook ads', enabled: true, bumpAlerts: false }
-  ],
+  watchForums: WATCH_FORUMS.map((f) => ({ ...f })),
+  watchWords: WATCH_WORDS.map((w) => ({ ...w })),
   siteWideEnabled: true,
   siteFeedUrl: 'https://www.blackhatworld.com/forums/-/index.rss',
   threadMaxAgeHours: 48,       // "next" and "haf" on Telegram look back this far
@@ -115,7 +179,7 @@ export const DEFAULT_CONFIG = {
   // Telegram is for threads worth acting on NOW. Anything older than this is
   // on the dashboard and does not need to buzz your phone - a thread from two
   // days ago has twenty replies on it already.
-  announceMaxAgeHours: 12,
+  announceMaxAgeHours: 24,
 
   maxDmsPerDay: 30,            // cap on sent PMs per day; 0 = no cap at all.
                                // Deliberately high: this is a backstop against
@@ -137,7 +201,7 @@ export const DEFAULT_CONFIG = {
   // full, and the replies already on it from the other freelancers bidding.
   // Signed in, one thread at a time, at a human pace.
   readThreads: true,           // off = go on the title and feed description alone
-  maxThreadReads: 8,           // per poll; 0 = no limit
+  maxThreadReads: 15,           // per poll; 0 = no limit
   secondsBetweenThreadReads: 2,
 
   // ---- Matching -------------------------------------------------------
@@ -622,7 +686,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 27;
+export const CONFIG_VERSION = 28;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -765,13 +829,26 @@ export async function migrateConfig() {
     // Only the old default is lifted: a number you typed yourself is yours.
     if (Number(next.maxDmsPerDay) === 8) next.maxDmsPerDay = DEFAULT_CONFIG.maxDmsPerDay;
   }
+  if (v < 28) {
+    // 1.2.0 ships the black-hat ads forum list and watch words. Merge, never
+    // replace: whatever you added yourself stays, and what you removed on
+    // purpose (by URL or word) is not put back if you had saved the list once.
+    const haveF = new Set((next.watchForums || []).map((f) => String(f.url || '').replace(/\/?(?:[?#].*)?$/, '/').toLowerCase()));
+    next.watchForums = [...(next.watchForums || []), ...WATCH_FORUMS.filter((f) => !haveF.has(f.url.toLowerCase())).map((f) => ({ ...f }))];
+    const haveW = new Set((next.watchWords || []).map((w) => String(w.word || '').toLowerCase()));
+    next.watchWords = [...(next.watchWords || []), ...WATCH_WORDS.filter((w) => !haveW.has(w.word)).map((w) => ({ ...w }))];
+    if (next.siteWideEnabled == null) next.siteWideEnabled = true;
+    // Only the old defaults are lifted; a number you typed yourself is yours.
+    if (Number(next.announceMaxAgeHours) === 12) next.announceMaxAgeHours = 24;
+    if (Number(next.maxThreadReads) === 8) next.maxThreadReads = 15;
+  }
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
   // Mirror to sync so a new machine starts prefilled. Fire and forget: a full
   // or switched-off sync must never fail the local save, which is the one that
   // matters right now.
-  import('./backup.js').then((b) => b.pushConfig(next)).catch(() => {});
+  pushConfig(next).catch(() => {});
   return next;
 }
 
