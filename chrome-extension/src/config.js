@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG = {
   readMode: 'tabs',
   // A member sleeps. No reads at all in this window (your timezone); Telegram
   // taps still work, so a post you approve at 3am still goes up.
-  sleepEnabled: true,
+  sleepEnabled: false,         // off: you work at night; turn it on in Settings if you want a quiet window
   sleepStart: '01:00',
   sleepEnd: '07:00',
   threadReadGapSeconds: 8,     // tabs mode: average gap between two thread reads
@@ -704,7 +704,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 29;
+export const CONFIG_VERSION = 30;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -864,9 +864,10 @@ export async function migrateConfig() {
     // 1.3: real tabs, slower and less regular. Only the shipped numbers move.
     if ([3, 5].includes(Number(next.pollMinutes))) next.pollMinutes = 6;
     if (Number(next.jitterSeconds) === 40) next.jitterSeconds = 150;
-    if (next.sleepEnabled == null) { next.sleepEnabled = true; next.sleepStart = '01:00'; next.sleepEnd = '07:00'; }
+    if (next.sleepEnabled == null) { next.sleepEnabled = false; next.sleepStart = '01:00'; next.sleepEnd = '07:00'; }
     if (Number(next.maxThreadReads) === 15) next.maxThreadReads = 3;
   }
+  if (v < 30) next.sleepEnabled = false;   // 1.3.1 switched sleep on by itself; that was wrong
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
