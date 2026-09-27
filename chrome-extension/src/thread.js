@@ -80,9 +80,10 @@ export function parseThread(html) {
   // The breadcrumb is on the page twice (top and bottom); read the first block only.
   const bcBlock = (String(html || '').match(/<ul[^>]*class="[^"]*\bp-breadcrumbs\b[^"]*"[\s\S]*?<\/ul>/) || [''])[0];
   const crumbs = [...bcBlock.matchAll(CRUMB)].map((m) => text(m[1]));
-  const forum = crumbs.length >= 2 ? crumbs[crumbs.length - 2] : '';
-  // "Home › Forums › The Marketplace › SEO - Packages › <thread>" -> "The Marketplace › SEO - Packages"
-  const section = crumbs.slice(2, -1).join(' › ');
+  // The breadcrumb ends at the forum - the thread title is the h1, not a crumb:
+  // "Home › Forums › The Marketplace › SEO - Packages" -> forum "SEO - Packages".
+  const forum = crumbs.length ? crumbs[crumbs.length - 1] : '';
+  const section = crumbs.slice(2).join(' › ');
   return { body: posts[0].text, replies: posts.slice(1), startedAt, forumNode, forum, section };
 }
 

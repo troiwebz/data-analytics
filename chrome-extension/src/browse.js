@@ -123,8 +123,10 @@ export function extractThread() {
     replies: posts.slice(1).map((p) => ({ author: p.author, text: p.text })),
     startedAt: iso(startEl) || (posts.length ? posts[0].at : null),
     forumNode,
-    forum: crumbs.length >= 2 ? crumbs[crumbs.length - 2] : '',
-    section: crumbs.slice(2, -1).join(' › '),
+    // "Home › Forums › Making Money › Pay Per Click › General PPC Discussion":
+    // the breadcrumb ends at the forum; the thread title is the h1, not a crumb.
+    forum: crumbs.length ? crumbs[crumbs.length - 1] : '',
+    section: crumbs.slice(2).join(' › '),
     loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true'
   };
 }
