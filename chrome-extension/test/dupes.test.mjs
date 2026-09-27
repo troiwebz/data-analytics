@@ -9,6 +9,7 @@
 // Nothing here existed before: syncSentPms had no tests at all, which is why
 // the rules could be that loose and still look fine.
 const store = {};
+store.config = { sleepEnabled: false };   // tests run at any hour
 const msgListeners = [], tabWatchers = [];
 let tgCalls = [], inboxHtml = '', inboxFail = '', fetched = 0, editFails = false;
 let dmResult = { ok: true, sent: true };

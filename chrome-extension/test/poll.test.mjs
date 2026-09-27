@@ -2,7 +2,7 @@
 // full poll. Nothing may throw, and Claude must be called locally.
 const store = {};
 // These prove the RSS path; the default reader is real tabs (see browse.js).
-store.config = { readMode: 'feeds' };
+store.config = { readMode: 'feeds', sleepEnabled: false };   // tests run at any hour
 const listeners = [];
 globalThis.chrome = {
   runtime: {
