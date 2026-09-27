@@ -685,6 +685,14 @@ export async function settleExcludedLeads(cfg) {
 }
 
 export async function runCheck() {
+  // Asleep: a member is not reading the forum at 3am. Nothing is fetched or
+  // opened; taps from Telegram are still honoured by their own alarm.
+  const cfgS = await getConfig();
+  if (cfgS.sleepEnabled && night.inWindow(cfgS, cfgS.sleepStart, cfgS.sleepEnd)) {
+    await logOnce('asleep', `asleep until ${cfgS.sleepEnd} (${cfgS.timezone || 'local time'}) - no BHW reads; change it under Settings if you want`, 'info', 180);
+    return { skipped: 'asleep', until: cfgS.sleepEnd };
+  }
+  await clearLogOnce('asleep');
   // The two halves are independent, so neither may take the other down with
   // it. A forum that will not load says nothing about your message list, and
   // the list is what keeps the table honest about what has already been sent.

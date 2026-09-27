@@ -2,7 +2,7 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES } from '../claude.js';
 
-const PLAIN = ['readMode', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
+const PLAIN = ['readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername', 'announceMaxAgeHours',
@@ -11,7 +11,7 @@ const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHou
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
             'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays', 'sourcesPerPoll', 'secondsBetweenSourceFetches', 'threadReadGapSeconds', 'pmCheckMinutes'];
 const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
-             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled'];
+             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled', 'sleepEnabled'];
 const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeAuthors',
               'templates', 'offers', 'dmTemplates', 'compliance', 'specifics',
               'serviceThreads', 'bumpTemplates'];

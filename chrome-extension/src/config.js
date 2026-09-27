@@ -103,12 +103,17 @@ export const DEFAULT_CONFIG = {
   // human gap - exactly what a member's browser does. 'feeds' is the old way
   // (RSS + fetch), faster and the thing Cloudflare rate-limits.
   readMode: 'tabs',
+  // A member sleeps. No reads at all in this window (your timezone); Telegram
+  // taps still work, so a post you approve at 3am still goes up.
+  sleepEnabled: true,
+  sleepStart: '01:00',
+  sleepEnd: '07:00',
   threadReadGapSeconds: 8,     // tabs mode: average gap between two thread reads
   whatsNewPages: 1,            // tabs mode: pages of What's new per check (1 is plenty at 5 min)
   pmCheckMinutes: 15,          // how often your BHW message list is read
   indexDays: 7,                // how long the search index remembers a thread
-  pollMinutes: 5,              // how often to check the forum (tabs mode: one What's-new page per check)
-  jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
+  pollMinutes: 6,              // how often to check (tabs mode: one What's-new page per check)
+  jitterSeconds: 150,          // plus 0-150 s at random, so checks are never on the clock
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
   backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
   aiSpecifics: true,           // let Claude write the bullets (needs ANTHROPIC_API_KEY
@@ -699,7 +704,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 28;
+export const CONFIG_VERSION = 29;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -854,6 +859,13 @@ export async function migrateConfig() {
     // Only the old defaults are lifted; a number you typed yourself is yours.
     if (Number(next.announceMaxAgeHours) === 12) next.announceMaxAgeHours = 24;
     if (Number(next.maxThreadReads) === 8) next.maxThreadReads = 15;
+  }
+  if (v < 29) {
+    // 1.3: real tabs, slower and less regular. Only the shipped numbers move.
+    if ([3, 5].includes(Number(next.pollMinutes))) next.pollMinutes = 6;
+    if (Number(next.jitterSeconds) === 40) next.jitterSeconds = 150;
+    if (next.sleepEnabled == null) { next.sleepEnabled = true; next.sleepStart = '01:00'; next.sleepEnd = '07:00'; }
+    if (Number(next.maxThreadReads) === 15) next.maxThreadReads = 3;
   }
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;

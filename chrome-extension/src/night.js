@@ -47,6 +47,14 @@ const toMinutes = (hhmm, fallback) => {
  * Is it night? The window normally crosses midnight (23:00 to 07:00), so it is
  * "after the start OR before the end" rather than a simple between.
  */
+/** Is the clock (in your zone) inside a start..end window? Wraps midnight. */
+export function inWindow(cfg, startStr, endStr, now = new Date()) {
+  const start = toMinutes(startStr, 1 * 60);
+  const end = toMinutes(endStr, 7 * 60);
+  const t = minutesNow(cfg, now);
+  return start === end ? false : start < end ? (t >= start && t < end) : (t >= start || t < end);
+}
+
 export function isNight(cfg, now = new Date()) {
   if (!cfg?.nightMode) return false;
   const start = toMinutes(cfg.nightStart, 23 * 60);
