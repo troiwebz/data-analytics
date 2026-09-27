@@ -69,7 +69,9 @@ export function extractListing() {
       if (/repl/i.test(dl.textContent || '')) { const dd = dl.querySelector('dd'); replies = num(dd && dd.textContent); break; }
     }
     const href = forumA ? forumA.getAttribute('href') || '' : '';
+    const lastEl = el.querySelector('.structItem-cell--latest .username');
     rows.push({
+      lastPoster: lastEl ? (lastEl.textContent || '').trim() : '',
       threadId: m[1],
       url: new URL(a.getAttribute('href'), location.href).href,
       title: (a.textContent || '').trim(),
@@ -83,8 +85,10 @@ export function extractListing() {
     });
   }
   const loggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+  const meEl = document.querySelector('.p-navgroup-link--user .p-navgroup-linkText');
+  const me = meEl ? (meEl.textContent || '').trim() : '';
   const next = !!document.querySelector('a.pageNav-jump--next');
-  return { rows, loggedIn, next, title: t, url: location.href };
+  return { rows, loggedIn, me, next, title: t, url: location.href };
 }
 
 /** The first post and every reply on a thread page. Runs in the page. */

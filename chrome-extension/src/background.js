@@ -1320,8 +1320,106 @@ async function wall(why) {
 export async function pollSources() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
-  return cfg.readMode === 'feeds' ? pollSourcesFeeds(cfg) : pollWhatsNew(cfg);
+  if (cfg.readMode === 'feeds') return pollSourcesFeeds(cfg);
+  const r = await pollWhatsNew(cfg);
+  if (!r.skipped) r.forumTurn = await pollForumTurn(cfg).catch((e) => ({ error: e.message }));
+  return r;
 }
+
+/** A listing row as the item shape the rest of the extension uses. */
+const rowItem = (r, sourceKey) => ({
+  threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+  postedAt: r.startedAt || r.lastActivityAt, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt,
+  postedAtSource: r.startedAt ? 'listing' : 'unknown', replyCount: r.replyCount,
+  forum: r.forum, forumNode: r.forumNode, lastPoster: r.lastPoster || '', source: sourceKey
+});
+
+/** Your BHW username: the page says who is signed in; Settings can override. */
+async function whoAmI(cfg, page) {
+  if (page?.me) await chrome.storage.local.set({ bhwMe: page.me });
+  const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
+  return cfg.bhwUsername || page?.me || bhwMe || '';
+}
+
+/**
+ * Everything on a listing that is worth answering NOW goes into the queue:
+ * active within the window (48 h), not a sales thread, not one you have
+ * decided, and - if the last post is yours - marked done rather than offered
+ * back to you. Quiet: nothing is announced (a first look or a forum page is
+ * dozens of threads at once); "next" and the dashboard serve them. `loud(r)`
+ * names the exceptions that should reach Telegram - a bump you asked to hear about.
+ */
+async function queueRecent(cfg, rows, srcOf, { me = '', loud = () => false } = {}) {
+  const hours = Number(cfg.threadMaxAgeHours) || 48;
+  const cutoff = Date.now() - hours * 3600000;
+  const words = watchWordsOf(cfg).filter((w) => w.enabled);
+  const existing = new Map((await getLeads()).map((l) => [String(l.threadId), l]));
+  const fresh = [], rearm = [];
+  let mine = 0, loudN = 0;
+  for (const r of rows) {
+    if (!r || r.sticky || !r.threadId || !r.url) continue;
+    if (String(r.forumNode) === HAF_NODE) continue;
+    const act = new Date(r.lastActivityAt || r.startedAt || 0).getTime();
+    if (!act || act < cutoff) continue;
+    if (isSalesThread(r.title) || isExcludedThread(r, cfg)) continue;
+    const src = srcOf(r);
+    if (!src) continue;
+    const old = existing.get(String(r.threadId));
+    if (old && (SILENT_STATUSES.includes(old.status) || old.pmSent)) continue;
+    const isMine = !!me && !!r.lastPoster && r.lastPoster.toLowerCase() === me.toLowerCase();
+    const bump = !!r.startedAt && Date.now() - new Date(r.startedAt).getTime() > 24 * 3600000;
+    const wantLoud = !isMine && loud(r);
+    if (old) {
+      if (isMine) { await updateLead(old.threadId, { status: 'POSTED', postUrl: r.url, decidedAt: new Date().toISOString(), error: '' }); mine++; }
+      else if (wantLoud) rearm.push({ old, r });
+      continue;
+    }
+    const l = enrichThread(rowItem(r, src.key), cfg, {
+      source: src, words: src.kind === 'site' ? wordHits(r.title, words) : [],
+      bump, bumpedAt: bump ? r.lastActivityAt : null, bumpWanted: true
+    });
+    if (isMine) { l.status = 'POSTED'; l.postUrl = r.url; l.decidedAt = new Date().toISOString(); mine++; }
+    l.card = buildThreadCard(l);
+    if (!wantLoud || isMine) l.tgSentAt = BASELINE;          // quiet: queue only
+    else loudN++;
+    fresh.push(l);
+  }
+  if (fresh.length) await recordLeads(fresh);
+  for (const { old, r } of rearm) {
+    await updateLead(old.threadId, { bump: true, bumpedAt: r.lastActivityAt, tgSentAt: '', status: 'SENT', lastActivityAt: r.lastActivityAt });
+    loudN++;
+  }
+  await markSeen(rows.filter((r) => r && r.threadId).map((r) => r.threadId));
+  return { queued: fresh.length - mine, loud: loudN, mine };
+}
+
+/**
+ * One watched forum page per check, in turn. What's new only shows the last
+ * twenty things on the whole site; a forum's own page shows its bumps for
+ * days back. Thirteen forums, one per check, is each forum every ~80 minutes.
+ */
+async function pollForumTurn(cfg) {
+  const forums = sourcesOf(cfg).filter((s) => s.kind === 'forum' && s.enabled);
+  if (!forums.length || await walled()) return { skipped: 'none' };
+  const { forumTurn = 0 } = await chrome.storage.local.get('forumTurn');
+  const src = forums[forumTurn % forums.length];
+  await chrome.storage.local.set({ forumTurn: (forumTurn + 1) % forums.length });
+  await new Promise((r) => setTimeout(r, 5000 + Math.random() * 6000));   // a breath after What's new
+  let page;
+  try { page = await readListingTab(src.url); }
+  catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message); else await log(`${src.label} page: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+  const me = await whoAmI(cfg, page);
+  const rows = page.rows.filter((r) => !r.sticky).map((r) => ({ ...r, forumNode: r.forumNode || src.node, forum: r.forum || src.label }));
+  const { bumped } = await upsertIndex(rows.map((r) => rowItem(r, src.key)), src.key, { days: cfg.indexDays });
+  const bumpedIds = new Set(bumped.map((b) => String(b.threadId)));
+  const n = await queueRecent(cfg, rows, () => src, { me, loud: (r) => src.bumpAlerts && bumpedIds.has(String(r.threadId)) });
+  await log(`${src.label} page: ${n.queued} recent thread(s) queued${n.loud ? `, ${n.loud} announced` : ''}${n.mine ? `, ${n.mine} already answered by you` : ''}`);
+  return { forum: src.label, ...n };
+}
+
 
 /**
  * Tabs mode. One page - What's new - carries every forum's new and bumped
@@ -1375,9 +1473,11 @@ async function pollWhatsNew(cfg) {
   const { whatsNewSeenAt } = await chrome.storage.local.get('whatsNewSeenAt');
   await chrome.storage.local.set({ whatsNewSeenAt: Date.now() });
   if (!whatsNewSeenAt) {
-    await markSeen(items.map((i) => i.threadId));
-    await log(`What's new: first look, ${items.length} thread(s) indexed quietly - new and bumped ones from now on`);
-    return out;
+    const me = await whoAmI(cfg, { me: rows.length ? undefined : '' });
+    const srcOf = (r) => byNode.get(String(r.forumNode)) || ((siteOn && wordHits(r.title, words).length) ? siteSrc : null);
+    const n = await queueRecent(cfg, rows.filter((r) => !r.sticky), srcOf, { me });
+    await log(`What's new: first look, ${items.length} thread(s) indexed, ${n.queued} recent one(s) queued for "next" and the dashboard${n.mine ? `, ${n.mine} already answered by you` : ''} - alerts from now on`);
+    return { ...out, queued: n.queued };
   }
 
   const bumpedIds = new Set(bumped.map((b) => String(b.threadId)));
