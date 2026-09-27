@@ -56,7 +56,14 @@ ppc"></textarea>
     <div class="row" style="margin-top:8px">
       <div><label>"next" / "haf" look back (hours)</label><input type="number" id="threadMaxAgeHours" min="1"></div>
       <div><label>Search index keeps (days)</label><input type="number" id="indexDays" min="1"></div>
+      <div><label>How BHW is read</label><select id="readMode"><option value="tabs">Real tabs, like a member (recommended)</option><option value="feeds">RSS feeds (faster, gets rate-limited)</option></select></div>
+      <div><label>Gap between thread reads (seconds)</label><input type="number" id="threadReadGapSeconds" min="2"></div>
+      <div><label>Message list check every (min)</label><input type="number" id="pmCheckMinutes" min="1"></div>
+      <div><label>Forums read per check <span class="hint">feeds mode only</span></label><input type="number" id="sourcesPerPoll" min="1"></div>
+      <div><label>Pause between fetches (seconds)</label><input type="number" id="secondsBetweenSourceFetches" min="0"></div>
     </div>
+    <p class="hint" style="margin-top:6px">BHW answers a burst of requests with "429" and then refuses every feed for a while. Four forums per
+      check with a two-second pause keeps it happy; on a 429 the sources pause for ten minutes by themselves.</p>
     <p class="hint" style="margin-top:8px">From Telegram: <code>watch &lt;forum url or word&gt;</code>, <code>unwatch &lt;label or word&gt;</code>,
       <code>watching</code>, <code>next</code>, <code>haf</code>, <code>casino</code> / <code>casino new</code> / <code>casino bump</code> / <code>casino done</code>,
       <code>stats</code>, <code>seed &lt;forum label&gt;</code>. Threads from these sources get a card with 📋 Material —

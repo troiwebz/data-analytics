@@ -1,6 +1,8 @@
 // End-to-end: boot the service worker with NO Apps Script configured and run a
 // full poll. Nothing may throw, and Claude must be called locally.
 const store = {};
+// These prove the RSS path; the default reader is real tabs (see browse.js).
+store.config = { readMode: 'feeds' };
 const listeners = [];
 globalThis.chrome = {
   runtime: {

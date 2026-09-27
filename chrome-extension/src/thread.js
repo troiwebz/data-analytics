@@ -77,7 +77,9 @@ export function parseThread(html) {
   const ts = (String(html || '').match(START_TIME) || [])[1];
   const startedAt = ts ? new Date(parseInt(ts, 10) * 1000).toISOString() : null;
   const forumNode = (String(html || '').match(NODE) || [])[1] || '';
-  const crumbs = [...String(html || '').matchAll(CRUMB)].map((m) => text(m[1]));
+  // The breadcrumb is on the page twice (top and bottom); read the first block only.
+  const bcBlock = (String(html || '').match(/<ul[^>]*class="[^"]*\bp-breadcrumbs\b[^"]*"[\s\S]*?<\/ul>/) || [''])[0];
+  const crumbs = [...bcBlock.matchAll(CRUMB)].map((m) => text(m[1]));
   const forum = crumbs.length >= 2 ? crumbs[crumbs.length - 2] : '';
   // "Home › Forums › The Marketplace › SEO - Packages › <thread>" -> "The Marketplace › SEO - Packages"
   const section = crumbs.slice(2, -1).join(' › ');

@@ -28,6 +28,7 @@ import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intent
 import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
+import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive } from './alive.js';
@@ -438,7 +439,12 @@ export async function withThreads(leads, cfg) {
   if (cfg.readThreads === false || !leads.length) return leads;
   const max = Number(cfg.maxThreadReads) > 0 ? Number(cfg.maxThreadReads) : leads.length;
   const delayMs = Math.max(0, Number(cfg.secondsBetweenThreadReads ?? 2) * 1000);
-  const got = await fetchThreads(leads, { max, delayMs }).catch(() => ({}));
+  let got;
+  if (cfg.readMode === 'feeds') got = await fetchThreads(leads, { max, delayMs }).catch(() => ({}));
+  else {
+    got = await readThreadsInTabs(leads, { max, gapMs: Math.max(2, Number(cfg.threadReadGapSeconds) || 8) * 1000 }).catch(() => ({}));
+    if (got.__blocked) { await wall(got.__blocked); delete got.__blocked; }
+  }
   const read = Object.keys(got).length;
   if (read) {
     const rivals = Object.values(got).reduce((n, t) => n + (t.replies?.length || 0), 0);
@@ -700,10 +706,18 @@ export async function runCheck() {
   // hours, or never.
   const told = await announceNew(cfg0).catch((e) => ({ error: e.message }));
 
-  const pms = await syncSentPms().catch(async (e) => {
-    await log(`PM check: ${e.message}`, 'error');
-    return { error: e.message };
-  });
+  // Your message list, but not on every check: it is one more page load, and
+  // nothing on it changes faster than you send PMs.
+  const { pmCheckedAt = 0 } = await chrome.storage.local.get('pmCheckedAt');
+  const pmEvery = Math.max(1, Number(cfg0.pmCheckMinutes) || 15) * 60000;
+  let pms = { skipped: 'not due' };
+  if (Date.now() - pmCheckedAt >= pmEvery) {
+    await chrome.storage.local.set({ pmCheckedAt: Date.now() });
+    pms = await syncSentPms().catch(async (e) => {
+      await log(`PM check: ${e.message}`, 'error');
+      return { error: e.message };
+    });
+  }
   return { ...(r || {}), ...(failed ? { error: failed } : {}), sources, told, pms };
 }
 
@@ -1280,25 +1294,168 @@ function sourceLabelOf(cfg, key) {
  * thread on a watched forum, a site-wide thread hitting a watch word, and a
  * bump where you asked for bump alerts. Sales threads never do.
  */
+const WALL_KEY = 'sourcesBackoffUntil';
+/** Is BHW currently refusing us? Both readers sit out while it is. */
+async function walled() {
+  const { [WALL_KEY]: until = 0 } = await chrome.storage.local.get(WALL_KEY);
+  return Date.now() < until;
+}
+/** BHW showed a wall (429 / Cloudflare). Stop asking for half an hour; asking again is what makes it longer. */
+async function wall(why) {
+  const until = Date.now() + 30 * 60000;
+  await chrome.storage.local.set({ [WALL_KEY]: until });
+  await log(`${why} - pausing every BHW read for 30 minutes, then trying again quietly`, 'error');
+}
+
 export async function pollSources() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
+  return cfg.readMode === 'feeds' ? pollSourcesFeeds(cfg) : pollWhatsNew(cfg);
+}
+
+/**
+ * Tabs mode. One page - What's new - carries every forum's new and bumped
+ * threads with the forum name on each row, so one background tab per check
+ * covers all thirteen forums and the watch words at once. HAF rows are left to
+ * the HAF poll. Reads are the only other requests, a few per check.
+ */
+async function pollWhatsNew(cfg) {
+  const out = { sources: 0, indexed: 0, leads: 0, bumps: 0, errors: [] };
+  const forums = sourcesOf(cfg).filter((s) => s.kind === 'forum' && s.enabled);
+  const byNode = new Map(forums.map((f) => [String(f.node), f]));
+  const words = watchWordsOf(cfg).filter((w) => w.enabled);
+  const siteOn = cfg.siteWideEnabled !== false && words.length > 0;
+  const siteSrc = sourcesOf(cfg).find((s) => s.kind === 'site');
+  if (!forums.length && !siteOn) return out;
+  if (await walled()) return { ...out, skipped: 'backoff' };
+
+  const seen = await getSeen();
+  let rows = [];
+  const pages = Math.max(1, Number(cfg.whatsNewPages) || 1);
+  for (let p = 1; p <= pages; p++) {
+    let page;
+    try { page = await readListingTab(p === 1 ? WHATS_NEW : `${WHATS_NEW}?page=${p}`); }
+    catch (e) {
+      out.errors.push(e.message);
+      if (/blocked/i.test(e.message)) await wall(e.message);
+      else await log(`What's new: ${e.message}`, 'error');
+      break;
+    }
+    out.sources = 1;
+    if (!page.loggedIn) await logOnce('bhwLogin', 'BlackHatWorld shows you as logged OUT in this Chrome profile - open blackhatworld.com and sign in, or threads cannot be read or posted', 'error');
+    else await clearLogOnce('bhwLogin');
+    rows = rows.concat(page.rows);
+    if (!page.next) break;
+    if (p < pages) await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
+  }
+  if (!rows.length) return out;
+
+  const items = rows.filter((r) => !r.sticky).map((r) => ({
+    threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+    postedAt: r.startedAt || r.lastActivityAt, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt,
+    postedAtSource: r.startedAt ? 'listing' : 'unknown', replyCount: r.replyCount,
+    forum: r.forum, forumNode: r.forumNode,
+    source: byNode.has(String(r.forumNode)) ? byNode.get(String(r.forumNode)).key : SITE_KEY
+  }));
+  const { fresh, bumped } = await upsertIndex(items, SITE_KEY, { days: cfg.indexDays });
+  out.indexed = items.length;
+
+  // First look at What's new: remember what is there, alert on nothing.
+  const { whatsNewSeenAt } = await chrome.storage.local.get('whatsNewSeenAt');
+  await chrome.storage.local.set({ whatsNewSeenAt: Date.now() });
+  if (!whatsNewSeenAt) {
+    await markSeen(items.map((i) => i.threadId));
+    await log(`What's new: first look, ${items.length} thread(s) indexed quietly - new and bumped ones from now on`);
+    return out;
+  }
+
+  const bumpedIds = new Set(bumped.map((b) => String(b.threadId)));
+  const picked = [];
+  for (const it of items) {
+    if (String(it.forumNode) === HAF_NODE) continue;                    // the HAF poll's job
+    const isBump = bumpedIds.has(String(it.threadId))
+      || (!!it.startedAt && Date.now() - new Date(it.startedAt).getTime() > 24 * 3600000);
+    if (seen[it.threadId] && !isBump) continue;                          // known, and nothing new on it
+    if (isExcludedThread(it, cfg) || isSalesThread(it.title)) continue;
+    const f = byNode.get(String(it.forumNode));
+    const hits = f ? [] : (siteOn ? wordHits(it.title, words) : []);
+    if (!f && !hits.length) continue;
+    const bumpWanted = f ? f.bumpAlerts : hits.some((w) => w.bumpAlerts);
+    if (isBump && !bumpWanted) continue;
+    if (isBump && !bumpedIds.has(String(it.threadId)) && seen[it.threadId]) continue;   // old, known, not newly active
+    picked.push(enrichThread(it, cfg, { source: f || siteSrc, words: hits, bump: isBump, bumpedAt: isBump ? it.lastActivityAt : null, bumpWanted }));
+  }
+  if (!picked.length) return out;
+  await markSeen(picked.map((l) => l.threadId));
+
+  const full = await withThreads(picked, cfg);
+  const before = new Map((await getLeads()).map((l) => [String(l.threadId), l]));
+  const kept = [];
+  for (const l of full) {
+    if (l.replies?.length && !isMarketForum(l.section || l.forum, l.forum)) await addToBank(l);
+    if (l.startedAt || l.forum) await patchIndex(l.threadId, { startedAt: l.startedAt || null, forum: l.forum || '', forumNode: l.forumNode || '', section: l.section || '' });
+    if (String(l.forumNode) === HAF_NODE) continue;
+    if (isMarketForum(l.section || l.forum, l.forum)) continue;
+    if (l.startedAt) { l.postedAt = l.startedAt; l.postedAtSource = 'listing'; }
+    const old = before.get(String(l.threadId));
+    if (l.bump && old && (SILENT_STATUSES.includes(old.status) || old.pmSent)) continue;
+    l.card = buildThreadCard(l);
+    kept.push(l);
+  }
+  if (!kept.length) return out;
+  await recordLeads(kept);
+  for (const l of kept) {
+    if (l.bump && before.has(String(l.threadId))) {
+      await updateLead(l.threadId, { bump: true, bumpedAt: l.bumpedAt, tgSentAt: '', status: 'SENT', card: l.card });
+    }
+  }
+  out.leads = kept.filter((l) => !l.bump).length;
+  out.bumps = kept.filter((l) => l.bump).length;
+  await log(`What's new: ${out.leads} new thread(s), ${out.bumps} bump(s) from ${rows.length} row(s)`);
+  await playSound(cfg, cfg.sound);
+  await notify(`${kept.length} thread(s) to answer · ${kept[0].sourceLabel}`, kept[0].title);
+  return out;
+}
+
+/** Feeds mode: RSS per forum, a few forums per check. The old way. */
+async function pollSourcesFeeds(cfg) {
   const sources = sourcesOf(cfg).filter((s) => s.enabled);
   const words = watchWordsOf(cfg).filter((w) => w.enabled);
   const seen = await getSeen();
   const out = { sources: 0, indexed: 0, leads: 0, bumps: 0, errors: [] };
   const picked = [];
 
-  for (const src of sources) {
-    if (src.kind === 'site' && !words.length) continue;          // nothing to look for
+  if (await walled()) return { ...out, skipped: 'backoff' };
+
+  // Round robin: the site-wide feed every check (it holds only 20 items), and
+  // a few forums per check in turn. Thirteen forums back to back is what got
+  // the 429 in the first place; a forum feed holds hours of activity, so
+  // reading each one every ten minutes loses nothing.
+  const forums = sources.filter((s) => s.kind === 'forum');
+  const per = Math.max(1, Number(cfg.sourcesPerPoll) || 4);
+  const { sourceCursor = 0 } = await chrome.storage.local.get('sourceCursor');
+  const turn = [];
+  for (let i = 0; i < Math.min(per, forums.length); i++) turn.push(forums[(sourceCursor + i) % forums.length]);
+  if (forums.length) await chrome.storage.local.set({ sourceCursor: (sourceCursor + turn.length) % forums.length });
+  const site = sources.find((s) => s.kind === 'site');
+  const round = [...(site && words.length ? [site] : []), ...turn];
+  const gap = Math.max(0, Number(cfg.secondsBetweenSourceFetches ?? 2) * 1000);
+
+  for (const src of round) {
+    if (out.sources) await new Promise((r) => setTimeout(r, gap + Math.random() * 1000));
     let items;
     try { items = await fetchFeed(src.feedUrl); }
-    catch (e) { out.errors.push(`${src.label}: ${e.message}`); await log(`${src.label} feed: ${e.message}`, 'error'); continue; }
+    catch (e) {
+      out.errors.push(`${src.label}: ${e.message}`);
+      if (/\b429\b/.test(e.message)) { await wall(`${src.label} feed: BHW asked us to slow down (429)`); break; }
+      await log(`${src.label} feed: ${e.message}`, 'error');
+      continue;
+    }
     out.sources++;
-
-    let listing = {};
-    if (src.kind === 'forum') { try { listing = await fetchListing(src.url); } catch { /* the feed alone will do */ } }
-    const rows = items.map((raw) => (src.kind === 'forum' ? withListing(raw, listing[raw.threadId]) : raw));
+    // No listing-page request per forum any more: the feed carries the title,
+    // author, snippet and last activity, and reading the thread gives the
+    // real start time. Half the requests, same information.
+    const rows = items;
 
     const first = !(await hasIndexed(src.key));
     const { fresh, bumped } = await upsertIndex(rows, src.key, { days: cfg.indexDays });
@@ -1382,7 +1539,7 @@ export async function pollSources() {
 export async function sendMaterial(lead, cfg) {
   let l = lead;
   if (!l.body && !(l.replies || []).length) {
-    const got = await fetchThread(l.url);
+    const got = cfg.readMode === 'feeds' ? await fetchThread(l.url) : await readThreadTab(l.url).catch(async (e) => { await wall(e.message); return { body: '', replies: [] }; });
     if (got.body || got.replies.length) {
       const patch = { body: got.body, replies: got.replies, startedAt: got.startedAt || l.startedAt, forum: got.forum || l.forum, forumNode: got.forumNode || l.forumNode, section: got.section || l.section };
       await updateLead(l.threadId, patch);
@@ -1680,7 +1837,7 @@ export async function loadForum(cfg, raw, days = 2) {
   let pages = 0, listing = {};
   for (const step of [2, 2, 3, 3]) {
     pages += step;
-    listing = await fetchListingPages(src.url, pages, {});
+    listing = cfg.readMode === 'feeds' ? await fetchListingPages(src.url, pages, {}) : await readListingPages(src.url, pages);
     const times = Object.values(listing).map((r) => (r.startedAt ? new Date(r.startedAt).getTime() : NaN)).filter(isFinite);
     if (!times.length || Math.min(...times) <= from) break;
     if (Object.keys(listing).length < pages * 5) break;
@@ -1709,10 +1866,12 @@ async function seedForum(cfg, raw) {
   if (!src) { await telegram.say(cfg.telegramChatId, `❌ No watched forum matches "${raw}". Send "watching" for the list.`); return; }
   await telegram.say(cfg.telegramChatId, `🌱 Seeding the answer bank from "${src.label}" - reading up to 15 recent threads with replies, at a human pace…`);
   let listing = {};
-  try { listing = await fetchListingPages(src.url, 2); }
+  try { listing = cfg.readMode === 'feeds' ? await fetchListingPages(src.url, 2) : await readListingPages(src.url, 2); }
   catch (e) { await telegram.say(cfg.telegramChatId, `❌ Could not read the forum: ${e.message}`); return; }
   const rows = Object.values(listing).filter((r) => r.url && (r.replyCount || 0) > 0).slice(0, 15);
-  const got = await fetchThreads(rows, { max: 15, delayMs: 2000 });
+  const got = cfg.readMode === 'feeds' ? await fetchThreads(rows, { max: 15, delayMs: 2000 })
+    : await readThreadsInTabs(rows, { max: 10, gapMs: Math.max(2, Number(cfg.threadReadGapSeconds) || 8) * 1000 });
+  if (got.__blocked) { await wall(got.__blocked); delete got.__blocked; }
   let added = 0;
   for (const r of rows) {
     const th = got[r.threadId];
@@ -1731,7 +1890,25 @@ export async function pollFeed() {
   if (!cfg.enabled) return { skipped: 'disabled' };
   await chrome.storage.local.set({ lastPollAt: Date.now() });
 
-  const items = await fetchFeed(cfg.feedUrl);
+  // Tabs mode: the forum page itself, in a background tab, gives the rows AND
+  // the reply counts and start dates in one go. Feeds mode: RSS, then the
+  // listing page, as before.
+  let items, preListing = null;
+  if (cfg.readMode === 'feeds') items = await fetchFeed(cfg.feedUrl);
+  else {
+    if (await walled()) return { skipped: 'backoff' };
+    let page;
+    try { page = await readListingTab(forumUrlFromFeed(cfg.feedUrl)); }
+    catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); throw e; }
+    if (!page.loggedIn) await logOnce('bhwLogin', 'BlackHatWorld shows you as logged OUT in this Chrome profile - open blackhatworld.com and sign in, or threads cannot be read or posted', 'error');
+    else await clearLogOnce('bhwLogin');
+    items = page.rows.filter((r) => !r.sticky).map((r) => ({
+      threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+      postedAt: r.startedAt || r.lastActivityAt || new Date().toISOString(), lastActivityAt: r.lastActivityAt,
+      postedAtSource: r.startedAt ? 'listing' : 'feed', replyCount: r.replyCount
+    }));
+    preListing = Object.fromEntries(page.rows.map((r) => [r.threadId, { replyCount: r.replyCount, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, sticky: r.sticky }]));
+  }
   const seen = await getSeen();
   const fresh = items.filter((i) => !seen[i.threadId]);
 
@@ -1740,7 +1917,7 @@ export async function pollFeed() {
   if (await isFirstRun()) {
     const cutoff = Date.now() - (cfg.backfillHours || 0) * 3600000;
     const recent = items.filter((i) => new Date(i.postedAt).getTime() >= cutoff);
-    const listing = recent.length ? await fetchListing(forumUrlFromFeed(cfg.feedUrl)) : {};
+    const listing = preListing || (recent.length ? await fetchListing(forumUrlFromFeed(cfg.feedUrl)) : {});
     const backfill = recent
       .map((raw) => withListing(raw, listing[raw.threadId]))
       .filter((item) => !isExcludedThread(item, cfg))
@@ -1759,7 +1936,7 @@ export async function pollFeed() {
   }
   // Reply counts move fast on a job board — refresh them for everything we
   // already know about on every poll, not just for new threads.
-  const listing = await fetchListing(forumUrlFromFeed(cfg.feedUrl));
+  const listing = preListing || await fetchListing(forumUrlFromFeed(cfg.feedUrl));
   await updateReplyCounts(Object.fromEntries(
     Object.entries(listing).map(([id, v]) => [id, v.replyCount]).filter(([, c]) => c != null)));
 

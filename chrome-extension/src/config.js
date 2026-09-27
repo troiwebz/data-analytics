@@ -93,8 +93,21 @@ export const DEFAULT_CONFIG = {
   siteWideEnabled: true,
   siteFeedUrl: 'https://www.blackhatworld.com/forums/-/index.rss',
   threadMaxAgeHours: 48,       // "next" and "haf" on Telegram look back this far
+  // Pacing. BHW answers a burst of requests with HTTP 429 and then refuses
+  // every feed for a while, so the forums are polled a few per check, in
+  // turn, with a pause between fetches. The site-wide feed goes every check.
+  sourcesPerPoll: 4,           // feeds mode only: forums read per check
+  secondsBetweenSourceFetches: 2,
+  // How BHW is read. 'tabs' opens a real background tab per page - the What's
+  // new page for every forum at once, the thread pages one at a time with a
+  // human gap - exactly what a member's browser does. 'feeds' is the old way
+  // (RSS + fetch), faster and the thing Cloudflare rate-limits.
+  readMode: 'tabs',
+  threadReadGapSeconds: 8,     // tabs mode: average gap between two thread reads
+  whatsNewPages: 1,            // tabs mode: pages of What's new per check (1 is plenty at 5 min)
+  pmCheckMinutes: 15,          // how often your BHW message list is read
   indexDays: 7,                // how long the search index remembers a thread
-  pollMinutes: 3,              // how often to check the forum
+  pollMinutes: 5,              // how often to check the forum (tabs mode: one What's-new page per check)
   jitterSeconds: 40,           // random delay added to each poll so it's not clockwork
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
   backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
@@ -201,7 +214,7 @@ export const DEFAULT_CONFIG = {
   // full, and the replies already on it from the other freelancers bidding.
   // Signed in, one thread at a time, at a human pace.
   readThreads: true,           // off = go on the title and feed description alone
-  maxThreadReads: 15,           // per poll; 0 = no limit
+  maxThreadReads: 3,           // per check; the rest are read when you ask for Material           // per poll; 0 = no limit
   secondsBetweenThreadReads: 2,
 
   // ---- Matching -------------------------------------------------------

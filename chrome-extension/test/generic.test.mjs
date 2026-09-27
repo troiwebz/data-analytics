@@ -4,6 +4,8 @@
 // same day" with nothing about their actual thread, and nothing anywhere
 // said this draft was the built-in fallback rather than a real answer.
 const store = {};
+// These prove the RSS path; the default reader is real tabs (see browse.js).
+store.config = { readMode: 'feeds' };
 globalThis.chrome = {
   runtime: {
     onInstalled: { addListener: () => {} }, onStartup: { addListener: () => {} },

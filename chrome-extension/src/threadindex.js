@@ -34,7 +34,7 @@ export async function upsertIndex(items, sourceKey, { days = 7 } = {}) {
     if (!prev) {
       index[id] = {
         threadId: id, url: it.url, title: it.title || '', author: it.author || '',
-        snippet: String(it.snippet || '').slice(0, 300), source: sourceKey,
+        snippet: String(it.snippet || '').slice(0, 300), source: it.source || sourceKey,
         forum: it.forum || '', forumNode: it.forumNode || '',
         startedAt: it.startedAt || null, lastActivityAt: activity,
         firstSeenAt: new Date(now).toISOString(), bumpedAt: null, bumps: 0
