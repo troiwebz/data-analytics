@@ -60,6 +60,7 @@ ppc"></textarea>
       <div><label>Gap between thread reads (seconds)</label><input type="number" id="threadReadGapSeconds" min="2"></div>
       <div><label>Message list check every (min)</label><input type="number" id="pmCheckMinutes" min="1"></div>
     </div>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="pushBacklog"> Push the swept backlog to Telegram too <span class="hint">off = those wait for "next"; new and bumped threads always come as cards</span></label>
     <label class="sw" style="margin-top:10px"><input type="checkbox" id="sleepEnabled"> Sleep: no reads at night <span class="hint">a member is not on the forum at 3am; Telegram taps still post</span></label>
     <div class="row">
       <div><label>Sleep from</label><input type="time" id="sleepStart"></div>

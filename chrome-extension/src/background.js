@@ -1382,7 +1382,7 @@ async function queueRecent(cfg, rows, srcOf, { me = '', loud = () => false } = {
     });
     if (isMine) { l.status = 'POSTED'; l.postUrl = r.url; l.decidedAt = new Date().toISOString(); mine++; }
     l.card = buildThreadCard(l);
-    if (!wantLoud || isMine) l.tgSentAt = BASELINE;          // quiet: queue only
+    if (isMine || (!wantLoud && !cfg.pushBacklog)) l.tgSentAt = BASELINE;   // quiet: queue only
     else loudN++;
     fresh.push(l);
   }
@@ -1746,6 +1746,7 @@ const HELP = [
   '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> · <b>unwatch …</b> · <b>watching</b>',
   '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
   '<b>load Google Ads 2</b> - put that forum\'s last 2 days of threads into the queue for <b>next</b>',
+  '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
   '<b>stats</b> - the dashboard numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
   '',
   'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
@@ -1761,6 +1762,16 @@ async function takeHuntCommand(ev, cfg) {
     return true;
   }
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
+  if ((m = body.match(/^\/?push\b\s*(on|off)?\s*$/i))) {
+    if (m[1]) {
+      const on = m[1].toLowerCase() === 'on';
+      await setConfig({ pushBacklog: on });
+      await telegram.say(cfg.telegramChatId, on
+        ? '📨 Push is ON - every thread the sweeps find from the last 48h comes here as a card too, six per check. "push off" to go back to pull.'
+        : '📭 Push is OFF - sweeps fill the queue quietly; new and bumped threads still come as cards. Send "next 5" to pull.');
+    } else await telegram.say(cfg.telegramChatId, `📨 Push is ${cfg.pushBacklog ? 'ON' : 'OFF'}. Send "push on" or "push off".`);
+    return true;
+  }
   if ((m = body.match(/^\/?log\b\s*(\d+)?/i))) { await sendLog(cfg, m[1] ? Number(m[1]) : 15); return true; }
   if (/^\/?watching\b/i.test(body)) { await sendWatching(cfg); return true; }
   if ((m = body.match(/^\/?watch\s+(.+)/i))) { await telegram.say(cfg.telegramChatId, await watchCmd(cfg, m[1])); return true; }

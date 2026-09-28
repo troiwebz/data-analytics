@@ -103,6 +103,10 @@ export const DEFAULT_CONFIG = {
   // human gap - exactly what a member's browser does. 'feeds' is the old way
   // (RSS + fetch), faster and the thing Cloudflare rate-limits.
   readMode: 'tabs',
+  // Push the backlog too? Off: threads found on a first look or a forum-page
+  // sweep wait quietly for "next". On: they go to Telegram as cards as well,
+  // six per check, so a busy day trickles in over an hour. "push on" / "push off".
+  pushBacklog: false,
   // A member sleeps. No reads at all in this window (your timezone); Telegram
   // taps still work, so a post you approve at 3am still goes up.
   sleepEnabled: false,         // off: you work at night; turn it on in Settings if you want a quiet window
