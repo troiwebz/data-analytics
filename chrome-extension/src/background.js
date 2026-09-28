@@ -41,7 +41,7 @@ import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEn
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
-  getStaged, setStaged, removeStagedByTab, dedupeLeads, getTrafficSamples, addTrafficSample
+  getStaged, setStaged, removeStagedByTab, dedupeLeads, getTrafficSamples, addTrafficSample, getLog
 } from './store.js';
 
 const FEED_ALARM = 'poll-feed';
