@@ -1417,10 +1417,31 @@ async function wall(why) {
   await log(`${why} - pausing every BHW read for 30 minutes, then trying again quietly`, 'error');
 }
 
+const SWEEP_KEY = 'sourcesSweep';
+const FULL_SWEEP_EVERY_MS = 20 * 60000;
+
 export async function pollSources({ all = false } = {}) {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
   if (cfg.readMode === 'feeds') return pollSourcesFeeds(cfg);
+
+  // One reader at a time, and a full sweep at most every twenty minutes. A
+  // button press landing on top of the automatic check read every forum
+  // twice in three minutes - the burst that gets an IP rate-limited.
+  const { [SWEEP_KEY]: sw = {} } = await chrome.storage.local.get(SWEEP_KEY);
+  const now = Date.now();
+  if (sw.running && now - sw.running < 5 * 60000) return { skipped: 'busy', since: sw.running };
+  if (all && sw.fullAt && now - sw.fullAt < FULL_SWEEP_EVERY_MS) return { skipped: 'cooldown', until: sw.fullAt + FULL_SWEEP_EVERY_MS };
+  if (!all && sw.fullAt && now - sw.fullAt < 3 * 60000) return { skipped: 'just swept' };
+  await chrome.storage.local.set({ [SWEEP_KEY]: { ...sw, running: now } });
+  try { return await pollSourcesOnce(cfg, all); }
+  finally {
+    const { [SWEEP_KEY]: cur = {} } = await chrome.storage.local.get(SWEEP_KEY);
+    await chrome.storage.local.set({ [SWEEP_KEY]: { ...cur, running: 0, ...(all ? { fullAt: Date.now() } : {}) } });
+  }
+}
+
+async function pollSourcesOnce(cfg, all) {
   const r = await pollWhatsNew(cfg);
   // Automatic: one forum page per check, in turn. By hand: every forum, one
   // after another with a human gap - you pressed the button, you want it all.

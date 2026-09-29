@@ -682,6 +682,12 @@ async function explainSkip(r, again) {
     }
     return;
   }
+  if (r?.skipped === 'busy') return alert('A check is already running. Give it a couple of minutes - reading the same pages twice is what gets the IP rate-limited.');
+  if (r?.skipped === 'cooldown') {
+    const at = new Date(r.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return alert(`Every forum was read a few minutes ago. A full read is allowed again at ${at} - the automatic checks carry on in between, one forum at a time.`);
+  }
+  if (r?.skipped === 'just swept') return;
   if (r?.skipped === 'asleep') return alert(`Asleep until ${r.until} - the sleep window is on under Settings → More sources.`);
   if (r?.skipped === 'disabled') return alert('The watcher is switched off. Turn on "Watcher enabled" in Settings and save.');
   if (r?.skipped) alert(`Nothing was read: ${r.skipped}.`);
