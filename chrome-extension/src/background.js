@@ -2586,7 +2586,7 @@ export async function pollTaps() {
     // replies. Same rule everywhere else in the extension: a PM is never
     // sent without a tap, whatever this is set to.
     {
-      const am = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?auto\b\s*(on|off)?\s*$/i);
+      const am = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:turn\s+|switch\s+)?auto[\s-]*(?:mode|pilot)?\s*(on|off)?[.!]?\s*$/i);
       if (am) {
         if (am[1]) {
           const on = am[1].toLowerCase() === 'on';
