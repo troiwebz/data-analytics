@@ -1094,6 +1094,31 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   l = (await getLeads()).find((x) => x.threadId === 'a6');
   ok('"auto off" stops a countdown in progress', !l.autoSendAt && /switched off/.test(l.autoSendBlocked || ''), JSON.stringify({ at: l.autoSendAt, why: l.autoSendBlocked }));
 
+  // "auto test": one thread, auto mode itself stays off.
+  await setConfig({ autoMode: false });
+  dmResult = { ok: true, sent: true };
+  globalThis.__acting = 't1';
+  store.recentLeads = [ready('t1', { autoSendAt: Date.now() - 1000, autoTest: true, foundAt: '2020-01-01T00:00:00Z' }),
+                       ready('t2', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 't1');
+  ok('the test thread sends its PM with auto mode off', l.pmSent === true, JSON.stringify({ pmSent: l.pmSent, why: l.autoSendBlocked }));
+  ok('and being old is not held against it', !/before auto mode/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+  ok('and its public reply is not posted', l.status !== 'POSTED', l.status);
+  ok('and nothing else is touched', !(await getLeads()).find((x) => x.threadId === 't2').pmSent);
+
+  // With no Claude, the test sends nothing and says why.
+  store.recentLeads = [ready('t3', { aiSpecifics: null, body: 'The buyer wrote this.' })];
+  tgCalls = [];
+  updates = [{ update_id: 9950, message: { message_id: 9950, text: 'auto test', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 't3');
+  const said = JSON.stringify(tgCalls);
+  ok('"auto test" names the one thread it took', /ONE thread only/.test(said) && /thread t3/.test(said), said.slice(0, 300));
+  ok('without Claude nothing is armed', !l.autoSendAt && !l.pmSent, JSON.stringify({ at: l.autoSendAt, pm: l.pmSent }));
+  ok('and it says the screen is why', /NOT sent/.test(said) && /did not screen/.test(said), said.slice(0, 400));
+  ok('and auto mode was not switched on by the test', (await (await import('../src/config.js')).getConfig()).autoMode === false);
+
   await setConfig({ autoMode: false, maxPostsPerDay: 10 });
 }
 

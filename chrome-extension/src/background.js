@@ -1786,6 +1786,7 @@ const HELP = [
   '<b>Auto mode</b> (private message only, never a public post)',
   '<b>auto on</b> - switch it on · <b>auto off</b> - switch it off and stop any countdown',
   '<b>auto</b> - auto mode in numbers: sent, counting down, held, left for you and why',
+  '<b>auto test</b> - try it on the newest HAF thread ONLY: Claude screens it, the PM counts down, nothing else is touched',
   '',
   '<b>Working the queue</b>',
   '<b>next</b> / <b>next 5</b> - the next unanswered thread(s) · <b>next reset</b> - start over',
@@ -2586,6 +2587,11 @@ export async function pollTaps() {
     // replies. Same rule everywhere else in the extension: a PM is never
     // sent without a tap, whatever this is set to.
     {
+      if (ev.kind === 'reply' && /^\/?(?:auto[\s-]*(?:mode)?\s*test|test\s+auto(?:[\s-]*mode)?)[.!]?\s*$/i.test(String(ev.body || '').trim())) {
+        await autoTest(cfg).catch(async (e) => { await telegram.say(cfg.telegramChatId, `❌ Auto test stopped: ${e.message}. Nothing was sent.`); });
+        done++;
+        continue;
+      }
       const am = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:turn\s+|switch\s+)?auto[\s-]*(?:mode|pilot)?\s*(on|off)?[.!]?\s*$/i);
       if (am) {
         if (am[1]) {
@@ -3187,6 +3193,73 @@ function claudeLines(ai, genericToday = 0) {
 }
 
 /**
+ * "auto test": the whole auto path, on one thread you can watch.
+ *
+ * Takes the newest Hire a Freelancer thread that has no PM yet, reads it, has
+ * Claude screen it and write the lines, and - only if every rule passes - arms
+ * that one PM with the usual countdown and Hold button. Auto mode itself is
+ * not switched on, so no other thread is touched, and nothing public is posted.
+ */
+export async function autoTest(cfg) {
+  const say = (t) => telegram.say(cfg.telegramChatId, t);
+  const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
+  const lead = (await getLeads())
+    .filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample' && !l.pmSent
+                && !['SKIPPED', 'EXPIRED', 'FAILED'].includes(l.status))
+    .sort((a, b) => at(b) - at(a))[0];
+  if (!lead) { await say('🧪 Auto test: there is no Hire a Freelancer thread without a PM in the table. Press "Check for new threads" first.'); return { none: true }; }
+
+  await say(`🧪 Auto test - ONE thread only, the newest on Hire a Freelancer:\n"${lead.title}" by ${lead.author}\n${lead.url}\n\n`
+    + 'Reading it and asking Claude to screen it…'
+    + (cfg.autoMode ? '\n\nNote: auto mode is ON, so new threads are also being handled. Send "auto off" first if you want this to be the only one.' : ''));
+
+  let l = lead;
+  if (!String(l.body || '').trim()) {
+    const got = cfg.readMode === 'feeds' ? await fetchThread(l.url)
+      : await readThreadTab(l.url).catch(async (e) => { await wall(e.message); return { body: '', replies: [] }; });
+    if (got.body) { l = { ...l, body: got.body, replies: got.replies || [] }; await updateLead(l.threadId, { body: l.body, replies: l.replies }); }
+  }
+
+  const { specifics, note } = await specificsFor([l], { ...cfg, aiSpecifics: true }, { force: true });
+  const got = specifics[String(l.threadId)];
+  if (!got) {
+    const why = `Claude did not screen this thread${note ? ` (${note})` : ''}`;
+    await updateLead(l.threadId, { autoSendAt: 0, autoSendBlocked: why, draftedByNote: note || '' });
+    await say(`⏭ Auto test: NOT sent.\nReason: ${why}.\n\nThat is the rule working - no Claude screen, no PM. Fix: Settings → Anthropic API key → Save key → Test Claude now, then send "auto test" again.`);
+    return { blocked: why };
+  }
+
+  // Claude's lines go into the PM and the reply exactly as a new find would have them.
+  const fresh = enrich({ ...l }, cfg, l.status || 'SENT', got, '');
+  const patch = {
+    aiSpecifics: got, aiFrom: sourceOf(l), draft: fresh.draft, dm: fresh.dm, dmTitle: fresh.dmTitle,
+    lint: fresh.lint, dmLint: fresh.dmLint, draftedBy: 'claude', draftedByNote: '',
+    dmApproved: plain(fresh.dm || ''), draftApproved: plain(fresh.draft || ''),
+    autoTest: true, autoSendHeld: false, autoSendBlocked: ''
+  };
+  const candidate = { ...l, ...patch };
+  const verdict = `Claude's screen: ${got.pm || 'no verdict'}${got.why ? ` - ${got.why}` : ''}`;
+  const why = auto.blockedReason(candidate, cfg);
+  if (why) {
+    await updateLead(l.threadId, { ...patch, autoTest: false, autoSendAt: 0, autoSendBlocked: why });
+    await say(`⏭ Auto test: NOT sent.\n${verdict}\nReason: ${why}.\n\nThe thread is on its card as usual if you want to send the PM yourself.`);
+    return { blocked: why };
+  }
+
+  patch.autoSendAt = auto.postAt(cfg);
+  const shown = { ...candidate, autoSendAt: patch.autoSendAt };
+  shown.card = buildCard(shown);
+  await updateLead(l.threadId, { ...patch, card: shown.card });
+  const r = await telegram.sendLead(shown, { ...cfg, telegramEnabled: true, telegramSend: 'pm' }).catch((e) => ({ error: e.message }));
+  if (r?.ids && Object.keys(r.ids).length) await stampCards(l.threadId, r.ids, { tgSentAt: lead.tgSentAt || new Date().toISOString() });
+  const mins = Math.max(1, Math.round((patch.autoSendAt - Date.now()) / 60000));
+  await say(`✅ ${verdict}\n\nThe PM on the card above sends itself in about ${mins} min. Tap ✋ Hold on that card to stop it.\n`
+    + 'Only this one thread is armed. No public reply will be posted. When it goes you will get "Auto-sent the PM to…".');
+  await log(`auto test: armed the PM for "${l.title}" - ${verdict}`);
+  return { armed: l.threadId, at: patch.autoSendAt };
+}
+
+/**
  * Auto mode, in numbers: what it sent by itself today, what is counting
  * down, what it left for you and why. "auto" on its own, from the phone.
  */
@@ -3230,10 +3303,10 @@ export async function autoReport(cfg) {
 
 export async function runAutoQueue() {
   const cfg = await getConfig();
-  if (!cfg.autoMode) return { skipped: 'off' };
-
   const leads = await getLeads();
-  const due = auto.dueNow(leads);
+  // Auto mode off still honours the ONE thread you armed with "auto test".
+  const due = auto.dueNow(leads).filter((l) => cfg.autoMode || l.autoTest);
+  if (!cfg.autoMode && !due.length) return { skipped: 'off' };
   if (!due.length) return { due: 0 };
 
   let done = 0;
@@ -3265,8 +3338,8 @@ export async function runAutoQueue() {
     const r = await sendDm(lead, cfg, { mode: 'send' });
     const sent = !!(r?.ok && r?.sent);
     await updateLead(lead.threadId, sent
-      ? { autoSendAt: 0, autoSentAt: new Date().toISOString(), autoSendBlocked: '' }
-      : { autoSendAt: 0, autoSendBlocked: `sending failed: ${r?.error || 'unknown'}` });
+      ? { autoSendAt: 0, autoSentAt: new Date().toISOString(), autoSendBlocked: '', autoTest: false }
+      : { autoSendAt: 0, autoSendBlocked: `sending failed: ${r?.error || 'unknown'}`, autoTest: false });
     await log(`auto mode: ${sent ? 'sent the PM for' : 'failed to send the PM for'} "${lead.title}"${sent ? '' : ` - ${r?.error}`}`);
     if (sent) {
       done++;

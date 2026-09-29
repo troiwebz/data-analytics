@@ -30,7 +30,8 @@ export function blockedReason(lead, cfg) {
   if (['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL'].includes(lead.status)) return `already ${String(lead.status).toLowerCase()}`;
   if (!has(lead.author)) return 'no author to message';
   if (!has(lead.dmApproved || lead.dm)) return 'no PM drafted';
-  if (cfg?.autoModeSince && lead.foundAt && new Date(lead.foundAt).getTime() < new Date(cfg.autoModeSince).getTime()) {
+  // "auto test" names one existing thread on purpose, so its age is not a reason.
+  if (!lead.autoTest && cfg?.autoModeSince && lead.foundAt && new Date(lead.foundAt).getTime() < new Date(cfg.autoModeSince).getTime()) {
     return 'found before auto mode was switched on';
   }
   if (!has(lead.body)) return 'the post itself was never read, so there is nothing for Claude to have screened';
