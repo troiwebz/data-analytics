@@ -5,6 +5,7 @@ import { getConfig } from '../config.js';
 import { stamp, partsIn, todayKey } from '../timefmt.js';
 import { renderDm, partsFor, offerOf, plain } from '../templates.js';
 import { readRivals } from '../rivals.js';
+import { blockedReason as autoBlocked } from '../auto.js';
 import { getLeads, getLog, getRateState, getStaged } from '../store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -155,7 +156,9 @@ async function renderInner() {
   tz = cfg;                                  // every when() below uses this zone
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
-  $('state').textContent = cfg.enabled ? `Watching the forum` : 'Not watching · turn it on in Settings';
+  $('state').textContent = cfg.enabled
+    ? `Watching the forum · ⚡ auto mode ${cfg.autoMode ? 'ON (private message only)' : 'off'}`
+    : 'Not watching · turn it on in Settings';
   // Two separate caps, so show two. A reply posted and a PM sent are different
   // things, and counting them together is what made the number look wrong.
   $('rate').innerHTML =
@@ -320,6 +323,28 @@ function row(l, staged, cfg) {
          (openRow === String(l.threadId) ? (l.kind === 'thread' ? detailThread(l, cfg) : detail(l, staged, cfg)) : '');
 }
 
+/**
+ * What auto mode makes of this thread, said plainly: sending at a time, sent,
+ * held, or left for you and exactly why. Worked out live from the same rule
+ * the sender uses, so it is true even for a thread that was never armed.
+ */
+function autoLine(l, cfg) {
+  if (l.kind === 'thread') return '';
+  const box = (colour, text) => `<div class="sub" style="margin-bottom:8px;color:${colour}">⚡ ${text}</div>`;
+  if (l.autoSentAt) return box('#16a34a', `Auto mode sent this PM by itself at ${esc(when(l.autoSentAt))}.`);
+  if (l.pmSent) return '';
+  if (l.autoSendAt && !l.autoSendHeld) {
+    const secs = Math.max(0, Math.round((l.autoSendAt - Date.now()) / 1000));
+    return box('#2563eb', `Auto mode: this PM sends itself in ${secs < 60 ? `${secs}s` : `${Math.round(secs / 60)} min`}${l.autoTest ? ' (auto test)' : ''} - tap Hold on its Telegram card to stop it.`);
+  }
+  if (l.autoSendHeld) return box('#b45309', 'Auto mode: you held this one. It waits for your tap.');
+  let why = l.autoSendBlocked || '';
+  if (!why) { try { why = autoBlocked(l, cfg) || ''; } catch { why = ''; } }
+  if (!cfg.autoMode) return why ? box('#64748b', `Auto mode is off. If it were on, this PM would wait for you: ${esc(why)}.`) : box('#64748b', 'Auto mode is off.');
+  return why ? box('#b45309', `Auto mode left this PM for you: <b>${esc(why)}</b>.`)
+             : box('#64748b', 'Auto mode: this thread passes every rule but was never armed (it was found before the last check armed new threads). Send "auto test" to run it on the newest thread.');
+}
+
 function detail(l, staged, cfg) {
   const id = esc(String(l.threadId));
   const done = ['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status);
@@ -360,6 +385,7 @@ function detail(l, staged, cfg) {
     ${post ? `<div class="snip">${esc(post)}</div>` : ''}
     ${said}
     ${who}
+    ${autoLine(l, cfg)}
     ${l.priorContact && !l.pmSent ? `<div class="sub" style="margin-bottom:8px;color:#b45309">You have messaged ${esc(l.author || 'them')} before (${esc(l.priorContact)}). Worth a look before pitching again.</div>` : ''}
     ${staged[l.threadId] ? '<div class="sub" style="margin-bottom:8px">⚡ armed in a background tab — Post now fires instantly</div>' : ''}
     <div class="cols">
