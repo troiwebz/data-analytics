@@ -1817,6 +1817,7 @@ const HELP = [
   '<b>Auto mode</b> (private message only, never a public post)',
   '<b>auto on</b> - switch it on · <b>auto off</b> - switch it off and stop any countdown',
   '<b>auto</b> - auto mode in numbers: sent, counting down, held, left for you and why',
+  '<b>blocks</b> - the deal-breaker phrases auto mode refuses · <b>block payment after posting</b> · <b>unblock …</b>',
   '<b>auto test</b> - try it on the newest HAF thread ONLY: Claude screens it, the PM counts down, nothing else is touched',
   '',
   '<b>Working the queue</b>',
@@ -1852,6 +1853,31 @@ async function takeHuntCommand(ev, cfg) {
   if ((m = body.match(/^\/?next\b\s*(\d+|reset)?\s*$/i))) { await sendNext(cfg, m[1]); return true; }
   if ((m = body.match(/^\/?haf\b\s*(\d+)?\s*$/i))) {
     await sendPending(cfg, m[1] ? Number(m[1]) : (Number(cfg.threadMaxAgeHours) || 48), { only: 'haf' });
+    return true;
+  }
+  if (/^\/?(?:blocks|blocked|deal-?breakers?)\s*$/i.test(body)) {
+    const list = cfg.autoSkipPhrases || [];
+    await telegram.say(cfg.telegramChatId, `🚫 <b>Deal-breakers</b> - auto mode never messages a thread containing one (${list.length}):\n`
+      + list.map((p) => `• <code>${escHtml(p)}</code>`).join('\n').slice(0, 3300)
+      + `\n\nOnly my services: ${cfg.autoRequireMatch !== false ? 'yes' : 'no'} · Minimum budget: ${Number(cfg.autoMinBudget) > 0 ? '$' + cfg.autoMinBudget : 'none'}`
+      + '\n\n"block <phrase>" adds one, "unblock <phrase>" removes one.', { html: true });
+    return true;
+  }
+  if ((m = body.match(/^\/?block\s+(.+)/i))) {
+    const phrase = m[1].trim();
+    try { new RegExp(phrase, 'i'); } catch (e) { await telegram.say(cfg.telegramChatId, `❌ That will not work as a pattern: ${e.message}`); return true; }
+    const list = (cfg.autoSkipPhrases || []).filter((p) => String(p).toLowerCase() !== phrase.toLowerCase());
+    list.push(phrase);
+    await setConfig({ autoSkipPhrases: list });
+    await telegram.say(cfg.telegramChatId, `🚫 Auto mode will not message any thread containing "${phrase}". It still reaches you as a card, for your own decision.`);
+    return true;
+  }
+  if ((m = body.match(/^\/?unblock\s+(.+)/i))) {
+    const phrase = m[1].trim().toLowerCase();
+    const list = (cfg.autoSkipPhrases || []).filter((p) => String(p).toLowerCase() !== phrase);
+    if (list.length === (cfg.autoSkipPhrases || []).length) { await telegram.say(cfg.telegramChatId, `❌ "${m[1].trim()}" is not on the list. Send "blocks" to see it.`); return true; }
+    await setConfig({ autoSkipPhrases: list });
+    await telegram.say(cfg.telegramChatId, `✅ Removed "${m[1].trim()}" from the deal-breakers.`);
     return true;
   }
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }

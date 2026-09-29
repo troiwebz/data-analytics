@@ -1028,7 +1028,7 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
 // --- auto mode: the private message sends itself, nothing public ever does ---
 {
   const ready = (id, over = {}) => ({
-    ...lead(id), score: 20, body: 'The buyer actually wrote this and it was read.',
+    ...lead(id), score: 20, category: 'ads', body: 'The buyer actually wrote this and it was read.',
     foundAt: new Date().toISOString(),
     aiSpecifics: { tips: ['We have done this'], pm: 'yes', why: 'asks to hire' },
     lint: { ok: true }, dmLint: { ok: true }, ...over

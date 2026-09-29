@@ -20,6 +20,28 @@
 // and proven with a plain array of objects.
 
 const has = (s) => !!String(s || '').trim();
+
+/**
+ * The first deal-breaker phrase found in the title or the post, as the words
+ * that matched - so the reason on the card is "payment after delivery", not a
+ * regex. A pattern that will not compile is skipped, never fatal.
+ */
+export function dealBreaker(lead, cfg) {
+  const text = `${lead?.title || ''}\n${lead?.body || lead?.snippet || ''}`;
+  for (const raw of cfg?.autoSkipPhrases || []) {
+    const src = String(raw || '').trim();
+    if (!src) continue;
+    let rx;
+    try { rx = new RegExp(src, 'i'); } catch { continue; }
+    const m = text.match(rx);
+    if (m && m[0].trim()) {
+      // A few words either side, so the reason reads as the buyer wrote it.
+      const i = Math.max(0, m.index - 12), j = Math.min(text.length, m.index + m[0].length + 24);
+      return text.slice(i, j).replace(/\s+/g, ' ').trim();
+    }
+  }
+  return '';
+}
 const screened = (lead) => !!(lead?.aiSpecifics?.tips?.length);
 
 /** May this lead's PM send itself, ignoring timing? Null means yes. */
@@ -33,6 +55,14 @@ export function blockedReason(lead, cfg) {
   // "auto test" names one existing thread on purpose, so its age is not a reason.
   if (!lead.autoTest && cfg?.autoModeSince && lead.foundAt && new Date(lead.foundAt).getTime() < new Date(cfg.autoModeSince).getTime()) {
     return 'found before auto mode was switched on';
+  }
+  // The cheap rules first: your kind of work, no deal-breaker, enough budget.
+  if (cfg?.autoRequireMatch !== false && !has(lead.category)) return 'it does not match any of your services';
+  const broke = dealBreaker(lead, cfg);
+  if (broke) return `deal-breaker in the post: "${broke}"`;
+  const minBudget = Number(cfg?.autoMinBudget) || 0;
+  if (minBudget > 0 && Number(lead.budgetAmount) > 0 && Number(lead.budgetAmount) < minBudget) {
+    return `the budget (${lead.budget || '$' + lead.budgetAmount}) is below your minimum of $${minBudget}`;
   }
   if (!has(lead.body)) return 'the post itself was never read, so there is nothing for Claude to have screened';
   // The Claude screen.

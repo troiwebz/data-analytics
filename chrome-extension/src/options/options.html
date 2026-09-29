@@ -314,7 +314,17 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
     </div>
     <div class="row" style="margin-top:10px">
       <div><label>Only at or above score</label><input type="number" id="autoModeMinScore" min="0"></div>
+      <div><label>Minimum stated budget ($) <span class="hint">0 = none</span></label><input type="number" id="autoMinBudget" min="0"></div>
     </div>
+    <h3 style="margin:16px 0 4px;font-size:14px">What auto mode will not message</h3>
+    <label class="sw"><input type="checkbox" id="autoRequireMatch"> Only threads that match one of my service categories</label>
+    <label style="margin-top:10px">Deal-breakers <span class="hint">one per line - a phrase in the title or the post that means "do not message". Plain words or regex, any capitalisation</span></label>
+    <textarea id="autoSkipPhrasesText" rows="8" placeholder="payment after delivery
+commission only
+free trial"></textarea>
+    <label style="margin-top:10px">My rules for Claude's screen <span class="hint">in your own words - Claude reads the whole post, so this catches what a phrase list cannot</span></label>
+    <textarea id="screenRules" rows="5"></textarea>
+    <p class="hint" style="margin-top:6px">A thread that fails any of these is left for you with the reason on its card and in <code>skipped</code>. From Telegram: <code>block payment after posting</code>, <code>unblock …</code>, <code>blocks</code>.</p>
   </div>
 
   <div class="c">

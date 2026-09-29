@@ -329,10 +329,15 @@ const SYSTEM = [
  * the cached system prefix rather than the per-thread message, so it is paid
  * for once per poll and read at a tenth of the price after that.
  */
-function systemFor(brief) {
+function systemFor(brief, rules) {
   const note = String(brief || '').trim().slice(0, 1200);
-  if (!note) return SYSTEM;
-  return SYSTEM + '\n\n'
+  const mine = String(rules || '').trim().slice(0, 1200);
+  // The operator's own screen rules outrank the general ones: they know which
+  // buyers waste their time, and a wrong "yes" here sends a real message.
+  const screen = mine ? '\n\nTHE OPERATOR\'S SCREEN RULES. Apply these to the "pm" verdict before anything else.\n'
+    + 'If any of them applies to a thread, that thread is "pm":"no", and "why" names the rule:\n' + mine : '';
+  if (!note) return SYSTEM + screen;
+  return SYSTEM + screen + '\n\n'
     + 'ABOUT THE WRITER. Their own words, and the most important thing you have:\n'
     + note + '\n'
     + 'Use it to decide what "we" can honestly claim, which of the five offers fits, and what to say\n'
@@ -375,7 +380,7 @@ export async function writeSpecifics(leads, cfg = {}) {
   const body = {
     model: ai.model,
     max_tokens: 170 * batch.length + 60,
-    system: [{ type: 'text', text: systemFor(cfg.brief), cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: systemFor(cfg.brief, cfg.screenRules), cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
   };

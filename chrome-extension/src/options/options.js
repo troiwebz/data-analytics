@@ -2,16 +2,16 @@ import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES } from '../claude.js';
 
-const PLAIN = ['readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
+const PLAIN = ['screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername', 'announceMaxAgeHours',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
-            'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays', 'sourcesPerPoll', 'secondsBetweenSourceFetches', 'threadReadGapSeconds', 'pmCheckMinutes'];
+            'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays', 'sourcesPerPoll', 'secondsBetweenSourceFetches', 'threadReadGapSeconds', 'pmCheckMinutes', 'autoMinBudget'];
 const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
-             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled', 'sleepEnabled', 'pushBacklog'];
+             'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled', 'sleepEnabled', 'pushBacklog', 'autoRequireMatch'];
 const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeAuthors',
               'templates', 'offers', 'dmTemplates', 'compliance', 'specifics',
               'serviceThreads', 'bumpTemplates'];
@@ -39,6 +39,7 @@ const wordsFromText = (text) => parseLines(text).map((parts) => {
 }).filter((w) => w.word);
 
 function fill(cfg) {
+  $('autoSkipPhrasesText').value = (cfg.autoSkipPhrases || []).join('\n');
   $('watchForumsText').value = forumsToText(cfg.watchForums);
   $('watchWordsText').value = wordsToText(cfg.watchWords);
   PLAIN.forEach((k) => ($(k).value = cfg[k] ?? ''));
@@ -57,6 +58,8 @@ async function save() {
   PLAIN.forEach((k) => (patch[k] = $(k).value.trim()));
   NUM.forEach((k) => (patch[k] = Number($(k).value)));
   BOOL.forEach((k) => (patch[k] = $(k).checked));
+  patch.autoSkipPhrases = $('autoSkipPhrasesText').value.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const p of patch.autoSkipPhrases) { try { new RegExp(p, 'i'); } catch (e) { return status(`deal-breaker "${p}": ${e.message}`, true); } }
   patch.watchForums = forumsFromText($('watchForumsText').value);
   patch.watchWords = wordsFromText($('watchWordsText').value);
   for (const k of JSONF) {

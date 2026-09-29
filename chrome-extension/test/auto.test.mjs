@@ -9,7 +9,7 @@ const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++;
 const since = new Date(Date.now() - 3600000).toISOString();
 const cfg = { autoMode: true, autoModeMinScore: 0, autoModeSince: since };
 
-const good = { threadId: '1', title: 't', author: 'buyer1', status: 'SENT', score: 5,
+const good = { threadId: '1', title: 'Need a Google Ads manager', author: 'buyer1', status: 'SENT', score: 5, category: 'ads',
                dm: 'Hi buyer,\n\nlines\n\nThanks', draft: 'A public reply.',
                foundAt: new Date().toISOString(),
                body: 'The buyer wrote this, and it was actually read.',
@@ -51,6 +51,40 @@ ok('a possible duplicate waits for you', /duplicate/.test(why({ pmMaybe: 'same s
 ok('below the score bar it waits for you', /below your auto-mode bar/.test(why({ score: 1 }, { ...cfg, autoModeMinScore: 4 }) || ''));
 for (const status of ['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL']) {
   ok(`a lead already ${status.toLowerCase()} is not messaged`, !!why({ status }));
+}
+
+// --- what auto mode will not message ---------------------------------------
+{
+  const { DEFAULT_CONFIG } = await import('../src/config.js');
+  const full = { ...cfg, autoSkipPhrases: DEFAULT_CONFIG.autoSkipPhrases, autoRequireMatch: true };
+  const post = (body, title) => why({ body, ...(title ? { title } : {}) }, full);
+  ok('a thread matching none of your services waits for you', /does not match any of your services/.test(why({ category: '' }, full) || ''), why({ category: '' }, full));
+  ok('unless you switch that rule off', why({ category: '' }, { ...full, autoRequireMatch: false }) === null);
+  for (const [text, label] of [
+    ['I will make the payment after posting is live.', 'payment after posting'],
+    ['Payment only after delivery of the work.', 'payment after delivery'],
+    ['You get paid once the campaign is approved.', 'paid once'],
+    ['We pay on results, nothing upfront.', 'pay on results'],
+    ['No upfront payment, sorry.', 'no upfront'],
+    ['This is commission only for now.', 'commission only'],
+    ['We can offer revenue share.', 'revenue share'],
+    ['Please do a free trial first.', 'free trial'],
+    ['Looking for a full-time employee.', 'full-time'],
+    ['Monthly salary 300 usd.', 'salary'],
+    ['Budget is 5000 INR.', 'INR'],
+    ['Must be from India.', 'India']
+  ]) {
+    const r = post(`We need Google Ads help. ${text}`);
+    ok(`"${label}" is a deal-breaker`, /deal-breaker/.test(r || ''), String(r));
+  }
+  ok('and the reason quotes the buyer', /payment after posting/i.test(post('I will make the payment after posting is live.') || ''), post('I will make the payment after posting is live.'));
+  ok('a deal-breaker in the title counts too', /deal-breaker/.test(post('Need ads help.', 'Google Ads manager - commission only') || ''));
+  ok('an honest paying buyer passes', post('We need a Google Ads manager for our casino brand. Budget $1500 a month, paid upfront by crypto.') === null,
+     String(post('We need a Google Ads manager for our casino brand. Budget $1500 a month, paid upfront by crypto.')));
+  ok('"Indiana" is not India', post('Local business in Indianapolis needs Google Ads. Budget $800.') === null, String(post('Local business in Indianapolis needs Google Ads. Budget $800.')));
+  ok('a broken pattern is skipped, not fatal', why({}, { ...cfg, autoSkipPhrases: ['(unclosed', 'commission'] }) === null);
+  ok('a budget under your minimum waits for you', /below your minimum/.test(why({ budget: '$20', budgetAmount: 20 }, { ...full, autoMinBudget: 100 }) || ''));
+  ok('no stated budget is not held against it', why({ budgetAmount: 0 }, { ...full, autoMinBudget: 100 }) === null);
 }
 
 // --- the countdown ------------------------------------------------------
