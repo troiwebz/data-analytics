@@ -484,6 +484,22 @@ export async function withThreads(leads, cfg) {
   return leads.map((l) => (got[l.threadId] ? { ...l, ...got[l.threadId] } : l));
 }
 
+/**
+ * Claude not answering is invisible from the phone: the draft still arrives,
+ * it is just the generic one, and auto mode quietly sends nothing. So it is
+ * said, once an hour at most, with the reason Anthropic gave.
+ */
+async function claudeNotice(cfg, n, note) {
+  if (!cfg.telegramChatId) return;
+  const { claudeNoticeAt = 0, claudeNoticeWhy = '' } = await chrome.storage.local.get(['claudeNoticeAt', 'claudeNoticeWhy']);
+  if (claudeNoticeWhy === note && Date.now() - claudeNoticeAt < 3600000) return;
+  await chrome.storage.local.set({ claudeNoticeAt: Date.now(), claudeNoticeWhy: note });
+  await telegram.say(cfg.telegramChatId,
+    `🤖 Claude did not write the lines for ${n} thread(s).\nReason: ${note}\n\n`
+    + 'Those drafts are the generic built-in ones, and auto mode will not send them. '
+    + 'Send "test claude" to check the key, or "credits" for the money side.');
+}
+
 export async function specificsFor(leads, cfg, { force = false } = {}) {
   if (!cfg.aiSpecifics || !leads.length) return { specifics: {}, note: '' };
 
@@ -515,7 +531,10 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
     const why = wanted.slice(0, 3).map((x) => x.why).join('; ');
     await log(`Claude wrote specifics for ${n}/${wanted.length} lead(s) (${why})`
       + (skipped ? `; ${skipped} skipped, nothing new to say` : ''));
-  } else if (note) await log(`Claude stood down (${note}); using built-in rules`);
+  } else if (note) {
+    await log(`Claude stood down (${note}); using built-in rules`);
+    await claudeNotice(cfg, wanted.length, note).catch(() => {});
+  }
   return { specifics, note };
 }
 
@@ -909,6 +928,7 @@ export async function statusReport(cfg) {
     await checkLine(cfg),
     '',
     '<b>⚙️ System</b>',
+    `Telegram shows: ${cfg.telegramOtherSources ? 'Hire a Freelancer + other forums' : 'Hire a Freelancer only (other forums muted - "others on")'}`,
     `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
     `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
       + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
@@ -973,6 +993,7 @@ export async function sendPending(cfg, hours = 24, { only = '' } = {}) {
   const unstruck = leads
     .filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.pmSent
                  && (!only || (only === 'haf' ? l.kind !== 'thread' : l.kind === 'thread'))
+                 && (only || cfg.telegramOtherSources || l.kind !== 'thread')
                  && String(l.threadId) !== 'sample'
                  && (!cutoff || ageOf(l) >= cutoff))
     .sort((a, b) => ageOf(b) - ageOf(a));
@@ -1293,7 +1314,8 @@ export async function announceNew(cfg) {
   // re-derived here from status/age/tgSentAt separately, which is what let
   // three near-identical copies of this rule drift out of sync with each
   // other over the last dozen releases.
-  const all = await getLeads();
+  // Other sources reach the phone only if you asked for them to.
+  const all = (await getLeads()).filter((l) => cfg.telegramOtherSources || l.kind !== 'thread');
   const { send: waiting, stale } = selectQueue(all, cfg);
 
   // Too old to announce is a decision, not a maybe - stamp them so they are
@@ -1604,8 +1626,10 @@ async function pollWhatsNew(cfg) {
   out.leads = kept.filter((l) => !l.bump).length;
   out.bumps = kept.filter((l) => l.bump).length;
   await log(`What's new: ${out.leads} new thread(s), ${out.bumps} bump(s) from ${rows.length} row(s)`);
-  await playSound(cfg, cfg.sound);
-  await notify(`${kept.length} thread(s) to answer · ${kept[0].sourceLabel}`, kept[0].title);
+  if (cfg.telegramOtherSources) {
+    await playSound(cfg, cfg.sound);
+    await notify(`${kept.length} thread(s) to answer · ${kept[0].sourceLabel}`, kept[0].title);
+  }
   return out;
 }
 
@@ -1812,6 +1836,7 @@ const HELP = [
   '<b>skipped</b> - what was passed over today, by whom and why',
   '<b>today</b> - today\'s posts and PMs · <b>digest</b> / <b>digest 14</b> - per day, last N days',
   '<b>stats</b> - the other-forums numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines',
+  '<b>test claude</b> - one real question to Claude, and the reason if it fails',
   '<b>credits</b> - Claude spend today, daily limit, credits left · <b>credits 20</b> - tell it you topped up $20',
   '',
   '<b>Auto mode</b> (private message only, never a public post)',
@@ -1824,6 +1849,7 @@ const HELP = [
   '<b>next</b> / <b>next 5</b> - the next unanswered thread(s) · <b>next reset</b> - start over',
   '<b>haf</b> / <b>haf 24</b> - Hire a Freelancer threads with no DM and no reply yet',
   '<b>pending</b> / <b>pending 48</b> - everything not yet dealt with, as cards',
+  '<b>others off</b> / <b>others on</b> - mute or unmute the other forums on Telegram (off = Hire a Freelancer only)',
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
   '',
   '<b>Search</b>',
@@ -1853,6 +1879,29 @@ async function takeHuntCommand(ev, cfg) {
   if ((m = body.match(/^\/?next\b\s*(\d+|reset)?\s*$/i))) { await sendNext(cfg, m[1]); return true; }
   if ((m = body.match(/^\/?haf\b\s*(\d+)?\s*$/i))) {
     await sendPending(cfg, m[1] ? Number(m[1]) : (Number(cfg.threadMaxAgeHours) || 48), { only: 'haf' });
+    return true;
+  }
+  if ((m = body.match(/^\/?(?:others?|other\s+(?:sources?|forums?|threads?|posts?)|forums?)\s*(on|off)?[.!]?\s*$/i))) {
+    if (m[1]) {
+      const on = m[1].toLowerCase() === 'on';
+      await setConfig({ telegramOtherSources: on });
+      await telegram.say(cfg.telegramChatId, on
+        ? '📣 Other sources are ON - threads from the watched forums and your watch words come here as cards again. "others off" to mute them.'
+        : '🔕 Other sources are OFF - only Hire a Freelancer reaches this chat. The rest stays on the dashboard, Other sources tab. "others on" to bring them back.');
+    } else {
+      await telegram.say(cfg.telegramChatId, `Other sources on Telegram: ${cfg.telegramOtherSources ? 'ON' : 'OFF (Hire a Freelancer only)'}. Send "others on" or "others off".`);
+    }
+    return true;
+  }
+  if (/^\/?(?:test\s+claude|claude\s+test|check\s+claude)[.!]?\s*$/i.test(body)) {
+    await telegram.say(cfg.telegramChatId, '🤖 Asking Claude one real question - up to 45 seconds…');
+    const r = await testCall(cfg).catch((e) => ({ ok: false, error: e.message }));
+    const tips = Array.isArray(r?.bullets?.tips) ? r.bullets.tips : Array.isArray(r?.bullets) ? r.bullets : [];
+    await telegram.say(cfg.telegramChatId, r?.ok
+      ? `✅ Claude is working (${r.model}, ${(r.ms / 1000).toFixed(1)}s, $${Number(r.cost || 0).toFixed(4)}).\n\nIt wrote:\n${tips.map((t) => `• ${t}`).join('\n')}`
+        + (r.bullets?.pm ? `\n\nScreen verdict: ${r.bullets.pm}${r.bullets.why ? ` - ${r.bullets.why}` : ''}` : '')
+      : `❌ Claude is NOT working.\nReason: ${r?.error || r?.note || 'it answered, but with nothing usable'}\n\n`
+        + 'Usual causes: the key was pasted wrong, the account has no credits (console.anthropic.com → Billing), or the daily limit in Settings is used up.');
     return true;
   }
   if (/^\/?(?:blocks|blocked|deal-?breakers?)\s*$/i.test(body)) {
@@ -1931,7 +1980,8 @@ async function sendNext(cfg, arg) {
   const n = Math.min(Math.max(1, Number(arg) || 1), 8);
   const hours = Number(cfg.threadMaxAgeHours) || 48;
   const cutoff = Date.now() - hours * 3600000;
-  const queue = (await getLeads()).filter((l) => UNSTRUCK(l) && activityOf(l) >= cutoff).sort((a, b) => activityOf(b) - activityOf(a));
+  const queue = (await getLeads()).filter((l) => UNSTRUCK(l) && activityOf(l) >= cutoff
+    && (cfg.telegramOtherSources || l.kind !== 'thread')).sort((a, b) => activityOf(b) - activityOf(a));
   if (!queue.length) { await telegram.say(cfg.telegramChatId, `✅ Queue empty - nothing unanswered from the last ${hours}h.`); return; }
   const todo = queue.filter((l) => !cur.served.includes(String(l.threadId)));
   if (!todo.length) {

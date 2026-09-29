@@ -107,6 +107,10 @@ export const DEFAULT_CONFIG = {
   // sweep wait quietly for "next". On: they go to Telegram as cards as well,
   // six per check, so a busy day trickles in over an hour. "push on" / "push off".
   pushBacklog: false,
+  // Do threads from the watched forums and the site-wide feed reach Telegram at
+  // all? Off: the phone is Hire a Freelancer only, and the other sources are on
+  // the dashboard's Other sources tab. "others on" / "others off".
+  telegramOtherSources: false,
   // A member sleeps. No reads at all in this window (your timezone); Telegram
   // taps still work, so a post you approve at 3am still goes up.
   sleepEnabled: false,         // off: you work at night; turn it on in Settings if you want a quiet window
@@ -742,7 +746,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 30;
+export const CONFIG_VERSION = 31;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -906,6 +910,7 @@ export async function migrateConfig() {
     if (Number(next.maxThreadReads) === 15) next.maxThreadReads = 3;
   }
   if (v < 30) next.sleepEnabled = false;   // 1.3.1 switched sleep on by itself; that was wrong
+  if (v < 31) next.telegramOtherSources = false;   // the phone is for Hire a Freelancer; the rest lives on the dashboard
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;
   await chrome.storage.local.set({ config: next });
