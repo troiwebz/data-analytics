@@ -153,6 +153,23 @@ async function renderInner() {
   if ($('pollsrc')) $('pollsrc').hidden = v !== 'other';
   if ($('regen')) $('regen').hidden = v === 'other';
 
+  // Is this copy the one that acts? If not, say so before anything else.
+  const own = await chrome.runtime.sendMessage({ cmd: 'owner-status' }).catch(() => null);
+  const bar = $('ownerbar');
+  if (bar) {
+    if (own && own.known && !own.active) {
+      const mins = Math.max(0, Math.round((Date.now() - (own.owner?.at || 0)) / 60000));
+      bar.hidden = false;
+      bar.innerHTML = `<b>This copy is PASSIVE.</b> Another copy of HAF Watcher (on ${esc(own.owner?.os || 'another machine')}, last seen ${mins} min ago) owns this bot, `
+        + `so this one reads nothing, sends nothing and posts nothing. `
+        + `<button id="takeover" style="margin-left:8px">Make this copy the active one</button>`;
+    } else if (own && own.conflictMinutes) {
+      bar.hidden = false;
+      bar.innerHTML = `<b>🚨 Another program was reading your Telegram bot ${own.conflictMinutes} min ago.</b> A second copy of HAF Watcher is running somewhere with the same token, `
+        + `and it acts on your commands by its own rules. Auto mode here is paused. Remove it on that machine, or change your BHW password and revoke the bot token in @BotFather.`;
+    } else { bar.hidden = true; bar.innerHTML = ''; }
+  }
+
   tz = cfg;                                  // every when() below uses this zone
   $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
   $('dot').className = 'dot' + (cfg.enabled ? ' on' : '');
@@ -706,6 +723,13 @@ $('seedbank').addEventListener('click', async () => {
     const r = await chrome.runtime.sendMessage({ cmd: 'seed-bank', label });
     alert(r?.error ? r.error : `Answer bank now holds ${r?.threads ?? 0} threads / ${r?.replies ?? 0} replies.`);
   });
+});
+document.addEventListener('click', async (e) => {
+  if (e.target?.id !== 'takeover') return;
+  if (!confirm('Make THIS copy the active one?\n\nThe other copy goes passive within a minute. Only do this on the machine you are sitting at.')) return;
+  const r = await chrome.runtime.sendMessage({ cmd: 'owner-take' });
+  if (r?.error) alert(`Could not take over: ${r.error}`);
+  render();
 });
 $('seg').addEventListener('click', (e) => {
   const v = e.target.closest('button')?.dataset.view;

@@ -27,6 +27,10 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 export const getToken = () => vault.getSecret('telegram');
 
+/** The ownership lock lives in the bot's short description - the one thing every copy with this token can read. */
+export const getLockText = async () => (await call('getMyShortDescription', {}))?.short_description || '';
+export const setLockText = (text) => call('setMyShortDescription', { short_description: String(text).slice(0, 120) });
+
 /** Is a bot token saved on this install? Never returns the token itself. */
 export const hasToken = async () => Boolean(await getToken());
 export const setToken = (t) => vault.setSecret('telegram', String(t).trim());

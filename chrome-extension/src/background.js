@@ -32,6 +32,7 @@ import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHA
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
+import { ownership, takeOver, describe as describeOwner } from './owner.js';
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
@@ -405,6 +406,16 @@ async function checkForUpdate() {
 // killed mid-job leaves no error anywhere because the handler dies with it.
 chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
   try {
+    // One copy acts. If another copy of this extension owns the bot, this one
+    // reads nothing, polls nothing and sends nothing - it only keeps itself
+    // up to date, so that the day it takes over it is running current rules.
+    const own = await ownership().catch(() => ({ active: true, known: false }));
+    if (own.known && !own.active) {
+      await logOnce('passive', `${describeOwner(own)}. This copy is doing nothing. Open its dashboard and press "Make this copy the active one" to switch.`, 'error', 60);
+      if (alarm.name === UPDATE_ALARM) await checkForUpdate();
+      return;
+    }
+    await clearLogOnce('passive');
     if (alarm.name === FEED_ALARM) {
       const cfg = await getConfig();
       // Jitter so the fetch doesn't land on the same second every cycle.
@@ -928,6 +939,8 @@ export async function statusReport(cfg) {
     await checkLine(cfg),
     '',
     '<b>⚙️ System</b>',
+    `Copies: ${describeOwner(await ownership().catch(() => null))}`
+      + ((await conflictMinutes()) ? ` · 🚨 another program was reading this bot ${await conflictMinutes()} min ago` : ''),
     `Telegram shows: ${cfg.telegramOtherSources ? 'Hire a Freelancer + other forums' : 'Hire a Freelancer only (other forums muted - "others on")'}`,
     `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
     `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
@@ -1843,6 +1856,7 @@ const HELP = [
   '<b>auto on</b> - switch it on · <b>auto off</b> - switch it off and stop any countdown',
   '<b>auto</b> - auto mode in numbers: sent, counting down, held, left for you and why',
   '<b>blocks</b> - the deal-breaker phrases auto mode refuses · <b>block payment after posting</b> · <b>unblock …</b>',
+  '<b>retry &lt;thread url&gt;</b> - run auto mode on one thread it left for you, by link or number',
   '<b>auto test</b> - try it on the newest HAF thread ONLY: Claude screens it, the PM counts down, nothing else is touched',
   '',
   '<b>Working the queue</b>',
@@ -2278,6 +2292,16 @@ async function seedForum(cfg, raw) {
   await telegram.say(cfg.telegramChatId, `🌱 Done: ${added} thread(s) added. The bank now holds ${b.threads} threads / ${b.replies} replies.`);
 }
 
+/** The matcher again, this time with the post it has now read. Keeps the better of the two readings. */
+export function rematch(m, cfg) {
+  if (!String(m.body || '').trim()) return m;
+  const again = matchLead({ ...m, snippet: `${m.snippet || ''}\n${m.body}`.slice(0, 2500) }, cfg);
+  if (!again) return m;
+  if (m.category && (m.score || 0) >= (again.score || 0)) return m;
+  return { ...m, score: again.score, category: again.category, categoryLabel: again.categoryLabel,
+           allCategories: again.allCategories, matched: again.matched, budget: again.budget, budgetAmount: again.budgetAmount };
+}
+
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
@@ -2349,7 +2373,10 @@ export async function pollFeed() {
 
   // Read each thread before drafting, so the reply answers the post rather than
   // the title, and knows what the competition has already promised.
-  const full = await withThreads(matched, cfg);
+  // Match again once the post has been read. The listing page gives a title
+  // and nothing else, so the first pass judged "Looking for Quality Links With
+  // Traffic Proof" on seven words; the post itself says what the job is.
+  const full = (await withThreads(matched, cfg)).map((m) => rematch(m, cfg));
 
   // One batched request for the whole poll, so the instructions are paid for
   // once rather than once per lead. Falls back to the built-in rules.
@@ -2374,7 +2401,7 @@ export async function pollFeed() {
 
   // Night mode: arm the countdown BEFORE Telegram, so the card that reaches
   // your phone already says when it will post and carries the Hold button.
-  if (night.isNight(cfg)) {
+  if (false && night.isNight(cfg)) {                 // night mode is retired: nothing public is armed, ever
     const armed = [];
     for (const l of leads) {
       const why = night.blockedReason(l, cfg);
@@ -2597,6 +2624,39 @@ const TAP_VERBS = {
   s: 'Skipping', h: 'Holding', e: 'Opening the editor', m: 'Opening the editor', o: 'Sending the material'
 };
 
+const CONFLICT_KEY = 'tgConflictAt';
+const CONFLICT_MS = 15 * 60000;
+
+/**
+ * Telegram says someone else is reading this bot. That is a second copy of
+ * this extension - or something else holding the token - and it will act on
+ * your commands by ITS rules. Said loudly, and auto mode stops until it is gone.
+ */
+async function secondCopyAlarm(cfg) {
+  const { [CONFLICT_KEY]: last = 0, conflictToldAt = 0 } = await chrome.storage.local.get([CONFLICT_KEY, 'conflictToldAt']);
+  await chrome.storage.local.set({ [CONFLICT_KEY]: Date.now() });
+  if (Date.now() - conflictToldAt < 3600000) return;
+  await chrome.storage.local.set({ conflictToldAt: Date.now() });
+  await log('ANOTHER PROGRAM IS READING THIS BOT. A second copy of HAF Watcher is running somewhere with the same token. '
+    + 'Auto mode on this copy is paused until it stops.', 'error');
+  if (cfg.telegramChatId) {
+    await telegram.say(cfg.telegramChatId,
+      '🚨 Another copy of HAF Watcher is reading this bot.\n\n'
+      + 'It is on another machine (or another Chrome), it receives your commands too, and it acts on them by its own rules - '
+      + 'an old copy posts PUBLIC replies in auto mode.\n\n'
+      + 'Do this now:\n1. On that machine: chrome://extensions → remove HAF Watcher, or close Chrome.\n'
+      + '2. If you cannot reach it: change your BHW password and log out other sessions.\n'
+      + '3. Then @BotFather → /revoke → save the new token on this copy only.\n\n'
+      + 'Auto mode on this copy is paused until the conflict stops.').catch(() => {});
+  }
+}
+
+/** Minutes since Telegram last reported a second reader, or 0 when it is quiet. */
+async function conflictMinutes() {
+  const { [CONFLICT_KEY]: at = 0 } = await chrome.storage.local.get(CONFLICT_KEY);
+  return at && Date.now() - at < CONFLICT_MS ? Math.max(1, Math.round((Date.now() - at) / 60000)) : 0;
+}
+
 export async function pollTaps() {
   const cfg = await getConfig();
 
@@ -2626,6 +2686,7 @@ export async function pollTaps() {
   catch (e) {
     await beat({ ok: false, note: e.message });
     await log(`Telegram taps could not be read: ${e.message}`, 'error');
+    if (/conflict|other getUpdates/i.test(e.message)) await secondCopyAlarm(cfg);
     return { error: e.message };
   }
   await beat({ ok: true, note: events.length ? `${events.length} waiting` : 'nothing waiting' });
@@ -2694,8 +2755,9 @@ export async function pollTaps() {
     // replies. Same rule everywhere else in the extension: a PM is never
     // sent without a tap, whatever this is set to.
     {
-      if (ev.kind === 'reply' && /^\/?(?:auto[\s-]*(?:mode)?\s*test|test\s+auto(?:[\s-]*mode)?)[.!]?\s*$/i.test(String(ev.body || '').trim())) {
-        await autoTest(cfg).catch(async (e) => { await telegram.say(cfg.telegramChatId, `❌ Auto test stopped: ${e.message}. Nothing was sent.`); });
+      const atm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:auto[\s-]*(?:mode)?\s*test|test\s+auto(?:[\s-]*mode)?|retry)(?:\s+(\S+))?[.!]?\s*$/i);
+      if (atm) {
+        await autoTest(cfg, atm[1] || '').catch(async (e) => { await telegram.say(cfg.telegramChatId, `❌ Auto test stopped: ${e.message}. Nothing was sent.`); });
         done++;
         continue;
       }
@@ -3202,7 +3264,7 @@ async function runTap(tap, lead, cfg) {
       if (lead.status === 'POSTED') return '🚀 Already posted - not posting it twice.';
       const gate = await checkRateLimit(cfg);
       if (!gate.ok) return `✋ Held: ${gate.reason}`;
-      const r = await postLead(lead, cfg, { edited: !!lead.draftEdited });
+      const r = await postLead(lead, cfg, { edited: !!lead.draftEdited, by: 'tap' });
       return r?.ok ? `🚀 Posted.${r.postUrl ? ` ${r.postUrl}` : ''}`
                    : `❌ Could not post it: ${r?.error || 'unknown'}`;
     }
@@ -3225,6 +3287,13 @@ async function runTap(tap, lead, cfg) {
  * Never throws: whatever happens here, the next tick must still run.
  */
 export async function runNightQueue() {
+  // Retired. Night mode posted the PUBLIC reply on a timer, which is the one
+  // thing this extension must never do. Anything still counting down is
+  // stopped and left for you.
+  const armed = (await getLeads()).filter((l) => l.autoPostAt);
+  for (const l of armed) await updateLead(l.threadId, { autoPostAt: 0, autoBlocked: 'night mode is retired: public replies are never automatic' });
+  return { skipped: 'retired', stopped: armed.length };
+  // eslint-disable-next-line no-unreachable
   const cfg = await getConfig();
   if (!cfg.nightMode) return { skipped: 'off' };
 
@@ -3307,22 +3376,26 @@ function claudeLines(ai, genericToday = 0) {
  * that one PM with the usual countdown and Hold button. Auto mode itself is
  * not switched on, so no other thread is touched, and nothing public is posted.
  */
-export async function autoTest(cfg) {
+export async function autoTest(cfg, target = '') {
   await jobStart('auto test');
-  try { return await autoTestRun(cfg); }
+  try { return await autoTestRun(cfg, target); }
   finally { await jobEnd(); }
 }
 
-async function autoTestRun(cfg) {
+async function autoTestRun(cfg, target = '') {
   const say = (t) => telegram.say(cfg.telegramChatId, t);
   const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
-  const lead = (await getLeads())
+  const open = (await getLeads())
     .filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample' && !l.pmSent
                 && !['SKIPPED', 'EXPIRED', 'FAILED'].includes(l.status))
-    .sort((a, b) => at(b) - at(a))[0];
+    .sort((a, b) => at(b) - at(a));
+  // A thread you name - its URL or its number - or the newest one.
+  const wantId = target ? (threadIdFromUrl(target) || String(target).replace(/\D/g, '')) : '';
+  const lead = wantId ? open.find((l) => String(l.threadId) === wantId) : open[0];
+  if (wantId && !lead) { await say(`🧪 Thread ${wantId} is not waiting in the Hire a Freelancer table - it is not there, already has a PM, or was skipped.`); return { none: true }; }
   if (!lead) { await say('🧪 Auto test: there is no Hire a Freelancer thread without a PM in the table. Press "Check for new threads" first.'); return { none: true }; }
 
-  await say(`🧪 Auto test - ONE thread only, the newest on Hire a Freelancer:\n"${lead.title}" by ${lead.author}\n${lead.url}\n\n`
+  await say(`🧪 Auto test - ONE thread only, ${wantId ? 'the one you named' : 'the newest on Hire a Freelancer'}:\n"${lead.title}" by ${lead.author}\n${lead.url}\n\n`
     + 'Reading it and asking Claude to screen it…'
     + (cfg.autoMode ? '\n\nNote: auto mode is ON, so new threads are also being handled. Send "auto off" first if you want this to be the only one.' : ''));
 
@@ -3333,6 +3406,12 @@ async function autoTestRun(cfg) {
     if (got.body) { l = { ...l, body: got.body, replies: got.replies || [] }; await updateLead(l.threadId, { body: l.body, replies: l.replies }); }
   }
 
+  // The post may say what the title did not: match it again now it is read.
+  const re = rematch(l, cfg);
+  if (re.category !== l.category || re.score !== l.score) {
+    l = re;
+    await updateLead(l.threadId, { score: l.score, category: l.category, categoryLabel: l.categoryLabel, allCategories: l.allCategories, matched: l.matched, budget: l.budget, budgetAmount: l.budgetAmount });
+  }
   await say(String(l.body || '').trim()
     ? `📖 Read the post (${String(l.body).length} characters, ${(l.replies || []).length} repl${(l.replies || []).length === 1 ? 'y' : 'ies'} on it). Asking Claude now - up to 45 seconds…`
     : '📖 The post could not be read (BHW did not show it). Asking Claude anyway - without the post the screen will refuse, which is the rule.');
@@ -3425,6 +3504,20 @@ export async function runAutoQueue() {
   if (!cfg.autoMode && !due.length) return { skipped: 'off' };
   if (!due.length) return { due: 0 };
 
+  // Nothing sends itself unless this copy is provably the only one acting.
+  const own = await ownership({ fresh: true }).catch((e) => ({ active: false, known: false, reason: e.message }));
+  const clash = await conflictMinutes();
+  if (!own.active || clash) {
+    const why = clash ? `another program was reading this bot ${clash} min ago` : describeOwner(own);
+    await logOnce('autoPaused', `auto mode: holding ${due.length} PM(s) - ${why}`, 'error', 15);
+    // Held, not dropped - but a PM that would arrive half an hour late is left for you.
+    for (const l of due) {
+      if (Date.now() - l.autoSendAt > 30 * 60000) await updateLead(l.threadId, { autoSendAt: 0, autoTest: false, autoSendBlocked: `held too long: ${why}` });
+    }
+    return { due: due.length, sent: 0, held: why };
+  }
+  await clearLogOnce('autoPaused');
+
   let done = 0;
   for (const lead of due) {
     // Re-check at the moment of sending: you may have edited it, Claude's
@@ -3501,6 +3594,11 @@ export async function nightSummary() {
 // -------------------------------------------------------------- approvals
 
 export async function pollApprovals() {
+  // Retired. This posted whatever a remote Google Sheet said was approved -
+  // a public reply caused by something other than your tap on this copy. The
+  // Telegram buttons replaced it; it no longer posts anything.
+  return { skipped: 'retired' };
+  // eslint-disable-next-line no-unreachable
   const cfg = await getConfig();
   if (!cfg.enabled || !cfg.autoPost || !cfg.webhookUrl) return;
 
@@ -3518,7 +3616,25 @@ export async function pollApprovals() {
  * edited since), otherwise open + type + post. Then record the outcome
  * locally, in the Sheet, and on Telegram.
  */
-export async function postLead(lead, cfg, { edited = false } = {}) {
+/** Who may cause a public reply: a tap on your phone, or a button on your dashboard. Nothing else. */
+const HUMAN = ['tap', 'dashboard'];
+
+export async function postLead(lead, cfg, { edited = false, by = '' } = {}) {
+  // THE RULE: nothing public is posted without a person asking for it, now.
+  // Every caller says who asked. A caller that cannot - a timer, a queue, a
+  // score, a remote sheet - is refused here, whatever it was told elsewhere.
+  if (!HUMAN.includes(by)) {
+    const why = 'refused: a public reply is only ever posted by your tap';
+    await log(`public reply to "${lead.title}" ${why} (asked by: ${by || 'nothing'})`, 'error');
+    return { ok: false, blocked: true, error: why };
+  }
+  const own = await ownership({ fresh: true }).catch(() => ({ active: true, known: false }));
+  if (own.known && !own.active) {
+    const why = `refused: ${describeOwner(own)}`;
+    await log(`public reply to "${lead.title}" ${why}`, 'error');
+    return { ok: false, blocked: true, error: why };
+  }
+
   // Same rule as the PM: what the card showed is what goes up.
   if (lead.draftApproved && lead.draftApproved !== lead.draft) {
     lead = { ...lead, draft: lead.draftApproved };
@@ -3581,6 +3697,14 @@ export async function postLead(lead, cfg, { edited = false } = {}) {
 const PM_LOCK_MS = 3 * 60000;
 
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
+  if (mode === 'send') {
+    const own = await ownership({ fresh: true }).catch(() => ({ active: true, known: false }));
+    if (own.known && !own.active) {
+      const why = `refused: ${describeOwner(own)}`;
+      await log(`PM to ${lead.author} ${why}`, 'error');
+      return { ok: false, blocked: true, error: why };
+    }
+  }
   // The text you approved on the card, verbatim - not a fresh render of it.
   // Rendering again is how a card showing three Claude-written lines about
   // Facebook group posting became a generic two-line PM on the forum: the
@@ -3819,6 +3943,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
       case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
+      case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
+      case 'owner-take': {
+        const o = await takeOver().catch((e) => ({ error: e.message }));
+        if (!o.error) { await clearLogOnce('passive'); await log('this copy was made the active one by hand'); }
+        sendResponse(o);
+        break;
+      }
       case 'sources-status': {                       // the dashboard's Other sources view
         const cfg = await getConfig();
         sendResponse({ sources: sourcesOf(cfg), words: watchWordsOf(cfg).map((w) => ({ word: w.word, enabled: w.enabled, bumpAlerts: w.bumpAlerts })),
@@ -3871,7 +4002,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         // An edit made in the dashboard is the approved text now - otherwise
         // postLead would put the older Telegram-approved wording back.
         const toPost = msg.edited ? { ...msg.lead, draftApproved: msg.lead.draft } : msg.lead;
-        sendResponse(await postLead(toPost, cfg, { edited: !!msg.edited }));
+        sendResponse(await postLead(toPost, cfg, { edited: !!msg.edited, by: 'dashboard' }));
         break;
       }
       case 'mark': {                                 // ✅ posted by hand / ⏭ skip, from the dashboard

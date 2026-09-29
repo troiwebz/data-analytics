@@ -331,90 +331,67 @@ ok('with approvals off nothing is polled at all', r.skipped === 'off' && !tgCall
 
 await setConfig({ telegramApprovals: true });      // the block above turned them off
 
-// --- night mode: the one thing that posts without a tap --------------------
+// --- nothing public posts without a person ------------------------------------
+//
+// Night mode used to post the PUBLIC reply on a timer. It is retired: a public
+// reply is on the thread for everyone to read and cannot be taken back, so it
+// is only ever posted by a tap. These prove every machine-driven path is shut.
 {
-  const NIGHT = { nightMode: true, nightStart: '00:00', nightEnd: '23:59', // always night, for the test
-                  nightVetoMinutes: 20, nightMinScore: 10, nightMaxPosts: 2,
-                  maxPostsPerDay: 10, minSecondsBetweenPosts: 0 };
-  await setConfig(NIGHT);
   const ready = (id, over = {}) => ({
-    ...lead(id), score: 20, body: 'The buyer actually wrote this and it was read.',
-    aiSpecifics: { tips: ['We have done this'] }, lint: { ok: true }, ...over
+    ...lead(id), score: 20, category: 'seo', body: 'The buyer actually wrote this and it was read.',
+    aiSpecifics: { tips: ['We have done this'], pm: 'yes' }, lint: { ok: true }, ...over
   });
+  await setConfig({ nightMode: true, nightStart: '00:00', nightEnd: '23:59', nightMinScore: 0, nightMaxPosts: 9,
+                    maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
 
-  // Nothing is due yet: a countdown that has not run out must not fire.
-  store.recentLeads = [ready('n1', { autoPostAt: Date.now() + 600000 })];
-  let nr = await bg.runNightQueue();
-  ok('a countdown still running posts nothing', nr.due === 0, JSON.stringify(nr));
-  ok('and the lead is untouched', (await getLeads()).find((l) => l.threadId === 'n1').status === 'SENT');
-
-  // Due, and eligible: it goes up by itself.
+  // A countdown that has run out, night mode "on", inside the window: still nothing.
   globalThis.__acting = 'n1';
   postResult = { ok: true, postUrl: 'https://bhw/threads/x.n1/post-1' };
   store.recentLeads = [ready('n1', { autoPostAt: Date.now() - 1000 })];
-  nr = await bg.runNightQueue();
+  let nr = await bg.runNightQueue();
   let l = (await getLeads()).find((x) => x.threadId === 'n1');
-  ok('a countdown that ran out posts by itself', l.status === 'POSTED', l.status);
-  ok('and is recorded as an unattended post', !!l.autoPostedAt, JSON.stringify(l.autoPostedAt));
-  ok('and the countdown is cleared so it cannot fire twice', !l.autoPostAt, String(l.autoPostAt));
+  ok('night mode posts nothing, even switched on and due', l.status !== 'POSTED', l.status);
+  ok('it says it is retired', nr.skipped === 'retired', JSON.stringify(nr));
+  ok('the countdown is stopped, not left to fire later', !l.autoPostAt, String(l.autoPostAt));
+  ok('and the lead says why', /never automatic/.test(l.autoBlocked || ''), l.autoBlocked);
 
-  // The gate is re-checked at posting time, not only when armed. Between the
-  // two you may have edited the draft or the thread may have been re-read.
-  store.recentLeads = [ready('n2', { autoPostAt: Date.now() - 1000, body: '' })];
-  globalThis.__acting = 'n2';
-  await bg.runNightQueue();
-  l = (await getLeads()).find((x) => x.threadId === 'n2');
-  ok('a draft that lost its post body is held at the last moment', l.status === 'SENT', l.status);
-  ok('and says why', /never read/.test(l.autoBlocked || ''), l.autoBlocked);
-
-  // Outside the window nothing fires, whatever is queued.
-  //
-  // The window is computed from the clock rather than hardcoded. A fixed
-  // '23:00'-'23:01' was "outside now" on almost every run and inside it for one
-  // minute a day - in the configured timezone, not UTC - so this check quietly
-  // inverted itself once daily and would have looked like a real regression to
-  // whoever next ran the suite at the wrong moment.
-  {
-    const { minutesNow } = await import('../src/night.js');
-    const cfg = await (await import('../src/config.js')).getConfig();
-    const hhmm = (mins) => String(Math.floor(((mins % 1440) + 1440) % 1440 / 60)).padStart(2, '0')
-      + ':' + String(((mins % 1440) + 1440) % 1440 % 60).padStart(2, '0');
-    const soon = minutesNow(cfg) + 120;               // two hours away, whatever the hour
-    await setConfig({ nightStart: hhmm(soon), nightEnd: hhmm(soon + 1) });
+  // The public poster refuses anyone who is not a person.
+  store.recentLeads = [ready('n2')];
+  for (const by of ['', 'night', 'auto', 'approval', 'timer', undefined]) {
+    const r = await bg.postLead((await getLeads())[0], await (await import('../src/config.js')).getConfig(), by === undefined ? {} : { by });
+    ok(`a public reply asked for by "${by ?? 'nobody'}" is refused`, r.ok === false && r.blocked === true && /only ever posted by your tap/.test(r.error), JSON.stringify(r));
   }
-  store.recentLeads = [ready('n3', { autoPostAt: Date.now() - 1000 })];
+  ok('and nothing was posted by any of them', (await getLeads())[0].status !== 'POSTED', (await getLeads())[0].status);
+
+  // The remote-sheet approvals poll is retired too.
+  await setConfig({ webhookUrl: 'https://script.google.com/macros/s/x/exec', autoPost: true });
+  const ap = await bg.pollApprovals();
+  ok('the remote approvals poll posts nothing', ap?.skipped === 'retired' && (await getLeads())[0].status !== 'POSTED', JSON.stringify(ap));
+  await setConfig({ webhookUrl: '' });
+
+  // Auto mode, the one thing that does act by itself, never reaches the public poster.
+  await setConfig({ autoMode: true, autoModeSince: new Date(Date.now() - 60000).toISOString(), maxDmsPerDay: 30, minSecondsBetweenDms: 0 });
   globalThis.__acting = 'n3';
-  nr = await bg.runNightQueue();
+  dmResult = { ok: true, sent: true };
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.n3/post-1' };
+  store.recentLeads = [ready('n3', { foundAt: new Date().toISOString(), dmLint: { ok: true }, autoSendAt: Date.now() - 1000 })];
+  await bg.runAutoQueue();
   l = (await getLeads()).find((x) => x.threadId === 'n3');
-  ok('a countdown that outlives the window does not fire', l.status === 'SENT', l.status);
-  ok('and it is left for you, not silently dropped', /window closed/.test(l.autoBlocked || ''), l.autoBlocked);
+  ok('auto mode sends the PM', l.pmSent === true, JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+  ok('and leaves the public reply unposted', l.status !== 'POSTED' && !l.postUrl, JSON.stringify({ status: l.status, url: l.postUrl }));
 
-  // Switched off, nothing happens at all.
-  await setConfig({ nightMode: false });
-  store.recentLeads = [ready('n4', { autoPostAt: Date.now() - 1000 })];
-  nr = await bg.runNightQueue();
-  ok('switched off it does nothing', nr.skipped === 'off', JSON.stringify(nr));
-  ok('and posts nothing', (await getLeads()).find((x) => x.threadId === 'n4').status === 'SENT');
-
-  // Hold, from the phone.
-  await setConfig({ ...NIGHT, nightStart: '00:00', nightEnd: '23:59' });
-  store.recentLeads = [ready('n5', { autoPostAt: Date.now() + 600000 })];
+  // A tap still posts: the rule is about who asks, not about posting.
+  globalThis.__acting = 'n4';
+  store.recentLeads = [ready('n4')];
   tgCalls = [];
-  updates = [tap('h:n5')];
+  updates = [tap('p:n4')];
   await bg.pollTaps();
-  l = (await getLeads()).find((x) => x.threadId === 'n5');
-  ok('tapping Hold stops the countdown', !l.autoPostAt && l.autoHeld === true, JSON.stringify({ at: l.autoPostAt, held: l.autoHeld }));
-  ok('and the phone is told it is safe', tgCalls.some((c) => c.method === 'editMessageText' && /Held/.test(c.body.text)),
-     JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
-  store.recentLeads = [{ ...l }];
-  await bg.runNightQueue();
-  ok('a held lead never posts itself afterwards',
-     (await getLeads()).find((x) => x.threadId === 'n5').status === 'SENT');
+  ok('your tap still posts the public reply', (await getLeads()).find((x) => x.threadId === 'n4').status === 'POSTED');
 
-  await setConfig({ nightMode: false, maxPostsPerDay: 10 });
+  await setConfig({ nightMode: false, autoMode: false, maxPostsPerDay: 10 });
+  await chrome.storage.local.set({ rateState: null });
 }
 
-// --- the self-test button ---------------------------------------------------
 // Counted here, after night mode has had its turn, so this measures what the
 // self-test does rather than what ran before it.
 const postedCountBefore = (await getLeads()).filter((l) => l.status === 'POSTED').length;

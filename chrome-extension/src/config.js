@@ -76,6 +76,11 @@ export const WATCH_WORDS = [
   { word: 'gray hat', enabled: true, bumpAlerts: false }
 ];
 
+// Patterns added in 1.6.2. Named, so the migration can add exactly these to a
+// category list you already have without touching the rest of it.
+export const SEO_MORE = ['quality links?', 'links? with (?:real |organic )?traffic', 'traffic proof', 'niche edits?', 'link insertions?', 'do-?follow', '(?:high|strong) (?:da|dr|authority)', 'authority links?', '(?:buy|buying|need|want|looking for) (?:some |quality |good |strong |real |casino |igaming )*(?:back)?links?', '(?:casino|betting|gambling|igaming|adult|crypto) (?:seo|(?:back)?links?)', 'link (?:network|provider|seller|vendor|insertion)s?', 'sponsored posts?', 'outreach links?', '\\bguest ?posts?\\b', 'link ?boost', 'tier ?[123]', 'organic traffic', 'rank(?:ing)? (?:on|in) google', '\\bindex(?:ing|er)?\\b'];
+export const ADS_MORE = ['ads? (?:manager|management|expert|specialist|buyer)', 'run(?:ning)? (?:my |our )?ads', '\\bmedia buyer\\b', 'ad ?accounts?', 'agency accounts?', '(?:google|meta|facebook|fb|tiktok|bing|native|push) (?:ads?|advertising|campaigns?)', '\\bgads?\\b', 'ads? approv', 'credit line', '\\bcpa\\b', '\\broas\\b'];
+
 export const DEFAULT_CONFIG = {
   // On by default. A fresh install should start watching rather than sit there
   // looking installed; it cannot post or message anyone until the two keys are
@@ -279,7 +284,10 @@ export const DEFAULT_CONFIG = {
         // Local-search work is SEO, not a generic enquiry.
         { p: 'citations?\\b', w: 2 }, { p: '\\bnap\\b', w: 2 },
         'directory (listing|submission)', 'business listing', 'map ?pack', 'local ?pack',
-        'yext', 'moz local', 'near me', 'schema markup', 'technical seo', '\\baso\\b'
+        'yext', 'moz local', 'near me', 'schema markup', 'technical seo', '\\baso\\b',
+        // How buyers actually ask for links - "Looking for Quality Links With
+        // Traffic Proof" matched nothing above, and auto mode left it for you.
+        ...SEO_MORE
       ]
     },
     {
@@ -289,7 +297,8 @@ export const DEFAULT_CONFIG = {
         'google ads', 'adwords', 'facebook ads', '\\bfb ads\\b', 'meta ads',
         'ppc', 'ad account', 'ad campaign', 'tiktok ads', 'bing ads',
         'media buy', 'campaign manager', 'ads? manager', 'white ?hat ads',
-        'black ?hat ads', 'cloak', 'ad creative'
+        'black ?hat ads', 'cloak', 'ad creative',
+        ...ADS_MORE
       ]
     },
     {
@@ -746,7 +755,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 31;
+export const CONFIG_VERSION = 33;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -910,6 +919,24 @@ export async function migrateConfig() {
     if (Number(next.maxThreadReads) === 15) next.maxThreadReads = 3;
   }
   if (v < 30) next.sleepEnabled = false;   // 1.3.1 switched sleep on by itself; that was wrong
+  if (v < 32 && Array.isArray(next.categories)) {
+    // Wider service patterns, merged into the lists you have: yours stay.
+    const add = (key, more) => {
+      const cat = next.categories.find((c) => c.key === key);
+      if (!cat || !Array.isArray(cat.patterns)) return;
+      const have = new Set(cat.patterns.map((p) => (typeof p === 'string' ? p : p.p)));
+      for (const p of more) if (!have.has(p)) cat.patterns.push(p);
+    };
+    add('seo', SEO_MORE);
+    add('ads', ADS_MORE);
+  }
+  if (v < 33) {
+    // Nothing public is ever posted without a tap. Night mode was the one
+    // setting that did, so it is switched off and stays off.
+    next.nightMode = false;
+    delete next.allowAutoPublic;
+    delete next.legacyApprovals;
+  }
   if (v < 31) next.telegramOtherSources = false;   // the phone is for Hire a Freelancer; the rest lives on the dashboard
   next.templateDefaults = textStamp(DEFAULT_CONFIG);
   next.configVersion = CONFIG_VERSION;

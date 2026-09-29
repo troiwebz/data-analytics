@@ -87,6 +87,30 @@ for (const status of ['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL']) {
   ok('no stated budget is not held against it', why({ budgetAmount: 0 }, { ...full, autoMinBudget: 100 }) === null);
 }
 
+// --- the matcher, on how buyers actually ask --------------------------------
+{
+  const { DEFAULT_CONFIG, migrateConfig } = await import('../src/config.js');
+  const { matchLead } = await import('../src/matcher.js');
+  const cat = (title, snippet = '') => (matchLead({ threadId: '1', title, snippet, postedAt: new Date().toISOString() }, DEFAULT_CONFIG) || {}).category || '';
+  ok('"Looking for Quality Links With Traffic Proof" is SEO', cat('Looking for Quality Links With Traffic Proof') === 'seo', cat('Looking for Quality Links With Traffic Proof'));
+  ok('"Need Casino / Betting Backlinks for Ranking" is SEO', cat('Need Casino / Betting Backlinks for Ranking') === 'seo');
+  ok('a Facebook credit line is paid ads', cat('Looking for a reliable Facebook credit line provider') === 'ads', cat('Looking for a reliable Facebook credit line provider'));
+  ok('running Google Ads for a betting site is paid ads', cat('Need someone to run my Google Ads for a betting site') === 'ads');
+  ok('an offline job matches nothing', cat('[Hiring] Offline Job (USA only)') === '');
+  ok('a vague title is matched by its post', cat('Need help with my site', 'We want quality links with real traffic, dofollow, budget $500.') === 'seo');
+
+  // An install that already saved its categories gets the new patterns merged in.
+  const store = { config: { configVersion: 31, categories: [{ key: 'seo', label: 'SEO / Links', patterns: ['\\bseo\\b', 'my own pattern'] },
+                                                             { key: 'ads', label: 'Paid Ads', patterns: ['google ads'] }] } };
+  globalThis.chrome = { storage: { local: { get: async (k) => ({ [k]: store[k] }), set: async (o) => Object.assign(store, o) }, sync: { set: async () => {}, get: async () => ({}) } } };
+  const next = await migrateConfig();
+  const seo = next.categories.find((c) => c.key === 'seo').patterns;
+  ok('the migration adds the new SEO patterns', seo.includes('quality links?') && seo.includes('traffic proof'), JSON.stringify(seo).slice(0, 200));
+  ok('and keeps your own', seo.includes('my own pattern'));
+  ok('and the saved install now matches the thread', !!matchLead({ threadId: '1', title: 'Looking for Quality Links With Traffic Proof', snippet: '', postedAt: new Date().toISOString() },
+     { ...DEFAULT_CONFIG, categories: next.categories }));
+}
+
 // --- the countdown ------------------------------------------------------
 const now = Date.now();
 ok('the floor is one minute', postAt(cfg, now, () => 0) === now + 60000);
