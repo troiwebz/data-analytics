@@ -2155,10 +2155,11 @@ export async function pollFeed() {
     }
     const held = leads.filter((l) => l.autoBlocked);
     for (const l of held) await updateLead(l.threadId, { autoBlocked: l.autoBlocked });
-  } else if (cfg.autoMode) {
-    // Auto mode: the same countdown-and-Hold-button pattern as night mode,
-    // just not gated to a time window - see src/auto.js. Mutually exclusive
-    // with night mode on any one lead so a thread never counts down twice.
+  }
+  if (cfg.autoMode) {
+    // Auto mode: the PRIVATE MESSAGE sends itself 1-3 minutes after a new HAF
+    // thread is found, if Claude's screen passed - see src/auto.js. Nothing
+    // public is armed here, ever. Independent of night mode: different message.
     const armed = [];
     for (const l of leads) {
       const why = auto.blockedReason(l, cfg);
@@ -2168,10 +2169,11 @@ export async function pollFeed() {
     }
     if (armed.length) {
       for (const l of armed) await updateLead(l.threadId, { autoSendAt: l.autoSendAt, autoSendBlocked: '' });
-      await log(`auto mode: ${armed.length} reply/replies posting in 1-3 min unless held`);
+      await log(`auto mode: ${armed.length} PM(s) sending in 1-3 min unless held`);
     }
     const held = leads.filter((l) => l.autoSendBlocked);
     for (const l of held) await updateLead(l.threadId, { autoSendBlocked: l.autoSendBlocked });
+    if (held.length) await log(`auto mode: ${held.length} thread(s) left for you - ${held.slice(0, 3).map((l) => l.autoSendBlocked).join('; ')}`);
   }
 
   // Announcing is runCheck's job now - it has to happen on the quiet polls too,
@@ -2463,10 +2465,30 @@ export async function pollTaps() {
       if (am) {
         if (am[1]) {
           const on = am[1].toLowerCase() === 'on';
-          await setConfig({ autoMode: on });
+          // Night mode is the one other thing that can post without a tap, and what
+          // it posts is the PUBLIC reply. Your rule is that nothing public is ever
+          // automated, so switching auto mode on switches that off.
+          const nightWasOn = on && !!cfg.nightMode;
+          await setConfig(on ? { autoMode: true, autoModeSince: new Date().toISOString(), nightMode: false } : { autoMode: false });
+          if (nightWasOn) {
+            for (const l of (await getLeads()).filter((x) => x.autoPostAt)) await updateLead(l.threadId, { autoPostAt: 0, autoBlocked: 'night mode was switched off' });
+            await log('night mode switched off with auto mode on: no public reply is posted automatically');
+          }
+          if (!on) {
+            // Off means off: anything already counting down stops too.
+            for (const l of auto.pending(await getLeads()).concat(auto.dueNow(await getLeads()))) {
+              await updateLead(l.threadId, { autoSendAt: 0, autoSendBlocked: 'auto mode was switched off' });
+            }
+          }
+          const ai = on ? await aiStatus().catch(() => null) : null;
+          const noKey = on && !(ai && ai.configured && ai.enabled !== false);
           await telegram.say(cfg.telegramChatId, on
-            ? '⚡ Auto mode is ON — a qualifying new thread posts its public reply itself, 1-3 min after it is found, unless you tap Hold. PMs still need your tap.'
-            : '⚡ Auto mode is OFF — everything waits for your tap again.');
+            ? '⚡ Auto mode is ON — for every NEW Hire a Freelancer thread from now on, the private message sends itself '
+              + '1-3 min after it is found, if Claude screened it as a real buyer. Tap ✋ Hold on a card to stop that one. '
+              + 'Public replies are never posted automatically.'
+              + (nightWasOn ? ' Night mode was on and has been switched off for that reason.' : '')
+              + (noKey ? '\n\n⚠️ Claude is not available on this install (no key saved, or switched off), so NOTHING will send until you add the key in Settings. That is the rule working: no Claude screen, no PM.' : '')
+            : '⚡ Auto mode is OFF — nothing sends by itself, and any countdown in progress was stopped. Everything waits for your tap.');
         } else {
           await telegram.say(cfg.telegramChatId,
             `⚡ Auto mode is currently ${cfg.autoMode ? 'ON' : 'OFF'}. Send "auto on" or "auto off" to change it.`);
@@ -2770,6 +2792,7 @@ async function takeRewrite(ev, cfg) {
   // Editing is a decision about this lead, so a countdown on it stops: your
   // version should not go up seconds later because a timer was already running.
   if (lead.autoPostAt) await updateLead(lead.threadId, { autoPostAt: 0, autoBlocked: 'you edited it' });
+  if (lead.autoSendAt && want.field === 'dm') await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: 'you edited the PM' });
 
   const fresh = { ...lead, ...patch };
   fresh.card = fresh.kind === 'thread' ? buildThreadCard(fresh) : buildCard(fresh);
@@ -3027,29 +3050,46 @@ export async function runAutoQueue() {
 
   let done = 0;
   for (const lead of due) {
-    // Re-check: you may have edited it, the cap may have filled, or it may
-    // already be decided some other way since it was armed.
+    // Re-check at the moment of sending: you may have edited it, Claude's
+    // verdict may have been replaced, or it may have been sent some other way.
     const why = auto.blockedReason(lead, cfg);
-    if (why) { await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: why }); continue; }
+    if (why) {
+      await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: why });
+      await log(`auto mode: not sending the PM for "${lead.title}" - ${why}`);
+      continue;
+    }
 
-    const gate = await checkRateLimit(cfg);
+    const gate = await checkDmLimit(cfg);
     if (!gate.ok) {
-      await log(`auto mode: holding "${lead.title}" - ${gate.reason}`);
+      await log(`auto mode: holding the PM for "${lead.title}" - ${gate.reason}`);
       continue;      // not a refusal, just not yet - try again on the next tick
     }
 
-    const r = await postLead(lead, cfg, { edited: !!lead.draftEdited });
-    await updateLead(lead.threadId, r?.ok
-      ? { autoSendAt: 0, autoSendedAt: new Date().toISOString(), autoSendBlocked: '' }
-      : { autoSendAt: 0, autoSendBlocked: `posting failed: ${r?.error || 'unknown'}` });
-    await log(`auto mode: ${r?.ok ? 'posted' : 'failed'} "${lead.title}"${r?.ok ? '' : ` - ${r?.error}`}`);
-    if (r?.ok) {
+    // Your message list, read now: a PM you already sent this buyer is never sent twice.
+    const dup = await duplicateCheck(lead);
+    if (dup.sent || dup.maybe) {
+      const w = dup.sent ? 'your message list already has a PM to them' : `might be a duplicate: ${dup.why || 'a conversation exists'}`;
+      await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: w });
+      await log(`auto mode: not sending the PM for "${lead.title}" - ${w}`);
+      continue;
+    }
+
+    const r = await sendDm(lead, cfg, { mode: 'send' });
+    const sent = !!(r?.ok && r?.sent);
+    await updateLead(lead.threadId, sent
+      ? { autoSendAt: 0, autoSentAt: new Date().toISOString(), autoSendBlocked: '' }
+      : { autoSendAt: 0, autoSendBlocked: `sending failed: ${r?.error || 'unknown'}` });
+    await log(`auto mode: ${sent ? 'sent the PM for' : 'failed to send the PM for'} "${lead.title}"${sent ? '' : ` - ${r?.error}`}`);
+    if (sent) {
       done++;
       await telegram.say(cfg.telegramChatId,
-        `⚡ Auto-posted: ${lead.title}${r.postUrl ? `\n${r.postUrl}` : ''}`).catch(() => {});
+        `⚡ Auto-sent the PM to ${lead.author}: ${lead.title}\n${lead.url}\n\n${await todayLine(cfg)}`).catch(() => {});
+    } else {
+      await telegram.say(cfg.telegramChatId,
+        `⚠️ Auto mode could not send the PM to ${lead.author} (${r?.error || 'unknown'}). It is waiting for you: ${lead.title}`).catch(() => {});
     }
   }
-  return { due: due.length, posted: done };
+  return { due: due.length, sent: done };
 }
 
 /**

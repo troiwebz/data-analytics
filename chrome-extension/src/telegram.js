@@ -93,7 +93,8 @@ function pmMessage(lead) {
     `\n\n✉️ <b>PM to ${esc(lead.author || 'the poster')}</b>` +
     (lead.dmUrl ? `\n<a href="${esc(lead.dmUrl)}">Open the PM page for ${esc(lead.author || 'them')}</a>` : '') +
     `\n<a href="${INBOX}">Your BHW inbox</a>` +
-    (lead.dmTitle ? `\nSubject: <code>${esc(lead.dmTitle)}</code>` : '');
+    (lead.dmTitle ? `\nSubject: <code>${esc(lead.dmTitle)}</code>` : '') +
+    dmCountdownLine(lead);
 
   const body = plain(lead.dm || '').trim();
   return head + (body
@@ -108,12 +109,15 @@ function countdownLine(lead) {
     const mins = Math.max(0, Math.round((lead.autoPostAt - Date.now()) / 60000));
     return `\n🌙 <b>Night mode: posting in ${mins} min unless you tap Hold.</b>`;
   }
-  if (lead.autoSendAt && !lead.autoSendHeld) {
-    const secs = Math.max(0, Math.round((lead.autoSendAt - Date.now()) / 1000));
-    const when = secs < 60 ? 'under a minute' : `${Math.round(secs / 60)} min`;
-    return `\n⚡ <b>Auto mode: posting in ${when} unless you tap Hold.</b>`;
-  }
   return '';
+}
+
+/** Auto mode is the PM, so its countdown belongs on the PM card and nowhere else. */
+function dmCountdownLine(lead) {
+  if (!lead.autoSendAt || lead.autoSendHeld || lead.pmSent) return '';
+  const secs = Math.max(0, Math.round((lead.autoSendAt - Date.now()) / 1000));
+  const when = secs < 60 ? 'under a minute' : `${Math.round(secs / 60)} min`;
+  return `\n⚡ <b>Auto mode: this PM sends itself in ${when} unless you tap Hold.</b> The public reply waits for you.`;
 }
 
 const replyMessage = (lead) => {
@@ -164,7 +168,18 @@ export function keyboard(lead, kind, cfg) {
   // A lead counting down to an unattended post leads with the way to stop it -
   // whether night mode armed it or auto mode did. Hold is the only button
   // that matters while the clock is running, so it comes first and alone.
-  const counting = (lead.autoPostAt && !lead.autoHeld) || (lead.autoSendAt && !lead.autoSendHeld);
+  // Auto mode counts down the PM, so Hold leads the PM card; the public reply
+  // card keeps its ordinary buttons, because nothing is going to post it.
+  if (lead.autoSendAt && !lead.autoSendHeld && !lead.pmSent && kind === 'PM') {
+    return {
+      inline_keyboard: [
+        [{ text: '✋ Hold', callback_data: `h:${id}` }],
+        [{ text: '✉️ Send DM Now', callback_data: `d:${id}` }, { text: '⏭ Skip', callback_data: `s:${id}` }],
+        [{ text: '✏️ Edit DM', callback_data: `m:${id}` }]
+      ]
+    };
+  }
+  const counting = lead.autoPostAt && !lead.autoHeld;
   if (counting) {
     return {
       inline_keyboard: [

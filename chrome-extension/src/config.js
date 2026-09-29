@@ -188,6 +188,7 @@ export const DEFAULT_CONFIG = {
   // still gets a Telegram card with a Hold button while it counts down - tap
   // it and that one lead waits for you, same as night mode.
   autoMode: false,
+  autoModeSince: '',           // when it was last switched on; older leads are never auto-messaged
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
 
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight

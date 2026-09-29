@@ -55,7 +55,7 @@ ok('browser header sent', lastReq.opts.headers['anthropic-dangerous-direct-brows
 ok('api version sent', lastReq.opts.headers['anthropic-version'] === '2023-06-01');
 ok('system prefix is cached', body.system[0].cache_control.type === 'ephemeral');
 ok('effort low', body.output_config.effort === 'low');
-ok('max_tokens scales with batch', body.max_tokens === 130 * 2 + 60, body.max_tokens);
+ok('max_tokens scales with batch', body.max_tokens === 170 * 2 + 60, body.max_tokens);   // 170: the lines plus the screen verdict
 ok('snippet is capped', body.messages[0].content.length < 1500);
 
 // 5. Usage and cost.
@@ -101,6 +101,22 @@ ok('offers of free work dropped', !cleaned.some((b) => /\bfree\b/i.test(b)), JSO
 ok('a bogus offer id is discarded', C.clean({ a: { tips: ['a long enough line to survive the filter'], offer: 'nope' } }).a.offer === '');
 ok('a question is given its question mark', C.clean({ a: { tips: ['a long enough line to survive the filter'], question: 'Audit-safe or volume for a tier 2 layer' } }).a.question.endsWith('?'));
 ok('cap of 3 bullets', C.clean({ a: { tips: Array(9).fill('a long enough bullet line to survive') } }).a.tips.length === 3);
+// --- the screen verdict: yes, no, or nothing - and nothing never sends -------
+{
+  const line = 'a long enough line to survive the filter';
+  const v = (pm, why) => C.clean({ a: { tips: [line], pm, why } }).a;
+  ok('"yes" is a yes', v('yes').pm === 'yes');
+  ok('"YES " is a yes', v('YES ').pm === 'yes');
+  ok('true is a yes', v(true).pm === 'yes');
+  ok('"no" is a no', v('no').pm === 'no');
+  ok('false is a no', v(false).pm === 'no');
+  ok('a missing verdict is no verdict', v(undefined).pm === '');
+  ok('"maybe" is no verdict', v('maybe').pm === '');
+  ok('a sentence is no verdict', v('yes, probably worth a message').pm === '');
+  ok('the reason is kept for the operator', v('no', 'a seller advertising').why === 'a seller advertising', v('no', 'a seller advertising').why);
+  const sys = (Array.isArray(body.system) ? body.system.map((x) => x.text || '') : [String(body.system)]).join('\n');
+  ok('the prompt asks for the verdict', /SCREEN\./.test(sys) && /"pm":"yes"/.test(sys), sys.slice(-300));
+}
 ok('the old bare-array shape still parses', C.clean({ a: ['a long enough bullet line to survive'] }).a.tips.length === 1);
 
 // 10. Clearing forgets the key.

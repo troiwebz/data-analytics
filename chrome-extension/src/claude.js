@@ -307,8 +307,16 @@ const SYSTEM = [
   'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
   'they are numbered 1. 2. 3. when they are laid out.',
   '',
-  'Return ONLY a JSON object mapping each thread id to {"tips":[3 strings],"question":"...","offer":"id"}.',
-  'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula"}}'
+  'SCREEN. For each thread also decide whether a private message from a provider is welcome.',
+  'This verdict is for the operator and is never shown to the buyer.',
+  '- "pm":"yes" only when the poster is asking to hire someone or to buy a service, and it is work we could deliver.',
+  '- "pm":"no" for a seller advertising their own service, a moderator or rules post, a discussion or a question',
+  '  with no job in it, a thread that says not to PM, or a job that is plainly not ours.',
+  '- "why": the reason, under 12 words.',
+  '',
+  'Return ONLY a JSON object mapping each thread id to',
+  '{"tips":[3 strings],"question":"...","offer":"id","pm":"yes" or "no","why":"..."}.',
+  'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula","pm":"yes","why":"asks for a Google Ads manager"}}'
 ].join('\n');
 
 /**
@@ -366,7 +374,7 @@ export async function writeSpecifics(leads, cfg = {}) {
 
   const body = {
     model: ai.model,
-    max_tokens: 130 * batch.length + 60,
+    max_tokens: 170 * batch.length + 60,
     system: [{ type: 'text', text: systemFor(cfg.brief), cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
@@ -424,7 +432,12 @@ export function clean(obj) {
       return /\?$/.test(q) ? q : q + '?';
     })();
 
-    out[String(id)] = { tips, question, offer: raw.offer in OFFERS ? raw.offer : '' };
+    // The screen: an explicit yes or no, or nothing. Anything else - a missing
+    // field, "maybe", a sentence - is no verdict, and no verdict never sends.
+    const said = String(raw.pm ?? '').trim().toLowerCase();
+    const pm = raw.pm === true || said === 'yes' ? 'yes' : raw.pm === false || said === 'no' ? 'no' : '';
+    const why = tidy(raw.why).slice(0, 120);
+    out[String(id)] = { tips, question, offer: raw.offer in OFFERS ? raw.offer : '', pm, why };
   }
   return out;
 }

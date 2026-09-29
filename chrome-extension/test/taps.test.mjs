@@ -1011,55 +1011,74 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('and that the existing copy was cleared', /Cleared 1/.test(sent), sent);
 }
 
-// --- auto mode: the other thing that posts without a tap --------------------
+// --- auto mode: the private message sends itself, nothing public ever does ---
 {
   const ready = (id, over = {}) => ({
     ...lead(id), score: 20, body: 'The buyer actually wrote this and it was read.',
-    aiSpecifics: { tips: ['We have done this'] }, lint: { ok: true }, ...over
+    foundAt: new Date().toISOString(),
+    aiSpecifics: { tips: ['We have done this'], pm: 'yes', why: 'asks to hire' },
+    lint: { ok: true }, dmLint: { ok: true }, ...over
   });
-  await setConfig({ autoMode: true, nightMode: false, maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+  await setConfig({ autoMode: true, autoModeSince: new Date(Date.now() - 60000).toISOString(), nightMode: false,
+                    maxDmsPerDay: 30, minSecondsBetweenDms: 0, maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
 
   // Not due yet.
   store.recentLeads = [ready('a1', { autoSendAt: Date.now() + 90000 })];
   let ar = await bg.runAutoQueue();
-  ok('a countdown still running posts nothing', ar.due === 0, JSON.stringify(ar));
+  ok('a countdown still running sends nothing', ar.due === 0, JSON.stringify(ar));
 
-  // Due, and eligible.
+  // Due, and eligible: the PM goes, the public reply does not.
   globalThis.__acting = 'a2';
-  postResult = { ok: true, postUrl: 'https://bhw/threads/x.a2/post-1' };
+  dmResult = { ok: true, sent: true };
   store.recentLeads = [ready('a2', { autoSendAt: Date.now() - 1000 })];
   ar = await bg.runAutoQueue();
   let l = (await getLeads()).find((x) => x.threadId === 'a2');
-  ok('a countdown that ran out posts by itself', l.status === 'POSTED', l.status);
-  ok('and is recorded as an unattended post', !!l.autoSendedAt, JSON.stringify(l.autoSendedAt));
+  ok('a countdown that ran out sends the PM by itself', l.pmSent === true, JSON.stringify({ pmSent: l.pmSent, blocked: l.autoSendBlocked }));
+  ok('and the public reply is NOT posted', l.status !== 'POSTED', l.status);
+  ok('and is recorded as an unattended send', !!l.autoSentAt, JSON.stringify(l.autoSentAt));
   ok('and the countdown is cleared', !l.autoSendAt, String(l.autoSendAt));
 
-  // Re-checked at posting time.
-  store.recentLeads = [ready('a3', { autoSendAt: Date.now() - 1000, body: '' })];
+  // The Claude screen, re-checked at the moment of sending.
+  store.recentLeads = [ready('a3', { autoSendAt: Date.now() - 1000, aiSpecifics: null, draftedByNote: 'no Claude key set' })];
   globalThis.__acting = 'a3';
   await bg.runAutoQueue();
   l = (await getLeads()).find((x) => x.threadId === 'a3');
-  ok('a draft that lost its post body is held at the last moment', l.status === 'SENT', l.status);
-  ok('and says why', /never read/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+  ok('a thread Claude never screened is not messaged', !l.pmSent, JSON.stringify(l.pmSent));
+  ok('and says why', /did not screen/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+  ok('and is never retried', !l.autoSendAt, String(l.autoSendAt));
+
+  store.recentLeads = [ready('a3b', { autoSendAt: Date.now() - 1000, aiSpecifics: { tips: ['x'], pm: 'no', why: 'a seller advertising' } })];
+  globalThis.__acting = 'a3b';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'a3b');
+  ok('a thread Claude screened out is not messaged', !l.pmSent && /screened it out/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
 
   // Switched off, nothing happens.
   await setConfig({ autoMode: false });
   store.recentLeads = [ready('a4', { autoSendAt: Date.now() - 1000 })];
   ar = await bg.runAutoQueue();
   ok('switched off it does nothing', ar.skipped === 'off', JSON.stringify(ar));
+  ok('and the PM was not sent', !(await getLeads()).find((x) => x.threadId === 'a4').pmSent);
 
-  // Hold, from the phone - the same button night mode uses.
+  // Hold, from the phone.
   await setConfig({ autoMode: true });
   store.recentLeads = [ready('a5', { autoSendAt: Date.now() + 90000 })];
   tgCalls = [];
   updates = [tap('h:a5')];
   await bg.pollTaps();
   l = (await getLeads()).find((x) => x.threadId === 'a5');
-  ok('tapping Hold stops the auto-mode countdown too', !l.autoSendAt && l.autoSendHeld === true,
+  ok('tapping Hold stops the auto-mode countdown', !l.autoSendAt && l.autoSendHeld === true,
      JSON.stringify({ at: l.autoSendAt, held: l.autoSendHeld }));
   store.recentLeads = [{ ...l }];
   await bg.runAutoQueue();
-  ok('a held lead never posts itself afterwards', (await getLeads()).find((x) => x.threadId === 'a5').status === 'SENT');
+  ok('a held lead never sends itself afterwards', !(await getLeads()).find((x) => x.threadId === 'a5').pmSent);
+
+  // "auto off" stops a countdown already running.
+  store.recentLeads = [ready('a6', { autoSendAt: Date.now() + 90000 })];
+  updates = [{ update_id: 9901, message: { message_id: 9901, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 'a6');
+  ok('"auto off" stops a countdown in progress', !l.autoSendAt && /switched off/.test(l.autoSendBlocked || ''), JSON.stringify({ at: l.autoSendAt, why: l.autoSendBlocked }));
 
   await setConfig({ autoMode: false, maxPostsPerDay: 10 });
 }
