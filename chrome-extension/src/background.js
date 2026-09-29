@@ -31,7 +31,7 @@ import { materialMessages } from './material.js';
 import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
-import { alive } from './alive.js';
+import { alive, held } from './alive.js';
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
@@ -181,6 +181,7 @@ export async function syncSentPms({ pages = 1 } = {}) {
 // ---------------------------------------------------------------- lifecycle
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  await ownUpToInterruption().catch(() => {});
   // A fresh install on a new machine: take the settings back from sync before
   // anything reads them, or the extension comes up looking configured - the
   // vault has the secrets - with every setting silently back to its default.
@@ -235,6 +236,7 @@ async function refreshIfTemplatesChanged(cfg) {
   }
 }
 chrome.runtime.onStartup.addListener(async () => {
+  await ownUpToInterruption().catch(() => {});
   // Also on every browser start, not just install: on a server the folder may
   // be updated underneath a Chrome that is never reinstalled, and a restart is
   // the moment to notice.
@@ -353,11 +355,40 @@ export async function scheduleAlarms(cfg) {
  * manifest on disk with the one we started with and reload ourselves.
  * Settings and the local database live in chrome.storage and survive it.
  */
+const JOB_KEY = 'jobInFlight';
+/** A long job leaves a note while it runs, so an update can wait for it and a restart can own up to it. */
+async function jobStart(what) { await chrome.storage.local.set({ [JOB_KEY]: { what, at: Date.now() } }); }
+async function jobEnd() { await chrome.storage.local.remove(JOB_KEY); }
+async function jobInFlight() {
+  const { [JOB_KEY]: j } = await chrome.storage.local.get(JOB_KEY);
+  return !!(j && Date.now() - j.at < 4 * 60000);
+}
+/** On start: if the last run was cut off mid-job, say so rather than leaving you waiting. */
+async function ownUpToInterruption() {
+  const { [JOB_KEY]: j } = await chrome.storage.local.get(JOB_KEY);
+  if (!j) return;
+  await chrome.storage.local.remove(JOB_KEY);
+  if (Date.now() - j.at > 15 * 60000) return;
+  await log(`the extension restarted in the middle of "${j.what}" - it was not finished`, 'error');
+  const cfg = await getConfig();
+  if (cfg.telegramChatId) {
+    await telegram.say(cfg.telegramChatId, `⚠️ The extension restarted in the middle of "${j.what}", so it was not finished and nothing was sent. Send the command again.`).catch(() => {});
+  }
+}
+
 async function checkForUpdate() {
   const running = chrome.runtime.getManifest().version;
   try {
     const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
     const onDisk = (await res.json()).version;
+    // Never reload in the middle of a job. A reload kills whatever is running -
+    // a PM half sent, a test half way through Claude - with no error anywhere.
+    // This check itself holds the worker once, so more than one means real work.
+    const busy = held() > 1 || (await jobInFlight());
+    if (onDisk && onDisk !== running && busy) {
+      await logOnce('updateWaits', `new version on disk (${running} → ${onDisk}) - waiting for the job in progress to finish before reloading`, 'info', 5);
+      return { reloading: false, version: running, waiting: onDisk };
+    }
     if (onDisk && onDisk !== running) {
       await log(`new version on disk (${running} → ${onDisk}) — reloading`);
       chrome.runtime.reload();
@@ -3201,6 +3232,12 @@ function claudeLines(ai, genericToday = 0) {
  * not switched on, so no other thread is touched, and nothing public is posted.
  */
 export async function autoTest(cfg) {
+  await jobStart('auto test');
+  try { return await autoTestRun(cfg); }
+  finally { await jobEnd(); }
+}
+
+async function autoTestRun(cfg) {
   const say = (t) => telegram.say(cfg.telegramChatId, t);
   const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
   const lead = (await getLeads())
@@ -3220,6 +3257,9 @@ export async function autoTest(cfg) {
     if (got.body) { l = { ...l, body: got.body, replies: got.replies || [] }; await updateLead(l.threadId, { body: l.body, replies: l.replies }); }
   }
 
+  await say(String(l.body || '').trim()
+    ? `📖 Read the post (${String(l.body).length} characters, ${(l.replies || []).length} repl${(l.replies || []).length === 1 ? 'y' : 'ies'} on it). Asking Claude now - up to 45 seconds…`
+    : '📖 The post could not be read (BHW did not show it). Asking Claude anyway - without the post the screen will refuse, which is the rule.');
   const { specifics, note } = await specificsFor([l], { ...cfg, aiSpecifics: true }, { force: true });
   const got = specifics[String(l.threadId)];
   if (!got) {

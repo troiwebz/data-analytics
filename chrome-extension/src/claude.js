@@ -380,12 +380,18 @@ export async function writeSpecifics(leads, cfg = {}) {
     messages: [{ role: 'user', content: threads }]
   };
 
+  // fetch has no timeout of its own. A request that stalls would leave
+  // whatever asked for it waiting for ever, with nothing in the log.
   let res, data;
+  const ctl = new AbortController();
+  const bail = setTimeout(() => ctl.abort(), 45000);
   try {
-    res = await fetch(API, { method: 'POST', headers: headers(key), body: JSON.stringify(body) });
+    res = await fetch(API, { method: 'POST', headers: headers(key), body: JSON.stringify(body), signal: ctl.signal });
     data = await res.json().catch(() => ({}));
   } catch (e) {
-    return { specifics: {}, note: `could not reach Anthropic: ${e.message}` };
+    return { specifics: {}, note: e.name === 'AbortError' ? 'Anthropic did not answer within 45 seconds' : `could not reach Anthropic: ${e.message}` };
+  } finally {
+    clearTimeout(bail);
   }
   if (!res.ok) {
     const m = (data.error && data.error.message) || `HTTP ${res.status}`;
