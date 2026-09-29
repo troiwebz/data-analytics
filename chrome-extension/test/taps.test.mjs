@@ -990,6 +990,19 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('"auto off" turns it off', (await (await import('../src/config.js')).getConfig()).autoMode === false);
 
   // Never mistaken for a draft rewrite.
+  // Said the way you would say it out loud.
+  for (const [text, want] of [['auto mode on', true], ['Auto Mode Off', false], ['automode on', true], ['auto-mode off', false],
+                              ['turn auto on', true], ['auto mode off.', false], ['Auto on', true], ['AUTO OFF', false]]) {
+    updates = [{ update_id: 9800 + Math.floor(Math.random() * 90), message: { message_id: 9800, text, chat: { id: 999 }, from: { id: 5 } } }];
+    await bg.pollTaps();
+    ok(`"${text}" switches it ${want ? 'on' : 'off'}`, (await (await import('../src/config.js')).getConfig()).autoMode === want);
+  }
+  tgCalls = [];
+  updates = [{ update_id: 9899, message: { message_id: 9899, text: 'auto mode', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto mode" alone reports the state', tgCalls.some((c) => /Auto mode is (ON|OFF)/.test(JSON.stringify(c))), JSON.stringify(tgCalls).slice(0, 200));
+  await (await import('../src/config.js')).setConfig({ autoMode: false });
+
   ok('typing it never becomes a draft', !(await getLeads()).some((l) => l.draft === 'auto on' || l.dm === 'auto on'));
 }
 
