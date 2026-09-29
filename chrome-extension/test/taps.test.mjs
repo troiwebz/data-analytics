@@ -972,7 +972,8 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
                message: { message_id: 95, text: 'auto', chat: { id: 999 }, from: { id: 5 } } }];
   await bg.pollTaps();
   let sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
-  ok('"auto" alone reports the current state', /currently OFF/.test(sent), sent);
+  ok('"auto" alone reports the current state', /Auto mode is OFF/.test(sent), sent);
+  ok('and the numbers with it', /PMs sent by itself/.test(sent) && /Counting down/.test(sent) && /Claude screen/.test(sent), sent);
 
   tgCalls = [];
   updates = [{ update_id: Math.floor(Math.random() * 1e6),

@@ -847,7 +847,8 @@ export async function statusReport(cfg) {
       + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
     `Still to do: ${todo.length}`,
     `⚡ Auto mode: ${cfg.autoMode ? 'ON' : 'off'}`
-      + (cfg.autoMode && autoQueue.length ? ` — ${autoQueue.length} counting down` : ''),
+      + (cfg.autoMode && autoQueue.length ? ` — ${autoQueue.length} counting down` : '')
+      + ` · ${leads.filter((l) => l.autoSentAt && String(new Date(l.autoSentAt).toLocaleDateString('en-CA')) === day).length} PM(s) auto-sent today (send "auto" for detail)`,
     ai ? `🤖 Claude: $${ai.spentToday.toFixed(2)}/${ai.budget ? `$${ai.budget.toFixed(2)}` : '∞'} today`
         + (ai.overBudget ? ' — OVER BUDGET, today\'s drafts are falling back to generic rules' : '')
         + (genericToday ? ` (${genericToday} generic today)` : '')
@@ -1747,6 +1748,7 @@ const HELP = [
   '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
   '<b>load Google Ads 2</b> - put that forum\'s last 2 days of threads into the queue for <b>next</b>',
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
+  '<b>auto</b> - auto mode in numbers: sent today, counting down, left for you and why · <b>auto on</b> / <b>auto off</b>',
   '<b>stats</b> - the dashboard numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
   '',
   'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
@@ -2490,8 +2492,7 @@ export async function pollTaps() {
               + (noKey ? '\n\n⚠️ Claude is not available on this install (no key saved, or switched off), so NOTHING will send until you add the key in Settings. That is the rule working: no Claude screen, no PM.' : '')
             : '⚡ Auto mode is OFF — nothing sends by itself, and any countdown in progress was stopped. Everything waits for your tap.');
         } else {
-          await telegram.say(cfg.telegramChatId,
-            `⚡ Auto mode is currently ${cfg.autoMode ? 'ON' : 'OFF'}. Send "auto on" or "auto off" to change it.`);
+          await telegram.say(cfg.telegramChatId, await autoReport(cfg), { html: true });
         }
         done++;
         continue;
@@ -3040,6 +3041,47 @@ export async function runNightQueue() {
  * runNightQueue and follows the same shape: re-check everything at posting
  * time, never throw, only ever post the public reply.
  */
+/**
+ * Auto mode, in numbers: what it sent by itself today, what is counting
+ * down, what it left for you and why. "auto" on its own, from the phone.
+ */
+export async function autoReport(cfg) {
+  const leads = (await getLeads()).filter((l) => l.kind !== 'thread');
+  const day = new Date().toLocaleDateString('en-CA');
+  const on = (t) => !!t && new Date(t).toLocaleDateString('en-CA') === day;
+  const sent = leads.filter((l) => on(l.autoSentAt));
+  const counting = auto.pending(leads);
+  const held = leads.filter((l) => l.autoSendHeld && !l.pmSent && on(l.foundAt));
+  const skipped = leads.filter((l) => l.autoSendBlocked && !l.pmSent && on(l.foundAt));
+  const since = cfg.autoModeSince ? new Date(cfg.autoModeSince) : null;
+  const sinceOn = since ? leads.filter((l) => l.autoSentAt && new Date(l.autoSentAt) >= since).length : 0;
+  const r = await getRateState();
+  const ai = await aiStatus().catch(() => null);
+  const claudeOk = !!(ai && ai.configured && ai.enabled !== false && !ai.overBudget);
+  const mins = (at) => Math.max(1, Math.round((at - Date.now()) / 60000));
+  // The reasons, most common first, so "why is nothing sending" answers itself.
+  const why = {};
+  for (const l of skipped) { const k = String(l.autoSendBlocked).replace(/\s*\(.*$/, '').replace(/:.*$/, ''); why[k] = (why[k] || 0) + 1; }
+  const reasons = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `   • ${n} × ${escHtml(k)}`);
+  const lines = [
+    `⚡ <b>Auto mode is ${cfg.autoMode ? 'ON' : 'OFF'}</b>` + (cfg.autoMode && since ? ` — since ${since.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''),
+    `✉️ PMs sent by itself: <b>${sent.length} today</b>` + (cfg.autoMode && since ? ` · ${sinceOn} since it was switched on` : ''),
+    `⏳ Counting down: ${counting.length}` + (counting.length ? ` (next in ~${mins(Math.min(...counting.map((l) => l.autoSendAt)))} min)` : ''),
+    `✋ Held by you today: ${held.length}`,
+    `⏭ Left for you today: ${skipped.length}`,
+    ...reasons,
+    `📊 PM cap: ${Number(cfg.maxDmsPerDay) > 0 ? `${r.dmCount || 0}/${cfg.maxDmsPerDay}` : `${r.dmCount || 0} (no cap)`} · public replies are never automatic`,
+    `🧠 Claude screen: ${claudeOk ? 'available' : 'NOT available - nothing will send until the key works'}`
+  ];
+  if (sent.length) {
+    lines.push('', '<b>Sent today</b>');
+    for (const l of sent.slice(0, 8)) lines.push(`• ${escHtml(l.author)} — <a href="${escHtml(l.url)}">${escHtml(String(l.title).slice(0, 60))}</a>`);
+    if (sent.length > 8) lines.push(`…and ${sent.length - 8} more`);
+  }
+  lines.push('', 'Send "auto on" or "auto off" to change it.');
+  return lines.join('\n');
+}
+
 export async function runAutoQueue() {
   const cfg = await getConfig();
   if (!cfg.autoMode) return { skipped: 'off' };
