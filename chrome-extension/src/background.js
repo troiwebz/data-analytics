@@ -885,10 +885,7 @@ export async function statusReport(cfg) {
     `⚡ Auto mode: ${cfg.autoMode ? 'ON' : 'off'}`
       + (cfg.autoMode && autoQueue.length ? ` — ${autoQueue.length} counting down` : '')
       + ` · ${leads.filter((l) => l.autoSentAt && String(new Date(l.autoSentAt).toLocaleDateString('en-CA')) === day).length} PM(s) auto-sent today (send "auto" for detail)`,
-    ai ? `🤖 Claude: $${ai.spentToday.toFixed(2)}/${ai.budget ? `$${ai.budget.toFixed(2)}` : '∞'} today`
-        + (ai.overBudget ? ' — OVER BUDGET, today\'s drafts are falling back to generic rules' : '')
-        + (genericToday ? ` (${genericToday} generic today)` : '')
-      : cfg.aiSpecifics ? '' : '🤖 Claude: off — every draft is the built-in generic rules',
+    ...(ai ? claudeLines(ai, genericToday) : [cfg.aiSpecifics ? '🤖 Claude: status unavailable' : '🤖 Claude: off — every draft is the built-in generic rules']),
     inFlight.length
       ? `⏳ Right now: ${inFlight.map((l) => `"${String(l.title).slice(0, 30)}" `
           + `(${Math.round((Date.now() - l.pmSending) / 1000)}s)`).join(', ')}`
@@ -1784,6 +1781,7 @@ const HELP = [
   '<b>skipped</b> - what was passed over today, by whom and why',
   '<b>today</b> - today\'s posts and PMs · <b>digest</b> / <b>digest 14</b> - per day, last N days',
   '<b>stats</b> - the other-forums numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines',
+  '<b>credits</b> - Claude spend today, daily limit, credits left · <b>credits 20</b> - tell it you topped up $20',
   '',
   '<b>Auto mode</b> (private message only, never a public post)',
   '<b>auto on</b> - switch it on · <b>auto off</b> - switch it off and stop any countdown',
@@ -1827,6 +1825,16 @@ async function takeHuntCommand(ev, cfg) {
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
   if (/^\/?(?:keywords?|commands?|menu)\b/i.test(body)) { await telegram.say(cfg.telegramChatId, HELP, { html: true }); return true; }
   if (/^\/?sent\b\s*$/i.test(body)) { await sendSentList(cfg); return true; }
+  if ((m = body.match(/^\/?(?:credits?|claude|balance)\b\s*\$?\s*([\d.]+)?\s*$/i))) {
+    let note = '';
+    if (m[1]) {
+      try { await addCredits(Number(m[1])); note = `✅ Added $${Number(m[1]).toFixed(2)} to the top-up total.\n\n`; }
+      catch (e) { note = `❌ ${e.message}\n\n`; }
+    }
+    const ai = await aiStatus().catch(() => null);
+    await telegram.say(cfg.telegramChatId, note + (ai ? claudeLines(ai, 0).join('\n') : 'Claude status unavailable.'));
+    return true;
+  }
   if (/^\/?skipped\b\s*$/i.test(body)) { await sendSkippedList(cfg); return true; }
   if ((m = body.match(/^\/?push\b\s*(on|off)?\s*$/i))) {
     if (m[1]) {
@@ -3157,6 +3165,28 @@ export async function runNightQueue() {
  * time, never throw, only ever post the public reply.
  */
 /**
+ * Claude, in money. Spend is exact. The balance is this extension's own
+ * count-down from the top-up you told it about - Anthropic offers no way to
+ * read the real one - so it is labelled an estimate, and says how to set it.
+ */
+function claudeLines(ai, genericToday = 0) {
+  const usd = (n, d = 2) => `$${Number(n || 0).toFixed(d)}`;
+  if (!ai.configured) return ['🤖 Claude: no key saved - Settings → Anthropic API key. Auto mode sends nothing without it.'];
+  const out = [`🤖 Claude${ai.enabled ? '' : ' (switched OFF)'} · ${ai.model}`];
+  out.push(`   Today: ${usd(ai.spentToday, 3)} spent`
+    + (ai.budget > 0 ? ` of ${usd(ai.budget)} daily limit · ${usd(ai.remaining, 3)} left today` : ' · no daily limit')
+    + ` · ${ai.leadsToday || 0} thread(s) screened`
+    + (ai.overBudget ? ' - OVER the daily limit: nothing more is screened, so nothing more auto-sends today' : '')
+    + (genericToday ? ` (${genericToday} generic today)` : ''));
+  out.push(ai.credits > 0
+    ? `   Credits: about ${usd(ai.balance)} left of ${usd(ai.credits)} topped up (${usd(ai.spentTotal)} used) - an estimate`
+      + (ai.balance <= 1 ? ' ⚠️ nearly out, top up at console.anthropic.com' : '')
+    : `   Credits: ${usd(ai.spentTotal)} used so far. Balance unknown - send "credits 20" with what you topped up and I count down from it.`);
+  if (ai.perLead) out.push(`   About ${usd(ai.perLead, 4)} per thread` + (ai.credits > 0 && ai.balance > 0 ? ` - roughly ${Math.floor(ai.balance / ai.perLead)} more thread(s) on this balance` : ''));
+  return out;
+}
+
+/**
  * Auto mode, in numbers: what it sent by itself today, what is counting
  * down, what it left for you and why. "auto" on its own, from the phone.
  */
@@ -3186,7 +3216,8 @@ export async function autoReport(cfg) {
     `⏭ Left for you today: ${skipped.length}`,
     ...reasons,
     `📊 PM cap: ${Number(cfg.maxDmsPerDay) > 0 ? `${r.dmCount || 0}/${cfg.maxDmsPerDay}` : `${r.dmCount || 0} (no cap)`} · public replies are never automatic`,
-    `🧠 Claude screen: ${claudeOk ? 'available' : 'NOT available - nothing will send until the key works'}`
+    `🧠 Claude screen: ${claudeOk ? 'available' : 'NOT available - nothing will send until the key works'}`,
+    ...(ai ? claudeLines(ai, 0).slice(1) : [])
   ];
   if (sent.length) {
     lines.push('', '<b>Sent today</b>');
