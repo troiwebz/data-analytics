@@ -838,10 +838,46 @@ export async function statusReport(cfg) {
   const ai = cfg.aiSpecifics ? await aiStatus().catch(() => null) : null;
   const genericToday = leads.filter((l) => on(l.foundAt) && l.draftedByNote).length;
 
+  // Sent and skipped, split by who decided: you, or auto mode. Local dates,
+  // so "today" is your day and not UTC's.
+  const today = (t) => !!t && new Date(t).toLocaleDateString('en-CA') === day;
+  const haf = leads.filter((l) => l.kind !== 'thread');
+  const other = leads.filter((l) => l.kind === 'thread');
+  const autoSent = haf.filter((l) => today(l.autoSentAt));
+  const pmSentToday = leads.filter((l) => l.pmSent && today(l.pmSentAt));
+  const repliesToday = leads.filter((l) => l.status === 'POSTED' && today(l.decidedAt || l.foundAt));
+  const skippedByYou = leads.filter((l) => l.status === 'SKIPPED' && today(l.decidedAt));
+  const skippedByAuto = haf.filter((l) => l.autoSendBlocked && !l.pmSent && today(l.foundAt));
+  const heldByYou = haf.filter((l) => l.autoSendHeld && !l.pmSent && today(l.foundAt));
+  const whyAuto = {};
+  for (const l of skippedByAuto) { const k = String(l.autoSendBlocked).replace(/\s*\(.*$/, '').replace(/:.*$/, ''); whyAuto[k] = (whyAuto[k] || 0) + 1; }
+  const hours = Number(cfg.threadMaxAgeHours) || 48;
+  const recent = (l) => new Date((l.bump && l.bumpedAt) || l.postedAt || l.foundAt || 0).getTime() >= Date.now() - hours * 3600000;
+  const waitingOther = other.filter((l) => !SILENT_STATUSES.includes(l.status) && recent(l));
+  const waitingHaf = haf.filter((l) => !SILENT_STATUSES.includes(l.status) && !l.pmSent && recent(l));
+  const idx = await indexStats().catch(() => ({ size: 0, bumped: 0 }));
+  const bank = await bankStats().catch(() => ({ threads: 0, replies: 0 }));
+
   const lines = [
     `📊 <b>Today</b>`,
     `Running v${running}`,
     `Found: ${foundToday} · Replies posted: ${postedToday} · PMs sent: ${pmToday}`,
+    '',
+    '<b>✉️ Sent today</b>',
+    `PMs: ${pmSentToday.length} (${autoSent.length} by auto mode, ${Math.max(0, pmSentToday.length - autoSent.length)} by your tap)`,
+    `Public replies: ${repliesToday.length} (${repliesToday.filter((l) => l.kind === 'thread').length} on other forums, ${repliesToday.filter((l) => l.kind !== 'thread').length} on HAF) - always by your tap`,
+    '',
+    '<b>⏭ Skipped today</b>',
+    `By you: ${skippedByYou.length} · Held by you: ${heldByYou.length}`,
+    `By auto mode: ${skippedByAuto.length}` + (skippedByAuto.length ? ' - waiting for you' : ''),
+    ...Object.entries(whyAuto).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `   • ${n} × ${escHtml(k)}`),
+    '',
+    '<b>🧭 Waiting</b>',
+    `HAF: ${waitingHaf.length} · Other forums: ${waitingOther.length} (${waitingOther.filter((l) => l.bump).length} bumped) - last ${hours}h, send "next 5"`,
+    `Found today on other forums: ${other.filter((l) => today(l.foundAt)).length} · Index: ${idx.size} threads · Bank: ${bank.threads} threads`,
+    await checkLine(cfg),
+    '',
+    '<b>⚙️ System</b>',
     `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
     `Telegram queue: ${queued} waiting to be announced, ${stale} held back as too old`
       + (announcedBaseline ? '' : ' — baseline not yet set, old leads may still announce'),
@@ -1740,19 +1776,44 @@ async function takeAnswerReply(ev, cfg) {
 }
 
 const HELP = [
-  '🧭 <b>Commands</b>',
-  '<b>next</b> / <b>next 3</b> - the next unanswered thread(s), newest first · <b>next reset</b> starts over',
-  '<b>haf</b> / <b>haf 24</b> - Hire a Freelancer threads with no DM and no reply yet',
-  '<b>casino</b> - every casino thread in the index · <b>casino new</b> / <b>casino bump</b> / <b>casino done</b>',
-  '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> · <b>unwatch …</b> · <b>watching</b>',
-  '<b>seed Google Ads</b> - read that forum\'s recent replies into the answer bank',
-  '<b>load Google Ads 2</b> - put that forum\'s last 2 days of threads into the queue for <b>next</b>',
-  '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
-  '<b>auto</b> - auto mode in numbers: sent today, counting down, left for you and why · <b>auto on</b> / <b>auto off</b>',
-  '<b>stats</b> - the dashboard numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines · <b>status</b> · <b>pending</b> · <b>today</b> · <b>digest</b> · <b>auto on/off</b>',
+  '🧭 <b>Every keyword this bot understands</b>',
   '',
-  'On any card: 📋 <b>Material</b> sends the question, the replies already there, and similar past answers. '
-  + 'Write your answer (Claude/ChatGPT on your phone), then <b>reply to the card</b> with it - Chrome posts it when you tap 🚀.'
+  '<b>Status</b>',
+  '<b>status</b> - everything: sent, skipped, waiting, auto mode, caps, Claude, connection',
+  '<b>sent</b> - what went out today, who sent it (you or auto), with links',
+  '<b>skipped</b> - what was passed over today, by whom and why',
+  '<b>today</b> - today\'s posts and PMs · <b>digest</b> / <b>digest 14</b> - per day, last N days',
+  '<b>stats</b> - the other-forums numbers · <b>log</b> / <b>log 30</b> - the dashboard log lines',
+  '',
+  '<b>Auto mode</b> (private message only, never a public post)',
+  '<b>auto on</b> - switch it on · <b>auto off</b> - switch it off and stop any countdown',
+  '<b>auto</b> - auto mode in numbers: sent, counting down, held, left for you and why',
+  '',
+  '<b>Working the queue</b>',
+  '<b>next</b> / <b>next 5</b> - the next unanswered thread(s) · <b>next reset</b> - start over',
+  '<b>haf</b> / <b>haf 24</b> - Hire a Freelancer threads with no DM and no reply yet',
+  '<b>pending</b> / <b>pending 48</b> - everything not yet dealt with, as cards',
+  '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
+  '',
+  '<b>Search</b>',
+  '<b>casino</b> (any word) - every thread in the 7-day index that mentions it',
+  '<b>casino new</b> · <b>casino bump</b> · <b>casino done</b> - only fresh, only bumped, only answered',
+  '',
+  '<b>What is watched</b>',
+  '<b>watching</b> - the forums and words being watched',
+  '<b>watch casino</b> / <b>watch casino bump</b> / <b>watch &lt;forum url&gt;</b> - add one',
+  '<b>unwatch casino</b> / <b>unwatch Google Ads</b> - remove one',
+  '<b>load Google Ads 2</b> - put that forum\'s last 2 days into the queue',
+  '<b>seed Google Ads</b> - read that forum\'s replies into the answer bank',
+  '<b>exclude &lt;thread url&gt;</b> - never show that thread again',
+  '',
+  '<b>Your own service threads</b>',
+  '<b>track &lt;url&gt; &lt;label&gt;</b> · <b>untrack &lt;label&gt;</b> · <b>services</b> · <b>bumped &lt;label&gt;</b> · <b>idea &lt;label&gt;</b> · <b>traffic</b>',
+  '',
+  '<b>This list</b>: <b>keywords</b>, <b>commands</b> or <b>help</b>',
+  '',
+  'On any card: 📋 <b>Material</b> sends the question, the replies already there and similar past answers. '
+  + 'Write your answer, then <b>reply to the card</b> with it - Chrome posts it when you tap 🚀.'
 ].join('\n');
 
 async function takeHuntCommand(ev, cfg) {
@@ -1764,6 +1825,9 @@ async function takeHuntCommand(ev, cfg) {
     return true;
   }
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
+  if (/^\/?(?:keywords?|commands?|menu)\b/i.test(body)) { await telegram.say(cfg.telegramChatId, HELP, { html: true }); return true; }
+  if (/^\/?sent\b\s*$/i.test(body)) { await sendSentList(cfg); return true; }
+  if (/^\/?skipped\b\s*$/i.test(body)) { await sendSkippedList(cfg); return true; }
   if ((m = body.match(/^\/?push\b\s*(on|off)?\s*$/i))) {
     if (m[1]) {
       const on = m[1].toLowerCase() === 'on';
@@ -1902,6 +1966,57 @@ async function checkLine(cfg) {
   const next = alarm?.scheduledTime ? `${Math.max(0, Math.round((alarm.scheduledTime - Date.now()) / 60000))} min` : '?';
   return `Checks: last ${ago(lastPollAt)} · What's new ${ago(whatsNewSeenAt)} · next in ${next}`
     + (until ? ` · ⏸ paused by a BHW wall until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '');
+}
+
+/** "sent": everything that went out today, who sent it, with links. */
+async function sendSentList(cfg) {
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const today = (t) => !!t && new Date(t).toLocaleDateString('en-CA') === day;
+  const pms = leads.filter((l) => l.pmSent && today(l.pmSentAt));
+  const replies = leads.filter((l) => l.status === 'POSTED' && today(l.decidedAt || l.foundAt));
+  if (!pms.length && !replies.length) { await telegram.say(cfg.telegramChatId, '📭 Nothing sent yet today.'); return; }
+  const t = (s) => escHtml(String(s || '').slice(0, 55));
+  const lines = [`✉️ <b>Sent today</b> - ${pms.length} PM(s), ${replies.length} public repl${replies.length === 1 ? 'y' : 'ies'}`];
+  if (pms.length) {
+    lines.push('', '<b>PMs</b>');
+    for (const l of pms.slice(0, 15)) lines.push(`• ${today(l.autoSentAt) ? '⚡ auto' : '👆 you'} → ${escHtml(l.author)} - <a href="${escHtml(l.pmUrl || l.url)}">${t(l.title)}</a>`);
+    if (pms.length > 15) lines.push(`…and ${pms.length - 15} more`);
+  }
+  if (replies.length) {
+    lines.push('', '<b>Public replies</b> (always your tap)');
+    for (const l of replies.slice(0, 15)) lines.push(`• ${escHtml(l.sourceLabel || 'HAF')} - <a href="${escHtml(l.postUrl || l.url)}">${t(l.title)}</a>`);
+    if (replies.length > 15) lines.push(`…and ${replies.length - 15} more`);
+  }
+  await telegram.say(cfg.telegramChatId, lines.join('\n').slice(0, 3900), { html: true });
+}
+
+/** "skipped": what was passed over today, by whom, and why. */
+async function sendSkippedList(cfg) {
+  const leads = await getLeads();
+  const day = new Date().toLocaleDateString('en-CA');
+  const today = (t) => !!t && new Date(t).toLocaleDateString('en-CA') === day;
+  const byYou = leads.filter((l) => l.status === 'SKIPPED' && today(l.decidedAt));
+  const byAuto = leads.filter((l) => l.kind !== 'thread' && l.autoSendBlocked && !l.pmSent && today(l.foundAt));
+  const held = leads.filter((l) => l.kind !== 'thread' && l.autoSendHeld && !l.pmSent && today(l.foundAt));
+  if (!byYou.length && !byAuto.length && !held.length) { await telegram.say(cfg.telegramChatId, '✅ Nothing skipped today.'); return; }
+  const t = (s) => escHtml(String(s || '').slice(0, 50));
+  const lines = [`⏭ <b>Skipped today</b> - ${byAuto.length} by auto mode, ${byYou.length} by you, ${held.length} held`];
+  if (byAuto.length) {
+    lines.push('', '<b>Auto mode left these for you</b> (send the PM yourself from its card, or "pending")');
+    for (const l of byAuto.slice(0, 12)) lines.push(`• <a href="${escHtml(l.url)}">${t(l.title)}</a>\n   ${escHtml(String(l.autoSendBlocked).slice(0, 90))}`);
+    if (byAuto.length > 12) lines.push(`…and ${byAuto.length - 12} more`);
+  }
+  if (held.length) {
+    lines.push('', '<b>Held by you</b>');
+    for (const l of held.slice(0, 8)) lines.push(`• <a href="${escHtml(l.url)}">${t(l.title)}</a>`);
+  }
+  if (byYou.length) {
+    lines.push('', '<b>Skipped by you</b>');
+    for (const l of byYou.slice(0, 12)) lines.push(`• <a href="${escHtml(l.url)}">${t(l.title)}</a>`);
+    if (byYou.length > 12) lines.push(`…and ${byYou.length - 12} more`);
+  }
+  await telegram.say(cfg.telegramChatId, lines.join('\n').slice(0, 3900), { html: true });
 }
 
 /** The dashboard log, on your phone. */
