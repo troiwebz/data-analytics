@@ -46,6 +46,8 @@
   if ($("tableTitle")) new MutationObserver(markQueue).observe($("tableTitle"), { childList: true, characterData: true, subtree: true });
   markQueue();
 
+  // The Campaign button in the header is labelled by hunt.js (running / paused, DMs sent).
+
   try {
     chrome.storage.local.get([KEY], (x) => {
       saved = (x && x[KEY]) || {};

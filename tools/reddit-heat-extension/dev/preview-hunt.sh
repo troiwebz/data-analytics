@@ -7,6 +7,8 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${TMPDIR:-/tmp}/rlt-hunt-preview"
 rm -rf "$OUT"; mkdir -p "$OUT"
 cp "$HERE/lib.js" "$HERE/hunt.js" "$HERE/hunt-simple.js" "$HERE/dev/mock-chrome.js" "$OUT/"
-sed 's#<script src="lib.js"></script>#<script src="mock-chrome.js"></script>\n<script src="lib.js"></script>#' "$HERE/hunt.html" > "$OUT/hunt.html"
+# the ?v= stops the browser reusing yesterday's copy of the scripts
+T=$(date +%s)
+sed -e 's#<script src="lib.js"></script>#<script src="mock-chrome.js"></script>\n<script src="lib.js"></script>#' -e "s#src=\"\\([a-z-]*\\.js\\)\"#src=\"\\1?v=$T\"#g" "$HERE/hunt.html" > "$OUT/hunt.html"
 echo "Preview: http://localhost:8765/hunt.html  (Ctrl+C to stop)"
 exec python3 -m http.server 8765 --bind 127.0.0.1 --directory "$OUT"

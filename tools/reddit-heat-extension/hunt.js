@@ -472,7 +472,7 @@ function applyView(list) {
   });
   const roleOrder = { technical: 0, marketing: 1, design: 2, business: 3, unclear: 4 };
   const by = {
-    fit: null,
+    fit: (a, b) => (b.score || 0) - (a.score || 0),
     newest: (a, b) => (b.created || 0) - (a.created || 0),
     oldest: (a, b) => (a.created || 0) - (b.created || 0),
     fewest: (a, b) => (a.comments || 0) - (b.comments || 0),
@@ -497,6 +497,7 @@ const COL_SORT = {
   wants: (a, b) => String(huntSynopsis(a).wants || "").localeCompare(String(huntSynopsis(b).wants || "")),
   country: (a, b) => (huntPlace(a).country || "zzz").localeCompare(huntPlace(b).country || "zzz"),
   age: (a, b) => (b.created || b.firstSeen || 0) - (a.created || a.firstSeen || 0),   // youngest first
+  comments: (a, b) => (a.comments || 0) - (b.comments || 0),                          // least crowded first
   fit: (a, b) => (b.score || 0) - (a.score || 0),                                      // best first
 };
 let colSort = { key: "", dir: 1 };
@@ -520,7 +521,9 @@ function fillSelect(id, values, keep, anyLabel) {
   el.innerHTML = `<option value="">${anyLabel}</option>` + opts.map((o) => `<option value="${esc(o)}">${esc(o)} (${counts[o]})</option>`).join("");
   el.value = opts.includes(keep) ? keep : "";
 }
-function viewChanged() {
+function viewChanged(e) {
+  // choosing in the Sort box undoes a clicked column, so the box always means what it says
+  if (e && e.target && e.target.id === "qSort" && colSort.key) { colSort = { key: "", dir: 1 }; try { localStorage.removeItem("huntCols"); } catch (_) { /* fine */ } }
   viewSave();
   queue = applyView(allQueue);
   cur = queue[0] || null; variant = 0;
@@ -986,7 +989,8 @@ function drawQueueRows() {
   const rows = [...queue.map((p) => ({ p, done: null })), ...doneToday.map((d) => ({ p: d, done: d }))];
   const key = colSort.key && COL_SORT[colSort.key] ? colSort.key : "";
   if (key) rows.sort((a, b) => COL_SORT[key](a.p, b.p) * colSort.dir);
-  else rows.sort((a, b) => (b.p.created || b.p.firstSeen || b.p.at || 0) - (a.p.created || a.p.firstSeen || a.p.at || 0));
+  // no column clicked: the queue keeps the Sort box's order, today's finished ones follow, newest first
+  else rows.sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || (a.done && b.done ? (b.p.at || 0) - (a.p.at || 0) : 0));
   const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const html = rows.map(({ p, done }) => {
     if (done) {
@@ -994,14 +998,14 @@ function drawQueueRows() {
       return `<tr class="struck"><td></td>`
         + `<td><b title="${esc(p.title || "")}">${esc(titleForRow(p.title))}</b><br><span>r/${esc(p.sub || "")} · ${esc(p.author || "")}</span></td>`
         + `<td class="mark">${esc(marks)}</td><td></td><td></td>`
-        + `<td class="when" style="color:#98a0b3">${esc(clock(done.at))}</td><td></td></tr>`;
+        + `<td class="when" style="color:#98a0b3">${esc(clock(done.at))}</td><td></td><td></td></tr>`;
     }
     const s = huntSynopsis(p);
     const open = openRow === p.id;
     const half = p.repliedAt ? ` <span class="mark" style="color:#7ee29a;font-size:11px">reply ✓ — DM still to send</span>` : "";
     const row = `<tr class="pick" data-id="${p.id}"${open ? ' style="background:#1b1f27"' : ""}><td><input type="checkbox" class="rowpick" data-id="${p.id}"${picked.has(p.id) ? " checked" : ""}></td>`
       + `<td><b title="${esc(p.title)}">${esc(titleForRow(p.title))}</b>${half}<br>${badgeTag(p)} <span style="color:#98a0b3">r/${esc(p.sub)} · ${esc(p.author)}${p.kind ? " · " + esc(p.kind) : ""}${p.budget ? " · " + esc(p.budget) : ""}</span></td>`
-      + `<td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td>${p.score}</td></tr>`;
+      + `<td>${esc(s.who)}</td><td>${esc(s.wants)}</td><td>${esc(s.country || "—")}</td><td>${ago(p.created || p.firstSeen)}</td><td title="comments on the post already">${p.comments || 0}</td><td>${p.score}</td></tr>`;
     if (!open) return row;
     const bits = [["Who", s.who], ["Wants", s.wants], ["Where", s.country], ["Stage", s.stage], ["Money", s.money], ["Traction", s.traction || s.revenue], ["Time", s.commit], ["Equity", s.equity]].filter(([, v]) => v);
     const gist = String(p.body || "").replace(/\s+/g, " ").trim().slice(0, 320);
@@ -1146,7 +1150,7 @@ function showTable(kind) {
     $("tableTitle").textContent = queue.length === allQueue.length ? `Queue (${queue.length})` : `Queue (${queue.length} of ${allQueue.length} — filtered)`;
     $("tableNote").textContent = "Everyone waiting, in the order and filter set above. Click a row for a quick read, click again to work on it.";
     $("tableHead").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="pickAll" title="select everything shown"></th>`
-      + colHead("post", "Post") + colHead("who", "Who") + colHead("wants", "Wants") + colHead("country", "Country") + colHead("age", "Age") + colHead("fit", "Fit") + `</tr>`;
+      + colHead("post", "Post") + colHead("who", "Who") + colHead("wants", "Wants") + colHead("country", "Country") + colHead("age", "Age") + colHead("comments", "Comments") + colHead("fit", "Fit") + `</tr>`;
     tableText = () => queue.map((p) => { const s = huntSynopsis(p); return `${p.title}  [r/${p.sub} · ${p.role} · ${s.who} · ${s.country || "?"} · ${ago(p.created || p.firstSeen)} · ${p.comments} comments]`; }).join("\n");
     // today's finished posts come from the worker, then the list is drawn once
     send({ type: "hunt-done" }).then((r) => {
@@ -1676,8 +1680,8 @@ async function apShow() {
   if (!r || !r.ok) return;
   b.dataset.on = r.on ? "1" : "";
   const wait = r.nextAt && r.nextAt > Date.now() ? Math.ceil((r.nextAt - Date.now()) / 60000) : 0;
-  const state = !r.on ? "" : r.blocked ? " · PAUSED" : r.job ? ` · sending to u/${r.job.author}` : wait ? ` · next DM in ${wait}m` : r.waiting ? ` · ${r.waiting} to check` : " · waiting for a new post";
-  b.textContent = r.on ? `AUTO mode · ${r.gate.sentToday}/${r.gate.cap} DMs today${state}` : "Manual mode";
+  const state = !r.on ? "" : r.blocked ? " · PAUSED" : r.job ? " · sending" : wait ? ` · next ${wait}m` : r.waiting ? ` · ${r.waiting} to check` : " · waiting";
+  b.textContent = r.on ? `AUTO · ${r.gate.sentToday}/${r.gate.cap} today${state}` : "Manual mode";
   b.title = r.on && r.blocked ? "Paused: " + r.blocked + ". Shift-click for the Auto / Manual page." : "Shift-click for the Auto / Manual page: rules, interval and what it did.";
   b.className = r.on ? "stat go" : "ghost";
   b.style.borderColor = r.on && r.blocked ? "#e6c76b" : "";

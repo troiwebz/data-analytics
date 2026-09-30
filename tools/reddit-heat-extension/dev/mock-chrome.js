@@ -53,7 +53,7 @@
         return { rows, counts: { waiting: 2, opened: 0, sent: 1, cancelled: 1, gone: 0, done: 0 }, waiting: 2, next: 60000, nextAt: now + 60000, gateWaitMs: 0, gateReason: "" };
       }
       case "inbox-list": return { threads: [], needs: 2 };
-      case "hunt-campaign-status": return { ok: true, state: "idle" };
+      case "hunt-campaign-status": return { ok: true, running: { id: "c1", startedAt: now - H, state: "running", plannedDms: 15, dmsSent: 4, dmsWaiting: 10, dmsOpen: 1, dmsDropped: 0 } };
       case "hunt-campaign-get": return {};
       case "hunt-done": return { rows: [] };
       case "hunt-whoami": return { me: "Noah_Basera" };

@@ -189,6 +189,15 @@
   // click anywhere, or press any key, and the countdown stops
   document.addEventListener("click", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
   document.addEventListener("keydown", () => sendCancel("Stopped. The DM is in the box, press send when you want it to go."), true);
+  // What the message box holds now. A textarea keeps what you see in .value;
+  // its child nodes only hold what it started with, which is why the old check
+  // always read an empty box and refused to send.
+  function boxText(el) {
+    if (!el) return "";
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return String(el.value || "");
+    return text(el);
+  }
+  const norm = (s) => String(s || "").replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, " ").trim();
   function sendCountdown(name, id, seconds, wanted) {
     const key = name + ":" + (id || "");
     if (SEND.key === key) return;
@@ -200,16 +209,17 @@
         const c = findComposer();
         if (!c) return say("Could not find the message box, so nothing was sent.", "#ff8a65");
         // the box must hold exactly the DM we wrote, or it does not go
-        const inBox = text(c).replace(/\s+/g, " ").trim();
-        const want = String(SEND.text || "").replace(/\s+/g, " ").trim();
+        const inBox = norm(boxText(c));
+        const want = norm(SEND.text);
         if (want && inBox !== want) return say("What is in the chat box is not the DM I wrote, so nothing was sent. Read it and press send yourself.", "#ff8a65");
-        const before = text(c);
+        const before = boxText(c);
         pressSend(c);
         setTimeout(() => {
-          const gone = text(findComposer() || c) !== before || !text(findComposer() || c);
+          const now = boxText(findComposer() || c);
+          const gone = now !== before || !now.trim();
           if (!gone) { const b = findSend(); if (b) b.click(); }
           setTimeout(() => {
-            const sent = !text(findComposer() || c);
+            const sent = !boxText(findComposer() || c).trim();
             say(sent ? `DM sent to ${name}.` : "The box would not send by itself — press Reddit's send button.", sent ? "#7ee29a" : "#ff8a65");
             if (sent && id) chrome.runtime.sendMessage({ type: "hunt-act", id, action: "dm" });
           }, 700);

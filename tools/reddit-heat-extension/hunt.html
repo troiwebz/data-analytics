@@ -73,7 +73,9 @@
   #tableHead th:nth-child(3), #tableHead th:nth-child(4) { width:13%; }
   #tableHead th:nth-child(5) { width:12%; }
   #tableHead th:nth-child(6) { width:9%; }
-  #tableHead th:nth-child(7) { width:6%; text-align:right; }
+  #tableHead th:nth-child(7) { width:7%; text-align:right; }
+  #tableHead th:nth-child(8) { width:5%; text-align:right; }
+  #tableRows td:nth-child(8) { text-align:right; color:var(--dim); }
   #tableRows td:nth-child(7) { text-align:right; color:var(--dim); }
   #tableRows tr.pick td { border-top:1px solid var(--line); }
   #tableRows tr.pick b { font-weight:600; font-size:13.5px; line-height:1.4; }
@@ -210,6 +212,7 @@
   <span class="grow"></span>
   <button id="toggle" class="primary">Start watching</button>
   <button id="apMode" class="ghost" title="Auto mode: every new post found from now on gets one private DM by itself, after Claude reads it. Manual mode: nothing is sent by itself.">Manual mode</button>
+  <button class="stat" id="openCampaign" title="the campaign: what is running, what went, what is next">Campaign</button>
   <button class="stat" id="schedChip" hidden title="the schedule: every DM lined up, and what became of it"></button>
   <button class="stat" id="openInbox" title="replies to your DMs · opens in its own tab">Inbox ↗ <b id="sInbox">0</b></button>
   <span class="menuWrap">
@@ -217,7 +220,6 @@
     <span class="menu" id="setMenu" hidden>
       <button id="openSetup" class="ghost">Your details</button>
       <button id="openAi" class="ghost">AI writing · Claude key</button>
-      <button id="openCampaign" class="ghost">Campaign</button>
       <button id="theme" class="ghost">☀ light</button>
     </span>
   </span>
