@@ -578,6 +578,36 @@ export async function testCall(cfg = {}) {
   };
 }
 
+/**
+ * One free-form call, for tools that are not drafting a lead (Thread Lab).
+ * Same key, same model, same daily limit and the same spend counter as
+ * everything else, so the dashboard's Claude tiles stay true.
+ */
+export async function askClaude(system, user, { maxTokens = 2500, timeoutMs = 90000 } = {}) {
+  const ai = await getAi();
+  const key = await vault.getKey();
+  if (!key) throw new Error('no Claude key saved - Settings → Anthropic API key');
+  if (ai.enabled === false) throw new Error('Claude is switched off in Settings');
+  const budget = Number(ai.budget) || 0;
+  if (budget > 0 && spendOf(usageToday(ai), ai.model) >= budget) throw new Error(`today's Claude limit of $${budget.toFixed(2)} is used up`);
+  const ctl = new AbortController();
+  const bail = setTimeout(() => ctl.abort(), timeoutMs);
+  let res, data;
+  try {
+    res = await fetch(API, { method: 'POST', headers: headers(key), signal: ctl.signal,
+      body: JSON.stringify({ model: ai.model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }) });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? `Anthropic did not answer within ${timeoutMs / 1000} seconds` : `could not reach Anthropic: ${e.message}`);
+  } finally { clearTimeout(bail); }
+  if (!res.ok) throw new Error(res.status === 401 ? 'Anthropic rejected the key' : String(data?.error?.message || `HTTP ${res.status}`).slice(0, 200));
+  if (data.stop_reason === 'refusal') throw new Error('Claude declined this one');
+  const before = spendOf(usageToday(await getAi()), ai.model);
+  await recordUsage(data.usage, 0);
+  const cost = spendOf(usageToday(await getAi()), ai.model) - before;
+  return { text: (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''), cost: round(cost, 5), model: ai.model };
+}
+
 /** The stored key, for copying into a password manager. Never logged. */
 export const revealKey = () => vault.getKey();
 

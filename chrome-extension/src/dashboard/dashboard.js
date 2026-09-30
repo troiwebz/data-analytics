@@ -157,12 +157,25 @@ async function renderInner() {
   const own = await chrome.runtime.sendMessage({ cmd: 'owner-status' }).catch(() => null);
   const bar = $('ownerbar');
   if (bar) {
+    const NAME = { mac: 'MacBook', win: 'Windows server', linux: 'Linux server' };
+    const nameOf = (os) => NAME[String(os || '').toLowerCase()] || 'another machine';
+    const paint = (bg, border, ink) => { bar.style.background = bg; bar.style.borderColor = border; bar.style.color = ink; };
     if (own && own.known && !own.active) {
       const mins = Math.max(0, Math.round((Date.now() - (own.owner?.at || 0)) / 60000));
       bar.hidden = false;
-      bar.innerHTML = `<b>This copy is PASSIVE.</b> Another copy of HAF Watcher (on ${esc(own.owner?.os || 'another machine')}, last seen ${mins} min ago) owns this bot, `
-        + `so this one reads nothing, sends nothing and posts nothing. `
-        + `<button id="takeover" style="margin-left:8px">Make this copy the active one</button>`;
+      paint('#fffbeb', '#fde68a', '#92400e');
+      bar.innerHTML = `<b>⏸ Standby.</b> The main system is the <b>${esc(nameOf(own.owner?.os))}</b>${own.owner?.pin ? ' (chosen by you)' : ''}, last seen ${mins} min ago. `
+        + `This copy reads nothing, sends nothing and posts nothing. `
+        + (mins > 30 ? `<b>The main system looks switched off</b> - nothing is running anywhere until you start it or choose this one. ` : '')
+        + `<button id="takeover" style="margin-left:8px">Keep THIS as the main system</button>`;
+    } else if (own && own.known && own.active && !own.conflictMinutes) {
+      bar.hidden = false;
+      paint('#f0fdf4', '#bbf7d0', '#166534');
+      bar.innerHTML = own.owner?.pin
+        ? `<b>✅ This ${esc(nameOf(own.me?.os))} is the main system</b> - chosen by you. Any other copy of HAF Watcher stays on standby until you choose it there.`
+        : `<b>This ${esc(nameOf(own.me?.os))} is running as the main system</b> for now. `
+          + `<button id="takeover" style="margin-left:8px">Keep this as the main system</button> `
+          + `<span style="opacity:.8">so it stays main even if it is switched off for a while.</span>`;
     } else if (own && own.conflictMinutes) {
       bar.hidden = false;
       bar.innerHTML = `<b>🚨 Another program was reading your Telegram bot ${own.conflictMinutes} min ago.</b> A second copy of HAF Watcher is running somewhere with the same token, `
@@ -732,7 +745,7 @@ $('seedbank').addEventListener('click', async () => {
 });
 document.addEventListener('click', async (e) => {
   if (e.target?.id !== 'takeover') return;
-  if (!confirm('Make THIS copy the active one?\n\nThe other copy goes passive within a minute. Only do this on the machine you are sitting at.')) return;
+  if (!confirm('Keep THIS machine as the main system?\n\nAny other copy (MacBook or server) goes on standby within a minute and stays there until you choose it again on that machine.')) return;
   const r = await chrome.runtime.sendMessage({ cmd: 'owner-take' });
   if (r?.error) alert(`Could not take over: ${r.error}`);
   render();
@@ -792,6 +805,7 @@ $('deep').addEventListener('click', async () => {
 $('insights').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/insights/insights.html');
 });
+$('lab').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/lab/lab.html'); });
 $('services').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/services/services.html');
 });

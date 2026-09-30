@@ -28,6 +28,7 @@ import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intent
 import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
+import { runLab } from './lab.js';
 import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
@@ -37,7 +38,7 @@ import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
-import { writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
+import { askClaude, writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
@@ -411,7 +412,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
     // up to date, so that the day it takes over it is running current rules.
     const own = await ownership().catch(() => ({ active: true, known: false }));
     if (own.known && !own.active) {
-      await logOnce('passive', `${describeOwner(own)}. This copy is doing nothing. Open its dashboard and press "Make this copy the active one" to switch.`, 'error', 60);
+      await logOnce('passive', `${describeOwner(own)}. This copy is on standby. Open its dashboard and press "Keep THIS as the main system" to switch.`, 'info', 60);
       if (alarm.name === UPDATE_ALARM) await checkForUpdate();
       return;
     }
@@ -1419,6 +1420,47 @@ async function wall(why) {
 
 const SWEEP_KEY = 'sourcesSweep';
 const FULL_SWEEP_EVERY_MS = 20 * 60000;
+
+// ---------------------------------------------------------------- Thread Lab
+
+const LAB_KEY = 'labRun';
+const LAB_HISTORY = 'labHistory';
+
+/**
+ * Start a Thread Lab run and return at once; the page follows it through
+ * storage. It reads pages in real tabs at the usual pace, so it takes a few
+ * minutes, and one run at a time is plenty.
+ */
+async function startLab(opts) {
+  const { [LAB_KEY]: cur } = await chrome.storage.local.get(LAB_KEY);
+  if (cur?.status === 'running' && Date.now() - (cur.startedAt || 0) < 15 * 60000) return { error: 'A run is already going - it finishes in a few minutes.' };
+  const until = await walled();
+  if (until) return { error: `BlackHatWorld showed a wall recently; reading resumes at ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` };
+  const run = { status: 'running', startedAt: Date.now(), steps: [], opts };
+  await chrome.storage.local.set({ [LAB_KEY]: run });
+  alive(async () => {
+    await jobStart('Thread Lab');
+    const step = async (m) => { run.steps.push({ t: Date.now(), m }); await chrome.storage.local.set({ [LAB_KEY]: { ...run } }); };
+    try {
+      const gap = () => new Promise((r) => setTimeout(r, 4000 + Math.random() * 5000));
+      const result = await runLab(opts, {
+        step,
+        readThread: async (u) => { await gap(); return readThreadTab(u); },
+        readListing: async (u, pages) => { await gap(); return readListingPages(u, pages, { gapMs: 6000 }); },
+        ask: (system, user) => askClaude(system, user, { maxTokens: 3000 })
+      });
+      const done = { ...run, status: 'done', finishedAt: Date.now(), result };
+      const { [LAB_HISTORY]: hist = [] } = await chrome.storage.local.get(LAB_HISTORY);
+      await chrome.storage.local.set({ [LAB_KEY]: done, [LAB_HISTORY]: [result, ...hist].slice(0, 10) });
+      await log(`Thread Lab: ${result.competitors.length} competitor(s) studied for "${String(result.mine.title).slice(0, 60)}" ($${Number(result.cost || 0).toFixed(3)})`);
+    } catch (e) {
+      if (/blocked/i.test(e.message)) await wall(e.message);
+      await chrome.storage.local.set({ [LAB_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message } });
+      await log(`Thread Lab: ${e.message}`, 'error');
+    } finally { await jobEnd(); }
+  }).catch(() => {});
+  return { started: true };
+}
 
 export async function pollSources({ all = false } = {}) {
   const cfg = await getConfig();
@@ -4059,10 +4101,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'poll-now':      sendResponse(await runCheck().catch((e) => ({ error: e.message }))); break;
       case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
+      case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
       case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
       case 'owner-take': {
         const o = await takeOver().catch((e) => ({ error: e.message }));
-        if (!o.error) { await clearLogOnce('passive'); await log('this copy was made the active one by hand'); }
+        if (!o.error) { await clearLogOnce('passive'); await log('you chose this copy as the MAIN system'); }
         sendResponse(o);
         break;
       }

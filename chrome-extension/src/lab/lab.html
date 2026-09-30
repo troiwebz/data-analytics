@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Thread Lab</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0}
+  header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)} button:disabled{opacity:.55;cursor:default}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  button.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+  .w{max-width:980px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+  .card h2{font-size:15px;margin:0 0 4px}
+  .sub{color:var(--mute);font-size:12.5px}
+  input[type=text]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13px system-ui}
+  .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  label.ck{font-size:13px;display:inline-flex;gap:6px;align-items:center}
+  select{padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+  .steps div{font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#475569}
+  .err{color:var(--red);font-weight:600}
+  .chips span{display:inline-block;padding:2px 9px;margin:0 5px 5px 0;border-radius:99px;font-size:12px;font-weight:600;background:#e2e8f0;color:#334155}
+  .chips.miss span{background:#fee2e2;color:#b91c1c}
+  .chips.win span{background:#dcfce7;color:#15803d}
+  .copy{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;background:#f8fafc}
+  .copy pre{margin:0;white-space:pre-wrap;font:13.5px/1.55 system-ui}
+  .copy .acts{margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  ol,ul{margin:6px 0 0 18px;padding:0} li{margin-bottom:4px}
+  .hist button{margin:0 6px 6px 0;font-weight:500}
+</style>
+<header>
+  <h1>🧪 Thread Lab</h1>
+  <span class="sub" style="color:#94a3b8">what makes a service thread get replies - and copy for yours</span>
+  <span class="sp"></span>
+  <button id="back">← Dashboard</button>
+</header>
+<div class="w">
+  <div class="card">
+    <h2>1. Your service thread</h2>
+    <p class="sub">Paste the link to your own BHW service thread. It reads it, then reads competing threads, finds the ones selling what you sell, ranks them by replies per day and studies the best.</p>
+    <input type="text" id="url" placeholder="https://www.blackhatworld.com/seo/your-service-thread.123456/">
+    <div class="row">
+      <label class="ck"><input type="checkbox" id="rc" checked> Free Review Copies forum</label>
+      <label class="ck"><input type="checkbox" id="own" checked> My thread's own section</label>
+      <label class="ck">Pages each <select id="pages"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+      <label class="ck">Open the best <select id="open"><option>4</option><option selected>6</option><option>8</option></select></label>
+      <span class="sp" style="flex:1"></span>
+      <button class="pri" id="run">Run the Lab</button>
+    </div>
+    <p class="sub" style="margin-top:10px">Read in real tabs at a human pace - 3 pages × 2 places + 6 threads is about 13 page loads, roughly 3-4 minutes. One Claude call at the end, usually a few cents. Nothing is posted.</p>
+  </div>
+  <div class="card" id="progress" hidden><h2>Working…</h2><div class="steps" id="steps"></div></div>
+  <div id="out"></div>
+  <div class="card" id="histCard" hidden><h2>Earlier runs</h2><div class="hist" id="hist"></div></div>
+</div>
+<script type="module" src="lab.js"></script>

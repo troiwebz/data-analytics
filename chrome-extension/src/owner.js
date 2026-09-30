@@ -20,17 +20,24 @@ export const TTL_MS = 12 * 60000;      // a lock older than this is abandoned
 export const BEAT_MS = 4 * 60000;      // the owner re-stamps it this often
 const CACHE_MS = 60000;
 
-export const lockText = (id, os, at = Date.now()) => `HAF owner=${id} os=${os} at=${at}`;
+// pin=1 means you chose this copy as the MAIN system. A pinned lock is never
+// taken over by time: when the main system is switched off the others stay
+// on standby and say so, until you choose again on the one in front of you.
+export const lockText = (id, os, at = Date.now(), pin = false) => `HAF owner=${id} os=${os} at=${at}${pin ? ' pin=1' : ''}`;
 
 export function parseLock(text) {
-  const m = String(text || '').match(/HAF owner=([a-z0-9]+) os=([a-z0-9_]+) at=(\d+)/i);
-  return m ? { id: m[1], os: m[2], at: Number(m[3]) } : null;
+  const m = String(text || '').match(/HAF owner=([a-z0-9]+) os=([a-z0-9_]+) at=(\d+)( pin=1)?/i);
+  return m ? { id: m[1], os: m[2], at: Number(m[3]), pin: !!m[4] } : null;
 }
+
+/** A name a person recognises, not an id. */
+export const machineName = (os) => ({ mac: 'MacBook', win: 'Windows server', linux: 'Linux server', cros: 'Chromebook' }[String(os || '').toLowerCase()] || 'another machine');
 
 /** 'mine' | 'take' (free or abandoned) | 'theirs'. Pure, so the rule can be proven. */
 export function decide(lock, myId, now = Date.now()) {
   if (!lock) return 'take';
   if (lock.id === myId) return 'mine';
+  if (lock.pin) return 'theirs';                 // your choice stands until you change it
   return now - lock.at > TTL_MS ? 'take' : 'theirs';
 }
 
@@ -66,7 +73,7 @@ export async function ownership({ fresh = false } = {}) {
   let d = decide(lock, me.id, now);
   if (d === 'take' || (d === 'mine' && now - lock.at > BEAT_MS)) {
     try {
-      await telegram.setLockText(lockText(me.id, me.os, now));
+      await telegram.setLockText(lockText(me.id, me.os, now, d === 'mine' && !!lock?.pin));
       if (d === 'take') {
         // Two copies can find the lock free in the same second. Look again:
         // whoever wrote last holds it, and the other stands down.
@@ -79,16 +86,16 @@ export async function ownership({ fresh = false } = {}) {
 
   const out = d === 'theirs'
     ? { active: false, known: true, owner: lock, me, checkedAt: now }
-    : { active: true, known: true, owner: { id: me.id, os: me.os, at: now }, me, checkedAt: now };
+    : { active: true, known: true, owner: { id: me.id, os: me.os, at: now, pin: d === 'mine' && !!lock?.pin }, me, checkedAt: now };
   await chrome.storage.local.set({ [STATE]: out });
   return out;
 }
 
-/** You are sitting at this one: make it the owner. The other goes passive within a minute. */
+/** You chose this one as the MAIN system. Pinned: it stays main until you choose another. */
 export async function takeOver() {
   const me = await whoAmI();
-  await telegram.setLockText(lockText(me.id, me.os));
-  const out = { active: true, known: true, owner: { id: me.id, os: me.os, at: Date.now() }, me, checkedAt: Date.now(), took: true };
+  await telegram.setLockText(lockText(me.id, me.os, Date.now(), true));
+  const out = { active: true, known: true, owner: { id: me.id, os: me.os, at: Date.now(), pin: true }, me, checkedAt: Date.now(), took: true };
   await chrome.storage.local.set({ [STATE]: out });
   return out;
 }
@@ -96,8 +103,8 @@ export async function takeOver() {
 /** In words, for the log, the dashboard and Telegram. */
 export function describe(o) {
   if (!o) return 'ownership unknown';
-  if (o.active) return o.known ? 'this copy is the active one' : `this copy is active (${o.reason || 'unshared'})`;
+  if (o.active) return o.known ? (o.owner?.pin ? 'this copy is the MAIN system (chosen by you)' : 'this copy is the active one') : `this copy is active (${o.reason || 'unshared'})`;
   if (!o.known) return `not acting: ${o.reason || 'ownership could not be checked'}`;
   const mins = Math.max(0, Math.round((Date.now() - (o.owner?.at || 0)) / 60000));
-  return `PASSIVE - another copy of HAF Watcher (on ${o.owner?.os || 'another machine'}, last seen ${mins} min ago) owns this bot`;
+  return `STANDBY - the main system is the ${machineName(o.owner?.os)} (last seen ${mins} min ago)${o.owner?.pin ? ', chosen by you' : ''}`;
 }

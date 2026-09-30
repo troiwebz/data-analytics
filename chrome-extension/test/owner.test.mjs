@@ -31,7 +31,7 @@ const asMachine = async (id, os) => { store.instanceId = id; delete store.ownerS
 
 // --- the rule, pure -------------------------------------------------------------
 const now = Date.now();
-ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5 }));
+ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5, pin: false }));
 ok('anything else is no lock', parseLock('My helpful bot') === null && parseLock('') === null);
 ok('no lock is free to take', decide(null, 'me', now) === 'take');
 ok('my own lock is mine', decide({ id: 'me', at: now }, 'me', now) === 'mine');
@@ -49,7 +49,7 @@ let b = await ownership({ fresh: true });
 ok('a second copy finds it taken and goes passive', b.active === false && b.known === true, JSON.stringify(b));
 ok('and knows who holds it', b.owner.id === 'macbook1' && b.owner.os === 'mac', JSON.stringify(b.owner));
 ok('and did not overwrite the lock', /owner=macbook1/.test(description), description);
-ok('and says so in words', /PASSIVE/.test(describe(b)) && /mac/.test(describe(b)), describe(b));
+ok('and says so in words', /STANDBY/.test(describe(b)) && /MacBook/.test(describe(b)), describe(b));
 
 // --- the owner's Chrome is closed for a while -----------------------------------
 description = lockText('macbook1', 'mac', Date.now() - TTL_MS - 5000);
@@ -66,6 +66,29 @@ ok('"Make this copy the active one" takes the lock', a.active === true && /owner
 await asMachine('cloudvps', 'linux');
 b = await ownership({ fresh: true });
 ok('and the other copy stands down at its next look', b.active === false, JSON.stringify(b));
+
+// --- the main system you choose stays main -------------------------------------
+ok('a pinned lock is read as pinned', parseLock(lockText('a', 'win', 5, true)).pin === true && parseLock(lockText('a', 'win', 5)).pin === false);
+ok('a pinned main system is never taken over by time', decide({ id: 'server', at: now - 24 * 3600000, pin: true }, 'mac', now) === 'theirs');
+await asMachine('winsrv01', 'win');
+a = await takeOver();
+ok('"Keep this as the main system" pins it', /owner=winsrv01 os=win at=\d+ pin=1/.test(description), description);
+description = lockText('winsrv01', 'win', Date.now() - 3 * 3600000, true);     // server switched off for 3 hours
+await asMachine('macbook1', 'mac');
+b = await ownership({ fresh: true });
+ok('the MacBook stays on standby while the chosen server is off', b.active === false && /Windows server/.test(describe(b)) && /chosen by you/.test(describe(b)), describe(b));
+ok('and does not steal the lock', /owner=winsrv01/.test(description), description);
+await asMachine('winsrv01', 'win');
+description = lockText('winsrv01', 'win', Date.now() - 5 * 60000, true);
+a = await ownership({ fresh: true });
+ok('the chosen main keeps its pin when it re-stamps', a.active && /pin=1/.test(description), description);
+await asMachine('macbook1', 'mac');
+b = await takeOver();
+ok('choosing the MacBook moves main there', b.active && /owner=macbook1 .* pin=1/.test(description), description);
+await asMachine('winsrv01', 'win');
+a = await ownership({ fresh: true });
+ok('and the server goes on standby', a.active === false, JSON.stringify(a));
+description = '';
 
 // --- the owner keeps its stamp fresh -------------------------------------------
 await asMachine('macbook1', 'mac');

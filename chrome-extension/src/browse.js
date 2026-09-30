@@ -79,7 +79,10 @@ export function extractListing() {
       startedAt: iso(el.querySelector('.structItem-startDate time')),
       lastActivityAt: iso(el.querySelector('.structItem-latestDate time') || el.querySelector('.structItem-cell--latest time')),
       replyCount: replies,
-      sticky: /structItem--sticky/.test(String(el.className)),
+      // BHW pins threads by putting them in a sticky GROUP, not with a class on
+      // the row; checking the row alone let rules threads through as leads.
+      sticky: /structItem--sticky/.test(String(el.className)) || !!el.closest('.structItemContainer-group--sticky')
+        || !!el.querySelector('.structItem-status--sticky'),
       forum: forumA ? (forumA.textContent || '').trim() : '',
       forumNode: ((href.match(/\.(\d+)\/?$/) || [])[1]) || ''
     });
@@ -117,6 +120,8 @@ export function extractThread() {
   const crumbs = [];
   const bc = document.querySelector('.p-breadcrumbs');
   if (bc) for (const x of bc.querySelectorAll('[itemprop="name"]')) crumbs.push((x.textContent || '').trim());
+  let forumUrl = '';
+  if (bc) { const links = [...bc.querySelectorAll('a[href*="/forums/"]')].map((a) => a.href).filter((h) => /\/forums\/[a-z0-9-]+\.\d+\/?$/i.test(h)); forumUrl = links[links.length - 1] || ''; }
   const keyEl = document.querySelector('[data-container-key^="node-"]');
   const forumNode = keyEl ? String(keyEl.getAttribute('data-container-key')).replace('node-', '') : '';
   const startEl = document.querySelector('.p-description time[data-timestamp]');
@@ -131,6 +136,7 @@ export function extractThread() {
     // the breadcrumb ends at the forum; the thread title is the h1, not a crumb.
     forum: crumbs.length ? crumbs[crumbs.length - 1] : '',
     section: crumbs.slice(2).join(' › '),
+    forumUrl,
     loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true'
   };
 }
