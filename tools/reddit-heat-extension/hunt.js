@@ -849,7 +849,11 @@ async function drawSchedule() {
     + (c.cancelled + c.gone ? ` · ${c.cancelled + c.gone} dropped` : "");
   const tabs = [["all", "Everything", r.rows.length], ["waiting", "Waiting", c.waiting], ["opened", "Open now", c.opened], ["sent", "Sent", c.sent], ["dropped", "Dropped", c.cancelled + c.gone]];
   $("schedTabs").innerHTML = tabs.map(([k, label, n]) => `<button class="ghost schedTab${schedFilter === k ? " on" : ""}" data-k="${k}">${label} ${n}</button>`).join("")
-    + `<span style="width:10px"></span><button class="ghost" id="schedGroupBtn">${schedGroup ? "show every line" : "one row per post"}</button>`;
+    + `<span style="width:10px"></span><button class="ghost" id="schedGroupBtn">${schedGroup ? "show every line" : "one row per post"}</button>`
+    + `<span style="width:10px"></span><button class="ghost" id="schedDelWaiting" style="color:#ff8a65">Delete all waiting</button>`
+    + `<button class="ghost" id="schedDelAll" style="color:#ff8a65">Delete everything</button>`;
+  $("schedDelWaiting").onclick = async () => { if (!confirm(`Delete the ${c.waiting} scheduled DM(s) that have not gone yet?`)) return; await send({ type: "hunt-schedule-delete", what: "waiting" }); drawSchedule(); refresh(false); };
+  $("schedDelAll").onclick = async () => { if (!confirm("Delete the whole schedule, including the record of what was sent?\n\nSent DMs stay in Reddit Chat and in Contacted; only this list is cleared.")) return; await send({ type: "hunt-schedule-delete", what: "all" }); drawSchedule(); refresh(false); };
   for (const b of $("schedTabs").querySelectorAll(".schedTab")) b.onclick = () => { schedFilter = b.dataset.k; drawSchedule(); };
   $("schedGroupBtn").onclick = () => { schedGroup = !schedGroup; drawSchedule(); };
   $("schedTabs").hidden = false;
@@ -864,7 +868,7 @@ async function drawSchedule() {
   const btn = (x, label) => `<button class="ghost schedNow" data-id="${esc(x.id)}" data-kind="${x.kind}">${label}</button>`;
 
   if (schedGroup) {
-    $("tableHead").innerHTML = "<tr><th>When</th><th>Post</th><th>Public reply</th><th>The DM</th><th>Now</th></tr>";
+    $("tableHead").innerHTML = "<tr><th>When</th><th>Post</th><th>The DM</th><th>Now</th></tr>";
     const groups = [];
     const byId = new Map();
     for (const x of r.rows) {
@@ -884,11 +888,11 @@ async function drawSchedule() {
       return `<b style="color:${colour}">${esc(word)}</b><br><span style="color:#98a0b3">${esc(detail)}</span>`;
     };
     $("tableRows").innerHTML = shown.map((g) => {
-      const rep = g.steps.reply, dm = g.steps.dm;
-      const acts = [rep && rep.state === "waiting" ? btn(rep, "reply now") : "", dm && dm.state === "waiting" ? btn(dm, "DM now") : "",
-        (rep && rep.state === "opened") || (dm && dm.state === "opened") ? btn((rep && rep.state === "opened") ? rep : dm, "reopen") : ""].filter(Boolean).join(" ");
-      const done = [rep, dm].every((x) => !x || x.state === "sent");
-      return `<tr${done ? ' class="done"' : ""}><td>${esc(clock(g.at))}</td><td>${who(g.row)}</td><td>${cell(rep)}</td><td>${cell(dm)}</td><td>${acts}</td></tr>`;
+      const dm = g.steps.dm;
+      const acts = [dm && dm.state === "waiting" ? btn(dm, "DM now") : "", dm && dm.state === "opened" ? btn(dm, "reopen") : "",
+        `<button class="ghost schedDel" data-id="${esc(g.id)}" style="color:#ff8a65">delete</button>`].filter(Boolean).join(" ");
+      const done = !!dm && dm.state === "sent";
+      return `<tr${done ? ' class="done"' : ""}><td>${esc(clock(g.at))}</td><td>${who(g.row)}</td><td>${cell(dm)}</td><td>${acts}</td></tr>`;
     }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled yet. Tick the boxes on the left of the queue rows, then use the bar that appears at the top of the list: set the minutes apart and press "Schedule these".'}</td></tr>`;
   } else {
     $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th>Now</th></tr>";
@@ -899,8 +903,8 @@ async function drawSchedule() {
         : x.state === "opened" ? `opened ${ago(x.openedAt || x.at)}`
         : x.state === "sent" ? ago(x.sentAt || x.at)
         : x.reason || "";
-      const acts = x.state === "waiting" ? btn(x, "Open now") + `<button class="ghost unsched" data-id="${esc(x.id)}" data-kind="${x.kind}">remove</button>`
-        : x.state === "opened" ? btn(x, "reopen") : "";
+      const acts = (x.kind === "dm" && x.state === "waiting" ? btn(x, "Open now") : x.kind === "dm" && x.state === "opened" ? btn(x, "reopen") : "")
+        + `<button class="ghost schedDel" data-id="${esc(x.id)}" style="color:#ff8a65">delete</button>`;
       return `<tr${x.state === "sent" ? ' class="done"' : ""}><td>${esc(clock(x.at))}</td>`
         + `<td>${x.kind === "reply" ? "public reply" : "the DM"}${x.written ? "" : ` <span class="foot" style="margin:0" title="Claude writes it in the seconds before the line opens">· not written yet</span>`}</td>`
         + `<td>${who(x)}</td>`
@@ -908,6 +912,7 @@ async function drawSchedule() {
         + `<td>${acts}</td></tr>`;
     }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : "Nothing scheduled yet."}</td></tr>`;
   }
+  for (const b of $("tableRows").querySelectorAll("button.schedDel")) b.onclick = async () => { await send({ type: "hunt-schedule-delete", what: b.dataset.id }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id, kind: b.dataset.kind }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.schedNow")) b.onclick = async () => {
     b.textContent = "opening…"; b.disabled = true;
@@ -1194,7 +1199,7 @@ $("bulkSched").onclick = async () => {
   picked.clear();
   await refresh(false);
   showTable("schedule");
-  $("sPoll").textContent = `${(r && r.added) || 0} posts scheduled, one every ${gapMin} minutes`;
+  $("sPoll").textContent = `${(r && r.added) || 0} DMs scheduled, one every ${gapMin} minutes · no public replies`;
 };
 $("backupWarn").onclick = () => { $("setup").hidden = false; $("aiPanel").hidden = true; $("doBackup").scrollIntoView({ behavior: "smooth", block: "center" }); };
 $("undoBulk").onclick = async () => {

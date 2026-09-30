@@ -141,6 +141,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
   if (msg.type === "hunt-schedule-list") { scheduleList().then(reply); return true; }
   if (msg.type === "hunt-schedule-run") { scheduleRunNow(msg.id, msg.kind).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-schedule-delete") { scheduleDelete(msg.what).then(reply); return true; }
   if (msg.type === "hunt-schedule-clear") { scheduleClear(msg.id, msg.kind).then(reply); return true; }
   if (msg.type === "hunt-export") { huntExport().then(reply); return true; }
   if (msg.type === "hunt-import") { huntImport(msg.data, msg.mode).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
@@ -1346,12 +1347,15 @@ async function scheduleAdd(ids, gapMin, dmAfterSec) {
   for (const id of ids) {
     if (!st.posts[id] || st.posts[id].act || st.posts[id].dmAt) continue;
     if (list.some((x) => x.id === id)) continue;
-    added.push({ id, at: base, kind: "reply" }, { id, at: base + dmAfter, kind: "dm" });
+    // Private DMs only. A public reply is never scheduled: it is on the
+    // thread for everyone and cannot be taken back.
+    added.push({ id, at: base, kind: "dm" });
     base += gap;
   }
+  void dmAfter;
   const schedule = [...(st.schedule || []), ...added].sort((a, b) => a.at - b.at).slice(-400);
   await huntSet({ schedule });
-  return { ok: true, added: added.length / 2, next: added.length ? added[0].at : 0 };
+  return { ok: true, added: added.length, next: added.length ? added[0].at : 0 };
 }
 // Every line of the schedule with what became of it: still to come, opened and
 // waiting for your click, sent, or dropped and why.
@@ -1399,6 +1403,7 @@ async function scheduleRunNow(id, kind) {
   const list = st.schedule || [];
   const row = list.find((x) => x.id === id && x.kind === kind && (!x.state || x.state === "waiting"));
   if (!row) return { ok: false, error: "that line is not waiting any more" };
+  if (row.kind === "reply") return { ok: false, error: "public replies are never sent automatically - DMs only" };
   row.at = Date.now() - 1000;
   row.now = true;                       // scheduleTick lets this one past the gap
   await huntSet({ schedule: list });
@@ -1416,6 +1421,21 @@ async function scheduleClear(id, kind) {
   await huntSet({ schedule });
   return { ok: true, left: schedule.filter((x) => !x.state).length };
 }
+// Delete from the schedule. With an id: every line of that post, whatever its
+// state. With "waiting": everything not yet opened. With "all": the lot.
+// A DM already sitting in the chat box for a deleted post is taken out too.
+async function scheduleDelete(what) {
+  const st = await huntGet();
+  const before = (st.schedule || []).length;
+  const schedule = (st.schedule || []).filter((x) =>
+    what === "all" ? false : what === "waiting" ? !!x.state : x.id !== what);
+  await huntSet({ schedule });
+  const { pendingDm } = await chrome.storage.local.get(["pendingDm"]);
+  if (pendingDm && !pendingDm.auto && (what === "all" || pendingDm.id === what) && !pendingDm.done) await chrome.storage.local.remove("pendingDm");
+  try { await chrome.action.setBadgeText({ text: String(schedule.filter((x) => !x.state).length || "") }); } catch (_) { /* no badge */ }
+  return { ok: true, deleted: before - schedule.length, left: schedule.length };
+}
+
 // One item per minute at most, and never while the DM pacing says wait.
 async function scheduleTick() {
   const st = await huntGet();
@@ -1427,6 +1447,10 @@ async function scheduleTick() {
   if (due.cid) {
     const { campaignRun = null } = await chrome.storage.local.get(["campaignRun"]);
     if (campaignRun && campaignRun.id === due.cid && campaignRun.state !== "running") { due.at = now + 120000; return save(); }
+  }
+  if (due.kind === "reply") {
+    due.state = "cancelled"; due.reason = "public replies are never sent automatically - DMs only";
+    return save();
   }
   const p = st.posts[due.id];
   if (!p || p.act) { due.state = "gone"; due.reason = p ? "you skipped it" : "the post is no longer in the database"; return save(); }

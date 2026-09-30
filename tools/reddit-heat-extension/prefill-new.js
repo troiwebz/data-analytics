@@ -263,8 +263,10 @@
         STEP.done = true;
         await chrome.storage.local.set({ pendingReply: { ...pendingReply, filled: true } });
         const { autoSend = true, autoSendSecs = 10 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
-        if (autoSend) sendCountdown(pendingReply, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)));
-        else say("Reply is in the box. Read it, then click Reddit's Comment button — the post is marked replied the moment you do.", "#7ee29a");
+        // Public replies are never submitted by the extension: it fills the
+        // box and you press Reddit's own button. Only private DMs send themselves.
+        void autoSend; void autoSendSecs;
+        say("Reply is in the box. Read it, then click Reddit's Comment button — the post is marked replied the moment you do.", "#7ee29a");
       } else {
         STEP.tries += 1;
         if (STEP.tries > 6) { state("paste it", "#e6c76b"); say("The box is open but Reddit would not take the text. It is on your clipboard — click in the box and press ⌘V.", "#e6c76b"); STEP.done = true; }
