@@ -1149,6 +1149,32 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('a PM already sent is not armed', !(await getLeads()).find((x) => x.threadId === 'b3').autoSendAt);
   await setConfig({ autoMode: false });
 
+  // Several due at once, with the real 2-minute spacing: one goes, the rest wait
+  // their turn on later ticks - none is dropped, and it never goes idle.
+  {
+    await setConfig({ autoMode: true, maxDmsPerDay: 30, minSecondsBetweenDms: 120 });
+    await chrome.storage.local.set({ rateState: null });
+    const r0 = new Date(Date.now() - 1800000).toISOString();
+    store.recentLeads = ['q1', 'q2', 'q3'].map((id) => ready(id, { foundAt: r0, postedAt: r0, autoSendAt: Date.now() - 1000, dmTitle: 'Need ads', title: 'Need ads ' + id }));
+    inboxHtml = ''; inboxFail = false; dmResult = { ok: true, sent: true };
+    const sentNow = async () => (await getLeads()).filter((l) => l.pmSent).map((l) => l.threadId);
+    globalThis.__acting = 'q1'; await bg.runAutoQueue();
+    ok('tick 1: the first PM goes', (await sentNow()).length === 1, JSON.stringify(await sentNow()));
+    ok('and the other two are still armed, waiting', (await getLeads()).filter((l) => !l.pmSent && l.autoSendAt > 0).length === 2);
+    globalThis.__acting = 'q2'; await bg.runAutoQueue();
+    ok('a tick inside the 2 minutes sends nothing more', (await sentNow()).length === 1);
+    const rs = (await chrome.storage.local.get('rateState')).rateState;
+    await chrome.storage.local.set({ rateState: { ...rs, lastDmAt: Date.now() - 125000 } });   // two minutes pass
+    await bg.runAutoQueue();
+    ok('tick after the gap: the second one goes', (await sentNow()).length === 2, JSON.stringify(await sentNow()));
+    const rs2 = (await chrome.storage.local.get('rateState')).rateState;
+    await chrome.storage.local.set({ rateState: { ...rs2, lastDmAt: Date.now() - 125000 } });
+    globalThis.__acting = 'q3'; await bg.runAutoQueue();
+    ok('and the third on the next - all three sent, in turn', (await sentNow()).length === 3, JSON.stringify(await sentNow()));
+    await setConfig({ autoMode: false, minSecondsBetweenDms: 0 });
+    await chrome.storage.local.set({ rateState: null });
+  }
+
   // A "no" from the old strict rules is judged again by the tick, without "auto on".
   await setConfig({ autoMode: true, autoRequireMatch: false });
   const eveningAgo = new Date(Date.now() - 6 * 3600000).toISOString();
