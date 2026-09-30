@@ -49,7 +49,23 @@ export const clearToken = () => vault.removeSecret('telegram');
  */
 const CALL_TIMEOUT_MS = 15000;
 
+// Telegram allows ONE getUpdates at a time per bot. Two overlapping ones -
+// the tap alarm and the Settings self-test, say - make Telegram reply
+// "Conflict: terminated by other getUpdates request" to this very copy, which
+// looked exactly like a second copy running elsewhere. So they queue.
+let updatesChain = Promise.resolve();
+function oneAtATime(fn) {
+  const run = updatesChain.then(fn, fn);
+  updatesChain = run.catch(() => {});
+  return run;
+}
+
 async function call(method, body) {
+  if (method === 'getUpdates') return oneAtATime(() => rawCall(method, body));
+  return rawCall(method, body);
+}
+
+async function rawCall(method, body) {
   const token = await getToken();
   if (!token) throw new Error('No Telegram bot token saved.');
   const ctl = new AbortController();

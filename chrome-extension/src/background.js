@@ -2646,7 +2646,7 @@ const TAP_VERBS = {
 };
 
 const CONFLICT_KEY = 'tgConflictAt';
-const CONFLICT_MS = 15 * 60000;
+const CONFLICT_MS = 5 * 60000;
 
 /**
  * Telegram says someone else is reading this bot. That is a second copy of
@@ -2707,7 +2707,13 @@ export async function pollTaps() {
   catch (e) {
     await beat({ ok: false, note: e.message });
     await log(`Telegram taps could not be read: ${e.message}`, 'error');
-    if (/conflict|other getUpdates/i.test(e.message)) await secondCopyAlarm(cfg);
+    // A single conflict can be a request of ours still settling. Two within
+    // five minutes, with ours queued one at a time, is another program.
+    if (/conflict|other getUpdates/i.test(e.message)) {
+      const { tgConflictFirst = 0 } = await chrome.storage.local.get('tgConflictFirst');
+      if (tgConflictFirst && Date.now() - tgConflictFirst < 5 * 60000) await secondCopyAlarm(cfg);
+      else await chrome.storage.local.set({ tgConflictFirst: Date.now() });
+    }
     return { error: e.message };
   }
   await beat({ ok: true, note: events.length ? `${events.length} waiting` : 'nothing waiting' });

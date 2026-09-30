@@ -174,5 +174,24 @@ ok('the public reply still goes out', sent.some((m) => /Public reply/.test(m.bod
 ok('and the next lead is still attempted', sent.filter((m) => /Public reply/.test(m.body.text)).length === 2,
    String(sent.filter((m) => /Public reply/.test(m.body.text)).length));
 
+// --- getUpdates never overlaps itself --------------------------------------
+{
+  let live = 0, maxLive = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).endsWith('/getUpdates')) {
+      live++; maxLive = Math.max(maxLive, live);
+      await new Promise((r) => setTimeout(r, 30));
+      live--;
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: [] }) };
+    }
+    return realFetch(url, opts);
+  };
+  const T2 = await import('../src/telegram.js');
+  await Promise.all([T2.pendingTaps(), T2.pendingTaps(), T2.findChatId(), T2.pendingTaps()]);
+  ok('four simultaneous asks for updates reach Telegram one at a time', maxLive === 1, `max in flight: ${maxLive}`);
+  globalThis.fetch = realFetch;
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
