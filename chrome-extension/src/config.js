@@ -1000,5 +1000,8 @@ export async function setConfig(patch) {
     ? textStamp(DEFAULT_CONFIG)          // still the shipped wording
     : current.templateDefaults;          // yours, or not yet known - do not invent one
   await chrome.storage.local.set({ config: next });
+  // Every change reaches your Google account, not only a Save in Settings, so
+  // the other machine gets it - the chat id above all. Never fails the save.
+  pushConfig(next).catch(() => {});
   return next;
 }

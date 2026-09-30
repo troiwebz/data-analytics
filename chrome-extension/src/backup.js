@@ -67,6 +67,28 @@ export async function readSynced() {
 }
 
 /**
+ * The pieces a working install cannot do without - where Telegram goes, who
+ * you are on BHW - filled in from sync whenever they are missing here, even on
+ * an install that is otherwise set up. Keys live in the vault, which does the
+ * same for itself. Returns the names it filled.
+ */
+export const ESSENTIAL = ['telegramChatId', 'bhwUsername', 'timezone'];
+export async function fillEssentials() {
+  const { config } = await chrome.storage.local.get('config');
+  const synced = await readSynced();
+  if (!synced) return [];
+  const cur = config || {};
+  const fill = {};
+  for (const k of ESSENTIAL) {
+    const here = cur[k], there = synced.cfg[k];
+    if ((here == null || here === '') && there != null && there !== '') fill[k] = there;
+  }
+  if (!Object.keys(fill).length) return [];
+  await chrome.storage.local.set({ config: { ...DEFAULT_CONFIG, ...cur, ...fill } });
+  return Object.keys(fill);
+}
+
+/**
  * Bring settings back from sync on a fresh install.
  *
  * Only when there is nothing local to lose. A machine that already has

@@ -829,6 +829,25 @@ async function showUpdate() {
 }
 showUpdate();
 setInterval(showUpdate, 5 * 60000);
+
+// The command to pull the newest version now, for this machine.
+(async () => {
+  let os = 'mac';
+  try { os = (await chrome.runtime.getPlatformInfo()).os; } catch { /* default */ }
+  $('cmd').textContent = os === 'win'
+    ? 'powershell -ExecutionPolicy Bypass -File "C:\\HAF Watcher\\updater\\update-windows.ps1"'
+    : 'bash ~/haf-watcher/tools/update.sh';
+})();
+
+// Claude key, bot token, chat id: here, and travelling with your Google account?
+async function showKeys() {
+  const k = await chrome.runtime.sendMessage({ cmd: 'keys-status' }).catch(() => null);
+  if (!k) return;
+  const mark = (have, synced) => (!have ? '<b style="color:#dc2626">✗</b>' : synced ? '<span style="color:#16a34a">✓</span>' : '<span style="color:#b45309">✓ this machine only</span>');
+  $('keys').innerHTML = `🔑 Claude ${mark(k.claude, k.claudeSynced)} · Bot ${mark(k.bot, k.botSynced)} · Chat id ${mark(k.chat, k.chatSynced)}`
+    + (!k.syncOn ? ' · <span style="color:#b45309" title="Sign in to Chrome with Sync on, on both machines, and the keys follow by themselves">Chrome Sync off</span>' : '');
+}
+showKeys();
 $('updNow')?.addEventListener('click', async () => { await chrome.runtime.sendMessage({ cmd: 'check-update' }); });
 
 $('cmd').addEventListener('click', async () => {

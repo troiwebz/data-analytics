@@ -10,7 +10,7 @@
 // Nothing is ever posted without a 🚀 tap from Telegram.
 
 import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
-import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced } from './backup.js';
+import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced, fillEssentials } from './backup.js';
 import * as night from './night.js';
 import * as auto from './auto.js';
 import { fetchFeed, threadIdFromUrl } from './feed.js';
@@ -188,6 +188,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // anything reads them, or the extension comes up looking configured - the
   // vault has the secrets - with every setting silently back to its default.
   const back = await restoreIfEmpty().catch(() => ({}));
+  const filled = await fillEssentials().catch(() => []);
+  if (filled.length) await log(`from your Google account: ${filled.join(', ')}`);
   await settleOldLeads();
   // haf-secrets.json in the extension folder, if there is one: the keys travel
   // with the folder, so a copy onto a new machine configures itself instead of
@@ -238,6 +240,8 @@ async function refreshIfTemplatesChanged(cfg) {
   }
 }
 chrome.runtime.onStartup.addListener(async () => {
+  const filledS = await fillEssentials().catch(() => []);
+  if (filledS.length) await log(`from your Google account: ${filledS.join(', ')}`);
   await ownUpToInterruption().catch(() => {});
   // Also on every browser start, not just install: on a server the folder may
   // be updated underneath a Chrome that is never reinstalled, and a restart is
@@ -747,6 +751,7 @@ export async function settleExcludedLeads(cfg) {
 }
 
 export async function runCheck() {
+  await fillEssentials().catch(() => []);
   // Asleep: a member is not reading the forum at 3am. Nothing is fetched or
   // opened; taps from Telegram are still honoured by their own alarm.
   const cfgS = await getConfig();
@@ -4133,6 +4138,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const a = await askClaude(FILL_SYSTEM, `title: ${t.title}\n\npost:\n${String(t.body || '').slice(0, 4000)}`, { maxTokens: 900 });
           sendResponse({ ok: true, ...parseFill(a.text), cost: a.cost, title: t.title });
         } catch (e) { sendResponse({ error: e.message }); }
+        break;
+      }
+      case 'keys-status': {                          // is everything here, and is it travelling?
+        const [ai, tg, cfg] = await Promise.all([aiStatus().catch(() => ({})), telegram.status(await getConfig()).catch(() => ({})), getConfig()]);
+        const sync = await syncStatus().catch(() => ({ available: false }));
+        const synced = await readSynced().catch(() => null);
+        sendResponse({ claude: !!ai.configured, claudeSynced: !!ai.mirrored, bot: !!tg.stored, botSynced: !!tg.mirrored,
+                       chat: !!cfg.telegramChatId, chatSynced: !!synced?.cfg?.telegramChatId, syncOn: !!sync.available });
         break;
       }
       case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
