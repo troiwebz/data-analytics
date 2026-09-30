@@ -38,6 +38,9 @@ function world(opts = {}) {
     huntSet: async (p) => { Object.assign(hunt, JSON.parse(JSON.stringify(p))); },
     huntArm: (on) => calls.armed.push(on),
     huntAiKey: async () => (opts.noKey ? "" : "sk-test"),
+    spendGet: async () => ({ cents: opts.overBudget ? 100 : 0, budget: 100 }),
+    HEAT_FIT: () => (opts.fitOff ? "off" : "strict"),
+    huntScore: (p) => (p.fit != null ? p.fit : 50),
     huntFetch: async () => { calls.mods += 1; if (opts.modsDown) throw new Error("HTTP 403"); return { data: { children: (opts.mods || []).map((name) => ({ name })) } }; },
     dmGate: async () => opts.gate || { ok: true, waitMs: 0, sentToday: 0, cap: 25 },
     huntSlotWrite: async (id) => {
@@ -62,8 +65,10 @@ function world(opts = {}) {
     advance: (ms) => { clock += ms; },
     now: () => clock,
     say: (text, chat = "777") => tg.updates.push({ update_id: uid++, message: { chat: { id: Number(chat), first_name: "Hema" }, text, date: Math.floor(clock / 1000) } }),
-    post: (id, o = {}) => { hunt.posts[id] = { id, author: "user_" + id, sub: "startups", title: "Looking for a technical co-founder " + id, permalink: "https://www.reddit.com/r/startups/comments/" + id + "/", firstSeen: clock, created: clock - 60000, ...o }; },
-    link: async () => { await chrome.storage.local.set({ autopilot: { token: "123:abc", chatId: "777" } }); },
+    post: (id, o = {}) => { hunt.posts[id] = { id, author: "user_" + id, sub: "startups", title: "Looking for a technical co-founder " + id, body: "I am building a scheduling tool for small clinics, 40 users on the waitlist, and I need a technical partner to take the MVP to launch. ".repeat(2), hunt: "cofounder", comments: 2, permalink: "https://www.reddit.com/r/startups/comments/" + id + "/", firstSeen: clock, created: clock - 60000, ...o }; },
+    // the original scenarios: no look-back, a one-minute gap, nothing opened in front
+    link: async (rules = { backMin: 0, gapMinS: 60, gapMaxS: 60, watchFirst: 0 }) => { await chrome.storage.local.set({ autopilot: { token: "123:abc", chatId: "777", rules } }); },
+    opts,
   };
 }
 const texts = (w) => w.tg.sent.map((m) => m.text).join("\n---\n");
@@ -135,11 +140,19 @@ const texts = (w) => w.tg.sent.map((m) => m.text).join("\n---\n");
   w = world({ claude: "no" }); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000); w.post("c2"); await w.tick();
   assert.strictEqual(w.tabs.created.length, 0);
   assert.ok(/Claude screened it out: offering themselves/.test(texts(w)));
-  // 10. no Claude key at all
-  w = world({ noKey: true }); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000); w.post("c3"); await w.tick();
+  // 10. no Claude key: PAUSED, and the post is kept, not skipped
+  w = world({ noKey: true }); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000); w.post("c3"); await w.tick(); await w.tick();
   assert.strictEqual(w.tabs.created.length, 0);
   assert.strictEqual(w.calls.claude, 0);
-  assert.ok(/no Claude key saved/.test(texts(w)));
+  assert.ok(/PAUSED: no Claude key saved/.test(texts(w)), texts(w));
+  assert.strictEqual(w.tg.sent.filter((m) => /^Autopilot is PAUSED/.test(m.text)).length, 1, "said once, not every tick");
+  assert.strictEqual((w.store.autopilot.done || {}).c3, undefined, "the post is waiting, not skipped");
+  assert.ok(/no Claude key/.test(w.store.autopilot.blocked));
+  // the key is added: it carries on with the same post
+  w.opts.noKey = false; await w.tick();
+  assert.strictEqual(w.tabs.created.length, 1, "sent once the key is there");
+  assert.strictEqual(w.store.pendingDm.author, "user_c3");
+  assert.strictEqual(w.store.autopilot.blocked, "");
 
   // 11. moderators: on the mod list, or marked by Reddit
   w = world({ mods: ["user_d1"] }); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000); w.post("d1"); w.post("d2", { distinguished: "moderator" }); await w.tick(); await w.tick();
@@ -222,5 +235,73 @@ const texts = (w) => w.tg.sent.map((m) => m.text).join("\n---\n");
   assert.strictEqual(w.tabs.created.length, 1, "Manual mode sends nothing");
   assert.strictEqual(w.tg.calls + w2.tg.calls, 0, "and Telegram was never contacted");
 
-  console.log("autopilot-flow-test: all 20 scenarios passed");
+  // 21. the conversion rules: nothing is paid for a post that would not convert
+  w = world(); await w.link({ backMin: 0, gapMinS: 60, gapMaxS: 60, watchFirst: 0 }); w.say("auto on"); await w.tick(); w.advance(1000);
+  w.post("k1", { created: w.now() - 7 * 3600000 });                  // 7h old
+  w.post("k2", { comments: 40 });                                     // crowded
+  w.post("k3", { body: "need cofounder dm me" });                     // one line
+  w.post("k4", { fit: 20 });                                          // low fit
+  await w.tick();
+  assert.strictEqual(w.calls.claude, 0, "no Claude call for any of them");
+  assert.strictEqual(w.tabs.created.length, 0);
+  const why = w.store.autopilot.done;
+  assert.ok(/over 6h/.test(why.k1.why) && /40 comments/.test(why.k2.why) && /too short/.test(why.k3.why) && /fit 20, under 35/.test(why.k4.why), JSON.stringify(why));
+  w.post("k5"); await w.tick();
+  assert.strictEqual(w.calls.claude, 1, "a post that passes is screened");
+  assert.strictEqual(w.tabs.created.length, 1);
+
+  // 22. the interval: after a DM, the next one waits 4-8 minutes by default
+  w = world(); await w.link({ backMin: 0, watchFirst: 0 }); w.say("auto on"); await w.tick(); w.advance(1000);
+  w.post("g1"); await w.tick();
+  w.hunt.posts.g1.dmAt = w.now(); w.hunt.contacted.user_g1 = { at: w.now() }; delete w.store.pendingDm; await w.tick();
+  const gap = w.store.autopilot.nextAt - w.now();
+  assert.ok(gap >= 240000 && gap <= 480000, "gap " + gap);
+  w.post("g2"); await w.tick();
+  assert.strictEqual(w.tabs.created.length, 1, "g2 waits for the gap");
+  w.advance(gap - 1000); await w.tick();
+  assert.strictEqual(w.tabs.created.length, 1, "still inside the gap");
+  w.advance(2000); await w.tick();
+  assert.strictEqual(w.tabs.created.length, 2, "and goes once the gap is over");
+  assert.strictEqual(w.ctx.AP.rules({ gapMinS: 5, gapMaxS: 2 }).gapMinS, 60, "never under a minute");
+
+  // 23. the first few open in front of you, then quietly
+  w = world(); await w.link({ backMin: 0, gapMinS: 60, gapMaxS: 60, watchFirst: 2 }); w.say("auto on"); await w.tick();
+  for (const id of ["w1", "w2", "w3"]) {
+    w.advance(61000); w.post(id); await w.tick();
+    w.hunt.posts[id].dmAt = w.now(); w.hunt.contacted["user_" + id] = { at: w.now() }; delete w.store.pendingDm; await w.tick();
+  }
+  assert.deepStrictEqual(w.tabs.created.map((t) => t.active), [true, true, false], JSON.stringify(w.tabs.created.map((t) => t.active)));
+
+  // 24. look back: switching on takes posts found in the last hour, not older
+  w = world(); await w.link({ backMin: 60, gapMinS: 60, gapMaxS: 60, watchFirst: 0 });
+  w.post("l1", { firstSeen: w.now() - 90 * 60000, created: w.now() - 91 * 60000 });
+  w.post("l2", { firstSeen: w.now() - 30 * 60000, created: w.now() - 31 * 60000 });
+  w.say("auto on"); await w.tick(); await w.tick();
+  assert.strictEqual(w.tabs.created.length, 1);
+  assert.strictEqual(w.store.pendingDm.author, "user_l2", "the 30-minute-old find is taken, the 90-minute one is not");
+
+  // 25. skips caused only by a missing key get another chance at the next switch-on
+  w = world(); await w.link({ backMin: 60, gapMinS: 60, gapMaxS: 60, watchFirst: 0 });
+  await w.ctx.apSet({ done: { m1: { at: w.now(), why: "Claude screen could not run (no Claude key saved)" }, m2: { at: w.now(), why: "Claude screened it out: offering themselves" } } });
+  w.post("m1"); w.post("m2", { author: "user_m2b" });
+  w.say("auto on"); await w.tick();
+  assert.strictEqual(w.store.pendingDm && w.store.pendingDm.author, "user_m1", "the no-key skip is retried");
+  assert.ok(w.store.autopilot.done.m2, "a real no from Claude stays a no");
+
+  // 26. fit check switched off, or the day's AI budget used: PAUSED, nothing lost
+  for (const o of [{ fitOff: true }, { overBudget: true }]) {
+    w = world(o); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000); w.post("n1"); await w.tick();
+    assert.strictEqual(w.tabs.created.length, 0);
+    assert.strictEqual(w.calls.claude, 0);
+    assert.ok(w.store.autopilot.blocked, JSON.stringify(o));
+    assert.strictEqual((w.store.autopilot.done || {}).n1, undefined);
+  }
+
+  // 27. Hiring and project posts are left on the board
+  w = world(); await w.link(); w.say("auto on"); await w.tick(); w.advance(1000);
+  w.post("h9", { hunt: "project", badge: "hiring" }); await w.tick();
+  assert.strictEqual(w.tabs.created.length, 0);
+  assert.strictEqual(w.calls.claude, 0);
+
+  console.log("autopilot-flow-test: all 27 scenarios passed");
 })().catch((e) => { console.error(e); process.exit(1); });

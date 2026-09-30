@@ -27,6 +27,11 @@ D("Looking to hire a web developer for a landing page", "unpaid, for exposure", 
 D("Best laptop for programming?", "", /nobody is being hired/);
 assert.deepStrictEqual(H.HIRING_KINDS.map((k) => k.label), ["Google Maps", "SEO", "Digital marketing", "Programming"]);
 assert.strictEqual(H.badgeDef("hiring").label, "Hiring");
+// the project hunt only calls something "Hiring" when it passes the same test
+const zc = H.classifyAny("Can someone start a software development company with zero capital?", "I want to build apps for clients but have no money", "project");
+assert.ok(zc.badge !== "hiring", "a question with nobody hiring is not Hiring: " + zc.badge);
+const ph = H.classifyAny("Looking to hire a developer to build our booking website", "Small clinic, budget $2000, paid on milestones", "project");
+assert.strictEqual(ph.badge, "hiring"); assert.strictEqual(ph.kind, "Programming");
 // the other hunts are unchanged
 assert.strictEqual(H.classifyAny("Need a technical co-founder for my SaaS", "I am non-technical, building an MVP", "cofounder").badge, "cofounder");
 
@@ -135,6 +140,13 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   ctx.huntGet = origGet;
   assert.ok(store.hunt.posts.t3_d1, "the sweep kept the post the lane added while it ran");
   assert.ok(store.hunt.posts.t3_a3.dmAt, "and kept the DM you sent while it ran");
+
+  // an extension update re-sorts the board: Hiring posts must survive it
+  const before = Object.keys(store.hunt.posts).filter((k) => store.hunt.posts[k].source === "hiring").length;
+  await ctx.huntReclassify();
+  const after = Object.keys(store.hunt.posts).filter((k) => store.hunt.posts[k].source === "hiring").length;
+  assert.ok(before >= 4, "hiring posts before: " + before);
+  assert.strictEqual(after, before, "an update no longer deletes the Hiring posts");
 
   // hunt off: the lane stops
   ctx.huntArm(false);

@@ -39,6 +39,20 @@
   <div id="checks" class="hint" style="margin-top:12px"></div>
 </div>
 
+<h3>Rules</h3>
+<div class="hint">A post is DM'd only if it passes all of these, then Claude's screen. The cheap rules run first, so nothing is paid for a post that would never convert.</div>
+<div class="box" id="rulesBox">
+  <div class="row"><label>Look back when switched on <input type="text" data-r="backMin" size="4"> minutes</label></div>
+  <div class="row"><label>Skip posts older than <input type="text" data-r="maxAgeH" size="4"> hours</label></div>
+  <div class="row"><label>Skip threads with more than <input type="text" data-r="maxComments" size="4"> comments</label></div>
+  <div class="row"><label>Minimum fit score <input type="text" data-r="minFit" size="4"> <span class="hint">(the FIT column on the hunt page)</span></label></div>
+  <div class="row"><label>Minimum post length <input type="text" data-r="minBody" size="4"> characters</label></div>
+  <div class="row"><label>Wait between two DMs: <input type="text" data-r="gapMinS" size="4"> to <input type="text" data-r="gapMaxS" size="4"> seconds <span class="hint">(never under 60)</span></label></div>
+  <div class="row"><label>Open the first <input type="text" data-r="watchFirst" size="4"> DMs in front of me after switching on</label></div>
+  <div class="row"><button id="saveRules">Save rules</button><span id="rulesMsg" class="hint"></span></div>
+  <div class="hint">Always on, not editable: private DM only, co-founder posts only, no moderator posts, nobody contacted twice, Claude must screen it and say yes, the daily ceiling under Your details.</div>
+</div>
+
 <h3>What it did</h3>
 <table><thead><tr><th style="width:130px">When</th><th style="width:230px">What</th><th>Post</th></tr></thead><tbody id="log"></tbody></table>
 

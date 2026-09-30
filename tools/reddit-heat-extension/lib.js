@@ -1072,7 +1072,10 @@ HEAT.classifyAny = function (title, body, source) {
     return c.keep ? { ...c, badge: "cofounder", tier: 3 } : c;
   }
   const hire = HEAT.classifyProject(title, body);
-  if (hire.keep) return { ...hire, badge: "hiring", tier: 3 };
+  // "Hiring" means hiring for our four kinds of work, said plainly - the same
+  // test the job-board lane uses - or it is not shown under Hiring.
+  const strict = hire.keep ? HEAT.classifyHiring(title, body) : null;
+  if (strict && strict.keep) return { ...hire, kind: strict.kind, hiringKind: strict.hiringKind, budget: hire.budget || strict.budget, badge: "hiring", tier: 3 };
   const prob = HEAT.classifyProblem(title, body);
   if (prob.keep) return { ...prob, badge: "problem", tier: 2 };
   // the more specific reason is the more useful one to show

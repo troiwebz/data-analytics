@@ -617,9 +617,7 @@ async function huntHiringPoll() {
   if (hiringBusy) return { ok: false, error: "already reading" };
   const st0 = await huntGet();
   if (!st0.on) return { ok: false, error: "hunt is off" };
-  // a full sweep writes the whole database at its end; stay out of its way
-  const { scanState } = await chrome.storage.local.get(["scanState"]);
-  if (scanState && scanState.running && Date.now() - (scanState.at || 0) < 10 * 60000) return { ok: false, error: "a sweep is running" };
+  // a sweep running at the same time is fine: it merges with what is stored when it ends
   hiringBusy = true;
   try {
     const urls = [
@@ -1003,9 +1001,13 @@ async function huntReclassify() {
   let dropped = 0;
   for (const [id, p] of Object.entries(st.posts)) {
     if (p.act || p.repliedAt || p.dmAt) continue;
-    const c = classifyCofounder(p.title, p.body);
+    // each post by its own hunt: the co-founder test used to run on every post
+    // and deleted every Hiring and project post after each update
+    const src = p.source === "hiring" ? "hiring" : p.hunt === "project" ? "project" : "cofounder";
+    const c = classifyAny(p.title, p.body, src);
     if (!c.keep) { delete st.posts[id]; dropped += 1; continue; }
     Object.assign(p, { role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget });
+    if (c.badge) Object.assign(p, { badge: c.badge, tier: c.tier || p.tier, kind: c.kind || p.kind || "" });
   }
   if (dropped || true) await huntSet({ posts: st.posts });
   return dropped;

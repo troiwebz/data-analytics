@@ -34,6 +34,11 @@ async function apGet() {
     capToldOn: autopilot.capToldOn || "",
     tgError: autopilot.tgError || "",
     huntWasOff: !!autopilot.huntWasOff,
+    rules: AP.rules(autopilot.rules),
+    nextAt: autopilot.nextAt || 0,
+    watchLeft: autopilot.watchLeft || 0,
+    blocked: autopilot.blocked || "",
+    screened: autopilot.screened || 0,
   };
 }
 async function apSet(patch) {
@@ -124,13 +129,21 @@ async function apTurn(on, from) {
   if (on) {
     const hunt = await huntGet();
     // the hunt is what finds new threads, so it has to be watching
-    const patch = { on: true, since: st.on && st.since ? st.since : Date.now(), capToldOn: "" };
+    const patch = { on: true, since: st.on && st.since ? st.since : Date.now() - st.rules.backMin * 60000, capToldOn: "" };
+    if (!st.on) {
+      patch.watchLeft = st.rules.watchFirst;
+      patch.blocked = "";
+      // posts skipped only because the key or the budget was missing get another chance
+      const done = { ...st.done };
+      for (const [k, v] of Object.entries(done)) if (AP.setupSkip(v && v.why)) delete done[k];
+      patch.done = done;
+    }
     if (!hunt.on) { patch.huntWasOff = true; await huntSet({ on: true }); huntArm(true); }
     await apSet(patch);
     apArm();
     if (!st.on) await apLog("switched ON from " + from);
     const key = await huntAiKey();
-    await tgSay("Autopilot is ON.\nNew finds get a private DM, one at a time. Nothing is posted in public." + (key ? "" : "\nNo Claude key is saved, so every thread will be skipped until one is added."));
+    await tgSay("Autopilot is ON.\nNew finds get a private DM, one at a time. Nothing is posted in public." + (key ? "" : "\nNo Claude key is saved, so it is PAUSED until one is added under AI writing."));
     return { ok: true, on: true };
   }
   // off means off: drop whatever is in flight, before it sends
@@ -189,7 +202,8 @@ async function apWatchJob(job) {
   if (p && (p.dmAt || 0) >= job.startedAt) {
     if (job.tabId) { try { await chrome.tabs.remove(job.tabId); } catch (_) { /* closed */ } }
     await apDone(job.id, "sent");
-    await apSet({ job: null });
+    const cur = await apGet();
+    await apSet({ job: null, nextAt: Date.now() + AP.gapMs(cur.rules), watchLeft: Math.max(0, cur.watchLeft - (job.watch ? 1 : 0)) });
     await apLog("DM sent", p);
     const g = await dmGate();
     await tgSay(`DM sent to u/${p.author} (r/${p.sub})\n${AP.clip(p.title, 120)}\n${p.permalink}\n\n${AP.clip(job.text, 500)}\n\nToday: ${g.sentToday} of ${g.cap}.`);
@@ -208,11 +222,37 @@ async function apSkip(p, why, tell) {
   if (tell !== false) await tgSay(`Skipped u/${p.author} (r/${p.sub}): ${why}\n${AP.clip(p.title, 120)}\n${p.permalink}`);
 }
 
+async function apBlocked(why) {
+  const st = await apGet();
+  if (st.blocked === why) return;
+  await apSet({ blocked: why });
+  if (why) { await apLog("paused: " + why); await tgSay("Autopilot is PAUSED: " + why + "."); }
+}
 async function apNext() {
   const st = await apGet();
+  // Setup problems pause the whole run and cost no posts: they are waiting,
+  // not skipped, and go out once the key is back.
+  if (!(await huntAiKey())) return apBlocked("no Claude key saved - add it under AI writing on the hunt page");
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  if (HEAT_FIT(config.profile || {}) === "off") return apBlocked("the fit check is set to never drop anything - Auto mode needs it on strict or loose");
+  const spent = await spendGet();
+  if (spent.cents >= spent.budget) return apBlocked(`today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢) - raise it under AI writing, or it carries on tomorrow`);
+  if (st.blocked) await apBlocked("");
+  if (st.nextAt && Date.now() < st.nextAt) return;          // the gap between two DMs
+
   const hunt = await huntGet();
-  const ctx = { since: st.since, contacted: hunt.contacted, done: st.done, me: hunt.me, now: Date.now(), maxAgeH: hunt.maxAgeH };
-  const p = AP.pickNext(hunt.posts, ctx);
+  const now = Date.now();
+  const ctx = { since: st.since, contacted: hunt.contacted, done: st.done, me: hunt.me, now, maxAgeH: hunt.maxAgeH };
+  // The cheap rules first, on every candidate, so nothing is paid for a post that would never convert.
+  let p = null;
+  for (let i = 0; i < 20; i += 1) {
+    const c = AP.pickNext(hunt.posts, ctx);
+    if (!c) break;
+    const why = AP.convertReason(c, st.rules, now, typeof huntScore === "function" ? huntScore(c, now) : null);
+    if (!why) { p = c; break; }
+    ctx.done = { ...ctx.done, [c.id]: { at: now, why } };
+    await apSkip(c, why, false);
+  }
   if (!p) return;
 
   // somebody else's DM is already on its way to the chat box: wait for it
@@ -234,15 +274,14 @@ async function apNext() {
   if (AP.isModPost(p, mods.list)) return apSkip(p, "moderator post", false);
 
   // gate 2: the Claude screen. It must answer, and it must say yes.
-  const key = await huntAiKey();
-  if (!key) return apSkip(p, "Claude screen could not run (no Claude key saved)");
   if (!AP.screenedByClaude(p)) {
-    const { config = {} } = await chrome.storage.local.get(["config"]);
     const engine = (config.profile || {}).aiEngine;
+    await apSet({ screened: st.screened + 1 });
     let r;
     try { r = engine === "claude" ? await huntAiWrite(p.id, true) : await huntSlotWrite(p.id, true); }
     catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (r && r.cancelled) return apSkip(p, "Claude screened it out: " + (r.reason || "not a fit"));
+    if (r && (r.noKey || r.overBudget)) return apBlocked(r.error || "the Claude screen cannot run");
     if (!r || !r.ok) return apSkip(p, "Claude screen did not work (" + ((r && r.error) || "no answer") + ")");
   }
   const fresh = (await huntGet()).posts[p.id];
@@ -258,10 +297,13 @@ async function apNext() {
   const startedAt = Date.now();
   await chrome.storage.local.set({ pendingDm: { kind: "hunt", auto: true, id: fresh.id, author: fresh.author, text, at: startedAt } });
   let tabId = 0;
-  try { tabId = (await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: false })).id; }
+  // The first few after switching on open in front of you, so you watch the
+  // chat fill and the 10-second countdown run. Clicking during it stops that one.
+  const watch = (await apGet()).watchLeft > 0;
+  try { tabId = (await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: watch })).id; }
   catch (e) { await chrome.storage.local.remove("pendingDm"); return apSkip(fresh, "could not open Reddit Chat"); }
-  await apSet({ job: { id: fresh.id, author: fresh.author, tabId, startedAt, text } });
-  await apLog("sending", fresh);
+  await apSet({ job: { id: fresh.id, author: fresh.author, tabId, startedAt, text, watch } });
+  await apLog(watch ? "sending (in front of you)" : "sending", fresh);
 }
 
 // ---- wiring -----------------------------------------------------------------
@@ -277,10 +319,11 @@ apArm();
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (!msg || typeof msg.type !== "string" || msg.type.indexOf("ap-") !== 0) return;
   const fail = (e) => reply({ ok: false, error: String((e && e.message) || e) });
-  if (msg.type === "ap-get") { (async () => { const st = await apGet(); const gate = await dmGate(); const hunt = await huntGet(); reply({ ok: true, on: st.on, hasToken: !!st.token, chatId: st.chatId, seenChat: st.seenChat, job: st.job ? { author: st.job.author, startedAt: st.job.startedAt } : null, log: st.log.slice(0, 60), since: st.since, tgError: st.tgError, gate, huntOn: hunt.on, hasKey: !!(await huntAiKey()), waiting: st.on ? await apWaiting() : 0 }); })().catch(fail); return true; }
+  if (msg.type === "ap-get") { (async () => { const st = await apGet(); const gate = await dmGate(); const hunt = await huntGet(); reply({ ok: true, on: st.on, blocked: st.blocked, rules: st.rules, nextAt: st.nextAt, watchLeft: st.watchLeft, screened: st.screened, sentAuto: st.log.filter((x) => x.what === "DM sent" && x.at >= st.since).length, hasToken: !!st.token, chatId: st.chatId, seenChat: st.seenChat, job: st.job ? { author: st.job.author, startedAt: st.job.startedAt } : null, log: st.log.slice(0, 60), since: st.since, tgError: st.tgError, gate, huntOn: hunt.on, hasKey: !!(await huntAiKey()), waiting: st.on ? await apWaiting() : 0 }); })().catch(fail); return true; }
   if (msg.type === "ap-save") { (async () => { const patch = {}; if (typeof msg.token === "string" && msg.token.trim()) { patch.token = msg.token.trim(); patch.offset = 0; patch.tgError = ""; } if (typeof msg.chatId === "string") patch.chatId = msg.chatId.trim(); await apSet(patch); apArm(); reply({ ok: true }); })().catch(fail); return true; }
   if (msg.type === "ap-link") { (async () => { const st = await apGet(); if (!st.seenChat) return reply({ ok: false, error: "no message has arrived yet — send your bot any message, wait half a minute, then press this again" }); await apSet({ chatId: String(st.seenChat.id) }); const r = await tgSay("This chat is linked. Type \"auto on\" to start and \"off\" to stop."); reply({ ok: true, chatId: String(st.seenChat.id), sent: r.ok }); })().catch(fail); return true; }
   if (msg.type === "ap-test") { (async () => { const st = await apGet(); if (!st.token) return reply({ ok: false, error: "no bot token saved" }); const me = await tgCall(st.token, "getMe", {}); if (!me.ok) return reply({ ok: false, error: me.error }); if (!st.chatId) return reply({ ok: true, bot: me.result.username, sent: false }); const r = await tgSay("Test from the extension: Telegram is connected."); reply({ ok: r.ok, bot: me.result.username, sent: r.ok, error: r.error }); })().catch(fail); return true; }
+  if (msg.type === "ap-rules") { (async () => { const st = await apGet(); const rules = AP.rules({ ...st.rules, ...(msg.rules || {}) }); await apSet({ rules }); reply({ ok: true, rules }); })().catch(fail); return true; }
   if (msg.type === "ap-turn") { apTurn(!!msg.on, "the Autopilot page").then(reply).catch(fail); return true; }
   if (msg.type === "ap-tick") { apTick().then(() => reply({ ok: true })).catch(fail); return true; }
   if (msg.type === "ap-unlink") { apSet({ chatId: "", seenChat: null }).then(() => reply({ ok: true })).catch(fail); return true; }

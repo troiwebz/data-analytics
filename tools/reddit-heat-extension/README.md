@@ -1,5 +1,23 @@
 # Reddit Lead Threads (private Chrome extension)
 
+## Auto mode rules (v4.14.0)
+
+Auto mode DMs a co-founder post only when it passes every rule below, then Claude's screen. The cheap rules run first, so no money is spent on a post that would not convert. All numbers are editable on the **Auto / Manual** page (shift-click the Auto button).
+
+| Rule | Default |
+|---|---|
+| Look back when switched on | 60 minutes |
+| Skip posts older than | 6 hours |
+| Skip threads with more than | 20 comments |
+| Minimum fit score (the FIT column) | 35 |
+| Minimum post length | 120 characters |
+| Wait between two DMs | 4 to 8 minutes, at random, never under 1 |
+| Open in front of you after switching on | the first 3 DMs |
+
+Always on: private DM only, co-founder posts only, no moderator posts, nobody contacted twice, Claude must screen it and say yes, the daily ceiling under Your details.
+
+**Paused, not skipped.** With no Claude key, the day's AI budget used up, or the fit check set to never drop, Auto mode pauses and says why in yellow on the hunt page. The posts wait and go out once it is fixed. Posts an older version skipped only for a missing key get another chance at the next switch-on.
+
 ## Hiring — job boards every 2 minutes (v4.13.0)
 
 While the hunt is watching, a **Hiring** lane reads r/forhire, r/hiring, r/jobbit, r/slavelabour, r/DoneDirtCheap and r/freelance_forhire, plus a search of all of Reddit for hiring posts, **every 2 minutes**. Two requests per check.

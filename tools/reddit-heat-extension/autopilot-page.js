@@ -11,6 +11,11 @@ async function load() {
   $("turnOn").classList.toggle("sel", !!r.on);
   $("turnOff").classList.toggle("sel", !r.on);
   const bits = [`DMs sent today: ${r.gate.sentToday} of ${r.gate.cap}`];
+  if (r.on && r.blocked) bits.unshift("PAUSED: " + r.blocked);
+  if (r.on && r.nextAt > Date.now()) bits.push(`next DM allowed in ${Math.ceil((r.nextAt - Date.now()) / 60000)} min`);
+  if (r.on && r.watchLeft) bits.push(`the next ${r.watchLeft} open in front of you`);
+  if (r.on) bits.push(`${r.screened} screened by Claude since switching on`);
+  for (const inp of document.querySelectorAll("[data-r]")) if (document.activeElement !== inp && !inp.dataset.touched) inp.value = r.rules[inp.dataset.r];
   if (r.on) bits.push(`new finds waiting: ${r.waiting}`);
   if (r.job) bits.push(`sending now to u/${r.job.author}`);
   if (r.gate.waitMs > 0) bits.push(`next DM allowed in ${Math.ceil(r.gate.waitMs / 1000)}s`);
@@ -28,6 +33,15 @@ async function load() {
   $("log").innerHTML = (r.log || []).map((x) => `<tr><td>${esc(new Date(x.at).toLocaleString())}</td><td>${esc(x.what)}</td><td>${x.permalink ? `<a href="${esc(x.permalink)}" target="_blank" rel="noopener">${esc(x.title || x.permalink)}</a>` : ""}${x.who ? ` <span class="hint">u/${esc(x.who)}${x.sub ? " · r/" + esc(x.sub) : ""}</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="3" class="hint">Nothing yet.</td></tr>`;
 }
 
+for (const inp of document.querySelectorAll("[data-r]")) inp.oninput = () => { inp.dataset.touched = "1"; };
+$("saveRules").onclick = async () => {
+  const rules = {};
+  for (const inp of document.querySelectorAll("[data-r]")) rules[inp.dataset.r] = inp.value.trim();
+  const r = await send({ type: "ap-rules", rules });
+  for (const inp of document.querySelectorAll("[data-r]")) delete inp.dataset.touched;
+  $("rulesMsg").textContent = r && r.ok ? "Saved." : "Could not save.";
+  load();
+};
 $("turnOn").onclick = async () => { await send({ type: "ap-turn", on: true }); load(); };
 $("turnOff").onclick = async () => { await send({ type: "ap-turn", on: false }); load(); };
 $("save").onclick = async () => {

@@ -1644,8 +1644,17 @@ async function apShow() {
   const r = await sendOnce({ type: "ap-get" });
   if (!r || !r.ok) return;
   b.dataset.on = r.on ? "1" : "";
-  b.textContent = r.on ? `AUTO mode · ${r.gate.sentToday}/${r.gate.cap} DMs today` : "Manual mode";
+  const wait = r.nextAt && r.nextAt > Date.now() ? Math.ceil((r.nextAt - Date.now()) / 60000) : 0;
+  const state = !r.on ? "" : r.blocked ? " · PAUSED" : r.job ? ` · sending to u/${r.job.author}` : wait ? ` · next DM in ${wait}m` : r.waiting ? ` · ${r.waiting} to check` : " · waiting for a new post";
+  b.textContent = r.on ? `AUTO mode · ${r.gate.sentToday}/${r.gate.cap} DMs today${state}` : "Manual mode";
+  b.title = r.on && r.blocked ? "Paused: " + r.blocked + ". Shift-click for the Auto / Manual page." : "Shift-click for the Auto / Manual page: rules, interval and what it did.";
   b.className = r.on ? "stat go" : "ghost";
+  b.style.borderColor = r.on && r.blocked ? "#e6c76b" : "";
+  b.style.color = r.on && r.blocked ? "#e6c76b" : "";
+  let note = $("apBlocked");
+  if (!note) { note = document.createElement("div"); note.id = "apBlocked"; note.style.cssText = "background:#2a2410;border:1px solid #e6c76b;color:#e6c76b;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:13px"; const h = document.querySelector("header"); h.parentNode.insertBefore(note, h.nextSibling); }
+  note.hidden = !(r.on && r.blocked);
+  note.textContent = r.on && r.blocked ? "Auto mode is PAUSED: " + r.blocked + ". Nothing is lost - the posts wait and go out once this is fixed." : "";
 }
 if ($("apMode")) {
   $("apMode").onclick = async (e) => {

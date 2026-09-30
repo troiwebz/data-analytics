@@ -35,6 +35,48 @@
     return list.some((m) => String(m || "").toLowerCase() === a);
   };
 
+  // The rules a post must meet before any money is spent screening it. Each
+  // one is about whether a DM is likely to be read and answered.
+  AP.RULES = {
+    backMin: 60,       // on switch-on, also take posts found in the last hour
+    maxAgeH: 6,        // a post older than this has had its answers
+    maxComments: 20,   // a crowded thread: the founder is already swamped
+    minFit: 35,        // the board's own fit score (freshness, role, money, stage, effort)
+    minBody: 120,      // a real post, not a one-line title
+    gapMinS: 240,      // at least 4 minutes between two DMs...
+    gapMaxS: 480,      // ...and up to 8, at random
+    watchFirst: 3,     // the first few DMs after switching on open in front of you
+  };
+  AP.rules = function (saved) {
+    const r = { ...AP.RULES };
+    for (const k of Object.keys(AP.RULES)) {
+      const v = Number(saved && saved[k]);
+      if (saved && saved[k] !== undefined && saved[k] !== "" && isFinite(v) && v >= 0) r[k] = v;
+    }
+    r.gapMinS = Math.max(60, r.gapMinS);                 // never faster than a minute
+    r.gapMaxS = Math.max(r.gapMinS, r.gapMaxS);
+    r.watchFirst = Math.min(10, Math.round(r.watchFirst));
+    return r;
+  };
+  // The seconds before the next DM may go.
+  AP.gapMs = function (rules, rand = Math.random) {
+    const r = AP.rules(rules);
+    return Math.round((r.gapMinS + rand() * (r.gapMaxS - r.gapMinS)) * 1000);
+  };
+  // Relevant and likely to answer? "" when yes, else why not. `fit` is the
+  // board's own score for the post (HEAT.huntScore).
+  AP.convertReason = function (p, rules, now = Date.now(), fit = null) {
+    const r = AP.rules(rules);
+    const ageH = p.created ? (now - p.created) / 3600000 : 0;
+    if (r.maxAgeH > 0 && ageH > r.maxAgeH) return `posted ${Math.round(ageH)}h ago, over ${r.maxAgeH}h`;
+    if ((p.comments || 0) > r.maxComments) return `${p.comments} comments already, over ${r.maxComments}`;
+    if (String(p.body || "").trim().length < r.minBody) return "too short to be a real ask";
+    if (fit !== null && fit < r.minFit) return `fit ${fit}, under ${r.minFit}`;
+    return "";
+  };
+  // A skip caused by the setup, not by the post: undone when the setup is fixed.
+  AP.setupSkip = (why) => /no Claude key saved|AI budget is used up/i.test(String(why || ""));
+
   // Why this post cannot be messaged by the autopilot, or "" when it can.
   AP.blockReason = function (p, ctx) {
     const { since = 0, contacted = {}, done = {}, me = "", now = Date.now(), maxAgeH = 48 } = ctx || {};
@@ -43,6 +85,7 @@
     if ((p.firstSeen || 0) < since) return "found before autopilot was switched on";
     if (p.act) return "skipped";
     if (p.dmAt) return "already messaged";
+    if (p.repliedAt) return "you already replied to it";
     // Auto mode is for the co-founder hunt. Hiring and project posts want a
     // quote and a date, so they wait on the board for you.
     if (p.hunt && p.hunt !== "cofounder") return "a Hiring or project post, left for you";
@@ -85,6 +128,7 @@
   AP.statusText = function (st, gate, waiting) {
     const lines = [];
     lines.push("Autopilot is " + (st.on ? "ON" : "OFF") + ".");
+    if (st.on && st.blocked) lines.push("PAUSED: " + st.blocked + ".");
     lines.push("Private DMs only. Nothing is posted in public.");
     if (gate) lines.push(`DMs sent today: ${gate.sentToday} of ${gate.cap}.`);
     if (typeof waiting === "number") lines.push(`New finds waiting: ${waiting}.`);
