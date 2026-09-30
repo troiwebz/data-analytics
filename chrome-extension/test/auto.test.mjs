@@ -56,7 +56,18 @@ for (const status of ['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL']) {
 // --- what auto mode will not message ---------------------------------------
 {
   const { DEFAULT_CONFIG } = await import('../src/config.js');
-  const full = { ...cfg, autoSkipPhrases: DEFAULT_CONFIG.autoSkipPhrases, autoRequireMatch: true };
+  ok('by default every genuine request may be messaged: no service-match gate', DEFAULT_CONFIG.autoRequireMatch === false);
+  ok('and only "do not PM me" is a shipped deal-breaker', DEFAULT_CONFIG.autoSkipPhrases.length <= 5 && DEFAULT_CONFIG.autoSkipPhrases.every((p) => /pm|dm|thread/i.test(p)));
+  ok('a thread that says not to PM is refused', /deal-breaker/.test(blockedReason({ ...good, body: 'Serious offers only. No PMs please, reply here.' }, { ...cfg, autoSkipPhrases: DEFAULT_CONFIG.autoSkipPhrases }) || ''));
+  ok('a thread matching no category is messaged by default', blockedReason({ ...good, category: '' }, { ...cfg, autoSkipPhrases: DEFAULT_CONFIG.autoSkipPhrases }) === null);
+  // The strict list an operator can switch back on - the mechanism must still work.
+  const STRICT = [
+    'pay(?:ment|ing)?s? (?:will be |is |are )?(?:made |done |released |sent )?(?:only )?(?:after|upon|once|when) ',
+    'paid (?:only )?(?:after|upon|once)', 'pay you after', 'after (?:the )?(?:work|job|task|posting|delivery) (?:is )?(?:done|completed?|finished|live)',
+    'pay(?:ment)? (?:on|per|for) (?:results?|performance|success)', 'no (?:upfront|advance)', 'commission(?: only|[- ]based)?', 'rev(?:enue)? ?shar',
+    'free (?:trial|sample|test|work)', 'full[- ]?time', 'salary', '\\bindia(?:n|ns)?\\b', '\\binr\\b'
+  ];
+  const full = { ...cfg, autoSkipPhrases: STRICT, autoRequireMatch: true };
   const post = (body, title) => why({ body, ...(title ? { title } : {}) }, full);
   ok('a thread matching none of your services waits for you', /does not match any of your services/.test(why({ category: '' }, full) || ''), why({ category: '' }, full));
   ok('unless you switch that rule off', why({ category: '' }, { ...full, autoRequireMatch: false }) === null);
@@ -85,6 +96,22 @@ for (const status of ['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL']) {
   ok('a broken pattern is skipped, not fatal', why({}, { ...cfg, autoSkipPhrases: ['(unclosed', 'commission'] }) === null);
   ok('a budget under your minimum waits for you', /below your minimum/.test(why({ budget: '$20', budgetAmount: 20 }, { ...full, autoMinBudget: 100 }) || ''));
   ok('no stated budget is not held against it', why({ budgetAmount: 0 }, { ...full, autoMinBudget: 100 }) === null);
+}
+
+// --- 1.7.2: the first PM goes to every genuine request ---------------------
+{
+  const { DEFAULT_CONFIG, migrateConfig } = await import('../src/config.js');
+  const shipped160 = ['pay(?:ment|ing)?s? (?:will be |is |are )?(?:made |done |released |sent )?(?:only )?(?:after|upon|once|when) ', 'commission(?: only|[- ]based)?'];
+  const mk = (config) => { const store = { config }; globalThis.chrome = { storage: { local: { get: async (k) => ({ [k]: store[k] }), set: async (o) => Object.assign(store, o) }, sync: { set: async () => {}, get: async () => ({}) } } }; return store; };
+  mk({ configVersion: 33, autoRequireMatch: true, autoSkipPhrases: shipped160, screenRules: 'Say no when: the buyer will pay only after the work is delivered, blah' });
+  let n = await migrateConfig();
+  ok('the service-match gate is switched off', n.autoRequireMatch === false);
+  ok('the shipped strict list is replaced', JSON.stringify(n.autoSkipPhrases) === JSON.stringify(DEFAULT_CONFIG.autoSkipPhrases));
+  ok('the shipped strict rules are replaced', n.screenRules === DEFAULT_CONFIG.screenRules);
+  mk({ configVersion: 33, autoRequireMatch: true, autoSkipPhrases: ['my own phrase'], screenRules: 'My own rules.' });
+  n = await migrateConfig();
+  ok('a phrase list you wrote is kept', JSON.stringify(n.autoSkipPhrases) === JSON.stringify(['my own phrase']));
+  ok('rules you wrote are kept', n.screenRules === 'My own rules.');
 }
 
 // --- the matcher, on how buyers actually ask --------------------------------

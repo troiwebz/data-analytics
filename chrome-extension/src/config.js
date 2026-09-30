@@ -203,33 +203,23 @@ export const DEFAULT_CONFIG = {
   //
   // 1. It has to be your kind of work: a thread matching none of your service
   //    categories below is not auto-messaged, whatever Claude thinks of it.
-  autoRequireMatch: true,
+  autoRequireMatch: false,     // off: every genuine HAF request gets the first PM; you judge the rest
   // 2. Deal-breakers: phrases in the title or the post that mean "not worth a
   //    PM". Case-insensitive; plain words or regex. Add your own in Settings
   //    or with "block <phrase>" on Telegram.
   autoSkipPhrases: [
-    // pay later / pay on results
-    'pay(?:ment|ing)?s? (?:will be |is |are )?(?:made |done |released |sent )?(?:only )?(?:after|upon|once|when) ',
-    'paid (?:only )?(?:after|upon|once)', 'pay you after', 'after (?:the )?(?:work|job|task|posting|delivery) (?:is )?(?:done|completed?|finished|live)',
-    'pay(?:ment)? (?:on|per|for) (?:results?|performance|success)', 'performance[- ]based', 'results?[- ]based',
-    'no (?:cure|results?|win|ranking)[ ,]+no (?:pay|fee|payment)', 'no (?:upfront|advance)', 'without (?:any )?(?:upfront|advance)',
-    // no money in it
-    'commission(?: only|[- ]based)?', 'rev(?:enue)? ?shar', 'profit ?shar', 'percentage of (?:the )?(?:sales|profits?|revenue)',
-    'free (?:trial|sample|test|work)', '(?:test|trial) (?:task|job|work) (?:for )?free', 'unpaid', 'equity', 'co-?founder', 'partnership only',
-    // a job, not a service
-    'full[- ]?time', 'salary', 'offline job', 'on-?site', 'in[- ]office', 'employee',
-    // not your market
-    '\\bindia(?:n|ns)?\\b', '\\binr\\b', 'rupees?', '₹'
+    // Only a buyer saying "do not message me". Everything else that used to be
+    // here (pay after delivery, commission, jobs, India) is yours to judge
+    // after the first PM - you said so. Add your own here or with "block …".
+    'no (?:pms?|dms?)\\b', "don'?t (?:pm|dm) me", '(?:pms?|dms?) will be ignored', 'reply (?:here|in (?:the )?thread) only'
   ],
   // 3. A stated budget below this is not worth the message. 0 = no minimum.
   autoMinBudget: 0,
   // And your own rules for Claude's screen, in your own words. Claude reads the
   // whole post, so this catches what a phrase list cannot.
-  screenRules: 'Say no when: the buyer will pay only after the work is delivered, after posting, or after results; '
-    + 'payment is commission, revenue share, equity or "exposure"; they want a free sample, trial or test first; '
-    + 'they are recruiting an employee or offering a job rather than buying a service; the work is offline or on-site; '
-    + 'the buyer or the target market is India; the budget is clearly tiny for the work; '
-    + 'or the work is outside SEO, Google Ads, Facebook/Meta ads and related paid traffic and marketing.',
+  screenRules: 'Say yes to every genuine request to hire someone or to buy a service or work - any budget, any country, '
+    + 'any payment terms, any kind of work. Say no only when it is not a request at all: a seller advertising their own '
+    + 'service, a moderator or rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
   autoModeSince: '',           // when it was last switched on; older leads are never auto-messaged
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
 
@@ -755,7 +745,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 33;
+export const CONFIG_VERSION = 34;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -929,6 +919,15 @@ export async function migrateConfig() {
     };
     add('seo', SEO_MORE);
     add('ads', ADS_MORE);
+  }
+  if (v < 34) {
+    // 1.7.2: the first PM goes to every genuine HAF request; the operator
+    // judges the rest afterwards. Only the shipped rules are replaced - a
+    // phrase list or wording you edited yourself is left alone.
+    next.autoRequireMatch = false;
+    const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
+    if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
+    if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
   }
   if (v < 33) {
     // Nothing public is ever posted without a tap. Night mode was the one

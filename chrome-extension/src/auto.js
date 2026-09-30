@@ -57,7 +57,7 @@ export function blockedReason(lead, cfg) {
     return 'found before auto mode was switched on';
   }
   // The cheap rules first: your kind of work, no deal-breaker, enough budget.
-  if (cfg?.autoRequireMatch !== false && !has(lead.category)) return 'it does not match any of your services';
+  if (cfg?.autoRequireMatch === true && !has(lead.category)) return 'it does not match any of your services';   // off unless you switch it on
   const broke = dealBreaker(lead, cfg);
   if (broke) return `deal-breaker in the post: "${broke}"`;
   const minBudget = Number(cfg?.autoMinBudget) || 0;
