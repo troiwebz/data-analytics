@@ -237,7 +237,8 @@ export const FILL_SYSTEM = [
   'You read a BlackHatWorld service thread and pull out, in the seller\'s own terms, what a free review copy of it',
   'should contain. Only use what the thread says. Where the thread does not say, leave the field empty.',
   'Return ONLY JSON:',
-  '{ "gets": [3-5 short lines, what ONE reviewer receives - a small but real sample of the service],',
+  '{ "brand": "the brand / product name exactly as the thread spells it (title, body or signature), or empty",',
+  '  "gets": [3-5 short lines, what ONE reviewer receives - a small but real sample of the service],',
   '  "features": [3-6 short lines, the main features / selling points of the service as the thread states them],',
   '  "requirements": "one line: review timing, reviewer criteria, niches not accepted - only if stated or standard",',
   '  "delivery": "delivery time as stated, e.g. 3-5 days, or empty",',
@@ -249,7 +250,7 @@ export const FILL_SYSTEM = [
 export function parseFill(text) {
   const o = looseJson(text) || {};
   const lines = (v, n) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, n) : []);
-  return { gets: lines(o.gets, 5), features: lines(o.features, 6), requirements: String(o.requirements || '').trim(), delivery: String(o.delivery || '').trim(),
+  return { brand: String(o.brand || '').trim(), gets: lines(o.gets, 5), features: lines(o.features, 6), requirements: String(o.requirements || '').trim(), delivery: String(o.delivery || '').trim(),
            targets: String(o.targets || '').trim(), keywords: lines(o.keywords, 6) };
 }
 
@@ -300,7 +301,11 @@ export const REVIEW_SYSTEM = [
   '  "[ 10x Free Review Copies ] - Domain Coasters: Aged Expired Domains for Indonesia Casino iGaming SEO".',
   '  Use the operator\'s targets and keywords first, then the long-tail phrases the viral titles share.',
   '  Titles should be 70-110 characters - long enough to hold the keyword, not a bare "Free Review Copies - Brand".',
-  '- The first line of the post and the "What You\'ll Get" lines must use the same long-tail keywords naturally.',
+  '- BRAND: use the operator\'s brand EXACTLY as given, in every title and in the post. Never invent, shorten or',
+  '  respell a brand. If no brand is given, leave the brand out rather than making one up.',
+  '- The post opens with ONE natural sentence using at most 2 of the long-tail keywords. Never list keywords.',
+  '  The "What You\'ll Get" lines may use one more each, where it reads naturally.',
+  '- Name at least one target country/market in each title when the operator has any.',
   '- Keep "What You\'ll Get" to 3-5 short lines. Do not invent specs, numbers or results the operator did not give;',
   '  where a detail is needed but unknown, write it as [fill in: ...] so the operator can complete it.',
   '',
@@ -328,6 +333,7 @@ export function reviewPrompt(mine, offer, formula, winners) {
     '', 'OPERATOR\'S OFFER',
     `free review copies: ${offer.copies}`,
     `each reviewer gets: ${offer.gets || '(not given - infer from the main thread, mark unknowns as [fill in: ...])'}`,
+    `brand: ${offer.brand ? `${offer.brand}  (use exactly this spelling)` : '(none given - do not invent one)'}`,
     `main features of the service: ${offer.features || '(not given - take them from the main thread)'}`,
     `target niches / markets: ${offer.targets || '(not given - take them from the main thread)'}`,
     `keywords buyers search: ${offer.keywords || '(not given - derive from the thread and the viral titles)'}`,
@@ -515,7 +521,7 @@ export async function runLab({ url, pages = 5, reviewCopies = true, ownSection =
  * your review-copy thread in that format, with your main thread link and your
  * number of copies, inside the section rules.
  */
-export async function runReviewLab({ url, copies = 10, gets = '', features = '', targets = '', keywords = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
+export async function runReviewLab({ url, copies = 10, brand = '', gets = '', features = '', targets = '', keywords = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
   const { readThread, readListing, ask, step = () => {}, now = Date.now() } = deps;
   const id = (String(url).match(/\.(\d+)\/?(?:[?#].*)?$/) || [])[1] || '';
   if (!/blackhatworld\.com\//i.test(url) || !id) throw new Error('That is not a BlackHatWorld thread link.');
@@ -553,7 +559,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
   }
 
   await step('Working out the success formula and writing your thread…');
-  const user = reviewPrompt(mine, { copies: n, gets, features, targets, keywords, requirements, delivery }, formula, opened);
+  const user = reviewPrompt(mine, { copies: n, brand: String(brand).trim(), gets, features, targets, keywords, requirements, delivery }, formula, opened);
   let answer = await ask(REVIEW_SYSTEM, user);
   let result = parseLab(answer.text);
   let cost = answer.cost || 0;
@@ -575,6 +581,8 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
   result = repairReviewCopy(result, { url, copies: n });
   const want = [...new Set([...nichesIn(`${targets} ${keywords} ${mine.title}`), ...marketsIn(`${targets} ${keywords}`)])];
   const problems = checkReviewCopy(result, { url, copies: n, targets: want });
+  const b = String(brand).trim();
+  if (b) (result.titles || []).forEach((t, i) => { if (!t.toLowerCase().includes(b.toLowerCase())) problems.push(`title ${i + 1} does not use your brand "${b}"`); });
 
   return {
     mode: 'review', at: new Date(now).toISOString(), url, copies: n,
@@ -583,6 +591,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
     measured: { features: formula.features, topLength: formula.topLength, restLength: formula.restLength },
     competitors: opened.map((c) => ({ threadId: c.threadId, title: c.title, url: c.url, forum: c.forum, replies: c.replyCount, rpd: c.rpd, sim: c.sim || 0, shared: (c.shared || []).slice(0, 6), viral: !!c.viral })),
     viralBar: viral.bar, median: viral.median, longTails: formula.longTails, targets: want, keywordTargets: result.keywordTargets,
+    offer: { brand: b, features, targets, keywords },
     formula: result.formula, titlePattern: result.titlePattern, postSkeleton: result.postSkeleton,
     titles: result.titles, description: result.description, rulesCheck: result.rulesCheck,
     keywords: result.keywords, irresistibleOffer: result.irresistibleOffer, hooks: result.hooks, gaps: result.gaps,
@@ -719,11 +728,30 @@ const joinAnd = (list) => (list.length <= 1 ? list.join('') : `${list.slice(0, -
  * group means that part - and its joining words - simply is not there.
  *   Brand - Offer + Offer for Country & Country Niche & Niche Tail
  */
-export function buildTitle({ brand = '', offers = [], countries = [], niches = [], tail = '' } = {}) {
+export function buildTitle({ brand = '', offers = [], countries = [], niches = [], tail = '', sep = ' - ' } = {}) {
   const b = String(brand).trim();
   const o = offers.map((x) => String(x).trim()).filter(Boolean).join(' + ');
   const where = [joinAnd(countries.map((x) => String(x).trim()).filter(Boolean)), joinAnd(niches.map((x) => String(x).trim()).filter(Boolean)), String(tail).trim()]
     .filter(Boolean).join(' ');
   const body = [o, where ? (o ? `for ${where}` : where) : ''].filter(Boolean).join(' ');
-  return [b, body].filter(Boolean).join(' - ').replace(/\s+/g, ' ').trim();
+  return [b, body].filter(Boolean).join(sep).replace(/\s+/g, ' ').trim();
+}
+
+
+/** Title-builder choices for a review-copy result: your features as offers, the keywords' niches and countries. */
+export function reviewBuilderEntry(r) {
+  const lines = (t) => String(t || '').split(/\n|;/).map((x) => x.replace(/^[-•*\d.)\s]+/, '').trim()).filter(Boolean);
+  const kws = [...(r.keywordTargets || []).map((k) => k.phrase), ...String(r.offer?.keywords || '').split(','), ...(r.longTails || []).map((k) => k.phrase)]
+    .map((x) => String(x || '').trim()).filter(Boolean);
+  const targets = `${r.offer?.targets || ''} ${(r.targets || []).join(' ')}`;
+  const fromTargets = String(r.offer?.targets || '').split(/[;,]/).map((x) => x.trim()).filter(Boolean);
+  return {
+    url: `review:${r.url}`, brand: r.offer?.brand || '',
+    benefits: lines(r.offer?.features).slice(0, 8),
+    ideas: [
+      ...kws.map((k) => ({ keyword: k.toLowerCase(), niche: nichesIn(k).map(titleCase).join(' & '), countries: marketsIn(k).map(titleCase) })),
+      ...fromTargets.map((t) => ({ niche: nichesIn(t).length ? titleCase(t) : '', countries: marketsIn(t).length ? [titleCase(t)] : [] })),
+      { countries: marketsIn(targets).map(titleCase) }
+    ]
+  };
 }

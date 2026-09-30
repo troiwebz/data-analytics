@@ -7,7 +7,7 @@ $('back').addEventListener('click', () => { location.href = chrome.runtime.getUR
 try {
   $('url').value = localStorage.getItem('labUrl') || '';
   const f = JSON.parse(localStorage.getItem('labForm') || '{}');
-  for (const k of ['copies', 'gets', 'features', 'targets', 'keywords', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
+  for (const k of ['copies', 'brand', 'gets', 'features', 'targets', 'keywords', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
 } catch { /* no storage */ }
 function modeUi() {
   const main = document.querySelector('input[name=mode]:checked').value === 'main';
@@ -24,7 +24,7 @@ $('run').addEventListener('click', async () => {
   const opts = mode === 'main'
     ? { mode, url, pages: Number($('pages').value), open: Number($('open').value), reviewCopies: $('rc').checked, ownSection: $('own').checked }
     : { mode, url, pages: Number($('pages').value), open: Number($('open').value), alsoFrc: $('frc').checked,
-        copies: Number($('copies').value), gets: $('gets').value.trim(), features: $('features').value.trim(), targets: $('targets').value.trim(), keywords: $('keywords').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
+        copies: Number($('copies').value), brand: $('brand').value.trim(), gets: $('gets').value.trim(), features: $('features').value.trim(), targets: $('targets').value.trim(), keywords: $('keywords').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
   if (mode === 'review' && !(opts.copies > 0)) return alert('Say how many free review copies you will give.');
   try { localStorage.setItem('labForm', JSON.stringify(opts)); } catch { /* fine */ }
   const r = await chrome.runtime.sendMessage({ cmd: 'lab-run', opts });
@@ -43,6 +43,7 @@ $('fill').addEventListener('click', async () => {
     const r = await chrome.runtime.sendMessage({ cmd: 'lab-fill', url });
     if (r?.error) { $('fillMsg').textContent = `Could not fill: ${r.error}`; return; }
     const put = (id, v) => { if (v && (!$(id).value.trim() || confirm(`Replace what is in "${id}" with what your thread says?`))) $(id).value = v; };
+    put('brand', r.brand);
     put('features', (r.features || []).join('\n'));
     put('gets', (r.gets || []).join('\n'));
     put('requirements', r.requirements);
@@ -66,64 +67,93 @@ showSpend();
 
 // ---------------------------------------------------------------- title builder
 // Tick countries, niches and offers; the title rebuilds as you go. Every part is
-// optional and comes out cleanly when unticked. Remembered per thread.
-let builder = null;          // { key, brand, tail, picks: { countries: [], niches: [], offers: [] }, extra: {...} }
+// optional and comes out cleanly when unticked. One builder per place it is
+// shown (the review-copy result and the 20-ideas card), remembered per thread.
+const builders = {};         // id -> { key, prefix, brand, tail, picks, extra, opts }
 let builderLib = null;
+const lab = async () => builderLib || (builderLib = await import('../lab.js'));
 
-async function builderFor(e) {
-  const lib = builderLib || (builderLib = await import('../lab.js'));
+async function builderFor(id, e, { prefix = '', brand = '' } = {}) {
+  const lib = await lab();
   const opts = lib.builderOptions(e);
   const key = `builder:${e.url}`;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch { /* none */ }
-  builder = saved || { key, brand: e.brand || '', tail: opts.tails[0] || '', picks: { countries: [], niches: [], offers: [] }, extra: { countries: [], niches: [], offers: [], tails: [] } };
-  builder.key = key;
-  builder.opts = { countries: [...opts.countries, ...builder.extra.countries], niches: [...opts.niches, ...builder.extra.niches],
-                   offers: [...opts.offers, ...builder.extra.offers], tails: [...opts.tails, ...(builder.extra.tails || [])] };
-  return builder;
+  const bd = saved || { brand: brand || e.brand || '', tail: opts.tails[0] || '', picks: { countries: [], niches: [], offers: [] }, extra: { countries: [], niches: [], offers: [], tails: [] } };
+  if (brand && !saved) bd.brand = brand;
+  bd.key = key; bd.prefix = prefix; bd.id = id;
+  bd.extra = { countries: [], niches: [], offers: [], tails: [], ...(bd.extra || {}) };
+  bd.opts = { countries: [...opts.countries, ...bd.extra.countries], niches: [...opts.niches, ...bd.extra.niches],
+              offers: [...opts.offers, ...bd.extra.offers], tails: [...opts.tails, ...bd.extra.tails] };
+  builders[id] = bd;
+  return bd;
 }
 
-function builderHtml(bd) {
-  const group = (id, label, list) => `<div class="grp"><h3>${label} <span style="text-transform:none;letter-spacing:0">(tick any - order follows your ticks)</span></h3>
-    <div class="opts">${list.map((v) => `<label class="${bd.picks[id].includes(v) ? 'on' : ''}"><input type="checkbox" data-pick="${id}" value="${esc(v)}" ${bd.picks[id].includes(v) ? 'checked' : ''}>${esc(v)}</label>`).join('')}
-    <span class="add"><input type="text" data-addto="${id}" placeholder="+ add your own"><button data-addbtn="${id}" style="padding:3px 8px">Add</button></span></div></div>`;
-  return `<div class="card" style="margin-top:14px;border-color:#bfdbfe"><h2>🧩 Title builder</h2>
+function builderHtml(bd, heading = '🧩 Title builder') {
+  const id = bd.id;
+  const group = (g, label, list) => `<div class="grp"><h3>${label} <span style="text-transform:none;letter-spacing:0">(tick any - order follows your ticks)</span></h3>
+    <div class="opts">${list.length ? list.map((v) => `<label class="${bd.picks[g].includes(v) ? 'on' : ''}"><input type="checkbox" data-b="${id}" data-pick="${g}" value="${esc(v)}" ${bd.picks[g].includes(v) ? 'checked' : ''}>${esc(v)}</label>`).join('') : '<span class="sub">none found in the thread - add your own →</span>'}
+    <span class="add"><input type="text" data-b="${id}" data-addto="${g}" placeholder="+ add your own"><button data-b="${id}" data-addbtn="${g}" style="padding:3px 8px">Add</button></span></div></div>`;
+  return `<div class="card" style="margin-top:14px;border-color:#bfdbfe"><h2>${heading}</h2>
     <p class="sub">Tick countries, niches and offers - the title updates as you tick, and an unticked part disappears with its joining words. Built to rank for long-tail searches.</p>
-    <div class="row"><label class="ck">Brand <input type="text" id="bBrand" value="${esc(bd.brand)}" style="width:180px"></label>
-      <label class="ck">Keyword ending <input type="text" id="bTail" list="bTails" value="${esc(bd.tail)}" style="width:220px" placeholder="e.g. Ad Spy Tool"></label>
-      <datalist id="bTails">${bd.opts.tails.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+    <div class="row"><label class="ck">Brand <input type="text" data-b="${id}" data-field="brand" value="${esc(bd.brand)}" style="width:180px"></label>
+      <label class="ck">Keyword ending <input type="text" data-b="${id}" data-field="tail" list="tails-${id}" value="${esc(bd.tail)}" style="width:220px" placeholder="e.g. Ad Spy Tool"></label>
+      <datalist id="tails-${id}">${bd.opts.tails.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
     ${group('offers', 'Offers / benefits', bd.opts.offers)}
     ${group('countries', 'Countries', bd.opts.countries)}
     ${group('niches', 'Niches', bd.opts.niches)}
-    <div class="preview" id="bPreview"></div>
-    <div class="row"><span class="sub" id="bLen"></span><span style="flex:1"></span><button id="bClear">Clear ticks</button><button class="pri" id="bCopy">📋 Copy title</button></div></div>`;
+    <div class="preview" id="prev-${id}"></div>
+    <div class="row"><span class="sub" id="len-${id}"></span><span style="flex:1"></span><button data-b="${id}" data-act="clear">Clear ticks</button><button class="pri" data-b="${id}" data-act="copy">📋 Copy title</button></div></div>`;
 }
 
-async function paintTitle() {
-  if (!builder) return;
-  const lib = builderLib || (builderLib = await import('../lab.js'));
-  const t = lib.buildTitle({ brand: builder.brand, tail: builder.tail, ...builder.picks });
-  const el = document.getElementById('bPreview'); if (!el) return;
+async function paintTitle(id) {
+  const bd = builders[id]; if (!bd) return;
+  const lib = await lab();
+  // After a [ 10x Free Review Copies ] tag the winners write "Brand: Service", not a second dash.
+  const core = lib.buildTitle({ brand: bd.brand, tail: bd.tail, ...bd.picks, sep: bd.prefix ? ': ' : ' - ' });
+  const t = core ? `${bd.prefix}${core}` : '';
+  const el = document.getElementById(`prev-${id}`); if (!el) return;
   el.textContent = t || 'Tick something to start the title';
   const n = t.length;
-  document.getElementById('bLen').innerHTML = `${n} characters · ${n < 60 ? '<span style="color:#b45309">short - add a country, niche or offer</span>' : n > 110 ? '<span style="color:#dc2626">long - BHW titles over ~110 get cut in lists</span>' : '<span style="color:#16a34a">good length for a long-tail title</span>'}`;
-  try { const { opts, ...keep } = builder; localStorage.setItem(builder.key, JSON.stringify(keep)); } catch { /* fine */ }
+  document.getElementById(`len-${id}`).innerHTML = `${n} characters · ${n < 60 ? '<span style="color:#b45309">short - add a country, niche or offer</span>' : n > 110 ? '<span style="color:#dc2626">long - BHW titles over ~110 get cut in lists</span>' : '<span style="color:#16a34a">good length for a long-tail title</span>'}`;
+  try { const { opts, ...keep } = bd; localStorage.setItem(bd.key, JSON.stringify(keep)); } catch { /* fine */ }
 }
 
 document.addEventListener('change', (e) => {
-  const pick = e.target.dataset?.pick;
-  if (pick && builder) {
-    const list = builder.picks[pick]; const v = e.target.value;
-    if (e.target.checked) { if (!list.includes(v)) list.push(v); } else builder.picks[pick] = list.filter((x) => x !== v);
+  const id = e.target.dataset?.b, g = e.target.dataset?.pick;
+  if (id && g && builders[id]) {
+    const bd = builders[id]; const v = e.target.value;
+    if (e.target.checked) { if (!bd.picks[g].includes(v)) bd.picks[g].push(v); } else bd.picks[g] = bd.picks[g].filter((x) => x !== v);
     e.target.closest('label').classList.toggle('on', e.target.checked);
-    paintTitle();
+    paintTitle(id);
   }
 });
 document.addEventListener('input', (e) => {
-  if (!builder) return;
-  if (e.target.id === 'bBrand') { builder.brand = e.target.value; paintTitle(); }
-  if (e.target.id === 'bTail') { builder.tail = e.target.value; paintTitle(); }
+  const id = e.target.dataset?.b, f = e.target.dataset?.field;
+  if (id && f && builders[id]) { builders[id][f] = e.target.value; paintTitle(id); }
 });
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-b]'); if (!t || t.tagName === 'INPUT') return;
+  const id = t.dataset.b, bd = builders[id]; if (!bd) return;
+  if (t.dataset.addbtn) {
+    const g = t.dataset.addbtn; const inp = document.querySelector(`[data-b="${id}"][data-addto="${g}"]`);
+    const v = String(inp?.value || '').trim(); if (!v) return;
+    if (!bd.opts[g].some((x) => x.toLowerCase() === v.toLowerCase())) { bd.extra[g].push(v); bd.opts[g].push(v); }
+    if (!bd.picks[g].includes(v)) bd.picks[g].push(v);
+    await paintTitle(id); rerenderBuilder(id); return;
+  }
+  if (t.dataset.act === 'clear') { bd.picks = { countries: [], niches: [], offers: [] }; await paintTitle(id); rerenderBuilder(id); return; }
+  if (t.dataset.act === 'copy') {
+    const txt = document.getElementById(`prev-${id}`)?.textContent || '';
+    if (txt && !/^Tick something/.test(txt)) { await navigator.clipboard.writeText(txt); t.textContent = '✅ Copied'; setTimeout(() => { t.textContent = '📋 Copy title'; }, 1500); }
+  }
+});
+/** Redraw one builder in place, keeping its heading. */
+function rerenderBuilder(id) {
+  const host = document.getElementById(`host-${id}`); if (!host) return;
+  host.innerHTML = builderHtml(builders[id], host.dataset.heading || '🧩 Title builder');
+  paintTitle(id);
+}
 
 // ---------------------------------------------------------------- 20 ideas
 let ideasShown = null;
@@ -145,10 +175,10 @@ async function renderIdeas() {
   const { labIdeas = [] } = await chrome.storage.local.get('labIdeas');
   const e = ideasShown || labIdeas[0];
   if (!e) { $('ideasOut').innerHTML = ''; return; }
-  const bd = await builderFor(e);
-  $('ideasOut').innerHTML = builderHtml(bd) + ideasTable(e)
+  await builderFor('ideas', e);
+  $('ideasOut').innerHTML = `<div id="host-ideas" data-heading="🧩 Title builder"></div>` + ideasTable(e)
     + (labIdeas.length > 1 ? `<div class="hist" style="margin-top:10px">${labIdeas.map((x, k) => `<button data-ideas="${k}">${esc(String(x.title || '').slice(0, 45))}</button>`).join('')}</div>` : '');
-  paintTitle();
+  rerenderBuilder('ideas');
 }
 
 $('ideasRun').addEventListener('click', async () => {
@@ -190,6 +220,7 @@ function reviewReport(r) {
     ${r.titlePattern ? `<div class="sub" style="margin-top:10px">Title pattern: <code>${esc(r.titlePattern)}</code></div>` : ''}
     ${(r.keywordTargets || []).length ? `<div class="sub" style="margin:10px 0 4px">Long-tail keywords the titles target</div><div class="chips win">${r.keywordTargets.map((k) => `<span title="${esc(k.why || '')}">${esc(k.phrase)}</span>`).join('')}</div>` : ''}
     ${(r.titles || []).map((t, i) => copyBox(`Title ${i + 1} · ${t.length} characters`, t)).join('')}
+    <div id="host-review" data-heading="🧩 Build your own title - tick to change it"></div>
     ${copyBox('Post (paste as the first post)', r.description)}
     <p class="sub">Post it in <a href="https://www.blackhatworld.com/forums/service-reviews-beta-testers-help-wanted.165/post-thread" target="_blank" rel="noopener">Service Reviews &amp; Beta Testers → Post thread</a>. Do not bump it - the section rules forbid it.</p>
   </div>
@@ -274,25 +305,16 @@ async function render() {
   }
   const r = showing || (run?.status === 'done' ? run.result : null);
   $('out').innerHTML = r ? report(r) : '';
+  if (r && r.mode === 'review' && document.getElementById('host-review')) {
+    const lib = await lab();
+    await builderFor('review', lib.reviewBuilderEntry(r), { prefix: `[ ${r.copies}x Free Review Copies ] - `, brand: r.offer?.brand || '' });
+    rerenderBuilder('review');
+  }
   $('histCard').hidden = !hist.length;
   $('hist').innerHTML = hist.map((h, i) => `<button data-hist="${i}">${esc(String(h.mine?.title || '').slice(0, 50))} · ${new Date(h.at).toLocaleDateString()}</button>`).join('');
 }
 
 document.addEventListener('click', async (e) => {
-  const addb = e.target.closest('[data-addbtn]');
-  if (addb && builder) {
-    const g = addb.dataset.addbtn; const inp = document.querySelector(`[data-addto="${g}"]`);
-    const v = String(inp?.value || '').trim(); if (!v) return;
-    if (!builder.opts[g].some((x) => x.toLowerCase() === v.toLowerCase())) { builder.extra[g].push(v); }
-    if (!builder.picks[g].includes(v)) builder.picks[g].push(v);
-    await paintTitle(); renderIdeas(); return;
-  }
-  if (e.target.id === 'bClear' && builder) { builder.picks = { countries: [], niches: [], offers: [] }; await paintTitle(); renderIdeas(); return; }
-  if (e.target.id === 'bCopy') {
-    const t = document.getElementById('bPreview')?.textContent || '';
-    if (t && !/^Tick something/.test(t)) { await navigator.clipboard.writeText(t); e.target.textContent = '✅ Copied'; setTimeout(() => { e.target.textContent = '📋 Copy title'; }, 1500); }
-    return;
-  }
   if (e.target.id === 'ideasCsv') {
     const cur = await currentIdeas(); if (!cur) return;
     const { ideasCsv } = await import('../lab.js');

@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn, parseIdeas, ideasCsv, ideasPrompt, buildTitle, builderOptions, titleCase } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn, parseIdeas, ideasCsv, ideasPrompt, buildTitle, builderOptions, titleCase, reviewBuilderEntry } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -170,7 +170,7 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('a quiet section still gives three to learn from', viralOnly([1, 1, 1, 1].map((rep, i) => ({ threadId: String(i), title: 't', replyCount: rep, startedAt: ago(1) })), { now }).length === 3);
   const f = parseFill('```json\n{"gets":["1 campaign","tracking"],"features":["Casino ads","Agency accounts"],"requirements":"Review in 48h","delivery":"3-5 days"}\n```');
   ok('the form is filled from what Claude read', f.gets.length === 2 && f.features[0] === 'Casino ads' && f.delivery === '3-5 days');
-  ok('a thread that says nothing gives empty fields, not invented ones', JSON.stringify(parseFill('{}')) === JSON.stringify({ gets: [], features: [], requirements: '', delivery: '', targets: '', keywords: [] }));
+  ok('a thread that says nothing gives empty fields, not invented ones', JSON.stringify(parseFill('{}')) === JSON.stringify({ brand: '', gets: [], features: [], requirements: '', delivery: '', targets: '', keywords: [] }));
 }
 
 // --- long-tail keyword targeting ------------------------------------------
@@ -223,6 +223,7 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('no countries: the country part goes, cleanly', buildTitle({ brand: 'AdRecon', offers: ['Spy Winning Ads'], niches: ['Crypto'], tail: 'Ad Intelligence' }) === 'AdRecon - Spy Winning Ads for Crypto Ad Intelligence');
   ok('no offers: no dangling "for"', buildTitle({ brand: 'AdRecon', countries: ['Brazil'], niches: ['Betting'] }) === 'AdRecon - Brazil Betting');
   ok('nothing but a brand', buildTitle({ brand: 'AdRecon' }) === 'AdRecon');
+  ok('after a review tag the brand takes a colon', buildTitle({ brand: 'Advauult', offers: ['Spy Winning Ads'], countries: ['Indonesia'], sep: ': ' }) === 'Advauult: Spy Winning Ads for Indonesia');
   ok('nothing at all', buildTitle({}) === '');
   const o = builderOptions({ benefits: ['spy winning ads', 'clone landing pages', 'track offers', 'see creatives', 'find funnels'],
     ideas: [{ countries: ['Indonesia', 'Thailand'], niche: 'Casino & iGaming', keyword: 'indonesia thailand casino ad spy tool', benefits: ['spy winning ads'] }] });
@@ -231,6 +232,25 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('keyword endings are taken from the ideas, cased properly', o.tails.includes('Ad Spy Tool'), JSON.stringify(o.tails));
   ok('offers come out in Title Case', o.offers.includes('Spy Winning Ads') && o.offers.includes('Clone Landing Pages'), JSON.stringify(o.offers));
   ok('acronyms stay acronyms, brand casing is kept', titleCase('casino seo for uae') === 'Casino SEO for UAE' && titleCase('iGaming ppc') === 'iGaming PPC');
+}
+
+// --- brand kept, and the review result gets a builder -----------------------
+{
+  const URL = 'https://www.blackhatworld.com/seo/casino-ads.1800000/';
+  const rows = Array.from({ length: 12 }, (_, i) => ({ threadId: String(4000 + i), title: `[ ${i + 5}x Free Review Copies ] - Brand${i} Guest Posts`, replyCount: 10 + i, startedAt: ago(i + 1), url: `https://www.blackhatworld.com/seo/t.${4000 + i}/` }));
+  let asked = '';
+  const deps = { now, step: () => {}, readThread: async () => ({ title: '▇▇▶ CASINO | CRYPTO | PHARMA ⚡ REVERSE ENGINEER EVERY WINNING AD', body: 'We spy ads.' }),
+    readListing: async () => Object.fromEntries(rows.map((r) => [r.threadId, r])),
+    ask: async (s, u) => { asked = u; return { text: JSON.stringify({ titles: ['[ 10x Free Review Copies ] - AdReverse: Casino Ad Spy'], description: `Looking for 10 reviewers.\nThread Link:\n${URL}` }), cost: 0 }; } };
+  const out = await runReviewLab({ url: URL, copies: 10, brand: 'Advauult', features: 'Spy winning ads\nClone landing pages', targets: 'Indonesia, Thailand; casino' }, deps);
+  ok('the brand goes to Claude exactly as spelled, with "do not invent"', /brand: Advauult  \(use exactly this spelling\)/.test(asked));
+  ok('a title that swapped your brand is flagged', out.problems.some((p) => /does not use your brand "Advauult"/.test(p)), JSON.stringify(out.problems));
+  const e = reviewBuilderEntry(out);
+  const o = builderOptions(e);
+  ok('the review builder offers your features', o.offers.includes('Spy Winning Ads') && o.offers.includes('Clone Landing Pages'), JSON.stringify(o.offers));
+  ok('and your countries first', o.countries[0] === 'Indonesia' && o.countries.includes('Thailand'), JSON.stringify(o.countries));
+  ok('and keeps your brand', e.brand === 'Advauult');
+  ok('Fill picks up the brand', parseFill('{"brand":"Advauult"}').brand === 'Advauult');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
