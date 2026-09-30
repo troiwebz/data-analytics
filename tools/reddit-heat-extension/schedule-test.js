@@ -44,7 +44,7 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
 (async () => {
   const opened = [];
   chrome.tabs.create = async (o) => { opened.push(o.url); return { id: 50 + opened.length }; };
-  const post = (id) => ({ id, author: "user_" + id, sub: "cofounder", title: "Need a technical cofounder " + id, body: "x".repeat(200), permalink: "/r/cofounder/comments/" + id + "/", created: clock - 60000, firstSeen: clock - 60000, hunt: "cofounder", ai: { dm_long: "Hello " + id + ", a real DM long enough.", public_reply: "a public line" } });
+  const post = (id) => ({ id, author: "user_" + id, sub: "cofounder", title: "Need a technical cofounder " + id, body: "x".repeat(200), permalink: "/r/cofounder/comments/" + id + "/", created: clock - 60000, firstSeen: clock - 60000, hunt: "cofounder", ai: { fit: "yes", readBody: true, model: "template+slots", dm_long: "Hello " + id + ", I read your post about the clinic scheduler and the waitlist. I would start by moving the prototype onto a proper backend and keeping your booking flow as is. What is the launch date you have in mind?", public_reply: "a public line" } });
   await chrome.storage.local.set({ hunt: { on: true, contacted: {}, posts: { p1: post("p1"), p2: post("p2"), p3: post("p3") } } });
 
   // scheduling three posts makes three DM lines and nothing else
@@ -94,6 +94,66 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   // the reply-prefill page never submits a public reply by itself
   const pf = fs.readFileSync(__dirname + "/prefill-new.js", "utf8");
   assert.ok(!/(?<!function )\bsendCountdown\(pendingReply,/.test(pf), "the public reply countdown is not called");
+
+  assert.strictEqual(store.pendingDm, undefined);
+
+  // ---- nothing goes out unless Claude read the description ----
+  const claudeCalls = [];
+  let verdict = { fit: "yes", reason: "a paid freelance build", dm: "Hi, you need a booking site for the clinic with online payments. I would start with the booking flow and the reminder emails, then the payment page. We have built booking products for small practices. Is the launch tied to a date?" };
+  const baseFetch = ctx.fetch;
+  ctx.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes("api.anthropic.com")) { claudeCalls.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ content: [{ type: "text", text: JSON.stringify(verdict) }], usage: { input_tokens: 900, output_tokens: 120 } }) }; }
+    if (u.includes("/comments/") && u.includes(".json")) return { ok: true, status: 200, json: async () => ([{ data: { children: [{ data: { selftext: "We are a small clinic and need a booking website with payments, budget $2000, paid by milestone." } }] } }]) };
+    return baseFetch(url, init);
+  };
+  const hire = (id, o = {}) => ({ id, author: "buyer_" + id, sub: "forhire", title: "[Hiring] Booking website for a clinic " + id, body: "", permalink: "/r/forhire/comments/" + id + "/x/", created: clock - 60000, firstSeen: clock - 60000, hunt: "project", badge: "hiring", ...o });
+  store.hunt.posts.h1 = hire("h1");
+  await chrome.storage.local.set({ config: { profile: {} } });
+  store.hunt.schedule = [{ id: "h1", at: clock - 1000, kind: "dm" }];
+  const openedBefore = opened.length;
+  await ctx.scheduleTick();
+  let line = store.hunt.schedule[0];
+  assert.ok(!line.state, "no key: the line waits, it is not opened");
+  assert.ok(/Claude key/.test(line.reason), line.reason);
+  assert.strictEqual(opened.length, openedBefore, "nothing opened without Claude");
+  assert.strictEqual(store.pendingDm, undefined);
+
+  // with a key: the description is fetched, Claude reads it and writes the DM
+  await chrome.storage.local.set({ config: { profile: { apiKey: "sk-test-not-real", role: "web developer" } } });
+  line.at = clock - 1000;
+  await ctx.scheduleTick();
+  assert.strictEqual(claudeCalls.length, 1, "one Claude call");
+  assert.ok(/booking website with payments/.test(claudeCalls[0].messages[0].content), "Claude was given the description, not just the title");
+  assert.strictEqual(store.hunt.posts.h1.ai.model, "claude-hire");
+  assert.strictEqual(store.hunt.posts.h1.ai.readBody, true);
+  assert.strictEqual(store.pendingDm.text, verdict.dm, "the DM is the one Claude wrote");
+  assert.strictEqual(store.pendingDm.screened, true);
+  assert.strictEqual(store.hunt.schedule[0].state, "opened");
+
+  // Claude says it is not relevant: the line is dropped with its reason, nothing opens
+  delete store.pendingDm;
+  verdict = { fit: "no", reason: "a full-time job ad, not a project", dm: "" };
+  store.hunt.posts.h2 = hire("h2", { body: "Full-time VMware engineer in Riyadh, 5 years of experience, salary and benefits." });
+  store.hunt.schedule = [{ id: "h2", at: clock - 1000, kind: "dm" }];
+  const o2 = opened.length;
+  await ctx.scheduleTick();
+  assert.strictEqual(store.hunt.schedule[0].state, "cancelled");
+  assert.ok(/Claude read it: a full-time job ad/.test(store.hunt.schedule[0].reason), store.hunt.schedule[0].reason);
+  assert.strictEqual(opened.length, o2);
+  assert.strictEqual(store.pendingDm, undefined);
+
+  // a post with no description at all is never messaged
+  ctx.fetch = async (url, init) => String(url).includes(".json") && String(url).includes("/comments/") ? { ok: true, status: 200, json: async () => ([{ data: { children: [{ data: { selftext: "" } }] } }]) } : baseFetch(url, init);
+  store.hunt.posts.h3 = hire("h3");
+  store.hunt.schedule = [{ id: "h3", at: clock - 1000, kind: "dm" }];
+  await ctx.scheduleTick();
+  assert.strictEqual(store.hunt.schedule[0].state, "cancelled");
+  assert.ok(/no description/.test(store.hunt.schedule[0].reason));
+
+  // the chat box only sends a DM by itself when it is marked as read and written by Claude
+  const bridge = fs.readFileSync(__dirname + "/chat-bridge.js", "utf8");
+  assert.ok(/pendingDm\.screened === true/.test(bridge));
 
   console.log("schedule-test: all passed");
 })().catch((e) => { console.error(e); process.exit(1); });

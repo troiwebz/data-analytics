@@ -1100,10 +1100,15 @@ HEAT.HIRING_KINDS = [
 const HIRING_ASK = /\[\s*(?:hiring|task|paid|job|request|looking)\s*\]|\bhiring\b|\blooking (?:for|to hire)\b|\bneed(?:ed|ing)? (?:an? |some ?one |somebody |help |a team )|\bseeking (?:an? |some ?one )|\bwant(?:ed)? (?:an? |some ?one )|\bwho can (?:build|make|fix|do|help)\b|\bpay(?:ing)? (?:some ?one|for|\$)/i;
 // Offering, not hiring. [For Hire] is the board's tag for a seller.
 const HIRING_OFFER = /\[\s*for ?hire\s*\]|\bfor hire\b|\[\s*offer(?:ing)?\s*\]|\bavailable for (?:work|hire|projects|freelance)\b|\bopen to (?:work|projects|new clients)\b|\bi(?:'m| am) (?:a|an) (?:freelance|experienced|professional|senior|junior|full[- ]?stack|web|seo|marketing)\b|\b(?:we|i) offer\b|\bmy (?:services|portfolio|rates)\b|\bhire (?:me|us)\b|\btaking on (?:new )?clients\b/i;
+// An employee job ad, not a piece of paid work we could take on: a salary, an
+// office, a CV, "join our team". Kept out unless it is plainly freelance.
+const HIRING_EMPLOYMENT = /\b(?:full[- ]?time|permanent (?:role|position)|salary|per annum|p\.?a\.?\b|ctc|lpa|benefits package|health insurance|paid time off|pto|on[- ]?site|onsite|in[- ]office|hybrid (?:role|work|position)|relocat\w*|visa sponsor\w*|job description|responsibilities\s*:|qualifications\s*:|requirements\s*:|years? of (?:professional )?experience|\d+\+? ?(?:years|yrs)\b|send (?:your )?(?:cv|resume)|attach (?:your )?(?:cv|resume)|(?:cv|resume) to\b|location\s*:|company\s*:|join our (?:growing )?team|open (?:position|role)s?|job opening|vacanc(?:y|ies)|we(?:'re| are) hiring|is hiring!?$|now hiring)\b/i;
+const HIRING_FREELANCE = /\b(?:freelanc\w*|contract(?:or)?\b|one[- ]off|one[- ]time (?:job|project|task)|fixed (?:price|budget|fee)|per project|small (?:job|project|task)|gig\b|\[task\]|project\b|budget|\$\s?\d)/i;
 HEAT.classifyHiring = function (title, body) {
   const t = String(title || "");
   const all = (t + "\n" + String(body || "").slice(0, 2000));
   if (HIRING_OFFER.test(t)) return { keep: false, why: "offering, not hiring" };
+  if (HIRING_EMPLOYMENT.test(all) && !HIRING_FREELANCE.test(all)) return { keep: false, why: "an employee job ad, not a freelance project" };
   if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "looking for a job" };
   if (/\bco[- ]?founder\b|\bcofounder\b/i.test(t)) return { keep: false, why: "a co-founder ask" };
   if (!HIRING_ASK.test(t) && !HIRING_ASK.test(all.slice(0, 400))) return { keep: false, why: "nobody is being hired here" };
@@ -1113,6 +1118,49 @@ HEAT.classifyHiring = function (title, body) {
   if (!hit) return { keep: false, why: "not programming, SEO, digital marketing or Google Maps" };
   const budget = (all.match(/[$£€]\s?\d[\d,.]*\s?k?(?:\s?(?:\/\s?h(?:ou)?r|per hour|an hour|\/mo|per month|a month|monthly|fixed))?/i) || [""])[0].trim();
   return { keep: true, why: "", role: "hiring", kind: hit.label, hiringKind: hit.key, budget, paid: !!budget, stage: budget ? "has budget" : "", hasBudget: !!budget, equityOnly: false, badge: "hiring", tier: 3 };
+};
+
+// Did Claude read this post's own description and write the DM from it,
+// and say it is a fit? Only then may a DM send itself.
+HEAT.dmReadyFromClaude = function (p) {
+  const ai = p && p.ai;
+  return !!(ai && ai.readBody && ai.fit !== "no" && String(ai.dm_long || ai.dm_short || "").trim().length >= 80);
+};
+
+// The Claude screen for Hiring and project posts: is this real paid work we
+// can do, and if so, the first DM, written from the post itself.
+HEAT.hireScreenPrompt = function (p, profile = {}) {
+  const me = [
+    profile.name ? "Name: " + profile.name : "",
+    "What we do: " + (profile.role || "programming, SEO, digital marketing and Google Maps / local SEO work"),
+    profile.location ? "Based in: " + profile.location : "",
+    profile.credit ? "One true line about us: " + profile.credit : "",
+  ].filter(Boolean).join("\n");
+  const system = `You read a Reddit post from someone who may be hiring, and decide whether a small team that does programming, SEO, digital marketing and Google Maps / local SEO work should send them a private message. If yes, you write that first message.
+
+Read the whole description before deciding. fit = "yes" only when ALL of these hold:
+1. A person or business wants a piece of paid work done: a project, a task, a contract or ongoing freelance help. An employee job ad (salary, office, CV, "join our team", years of experience) is "no".
+2. The work is programming, SEO, digital marketing, or Google Maps / Google Business Profile / local SEO.
+3. We can plausibly do it, judging by who we are below.
+4. The post does not forbid private messages and does not ask people to apply only by comment, email or a form.
+5. No red flags: unpaid or "test task" work, payment only after delivery, accounts, fake reviews or votes, gambling, adult, coursework, or moving straight to Telegram or WhatsApp.
+Otherwise fit = "no", with the reason in under 15 words, and dm = "".
+
+The message, only when fit = "yes": 50 to 110 words, plain text, first person. Open with one specific detail from their description in your own words. Say concretely how you would do it: the first one or two steps. One line of proof, only from "who we are"; never invent clients, numbers or tools. End with one easy question about their job. No links, emails, @handles, emojis or hashtags; no price unless they named a budget.
+
+Who we are:
+${me}`;
+  const user = `Subreddit: r/${p.sub}\nTitle: ${p.title}\nPosted by: u/${p.author}\nDescription:\n${String(p.body || "").slice(0, 3500)}`;
+  const schema = {
+    type: "object", additionalProperties: false,
+    properties: {
+      fit: { type: "string", enum: ["yes", "no"] },
+      reason: { type: "string", description: "Under 15 words: why yes or no." },
+      dm: { type: "string", description: "The first private message, or empty when fit is no." },
+    },
+    required: ["fit", "reason", "dm"],
+  };
+  return { system, user, schema };
 };
 
 HEAT.classifyProject = function (title, body) {

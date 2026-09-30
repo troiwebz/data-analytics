@@ -120,7 +120,7 @@
     const ai = p && p.ai;
     if (!ai || ai.fit === "no") return false;
     const m = String(ai.model || "");
-    return m === "template+slots" || (/^claude-/.test(m) && m !== "claude-chrome");
+    return !!ai.readBody && (m === "template+slots" || (/^claude-/.test(m) && m !== "claude-chrome"));
   };
 
   AP.clip = (s, n) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };

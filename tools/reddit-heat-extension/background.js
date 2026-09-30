@@ -1421,6 +1421,66 @@ async function scheduleClear(id, kind) {
   await huntSet({ schedule });
   return { ok: true, left: schedule.filter((x) => !x.state).length };
 }
+// The post's own description. Listings sometimes arrive without it; read the
+// post once from Reddit and keep it. "" when there is nothing to read.
+async function huntReadBody(id) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return "";
+  if (String(p.body || "").trim().length >= 40) return p.body;
+  try {
+    const path = String(p.permalink || "").replace(/^https?:\/\/[^/]+/, "").replace(/\/?$/, "/");
+    const j = await huntFetch("https://old.reddit.com" + path + ".json?limit=1&raw_json=1");
+    const d = j && j[0] && j[0].data && j[0].data.children && j[0].data.children[0] && j[0].data.children[0].data;
+    const body = String((d && d.selftext) || "").trim();
+    const fresh = await huntGet();
+    if (fresh.posts[id]) { fresh.posts[id].body = body.slice(0, 4000); await huntSet({ posts: fresh.posts }); }
+    return body.length >= 40 ? body : "";
+  } catch (_) { return ""; }
+}
+// Claude reads a Hiring or project post, says whether it is relevant, and
+// writes the DM from the description.
+async function huntHireWrite(id) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false, error: "post not found" };
+  const key = await huntAiKey();
+  if (!key) return { ok: false, error: "no api key", noKey: true };
+  const spent = await spendGet();
+  if (spent.cents >= spent.budget) return { ok: false, overBudget: true, error: `today's AI budget is used up (${spent.cents}¢ of ${spent.budget}¢)` };
+  const { config = {} } = await chrome.storage.local.get(["config"]);
+  const { system, user, schema } = HEAT.hireScreenPrompt(p, config.profile || {});
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 60000);
+  let r, j;
+  try {
+    r = await fetch(AI_URL, { method: "POST", signal: ctl.signal, headers: aiHeaders(key, AI_SLOT_MODEL), body: JSON.stringify(aiBody(AI_SLOT_MODEL, system, user, schema, 700)) });
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    return { ok: false, error: /abort/i.test(String(e)) ? "the API took more than 60s" : "could not reach api.anthropic.com" };
+  } finally { clearTimeout(timer); }
+  if (!r.ok) return { ok: false, error: r.status === 401 ? "the API key was rejected" : r.status === 429 ? "rate limited by the API, try again in a minute" : ((j.error && j.error.message) || "HTTP " + r.status) };
+  if (j.stop_reason === "refusal") return { ok: false, error: "the model declined this post" };
+  const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  let out; try { out = JSON.parse(text); } catch (_) { return { ok: false, error: "the model returned something that was not JSON" }; }
+  const u = j.usage || {};
+  const cents = aiCents(AI_SLOT_MODEL, u);
+  await spendAdd(cents, { kind: "hiring screen", who: p.author || "", what: (p.title || "").slice(0, 70), model: AI_SLOT_MODEL, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
+  const fresh = await huntGet();
+  const q = fresh.posts[id];
+  if (!q) return { ok: false, error: "post not found" };
+  if (out.fit !== "yes") {
+    q.act = "not_relevant"; q.actAt = Date.now(); q.cancelledBy = "ai"; q.cancelReason = String(out.reason || "not relevant").slice(0, 200);
+    await huntSet({ posts: fresh.posts });
+    return { ok: false, cancelled: true, reason: q.cancelReason };
+  }
+  const dm = String(out.dm || "").trim();
+  if (dm.length < 80 || /https?:\/\/|www\./i.test(dm)) return { ok: false, error: "the DM came back too short or with a link" };
+  q.ai = { fit: "yes", fit_reason: String(out.reason || "").slice(0, 200), dm_long: dm, dm_short: dm, public_reply: "", model: "claude-hire", readBody: String(q.body || "").trim().length >= 40, at: Date.now(), cents };
+  await huntSet({ posts: fresh.posts });
+  return { ok: true, ai: q.ai };
+}
+
 // Delete from the schedule. With an id: every line of that post, whatever its
 // state. With "waiting": everything not yet opened. With "all": the lot.
 // A DM already sitting in the chat box for a deleted post is taken out too.
@@ -1462,15 +1522,24 @@ async function scheduleTick() {
   }
   const { config = {}, inbox = {} } = await chrome.storage.local.get(["config", "inbox"]);
   const profile = { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
-  // before anything is opened, the writer decides whether this one is worth it
-  if (!p.ai && profile.apiKey && (profile.aiEngine === "slots" || !profile.aiEngine)) {
-    const r = await huntSlotWrite(due.id);
+  // Nothing is opened until Claude has read this post's own description,
+  // judged it relevant, and written the DM from it. No key: the line waits.
+  if (due.kind === "dm" && !HEAT.dmReadyFromClaude(p)) {
+    if (!String(profile.apiKey || "").trim()) { due.at = now + 5 * 60000; due.reason = "waiting for a Claude key - no DM goes out without Claude reading the post"; return save(); }
+    const body = await huntReadBody(due.id);
+    if (!body) {
+      due.state = "cancelled"; due.reason = "the post has no description to read";
+      return save();
+    }
+    const r = p.hunt === "project" || p.badge === "hiring" ? await huntHireWrite(due.id) : await huntSlotWrite(due.id, true);
     if (r && r.cancelled) {
-      due.state = "cancelled"; due.reason = r.reason || "not a fit";
+      due.state = "cancelled"; due.reason = "Claude read it: " + (r.reason || "not relevant");
       for (const o of list) if (o.id === due.id && !o.state) { o.state = "cancelled"; o.reason = due.reason; }
       return save();
     }
-    if (!r || !r.ok) { due.at = now + 120000; due.reason = (r && r.error) || "could not write it"; return save(); }
+    if (!r || !r.ok) { due.at = now + 120000; due.reason = (r && r.error) || "Claude could not read it yet"; return save(); }
+    const again = (await huntGet()).posts[due.id];
+    if (!HEAT.dmReadyFromClaude(again)) { due.state = "cancelled"; due.reason = "Claude did not write a DM from the description"; return save(); }
   }
   const fresh = await huntGet();
   const post = fresh.posts[due.id] || p;
@@ -1481,8 +1550,8 @@ async function scheduleTick() {
     await chrome.storage.local.set({ pendingReply: { id: due.id, permalink: post.permalink, text, variant: 0, at: Date.now() } });
     await chrome.tabs.create({ url: "https://www.reddit.com" + String(post.permalink || "").replace(/^https?:\/\/[^/]+/, ""), active: false });
   } else {
-    const text = post.ai ? (post.ai.dm_long || post.ai.dm_short) : huntDM(post, profile, "long");
-    await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: due.id, author: post.author, text, at: Date.now() } });
+    const text = post.ai.dm_long || post.ai.dm_short;
+    await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: due.id, author: post.author, text, screened: true, at: Date.now() } });
     await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: false });
   }
   due.state = "opened"; due.openedAt = now;
@@ -1784,6 +1853,7 @@ async function huntSlotWrite(id, force) {
   ai.at = Date.now();
   ai.dealV = inbox.dealV || 0;
   ai.model = "template+slots";
+  ai.readBody = String(p.body || "").trim().length >= 40;   // Claude had the description, not just the title
   ai.cents = aiCents(AI_SLOT_MODEL, j.usage || {});
   const u0 = j.usage || {};
   await spendAdd(ai.cents, { kind: "reply + DM", who: p.author || "", what: (p.title || "").slice(0, 70), model: AI_SLOT_MODEL, in: (u0.input_tokens || 0) + (u0.cache_read_input_tokens || 0), out: u0.output_tokens || 0 });

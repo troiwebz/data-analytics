@@ -639,7 +639,11 @@ $("goDm").onclick = async () => {
   if (!cur || $("goDm").disabled) return;
   await copyText($("dm").value);
   // Reddit's "new chat" page; the bridge types the name, opens the chat and fills the box. Nothing is sent by us.
-  await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: cur.id, author: cur.author, text: $("dm").value, at: Date.now() } });
+  // It sends itself only when it is exactly the DM Claude wrote after reading the
+  // description; anything else is put in the box for you to read and send.
+  const claudeDm = cur.ai && cur.ai.readBody && cur.ai.fit !== "no" ? String(cur.ai.dm_long || cur.ai.dm_short || "").trim() : "";
+  const screened = !!claudeDm && $("dm").value.trim() === claudeDm;
+  await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: cur.id, author: cur.author, text: $("dm").value, screened, at: Date.now() } });
   window.open("https://www.reddit.com/chat/room/create", "_blank");
   if ($("assumeDm").checked) setTimeout(async () => { await act("dm"); gateTick(); }, 800);   // counts as sent; the post is struck through in Done and never returns
   else setTimeout(gateTick, 1500);
@@ -838,6 +842,7 @@ const STATE_LOOK = {
   done: ["#7ee29a", "already done"],
 };
 let schedGroup = true;      // one row per post, both steps side by side
+const schedPicked = new Set();   // posts ticked on the Schedule list
 async function drawSchedule() {
   const r = await send({ type: "hunt-schedule-list" });
   if (!r || $("table").hidden) return;
@@ -850,8 +855,14 @@ async function drawSchedule() {
   const tabs = [["all", "Everything", r.rows.length], ["waiting", "Waiting", c.waiting], ["opened", "Open now", c.opened], ["sent", "Sent", c.sent], ["dropped", "Dropped", c.cancelled + c.gone]];
   $("schedTabs").innerHTML = tabs.map(([k, label, n]) => `<button class="ghost schedTab${schedFilter === k ? " on" : ""}" data-k="${k}">${label} ${n}</button>`).join("")
     + `<span style="width:10px"></span><button class="ghost" id="schedGroupBtn">${schedGroup ? "show every line" : "one row per post"}</button>`
-    + `<span style="width:10px"></span><button class="ghost" id="schedDelWaiting" style="color:#ff8a65">Delete all waiting</button>`
+    + `<span style="width:10px"></span><button class="ghost" id="schedDelPicked" style="color:#ff8a65"${schedPicked.size ? "" : " disabled"}>Delete selected (${schedPicked.size})</button>`
+    + `<button class="ghost" id="schedDelWaiting" style="color:#ff8a65">Delete all waiting</button>`
     + `<button class="ghost" id="schedDelAll" style="color:#ff8a65">Delete everything</button>`;
+  $("schedDelPicked").onclick = async () => {
+    if (!schedPicked.size || !confirm(`Delete ${schedPicked.size} selected post(s) from the schedule?`)) return;
+    for (const id of [...schedPicked]) await send({ type: "hunt-schedule-delete", what: id });
+    schedPicked.clear(); drawSchedule(); refresh(false);
+  };
   $("schedDelWaiting").onclick = async () => { if (!confirm(`Delete the ${c.waiting} scheduled DM(s) that have not gone yet?`)) return; await send({ type: "hunt-schedule-delete", what: "waiting" }); drawSchedule(); refresh(false); };
   $("schedDelAll").onclick = async () => { if (!confirm("Delete the whole schedule, including the record of what was sent?\n\nSent DMs stay in Reddit Chat and in Contacted; only this list is cleared.")) return; await send({ type: "hunt-schedule-delete", what: "all" }); drawSchedule(); refresh(false); };
   for (const b of $("schedTabs").querySelectorAll(".schedTab")) b.onclick = () => { schedFilter = b.dataset.k; drawSchedule(); };
@@ -868,7 +879,7 @@ async function drawSchedule() {
   const btn = (x, label) => `<button class="ghost schedNow" data-id="${esc(x.id)}" data-kind="${x.kind}">${label}</button>`;
 
   if (schedGroup) {
-    $("tableHead").innerHTML = "<tr><th>When</th><th>Post</th><th>The DM</th><th>Now</th></tr>";
+    $("tableHead").innerHTML = `<tr><th><input type="checkbox" id="schedAll" title="select all shown"></th><th>When</th><th>Post</th><th>The DM</th><th>Now</th></tr>`;
     const groups = [];
     const byId = new Map();
     for (const x of r.rows) {
@@ -892,10 +903,10 @@ async function drawSchedule() {
       const acts = [dm && dm.state === "waiting" ? btn(dm, "DM now") : "", dm && dm.state === "opened" ? btn(dm, "reopen") : "",
         `<button class="ghost schedDel" data-id="${esc(g.id)}" style="color:#ff8a65">delete</button>`].filter(Boolean).join(" ");
       const done = !!dm && dm.state === "sent";
-      return `<tr${done ? ' class="done"' : ""}><td>${esc(clock(g.at))}</td><td>${who(g.row)}</td><td>${cell(dm)}</td><td>${acts}</td></tr>`;
-    }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled yet. Tick the boxes on the left of the queue rows, then use the bar that appears at the top of the list: set the minutes apart and press "Schedule these".'}</td></tr>`;
+      return `<tr${done ? ' class="done"' : ""}><td><input type="checkbox" class="schedPick" data-id="${esc(g.id)}"${schedPicked.has(g.id) ? " checked" : ""}></td><td>${esc(clock(g.at))}</td><td>${who(g.row)}</td><td>${cell(dm)}</td><td>${acts}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : 'Nothing scheduled yet. Tick the boxes on the left of the queue rows, then use the bar that appears at the top of the list: set the minutes apart and press "Schedule these".'}</td></tr>`;
   } else {
-    $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th>Now</th></tr>";
+    $("tableHead").innerHTML = `<tr><th><input type="checkbox" id="schedAll" title="select all shown"></th><th>When</th><th>What</th><th>Post</th><th>State</th><th>Now</th></tr>`;
     const shown = r.rows.filter(matches);
     $("tableRows").innerHTML = shown.map((x) => {
       const [colour, word] = STATE_LOOK[x.state] || ["#98a0b3", x.state];
@@ -905,12 +916,19 @@ async function drawSchedule() {
         : x.reason || "";
       const acts = (x.kind === "dm" && x.state === "waiting" ? btn(x, "Open now") : x.kind === "dm" && x.state === "opened" ? btn(x, "reopen") : "")
         + `<button class="ghost schedDel" data-id="${esc(x.id)}" style="color:#ff8a65">delete</button>`;
-      return `<tr${x.state === "sent" ? ' class="done"' : ""}><td>${esc(clock(x.at))}</td>`
+      return `<tr${x.state === "sent" ? ' class="done"' : ""}><td><input type="checkbox" class="schedPick" data-id="${esc(x.id)}"${schedPicked.has(x.id) ? " checked" : ""}></td><td>${esc(clock(x.at))}</td>`
         + `<td>${x.kind === "reply" ? "public reply" : "the DM"}${x.written ? "" : ` <span class="foot" style="margin:0" title="Claude writes it in the seconds before the line opens">· not written yet</span>`}</td>`
         + `<td>${who(x)}</td>`
         + `<td style="color:${colour}"><b>${esc(word)}</b>${detail ? `<br><span style="color:#98a0b3">${esc(detail)}</span>` : ""}</td>`
         + `<td>${acts}</td></tr>`;
-    }).join("") || `<tr><td colspan="5" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : "Nothing scheduled yet."}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" style="color:#98a0b3">${r.rows.length ? "Nothing in this group." : "Nothing scheduled yet."}</td></tr>`;
+  }
+  const picks = [...$("tableRows").querySelectorAll("input.schedPick")];
+  const syncPicked = () => { $("schedDelPicked").disabled = !schedPicked.size; $("schedDelPicked").textContent = `Delete selected (${schedPicked.size})`; };
+  for (const cb of picks) cb.onchange = () => { if (cb.checked) schedPicked.add(cb.dataset.id); else schedPicked.delete(cb.dataset.id); syncPicked(); };
+  if ($("schedAll")) {
+    $("schedAll").checked = picks.length > 0 && picks.every((cb) => cb.checked);
+    $("schedAll").onchange = () => { for (const cb of picks) { cb.checked = $("schedAll").checked; if (cb.checked) schedPicked.add(cb.dataset.id); else schedPicked.delete(cb.dataset.id); } syncPicked(); };
   }
   for (const b of $("tableRows").querySelectorAll("button.schedDel")) b.onclick = async () => { await send({ type: "hunt-schedule-delete", what: b.dataset.id }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id, kind: b.dataset.kind }); drawSchedule(); refresh(false); };

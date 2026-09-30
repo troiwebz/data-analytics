@@ -25,6 +25,11 @@ D("[Hiring] Logo designer", "", /not programming/);
 D("Need a technical co-founder for my app", "", /co-founder/);
 D("Looking to hire a web developer for a landing page", "unpaid, for exposure", /unpaid/);
 D("Best laptop for programming?", "", /nobody is being hired/);
+D("Hiring for a VMware Engineer | Company: Infra Assure | Location: Riyadh", "5+ years of experience, full time, send your CV", /employee job ad/);
+D("Nui Cobalt is hiring!", "Join our team as a social media marketer. Full-time, benefits.", /employee job ad/);
+D("we are hiring", "Medical coding specialists, on-site, salary 40k", /employee job ad|not programming/);
+D("Hiring for an AI Engineer, Bangalore, India", "3+ years experience in Python, CTC 20 LPA, hybrid", /employee job ad/);
+K("[Hiring] Contract React developer for a 2-week project", "Budget $1500, remote", "Programming");
 assert.deepStrictEqual(H.HIRING_KINDS.map((k) => k.label), ["Google Maps", "SEO", "Digital marketing", "Programming"]);
 assert.strictEqual(H.badgeDef("hiring").label, "Hiring");
 // the project hunt only calls something "Hiring" when it passes the same test

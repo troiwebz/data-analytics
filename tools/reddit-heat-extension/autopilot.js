@@ -295,7 +295,7 @@ async function apNext() {
 
   // gate 4: hand it to the chat bridge, in a tab of its own
   const startedAt = Date.now();
-  await chrome.storage.local.set({ pendingDm: { kind: "hunt", auto: true, id: fresh.id, author: fresh.author, text, at: startedAt } });
+  await chrome.storage.local.set({ pendingDm: { kind: "hunt", auto: true, screened: true, id: fresh.id, author: fresh.author, text, at: startedAt } });
   let tabId = 0;
   // The first few after switching on open in front of you, so you watch the
   // chat fill and the 10-second countdown run. Clicking during it stops that one.

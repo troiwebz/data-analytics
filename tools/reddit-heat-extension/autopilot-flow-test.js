@@ -48,8 +48,8 @@ function world(opts = {}) {
       if (opts.claude === "error") return { ok: false, error: "rate limited by the API, try again in a minute" };
       if (opts.claude === "throw") throw new Error("boom");
       if (opts.claude === "no") { hunt.posts[id].act = "not_relevant"; return { ok: false, cancelled: true, reason: "offering themselves" }; }
-      if (opts.claude === "empty") { hunt.posts[id].ai = { model: "template+slots", fit: "yes", dm_long: "" }; return { ok: true }; }
-      hunt.posts[id].ai = { model: "template+slots", fit: "yes", dm_long: "Hi, I read your post about the bakery app and had one thought on the launch that may help you." };
+      if (opts.claude === "empty") { hunt.posts[id].ai = { model: "template+slots", fit: "yes", readBody: true, dm_long: "" }; return { ok: true }; }
+      hunt.posts[id].ai = { model: "template+slots", fit: "yes", readBody: true, dm_long: "Hi, I read your post about the bakery app and had one thought on the launch that may help you." };
       return { ok: true, ai: hunt.posts[id].ai };
     },
     huntAiWrite: async () => ({ ok: false, error: "wrong writer" }),

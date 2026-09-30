@@ -43,8 +43,9 @@ assert.strictEqual(AP.pickNext({ old: posts.old, mod: posts.mod }, base), null, 
 assert.strictEqual(AP.pickNext({}, base), null);
 
 // --- the Claude screen ------------------------------------------------------
-assert.strictEqual(AP.screenedByClaude({ ai: { model: "template+slots", fit: "yes", dm_long: "x" } }), true);
-assert.strictEqual(AP.screenedByClaude({ ai: { model: "claude-sonnet-5", fit: "yes" } }), true);
+assert.strictEqual(AP.screenedByClaude({ ai: { model: "template+slots", fit: "yes", readBody: true, dm_long: "x" } }), true);
+assert.strictEqual(AP.screenedByClaude({ ai: { model: "template+slots", fit: "yes", dm_long: "x" } }), false, "written without reading the description");
+assert.strictEqual(AP.screenedByClaude({ ai: { model: "claude-sonnet-5", fit: "yes", readBody: true } }), true);
 assert.strictEqual(AP.screenedByClaude({ ai: { model: "claude-sonnet-5", fit: "no" } }), false, "a no from Claude is a no");
 assert.strictEqual(AP.screenedByClaude({ ai: { model: "on-device" } }), false);
 assert.strictEqual(AP.screenedByClaude({ ai: { model: "claude-chrome" } }), false);
