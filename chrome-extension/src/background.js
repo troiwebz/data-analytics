@@ -28,7 +28,7 @@ import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intent
 import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
-import { runLab, runReviewLab } from './lab.js';
+import { runLab, runReviewLab, FILL_SYSTEM, parseFill } from './lab.js';
 import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
@@ -4102,6 +4102,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
+      case 'lab-fill': {                             // read your thread, propose the form
+        try {
+          if (await walled()) { sendResponse({ error: 'BlackHatWorld showed a wall recently - try again in a few minutes.' }); break; }
+          const t = await readThreadTab(String(msg.url || ''));
+          if (!t.title && !t.body) { sendResponse({ error: 'Your thread could not be read - check the link and that you are logged in.' }); break; }
+          const a = await askClaude(FILL_SYSTEM, `title: ${t.title}\n\npost:\n${String(t.body || '').slice(0, 4000)}`, { maxTokens: 900 });
+          sendResponse({ ok: true, ...parseFill(a.text), cost: a.cost, title: t.title });
+        } catch (e) { sendResponse({ error: e.message }); }
+        break;
+      }
       case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
       case 'owner-take': {
         const o = await takeOver().catch((e) => ({ error: e.message }));

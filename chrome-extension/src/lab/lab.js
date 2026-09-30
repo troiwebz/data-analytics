@@ -7,7 +7,7 @@ $('back').addEventListener('click', () => { location.href = chrome.runtime.getUR
 try {
   $('url').value = localStorage.getItem('labUrl') || '';
   const f = JSON.parse(localStorage.getItem('labForm') || '{}');
-  for (const k of ['copies', 'gets', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
+  for (const k of ['copies', 'gets', 'features', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
 } catch { /* no storage */ }
 function modeUi() {
   const main = document.querySelector('input[name=mode]:checked').value === 'main';
@@ -24,7 +24,7 @@ $('run').addEventListener('click', async () => {
   const opts = mode === 'main'
     ? { mode, url, pages: Number($('pages').value), open: Number($('open').value), reviewCopies: $('rc').checked, ownSection: $('own').checked }
     : { mode, url, pages: Number($('pages').value), open: Number($('open').value), alsoFrc: $('frc').checked,
-        copies: Number($('copies').value), gets: $('gets').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
+        copies: Number($('copies').value), gets: $('gets').value.trim(), features: $('features').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
   if (mode === 'review' && !(opts.copies > 0)) return alert('Say how many free review copies you will give.');
   try { localStorage.setItem('labForm', JSON.stringify(opts)); } catch { /* fine */ }
   const r = await chrome.runtime.sendMessage({ cmd: 'lab-run', opts });
@@ -33,6 +33,34 @@ $('run').addEventListener('click', async () => {
   render();
 });
 
+$('fill').addEventListener('click', async () => {
+  const url = $('url').value.trim();
+  if (!/blackhatworld\.com\//i.test(url)) return alert('Paste the link to your BHW service thread first.');
+  const b = $('fill'); b.disabled = true; b.textContent = 'Reading your thread…';
+  $('fillMsg').textContent = 'Opening your thread in a background tab, then one short Claude call…';
+  try {
+    const r = await chrome.runtime.sendMessage({ cmd: 'lab-fill', url });
+    if (r?.error) { $('fillMsg').textContent = `Could not fill: ${r.error}`; return; }
+    const put = (id, v) => { if (v && (!$(id).value.trim() || confirm(`Replace what is in "${id}" with what your thread says?`))) $(id).value = v; };
+    put('features', (r.features || []).join('\n'));
+    put('gets', (r.gets || []).join('\n'));
+    put('requirements', r.requirements);
+    put('delivery', r.delivery);
+    $('fillMsg').textContent = `Filled from "${String(r.title || '').slice(0, 60)}" - check and edit, then Run the Lab. Cost $${Number(r.cost || 0).toFixed(4)}.`;
+    showSpend();
+  } finally { b.disabled = false; b.textContent = '✨ Fill these from my thread'; }
+});
+
+/** Claude's spend today, the daily limit, and what is left - the same figures as the dashboard. */
+async function showSpend() {
+  const ai = await chrome.runtime.sendMessage({ cmd: 'ai-status' }).catch(() => null);
+  if (!ai) return;
+  $('spend').textContent = !ai.configured ? 'Claude: no key saved'
+    : `Claude today: $${Number(ai.spentToday || 0).toFixed(3)}${ai.budget > 0 ? ` of $${Number(ai.budget).toFixed(2)} · $${Number(ai.remaining || 0).toFixed(3)} left` : ''}`
+      + (ai.credits > 0 ? ` · balance ~$${Number(ai.balance).toFixed(2)}` : '');
+}
+showSpend();
+
 function copyBox(label, text) {
   const id = 'c' + Math.random().toString(36).slice(2);
   return `<div class="copy"><div class="sub" style="margin-bottom:4px">${esc(label)}</div><pre id="${id}">${esc(text)}</pre>
@@ -40,7 +68,7 @@ function copyBox(label, text) {
 }
 
 function reviewReport(r) {
-  const comp = (r.competitors || []).map((c) => `<tr><td><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td>
+  const comp = (r.competitors || []).map((c) => `<tr><td>${c.viral ? '🔥 ' : ''}<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td>
       <td class="n">${c.replies ?? '?'}</td><td class="n">${c.rpd}</td></tr>`).join('');
   const meas = (r.measured?.features || []).map((f) => `<tr><td>${esc(f.label)}</td>
       <td class="n"><b>${f.top}%</b></td><td class="n">${f.rest}%</td>
@@ -73,7 +101,7 @@ function reviewReport(r) {
     <div class="sub" style="margin:12px 0 4px">Phrases they share</div><div class="chips win">${(r.keywords?.winning || []).map((k) => `<span>${esc(k)}</span>`).join('')}</div>
     <div class="sub" style="margin:10px 0 4px">Missing from yours</div><div class="chips miss">${(r.keywords?.missing || []).map((k) => `<span>${esc(k)}</span>`).join('') || '<span>none</span>'}</div>
     ${(r.gaps || []).length ? `<div class="sub" style="margin:12px 0 4px">What your offer is missing</div><ol>${r.gaps.map((g) => `<li>${esc(g)}</li>`).join('')}</ol>` : ''}
-    <div class="sub" style="margin:14px 0 4px">Threads studied</div>
+    <div class="sub" style="margin:14px 0 4px">Threads studied - viral only: 🔥 = at least ${r.viralBar ?? '?'} replies/day, twice the section's median of ${r.median ?? '?'}</div>
     <table><thead><tr><th>Thread</th><th>Replies</th><th>Per day</th></tr></thead><tbody>${comp}</tbody></table>
   </div>`;
 }
@@ -144,5 +172,5 @@ document.addEventListener('click', async (e) => {
   const h = e.target.closest('[data-hist]');
   if (h) { const { labHistory = [] } = await chrome.storage.local.get('labHistory'); showing = labHistory[Number(h.dataset.hist)]; render(); window.scrollTo(0, 0); }
 });
-chrome.storage.onChanged.addListener((ch) => { if (ch.labRun || ch.labHistory) render(); });
+chrome.storage.onChanged.addListener((ch) => { if (ch.labRun || ch.labHistory) render(); if (ch.ai) showSpend(); });
 render();

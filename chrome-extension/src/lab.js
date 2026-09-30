@@ -174,6 +174,39 @@ export function titleFormula(rows, { now = Date.now(), top = 10 } = {}) {
   return { features, topLength: avg(head), restLength: avg(rest), top: head, sample: ranked.length };
 }
 
+/**
+ * Viral = pulling at least twice the section's median replies per day, and at
+ * least one a day. The top three by pull always qualify, so a quiet week still
+ * has something to learn from. Sorted by pull.
+ */
+export function viralOnly(rows, { now = Date.now() } = {}) {
+  const ranked = rows.filter((r) => !r.sticky).map((r) => ({ ...r, rpd: Math.round(repliesPerDay(r, now) * 100) / 100 }))
+    .sort((a, b) => b.rpd - a.rpd);
+  const sorted = ranked.map((r) => r.rpd).sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const bar = Math.max(1, 2 * median);
+  const out = ranked.filter((r, i) => r.rpd >= bar || i < 3).map((r) => ({ ...r, viral: r.rpd >= bar }));
+  out.bar = Math.round(bar * 100) / 100; out.median = median;
+  return out;
+}
+
+/** Read your main thread and propose the form: what reviewers get, main features, requirements, delivery. */
+export const FILL_SYSTEM = [
+  'You read a BlackHatWorld service thread and pull out, in the seller\'s own terms, what a free review copy of it',
+  'should contain. Only use what the thread says. Where the thread does not say, leave the field empty.',
+  'Return ONLY JSON:',
+  '{ "gets": [3-5 short lines, what ONE reviewer receives - a small but real sample of the service],',
+  '  "features": [3-6 short lines, the main features / selling points of the service as the thread states them],',
+  '  "requirements": "one line: review timing, reviewer criteria, niches not accepted - only if stated or standard",',
+  '  "delivery": "delivery time as stated, e.g. 3-5 days, or empty" }'
+].join('\n');
+
+export function parseFill(text) {
+  const o = looseJson(text) || {};
+  const lines = (v, n) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, n) : []);
+  return { gets: lines(o.gets, 5), features: lines(o.features, 6), requirements: String(o.requirements || '').trim(), delivery: String(o.delivery || '').trim() };
+}
+
 /** The prompt, and the shape of the answer asked for. */
 export const LAB_SYSTEM = [
   'You analyse service threads on BlackHatWorld (BHW), a forum marketplace for SEO, ads, social media and',
@@ -241,6 +274,7 @@ export function reviewPrompt(mine, offer, formula, winners) {
     '', 'OPERATOR\'S OFFER',
     `free review copies: ${offer.copies}`,
     `each reviewer gets: ${offer.gets || '(not given - infer from the main thread, mark unknowns as [fill in: ...])'}`,
+    `main features of the service: ${offer.features || '(not given - take them from the main thread)'}`,
     `requirements / not accepted: ${offer.requirements || '(not given)'}`,
     `delivery time: ${offer.delivery || '(not given)'}`,
     '', 'SECTION RULES', ...SECTION_RULES.map((r) => `- ${r}`),
@@ -417,7 +451,7 @@ export async function runLab({ url, pages = 5, reviewCopies = true, ownSection =
  * your review-copy thread in that format, with your main thread link and your
  * number of copies, inside the section rules.
  */
-export async function runReviewLab({ url, copies = 10, gets = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
+export async function runReviewLab({ url, copies = 10, gets = '', features = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
   const { readThread, readListing, ask, step = () => {}, now = Date.now() } = deps;
   const id = (String(url).match(/\.(\d+)\/?(?:[?#].*)?$/) || [])[1] || '';
   if (!/blackhatworld\.com\//i.test(url) || !id) throw new Error('That is not a BlackHatWorld thread link.');
@@ -441,11 +475,10 @@ export async function runReviewLab({ url, copies = 10, gets = '', requirements =
 
   await step(`Measuring what the ${live.length} titles do…`);
   const formula = titleFormula(live, { now });
-  // The winners are chosen by pull; one or two closest to your niche are added
-  // so the copy can speak to your buyers too.
-  const niche = rankCompetitors(mine, live, { now, minSim: 0.1, top: 2 }).top;
-  const pick = [...formula.top.slice(0, Math.max(3, open - niche.length))];
-  for (const x of niche) if (!pick.some((y) => y.threadId === x.threadId)) pick.push(x);
+  // Only viral threads are studied: the formula comes from what is working,
+  // never from a thread that merely sounds like yours.
+  const viral = viralOnly(live, { now });
+  const pick = viral.slice(0, Math.max(3, Number(open) || 6));
 
   const opened = [];
   for (const [i, c] of pick.entries()) {
@@ -455,7 +488,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', requirements =
   }
 
   await step('Working out the success formula and writing your thread…');
-  const user = reviewPrompt(mine, { copies: n, gets, requirements, delivery }, formula, opened);
+  const user = reviewPrompt(mine, { copies: n, gets, features, requirements, delivery }, formula, opened);
   let answer = await ask(REVIEW_SYSTEM, user);
   let result = parseLab(answer.text);
   let cost = answer.cost || 0;
@@ -482,7 +515,8 @@ export async function runReviewLab({ url, copies = 10, gets = '', requirements =
     mine: { title: mine.title, forum: mine.forum, section: mine.section, bodyChars: String(mine.body || '').length },
     scanned: live.length, sources: sources.map((s) => s.label), pages: p, cost: answer.cost || 0,
     measured: { features: formula.features, topLength: formula.topLength, restLength: formula.restLength },
-    competitors: opened.map((c) => ({ threadId: c.threadId, title: c.title, url: c.url, forum: c.forum, replies: c.replyCount, rpd: c.rpd, sim: c.sim || 0, shared: (c.shared || []).slice(0, 6) })),
+    competitors: opened.map((c) => ({ threadId: c.threadId, title: c.title, url: c.url, forum: c.forum, replies: c.replyCount, rpd: c.rpd, sim: c.sim || 0, shared: (c.shared || []).slice(0, 6), viral: !!c.viral })),
+    viralBar: viral.bar, median: viral.median,
     formula: result.formula, titlePattern: result.titlePattern, postSkeleton: result.postSkeleton,
     titles: result.titles, description: result.description, rulesCheck: result.rulesCheck,
     keywords: result.keywords, irresistibleOffer: result.irresistibleOffer, hooks: result.hooks, gaps: result.gaps,

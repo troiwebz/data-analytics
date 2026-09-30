@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -115,6 +115,17 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   };
   const out = await runReviewLab({ url: URL, copies: 10, pages: 7 }, deps);
   ok('the Service Reviews & Beta Testers section is what is read', read.some((u) => u.startsWith(REVIEW_SECTION)) && !read.some((u) => u.startsWith(REVIEW_COPIES)), JSON.stringify(read));
+  const openedUrls = read.filter((u) => /\/seo\/t\.\d+\//.test(u));
+  const v = viralOnly(REAL, { now });
+  ok('only viral threads are opened', openedUrls.every((u) => v.some((x) => x.url === u)) && openedUrls.length > 0, JSON.stringify(openedUrls));
+  {
+    // A casino ads thread just like yours, but barely read: it must not be studied.
+    const quiet = { threadId: '2999', title: '[FREE REVIEW COPIES] ||FB | IG | GOOGLE || CASINO | GAMBLING ADS', replyCount: 3, startedAt: ago(20), url: 'https://www.blackhatworld.com/seo/t.2999/' };
+    const seen = [];
+    await runReviewLab({ url: URL, copies: 10 }, { ...deps, readThread: async (u) => { seen.push(u); return deps.readThread(u); },
+      readListing: async () => Object.fromEntries([...REAL, quiet].map((r) => [r.threadId, r])) });
+    ok('a thread that matches your niche but is not viral is never opened', !seen.includes(quiet.url), JSON.stringify(seen));
+  }
   ok('never more than 5 pages', read.filter((u) => / x\d$/.test(u)).every((u) => / x5$/.test(u)));
   ok('the winners\' posts reach Claude', /looking for 10 honest reviewers/.test(asked));
   ok('the thread link is always in the final post', out.description.includes(URL), out.description);
@@ -148,6 +159,18 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   try { await runReviewLab({ url: URL, copies: 10 }, { ...base, ask: async () => ({ text: 'I would rather not.', stop: 'end_turn', cost: 0 }) }); } catch (e) { err = e; }
   ok('two bad answers stop with the reason, not a shrug', /replied in prose/.test(err?.message || ''), err?.message);
   ok('and what Claude sent is kept for you to see', err?.raw === 'I would rather not.');
+}
+
+// --- viral only, and filling the form from your thread ------------------------
+{
+  const rows = [5, 6, 4, 30, 3, 25, 5, 4].map((rep, i) => ({ threadId: String(i), title: 't' + i, replyCount: rep, startedAt: ago(1) }));
+  const v = viralOnly(rows, { now });
+  ok('viral means twice the median replies a day', v.bar === 10 && v.every((r, i) => r.rpd >= 10 || i < 3), JSON.stringify(v.map((r) => [r.rpd, r.viral])));
+  ok('the busiest come first', v[0].rpd === 30 && v[1].rpd === 25);
+  ok('a quiet section still gives three to learn from', viralOnly([1, 1, 1, 1].map((rep, i) => ({ threadId: String(i), title: 't', replyCount: rep, startedAt: ago(1) })), { now }).length === 3);
+  const f = parseFill('```json\n{"gets":["1 campaign","tracking"],"features":["Casino ads","Agency accounts"],"requirements":"Review in 48h","delivery":"3-5 days"}\n```');
+  ok('the form is filled from what Claude read', f.gets.length === 2 && f.features[0] === 'Casino ads' && f.delivery === '3-5 days');
+  ok('a thread that says nothing gives empty fields, not invented ones', JSON.stringify(parseFill('{}')) === JSON.stringify({ gets: [], features: [], requirements: '', delivery: '' }));
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
