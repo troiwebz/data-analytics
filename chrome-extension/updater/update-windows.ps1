@@ -33,7 +33,7 @@ try {
   $tree = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$Owner/$Repo/git/trees/$([uri]::EscapeDataString($Branch))?recursive=1" -Headers @{ 'User-Agent' = 'haf-watcher-updater' }
   $files = $tree.tree | Where-Object { $_.type -eq 'blob' -and $_.path.StartsWith("$Sub/") } |
     ForEach-Object { $_.path.Substring($Sub.Length + 1) } |
-    Where-Object { $_ -notmatch '^(test|docs|node_modules)/' -and $_ -notmatch '^package(-lock)?\.json$' -and $_ -ne 'haf-secrets.json' }
+    Where-Object { $_ -notmatch '^(test|docs|node_modules)/' -and $_ -notmatch '^package(-lock)?\.json$' -and $_ -ne 'haf-secrets.json' -and $_ -ne 'haf-keys.json' }
   if (-not $files -or -not ($files -contains 'manifest.json')) { throw 'GitHub returned no file list' }
 
   # Everything into a staging folder first: a half-finished download never lands.

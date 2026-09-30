@@ -35,6 +35,7 @@ import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner } from './owner.js';
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
+import { loadKeysFile } from './keysfile.js';
 import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
@@ -196,6 +197,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // needing the Anthropic key and the Telegram token retyped over RDP. Runs
   // before anything reads the config, and fills gaps only.
   const seeded = await applySeed().catch((e) => ({ error: e.message }));
+  await takeKeysFile().catch(() => {});
   const migrated = await migrateConfig();
   // New wording shipped with the code is taken up before anything reads the
   // config, and before setConfig writes it back - otherwise that write would
@@ -382,6 +384,18 @@ async function ownUpToInterruption() {
   }
 }
 
+/** Keys typed in Terminal (set-keys), picked up within a minute. */
+async function takeKeysFile() {
+  const r = await loadKeysFile({ setChatId: (id) => setConfig({ telegramChatId: id }) }).catch((e) => ({ error: e.message }));
+  if (!r) return;
+  if (r.error) { await logOnce('keysFile', `keys from Terminal not loaded: ${r.error}`, 'error', 30); return; }
+  if (!r.took.length) return;
+  await clearLogOnce('keysFile');
+  await log(`loaded from Terminal (haf-keys.json): ${r.took.join(', ')}`);
+  const cfg = await getConfig();
+  if (cfg.telegramChatId) await telegram.say(cfg.telegramChatId, `🔑 Loaded from Terminal: ${r.took.join(', ')}. Send "test claude" to check the key.`).catch(() => {});
+}
+
 async function checkForUpdate() {
   const running = chrome.runtime.getManifest().version;
   try {
@@ -417,6 +431,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
     const own = await ownership().catch(() => ({ active: true, known: false }));
     if (own.known && !own.active) {
       await logOnce('passive', `${describeOwner(own)}. This copy is on standby. Open its dashboard and press "Keep THIS as the main system" to switch.`, 'info', 60);
+      if (alarm.name === UPDATE_ALARM) await takeKeysFile();
       if (alarm.name === UPDATE_ALARM) await checkForUpdate();
       return;
     }
@@ -434,6 +449,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
     }
+    if (alarm.name === UPDATE_ALARM) await takeKeysFile();
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
     // The hourly alarm stays as a backstop: polling can be switched off, or a
     // cycle can fail, and the list should still be reconciled eventually.

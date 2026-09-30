@@ -87,3 +87,4 @@ Screenshot*.png
 .htaccess
 .localized
 .dart_tool/
+**/haf-keys.json

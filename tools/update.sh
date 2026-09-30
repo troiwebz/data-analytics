@@ -49,7 +49,7 @@ echo "$LOADED" | while IFS= read -r dir; do
   if [ "$was" = "$version" ]; then echo "Chrome loads $dir - already v$version"; continue; fi
   # everything first, manifest.json last, so Chrome reloads once it is all there
   rsync -a --exclude .git --exclude node_modules --exclude test --exclude docs --exclude package.json \
-        --exclude package-lock.json --exclude .DS_Store --exclude haf-secrets.json --exclude manifest.json "$SRC/" "$dir/"
+        --exclude package-lock.json --exclude .DS_Store --exclude haf-secrets.json --exclude haf-keys.json --exclude manifest.json "$SRC/" "$dir/"
   cp "$SRC/manifest.json" "$dir/manifest.json"
   echo "Chrome loads $dir - updated v$was -> v$version. It reloads itself within a minute."
 done
