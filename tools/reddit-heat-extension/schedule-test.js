@@ -155,5 +155,44 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   const bridge = fs.readFileSync(__dirname + "/chat-bridge.js", "utf8");
   assert.ok(/pendingDm\.screened === true/.test(bridge));
 
+  // ---- a new schedule starts at once, and a dropped line can be read again ----
+  ctx.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes("api.anthropic.com")) { claudeCalls.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ content: [{ type: "text", text: JSON.stringify(verdict) }], usage: { input_tokens: 900, output_tokens: 120 } }) }; }
+    if (u.includes("/comments/") && u.includes(".json")) return { ok: true, status: 200, json: async () => ([{ data: { children: [{ data: { selftext: "Remote LinkedIn outreach partner, part time, paid US$50 a month, about ten minutes to set up." } }] } }]) };
+    return baseFetch(url, init);
+  };
+  delete store.pendingDm;
+  store.hunt.schedule = [];
+  verdict = { fit: "yes", reason: "a real paid remote role", dm: "Hi, your LinkedIn outreach partner role is remote and part time, which suits me well. I can set it up in the ten minutes you mention and keep it running every week without supervision. I already run outreach for my own work. When would you like to start?" };
+  store.hunt.posts.k1 = hire("k1"); store.hunt.posts.k2 = hire("k2");
+  const add = await ctx.scheduleAdd(["k1", "k2"], 5, 60);
+  assert.strictEqual(add.added, 2);
+  const first = store.hunt.schedule.find((x) => x.id === "k1");
+  assert.ok(first.at <= clock, "the first line is due at once");
+  const o3 = opened.length;
+  await ctx.scheduleKick();
+  assert.strictEqual(store.hunt.schedule.find((x) => x.id === "k1").state, "opened", "the first DM opens straight away");
+  assert.strictEqual(opened.length, o3 + 1);
+  assert.strictEqual(store.pendingDm.author, "buyer_k1");
+  assert.ok(ctx.dmReadyFromClaude(store.hunt.posts.k2), "the second post is read ahead, ready for its time");
+  assert.ok(!store.hunt.schedule.find((x) => x.id === "k2").state, "but it waits for its turn");
+
+  // a line Claude dropped: try again brings the post back and reads it once more
+  delete store.pendingDm;
+  store.hunt.posts.k3 = hire("k3", { act: "not_relevant", cancelledBy: "ai", cancelReason: "old rule", ai: { fit: "no" } });
+  store.hunt.schedule.push({ id: "k3", at: clock - 1000, kind: "dm", state: "cancelled", reason: "Claude read it: old rule" });
+  await ctx.scheduleRetry("k3");
+  assert.ok(!store.hunt.posts.k3.act, "the post is back");
+  await ctx.scheduleKick();
+  assert.strictEqual(store.hunt.schedule.find((x) => x.id === "k3").state, "opened");
+
+  // after the update, a "no" given under the old strict rules is taken back
+  store.hunt.posts.k4 = hire("k4", { body: "x".repeat(60), act: "not_relevant", cancelledBy: "ai", cancelReason: "not programming", ai: { fit: "no" } });
+  store.hunt.schedule.push({ id: "k4", at: clock - 1000, kind: "dm", state: "cancelled", reason: "Claude read it: not programming" });
+  await ctx.huntReclassify();
+  assert.ok(store.hunt.posts.k4 && !store.hunt.posts.k4.act, "the old drop is taken back");
+  assert.ok(!store.hunt.schedule.some((x) => x.id === "k4"), "and its dropped line is cleared so it can be scheduled again");
+
   console.log("schedule-test: all passed");
 })().catch((e) => { console.error(e); process.exit(1); });

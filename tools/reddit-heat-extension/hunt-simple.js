@@ -41,6 +41,7 @@
   const markQueue = () => {
     const t = $("tableTitle");
     document.body.classList.toggle("onQueue", !!t && /^\s*Queue\b/.test(t.textContent || ""));
+    document.body.classList.toggle("onSchedule", !!t && /^\s*Schedule\b/.test(t.textContent || ""));
   };
   if ($("tableTitle")) new MutationObserver(markQueue).observe($("tableTitle"), { childList: true, characterData: true, subtree: true });
   markQueue();

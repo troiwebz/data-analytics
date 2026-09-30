@@ -20,17 +20,23 @@ assert.strictEqual(K("[Hiring] React developer", "Pay is $40/hr", "Programming")
 D("[For Hire] Full stack developer, 8 years experience", "", /offering/);
 D("I am a freelance SEO expert, hire me", "", /offering/);
 D("Looking for a job as a React developer", "", /job/);
-D("[Hiring] Video editor for YouTube shorts", "", /not programming/);
-D("[Hiring] Logo designer", "", /not programming/);
+// any kind of job counts now: what we usually do is Claude's to weigh, not a filter's
+K("[Hiring] Video editor for YouTube shorts", "Paid per video, $30 each", "Other job");
+K("[Hiring] Logo designer", "Budget $150", "Other job");
 D("Need a technical co-founder for my app", "", /co-founder/);
 D("Looking to hire a web developer for a landing page", "unpaid, for exposure", /unpaid/);
 D("Best laptop for programming?", "", /nobody is being hired/);
-D("Hiring for a VMware Engineer | Company: Infra Assure | Location: Riyadh", "5+ years of experience, full time, send your CV", /employee job ad/);
-D("Nui Cobalt is hiring!", "Join our team as a social media marketer. Full-time, benefits.", /employee job ad/);
-D("we are hiring", "Medical coding specialists, on-site, salary 40k", /employee job ad|not programming/);
-D("Hiring for an AI Engineer, Bangalore, India", "3+ years experience in Python, CTC 20 LPA, hybrid", /employee job ad/);
+// full-time and employee roles are real jobs too
+K("Hiring for a VMware Engineer | Company: Infra Assure | Location: Riyadh", "5+ years of experience, full time", "Programming");
+K("[Hiring] LinkedIn Outreach Partner - Remote - US$50/month, ~10 min setup", "Remote, part time, paid monthly", "Other job");
+K("Hiring for an AI Engineer, Bangalore, India", "3+ years experience in Python, hybrid", "Programming");
 K("[Hiring] Contract React developer for a 2-week project", "Budget $1500, remote", "Programming");
 assert.deepStrictEqual(H.HIRING_KINDS.map((k) => k.label), ["Google Maps", "SEO", "Digital marketing", "Programming"]);
+// the Claude screen applies to any real job and drops only fake, unpaid, scam or no-DM posts
+const hp = H.hireScreenPrompt({ sub: "forhire", title: "t", author: "a", body: "b" }, {});
+assert.ok(/ANY real job or paid request, of any kind/.test(hp.system));
+assert.ok(/fit = "no" ONLY when/.test(hp.system));
+assert.ok(!/accounts|gambling|coursework/i.test(hp.system), "no extra red flags beyond fake, unpaid, scam and no-DM");
 assert.strictEqual(H.badgeDef("hiring").label, "Hiring");
 // the project hunt only calls something "Hiring" when it passes the same test
 const zc = H.classifyAny("Can someone start a software development company with zero capital?", "I want to build apps for clients but have no money", "project");
@@ -104,8 +110,8 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   assert.ok(/\/r\/forhire\+hiring\+jobbit\+slavelabour\+DoneDirtCheap\+freelance_forhire\/new\.json/.test(fetched[0]), fetched[0]);
   assert.ok(/search\.json\?q=title%3Ahiring.*sort=new&t=day/.test(fetched[1]), fetched[1]);
   let posts = store.hunt.posts;
-  assert.deepStrictEqual(Object.keys(posts).sort(), ["t3_a1", "t3_a3", "t3_b1"], JSON.stringify(Object.keys(posts)));
-  assert.strictEqual(r.added, 3);
+  assert.deepStrictEqual(Object.keys(posts).sort(), ["t3_a1", "t3_a3", "t3_a4", "t3_b1"], JSON.stringify(Object.keys(posts)));   // the logo job is a real job too
+  assert.strictEqual(r.added, 4);
   assert.strictEqual(posts.t3_a1.badge, "hiring");
   assert.strictEqual(posts.t3_a1.kind, "Programming");
   assert.strictEqual(posts.t3_a3.kind, "Google Maps");
@@ -113,12 +119,12 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   assert.strictEqual(posts.t3_b1.budget, "$1000/mo");
   assert.strictEqual(posts.t3_a1.hunt, "project", "Hiring posts sit with the project hunt");
   assert.strictEqual(posts.t3_a1.source, "hiring");
-  assert.strictEqual(store.hunt.hiringLane.added, 3);
+  assert.strictEqual(store.hunt.hiringLane.added, 4);
 
   // they show on the board under the Hiring badge
   const q = await ctx.huntQueue(50);
-  assert.strictEqual(q.badges.hiring, 3, JSON.stringify(q.badges));
-  assert.strictEqual(q.hiringLane.added, 3);
+  assert.strictEqual(q.badges.hiring, 4, JSON.stringify(q.badges));
+  assert.strictEqual(q.hiringLane.added, 4);
 
   // the next check adds only what is new, and keeps your clicks
   store.hunt.posts.t3_a1.act = "skip";
@@ -127,7 +133,7 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   r = await ctx.huntHiringPoll();
   assert.strictEqual(r.added, 1);
   assert.strictEqual(store.hunt.posts.t3_a1.act, "skip", "a post you skipped stays skipped");
-  assert.strictEqual(Object.keys(store.hunt.posts).length, 4);
+  assert.strictEqual(Object.keys(store.hunt.posts).length, 5);
 
   // a full sweep that started before the lane wrote does not undo the lane
   store.hunt.posts.t3_old = { id: "t3_old", author: "x", created: clock - 60000, firstSeen: clock - 60000, hunt: "cofounder" };
@@ -150,7 +156,7 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   const before = Object.keys(store.hunt.posts).filter((k) => store.hunt.posts[k].source === "hiring").length;
   await ctx.huntReclassify();
   const after = Object.keys(store.hunt.posts).filter((k) => store.hunt.posts[k].source === "hiring").length;
-  assert.ok(before >= 4, "hiring posts before: " + before);
+  assert.ok(before >= 5, "hiring posts before: " + before);
   assert.strictEqual(after, before, "an update no longer deletes the Hiring posts");
 
   // hunt off: the lane stops

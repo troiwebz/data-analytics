@@ -154,6 +154,17 @@
   body.light button.stat.hot { background:#fff3ee; color:var(--or); }
   body.light button.stat.go { background:#e9f7ee; color:#1a7f37; }
   body.light #apMode[style*="230, 199, 107"] { color:#7a5400 !important; border-color:var(--warn) !important; background:#fff7e0; }
+  /* the schedule's own columns (the queue's widths do not fit it) */
+  body.onSchedule #tableHead th:nth-child(1) { width:36px; }
+  body.onSchedule #tableHead th:nth-child(2) { width:80px; }
+  body.onSchedule #tableHead th:nth-child(3) { width:auto; }
+  body.onSchedule #tableHead th:nth-child(4) { width:34%; }
+  body.onSchedule #tableHead th:nth-child(5) { width:190px; text-align:left; }
+  body.onSchedule #tableRows td:nth-child(5) { text-align:left; color:inherit; }
+  body.onSchedule #tableHead tr:has(th:nth-child(6)) th:nth-child(3) { width:90px; }
+  body.onSchedule #tableHead tr:has(th:nth-child(6)) th:nth-child(4) { width:auto; }
+  body.onSchedule #tableHead tr:has(th:nth-child(6)) th:nth-child(5) { width:26%; }
+  body.onSchedule #tableHead tr:has(th:nth-child(6)) th:nth-child(6) { width:190px; }
   /* DMs only: the public reply is never shown or sent from here */
   .pubOnly, #pubSizes, #genGuide, #opts, #short, #didReply { display:none !important; }
   /* the Claude status line shows only when it has something to say */

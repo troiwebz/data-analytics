@@ -245,9 +245,9 @@
         say(r.ok ? `DM for ${name} is in the box — press send` : r.error, r.ok ? "#7ee29a" : "#ff8a65");
         await chrome.storage.local.set({ pendingDm: { ...pendingDm, done: true, filled: r.ok, at: Date.now() } });
         if (r.ok) {
-          const { autoSend = true, autoSendSecs = 10 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
+          const { autoSend = true, autoSendSecs = 5 } = await chrome.storage.local.get(["autoSend", "autoSendSecs"]);
           // only the hunt's own DMs send themselves; an Inbox reply is a conversation
-          if ((autoSend || pendingDm.auto) && pendingDm.kind === "hunt" && pendingDm.screened === true) sendCountdown(name, pendingDm.id, Math.max(3, Math.min(60, Number(autoSendSecs) || 10)), pendingDm.text);
+          if ((autoSend || pendingDm.auto) && pendingDm.kind === "hunt" && pendingDm.screened === true) sendCountdown(name, pendingDm.id, Math.max(3, Math.min(60, Number(autoSendSecs) || 5)), pendingDm.text);
         }
         setTimeout(() => chrome.storage.local.remove("pendingDm"), 4000);
         pendingSince = 0; pendingToldFor = ""; newChatHide();

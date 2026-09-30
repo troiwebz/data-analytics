@@ -1088,7 +1088,7 @@ HEAT.classifyAny = function (title, body, source) {
 // HIRING for one of four kinds of work - programming, SEO, digital marketing,
 // Google Maps - never someone offering themselves.
 HEAT.HIRING_SUBS = ["forhire", "hiring", "jobbit", "slavelabour", "DoneDirtCheap", "freelance_forhire"];
-HEAT.HIRING_QUERY = 'title:hiring (developer OR programmer OR coder OR "web developer" OR seo OR "digital marketing" OR marketer OR "google ads" OR "facebook ads" OR "google maps" OR "google business" OR gmb OR "local seo" OR wordpress OR shopify OR python OR javascript OR react OR automation)';
+HEAT.HIRING_QUERY = 'title:hiring OR title:"[hiring]" OR title:"looking to hire" OR title:"[task]"';
 // The four kinds, most specific first: a Google Maps job also says "SEO".
 HEAT.HIRING_KINDS = [
   { key: "maps", label: "Google Maps", re: /\b(?:google maps?|google business(?: profile)?|gbp|gmb|google my business|map pack|maps listing|local seo|local search|citations?|nap)\b/i },
@@ -1108,14 +1108,14 @@ HEAT.classifyHiring = function (title, body) {
   const t = String(title || "");
   const all = (t + "\n" + String(body || "").slice(0, 2000));
   if (HIRING_OFFER.test(t)) return { keep: false, why: "offering, not hiring" };
-  if (HIRING_EMPLOYMENT.test(all) && !HIRING_FREELANCE.test(all)) return { keep: false, why: "an employee job ad, not a freelance project" };
+  // Any real job counts: freelance, part-time, full-time, any kind of work.
+  void HIRING_EMPLOYMENT; void HIRING_FREELANCE;
   if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "looking for a job" };
   if (/\bco[- ]?founder\b|\bcofounder\b/i.test(t)) return { keep: false, why: "a co-founder ask" };
   if (!HIRING_ASK.test(t) && !HIRING_ASK.test(all.slice(0, 400))) return { keep: false, why: "nobody is being hired here" };
   if (HIRING_OFFER.test(all.slice(0, 300)) && !/\[\s*hiring\s*\]/i.test(t)) return { keep: false, why: "offering, not hiring" };
   if (PROJECT_NO_MONEY.test(all)) return { keep: false, why: "no budget, or unpaid" };
-  const hit = HEAT.HIRING_KINDS.find((k) => k.re.test(t)) || HEAT.HIRING_KINDS.find((k) => k.re.test(all));
-  if (!hit) return { keep: false, why: "not programming, SEO, digital marketing or Google Maps" };
+  const hit = HEAT.HIRING_KINDS.find((k) => k.re.test(t)) || HEAT.HIRING_KINDS.find((k) => k.re.test(all)) || { key: "other", label: "Other job" };
   const budget = (all.match(/[$£€]\s?\d[\d,.]*\s?k?(?:\s?(?:\/\s?h(?:ou)?r|per hour|an hour|\/mo|per month|a month|monthly|fixed))?/i) || [""])[0].trim();
   return { keep: true, why: "", role: "hiring", kind: hit.label, hiringKind: hit.key, budget, paid: !!budget, stage: budget ? "has budget" : "", hasBudget: !!budget, equityOnly: false, badge: "hiring", tier: 3 };
 };
@@ -1129,26 +1129,27 @@ HEAT.dmReadyFromClaude = function (p) {
 
 // The Claude screen for Hiring and project posts: is this real paid work we
 // can do, and if so, the first DM, written from the post itself.
+HEAT.HIRE_RULES = 2;   // 2 = any real job counts; only fake, unpaid or no-DM posts are dropped
 HEAT.hireScreenPrompt = function (p, profile = {}) {
   const me = [
     profile.name ? "Name: " + profile.name : "",
-    "What we do: " + (profile.role || "programming, SEO, digital marketing and Google Maps / local SEO work"),
+    "What I do: " + (profile.role || "programming, SEO, digital marketing and Google Maps / local SEO work, and a team that takes on most online work"),
     profile.location ? "Based in: " + profile.location : "",
-    profile.credit ? "One true line about us: " + profile.credit : "",
+    profile.credit ? "One true line about me: " + profile.credit : "",
   ].filter(Boolean).join("\n");
-  const system = `You read a Reddit post from someone who may be hiring, and decide whether a small team that does programming, SEO, digital marketing and Google Maps / local SEO work should send them a private message. If yes, you write that first message.
+  const system = `You read a Reddit post from someone who is hiring, and write the first private message applying for it, on behalf of the person described below.
 
-Read the whole description before deciding. fit = "yes" only when ALL of these hold:
-1. A person or business wants a piece of paid work done: a project, a task, a contract or ongoing freelance help. An employee job ad (salary, office, CV, "join our team", years of experience) is "no".
-2. The work is programming, SEO, digital marketing, or Google Maps / Google Business Profile / local SEO.
-3. We can plausibly do it, judging by who we are below.
-4. The post does not forbid private messages and does not ask people to apply only by comment, email or a form.
-5. No red flags: unpaid or "test task" work, payment only after delivery, accounts, fake reviews or votes, gambling, adult, coursework, or moving straight to Telegram or WhatsApp.
-Otherwise fit = "no", with the reason in under 15 words, and dm = "".
+Read the whole description first. Apply to ANY real job or paid request, of any kind: freelance, part-time, full-time, contract, remote or local, whatever the work is. Set fit = "no" ONLY when one of these is true:
+1. It is not a real job: a seller or freelancer advertising themselves, someone looking for work, a discussion, a question with no job in it, or a moderator post.
+2. It is unpaid: "for exposure", "equity only", "free trial work", no pay at all.
+3. It looks like a scam: the applicant is asked to pay a fee or deposit, send ID, bank or card details, or the pay is wildly out of line with the task.
+4. The post says not to message, or to apply only by email, a form or a comment.
+If none of these is true, fit = "yes" - even if the work is outside what the person below usually does; the message then says honestly how they would handle it.
+When fit = "no", give the reason in under 15 words and dm = "".
 
-The message, only when fit = "yes": 50 to 110 words, plain text, first person. Open with one specific detail from their description in your own words. Say concretely how you would do it: the first one or two steps. One line of proof, only from "who we are"; never invent clients, numbers or tools. End with one easy question about their job. No links, emails, @handles, emojis or hashtags; no price unless they named a budget.
+The message, when fit = "yes": 50 to 110 words, plain text, first person. Open with one specific detail from their description in your own words. Say concretely why this person fits or how they would do the work: one or two points. One line of proof, only from "who I am" below; never invent experience, clients, numbers or tools. End with one easy question or next step. No links, emails, @handles, emojis or hashtags. No price unless they named one.
 
-Who we are:
+Who I am:
 ${me}`;
   const user = `Subreddit: r/${p.sub}\nTitle: ${p.title}\nPosted by: u/${p.author}\nDescription:\n${String(p.body || "").slice(0, 3500)}`;
   const schema = {

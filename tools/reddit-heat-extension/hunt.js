@@ -907,6 +907,7 @@ async function drawSchedule() {
     $("tableRows").innerHTML = shown.map((g) => {
       const dm = g.steps.dm;
       const acts = [dm && dm.state === "waiting" ? btn(dm, "DM now") : "", dm && dm.state === "opened" ? btn(dm, "reopen") : "",
+        dm && dm.state === "cancelled" ? `<button class="ghost schedRetry" data-id="${esc(g.id)}">try again</button>` : "",
         `<button class="ghost schedDel" data-id="${esc(g.id)}" style="color:#ff8a65">delete</button>`].filter(Boolean).join(" ");
       const done = !!dm && dm.state === "sent";
       return `<tr${done ? ' class="done"' : ""}><td><input type="checkbox" class="schedPick" data-id="${esc(g.id)}"${schedPicked.has(g.id) ? " checked" : ""}></td><td>${esc(clock(g.at))}</td><td>${who(g.row)}</td><td>${cell(dm)}</td><td>${acts}</td></tr>`;
@@ -936,6 +937,7 @@ async function drawSchedule() {
     $("schedAll").checked = picks.length > 0 && picks.every((cb) => cb.checked);
     $("schedAll").onchange = () => { for (const cb of picks) { cb.checked = $("schedAll").checked; if (cb.checked) schedPicked.add(cb.dataset.id); else schedPicked.delete(cb.dataset.id); } syncPicked(); };
   }
+  for (const b of $("tableRows").querySelectorAll("button.schedRetry")) b.onclick = async () => { b.textContent = "reading…"; b.disabled = true; await send({ type: "hunt-schedule-retry", id: b.dataset.id }); setTimeout(() => { drawSchedule(); refresh(false); }, 1500); };
   for (const b of $("tableRows").querySelectorAll("button.schedDel")) b.onclick = async () => { await send({ type: "hunt-schedule-delete", what: b.dataset.id }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.unsched")) b.onclick = async () => { await send({ type: "hunt-schedule-clear", id: b.dataset.id, kind: b.dataset.kind }); drawSchedule(); refresh(false); };
   for (const b of $("tableRows").querySelectorAll("button.schedNow")) b.onclick = async () => {
@@ -1032,7 +1034,7 @@ function showTable(kind) {
   if (kind === "schedule") {
     schedFilter = schedFilter || "all";
     $("tableTitle").textContent = "Schedule";
-    $("tableNote").textContent = "Every line, and what became of it. Nothing is sent by the extension: a line opens the tab with the text already in it and you press Reddit's own button. Press Open now to jump the queue on any line that is still waiting.";
+    $("tableNote").textContent = "Private DMs only. For each line Claude reads the post, then the chat opens and the DM sends after a short countdown - click anywhere in that tab to stop it. The first line starts at once. Dropped lines show Claude's reason; press try again to have it read once more.";
     $("tableHead").innerHTML = "<tr><th>When</th><th>What</th><th>Post</th><th>State</th><th>Now</th></tr>";
     $("tableRows").innerHTML = `<tr><td colspan="5" style="color:#98a0b3">reading…</td></tr>`;
     tableText = () => "";
@@ -1243,7 +1245,7 @@ $("cAutoSend").onchange = () => chrome.storage.local.set({ autoSend: $("cAutoSen
 $("cSendSecs").oninput = () => chrome.storage.local.set({ autoSendSecs: Math.max(3, Math.min(60, Number($("cSendSecs").value) || 10)) });
 chrome.storage.local.get(["autoSend", "autoSendSecs"]).then((x) => {
   $("cAutoSend").checked = x.autoSend !== false;
-  $("cSendSecs").value = x.autoSendSecs || 10;
+  $("cSendSecs").value = x.autoSendSecs || 5;
 });
 // ---- the campaign: a day of first contact, paced --------------------------
 let lastPlan = null;

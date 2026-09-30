@@ -87,8 +87,8 @@ async function reclassifyAll() {
   if (changed) await chrome.storage.local.set({ posts });
   return changed;
 }
-chrome.runtime.onInstalled.addListener(() => { huntReclassify(); arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
-chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onInstalled.addListener(() => { huntReclassify(); arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 0.5 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 }); reclassifyAll();  huntGet().then((h) => huntArm(h.on)); });
+chrome.runtime.onStartup.addListener(() => { arm(); chrome.alarms.create(SCHED_ALARM, { periodInMinutes: 0.5 }); chrome.alarms.create(VERSION_ALARM, { periodInMinutes: 1 }); chrome.alarms.create(REMOTE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.2 });  huntGet().then((h) => huntArm(h.on)); });
 const REMOTE_ALARM = "remote-version";
 const SCHED_ALARM = "schedule-tick";
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === SCHED_ALARM) scheduleTick(); if (a.name === ALARM) refresh(); if (a.name === VERSION_ALARM) checkVersion(); if (a.name === REMOTE_ALARM) checkRemoteVersion(); if (a.name === HUNT_ALARM) huntPoll(false); });
@@ -144,7 +144,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-rescue") { huntRescue(msg.id).then(reply); return true; }
   if (msg.type === "hunt-skipped") { huntSkipped().then(reply); return true; }
   if (msg.type === "hunt-bulk") { huntBulk(msg.ids || [], msg.action).then(reply); return true; }
-  if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then(reply); return true; }
+  if (msg.type === "hunt-schedule") { scheduleAdd(msg.ids || [], msg.gapMin, msg.dmAfterSec).then((r) => { reply(r); scheduleKick(); }).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
+  if (msg.type === "hunt-schedule-retry") { scheduleRetry(msg.id).then((r) => { reply(r); scheduleKick(); }); return true; }
   if (msg.type === "hunt-schedule-list") { scheduleList().then(reply); return true; }
   if (msg.type === "hunt-schedule-run") { scheduleRunNow(msg.id, msg.kind).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); return true; }
   if (msg.type === "hunt-schedule-delete") { scheduleDelete(msg.what).then(reply); return true; }
@@ -1006,6 +1007,14 @@ async function huntQueue(limit = 40) {
 async function huntReclassify() {
   const st = await huntGet();
   let dropped = 0;
+  for (const p of Object.values(st.posts)) {
+    const hiring = p.hunt === "project" || p.badge === "hiring";
+    if (hiring && p.cancelledBy === "ai" && (p.hireRules || 0) < HEAT.HIRE_RULES && !p.dmAt) {
+      delete p.act; delete p.actAt; delete p.cancelledBy; delete p.cancelReason; delete p.ai;
+    }
+  }
+  const sched = (st.schedule || []).filter((x) => !(x.state === "cancelled" && /^Claude read it/.test(x.reason || "") && st.posts[x.id] && !st.posts[x.id].act));
+  if (sched.length !== (st.schedule || []).length) await huntSet({ schedule: sched });
   for (const [id, p] of Object.entries(st.posts)) {
     if (p.act || p.repliedAt || p.dmAt) continue;
     // each post by its own hunt: the co-founder test used to run on every post
@@ -1348,7 +1357,8 @@ async function scheduleAdd(ids, gapMin, dmAfterSec) {
   const gap = Math.max(1, Number(gapMin) || 5) * 60000;
   const dmAfter = Math.max(15, Number(dmAfterSec) || 60) * 1000;
   const list = (st.schedule || []).filter((x) => !x.state);
-  let base = Math.max(Date.now() + 5000, ...list.map((x) => x.at + gap));
+  // the first of a new batch goes at once; the rest follow at the gap
+  let base = Math.max(Date.now(), ...list.map((x) => x.at + gap));
   const added = [];
   for (const id of ids) {
     if (!st.posts[id] || st.posts[id].act || st.posts[id].dmAt) continue;
@@ -1475,6 +1485,7 @@ async function huntHireWrite(id) {
   const fresh = await huntGet();
   const q = fresh.posts[id];
   if (!q) return { ok: false, error: "post not found" };
+  q.hireRules = HEAT.HIRE_RULES;
   if (out.fit !== "yes") {
     q.act = "not_relevant"; q.actAt = Date.now(); q.cancelledBy = "ai"; q.cancelReason = String(out.reason || "not relevant").slice(0, 200);
     await huntSet({ posts: fresh.posts });
@@ -1485,6 +1496,43 @@ async function huntHireWrite(id) {
   q.ai = { fit: "yes", fit_reason: String(out.reason || "").slice(0, 200), dm_long: dm, dm_short: dm, public_reply: "", model: "claude-hire", readBody: String(q.body || "").trim().length >= 40, at: Date.now(), cents };
   await huntSet({ posts: fresh.posts });
   return { ok: true, ai: q.ai };
+}
+
+// Start the schedule now rather than at the next minute: open whatever is due,
+// then read the rest ahead of time so each opens the moment its time comes.
+const screeningIds = new Set();
+let kickBusy = false;
+async function scheduleKick() {
+  if (kickBusy) return;
+  kickBusy = true;
+  try {
+    await scheduleTick();
+    const st = await huntGet();
+    const { config = {} } = await chrome.storage.local.get(["config"]);
+    if (!String((config.profile || {}).apiKey || "").trim()) return;
+    const waiting = (st.schedule || []).filter((x) => !x.state && x.kind === "dm").sort((a, b) => a.at - b.at);
+    for (const x of waiting.slice(0, 12)) {
+      const p = (await huntGet()).posts[x.id];
+      if (!p || p.act || HEAT.dmReadyFromClaude(p) || screeningIds.has(x.id)) continue;
+      screeningIds.add(x.id);
+      try {
+        if (!(await huntReadBody(x.id))) continue;
+        if (p.hunt === "project" || p.badge === "hiring") await huntHireWrite(x.id); else await huntSlotWrite(x.id, true);
+      } catch (_) { /* the tick tries again */ } finally { screeningIds.delete(x.id); }
+      await scheduleTick();          // one may have come due while Claude was reading
+    }
+  } finally { kickBusy = false; }
+}
+// A dropped line, given another go: the post comes back and Claude reads it again.
+async function scheduleRetry(id) {
+  const st = await huntGet();
+  const p = st.posts[id];
+  if (!p) return { ok: false, error: "the post is no longer in the database" };
+  if (p.cancelledBy === "ai") { delete p.act; delete p.actAt; delete p.cancelledBy; delete p.cancelReason; }
+  delete p.ai;
+  const schedule = (st.schedule || []).map((x) => (x.id === id && x.kind === "dm" ? { id, at: Date.now(), kind: "dm" } : x));
+  await huntSet({ posts: st.posts, schedule });
+  return { ok: true };
 }
 
 // Delete from the schedule. With an id: every line of that post, whatever its
@@ -1530,6 +1578,7 @@ async function scheduleTick() {
   const profile = { ...(config.profile || {}), deal: { ...DEAL_DEFAULT, ...(inbox.deal || {}) } };
   // Nothing is opened until Claude has read this post's own description,
   // judged it relevant, and written the DM from it. No key: the line waits.
+  if (due.kind === "dm" && screeningIds.has(due.id)) { due.at = now + 15000; return save(); }
   if (due.kind === "dm" && !HEAT.dmReadyFromClaude(p)) {
     if (!String(profile.apiKey || "").trim()) { due.at = now + 5 * 60000; due.reason = "waiting for a Claude key - no DM goes out without Claude reading the post"; return save(); }
     const body = await huntReadBody(due.id);

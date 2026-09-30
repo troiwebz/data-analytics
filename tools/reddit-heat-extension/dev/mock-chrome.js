@@ -46,7 +46,12 @@
       case "hunt-scan-state": return { running: false };
       case "hunt-spend": return { cents: 0, budget: 100, rows: [], byKind: [] };
       case "hunt-dm-gate": return { ok: true, waitMs: 0, sentToday: 0, cap: 25, min: 60, max: 180 };
-      case "hunt-schedule-list": return { rows: [], counts: { waiting: 0, opened: 0, sent: 0, cancelled: 0, gone: 0, done: 0 }, waiting: 0, next: 0, nextAt: 0, gateWaitMs: 0, gateReason: "" };
+      case "hunt-schedule-list": {
+        const row = (p, o) => ({ id: p.id, kind: "dm", at: now + (o.inMin || 0) * 60000, state: o.state || "waiting", reason: o.reason || "", openedAt: 0, sentAt: o.state === "sent" ? now - 60000 : 0, title: p.title, author: p.author, sub: p.sub, permalink: p.permalink, written: !!o.written, gone: false });
+        const ps = Object.values(posts);
+        const rows = ps.length ? [row(ps[3], { state: "sent", inMin: -3, written: true }), row(ps[4], { state: "cancelled", inMin: -1, reason: "Claude read it: asks the applicant to pay a setup fee" }), row(ps[5], { inMin: 1, written: true }), row(ps[9], { inMin: 6 })] : [];
+        return { rows, counts: { waiting: 2, opened: 0, sent: 1, cancelled: 1, gone: 0, done: 0 }, waiting: 2, next: 60000, nextAt: now + 60000, gateWaitMs: 0, gateReason: "" };
+      }
       case "inbox-list": return { threads: [], needs: 2 };
       case "hunt-campaign-status": return { ok: true, state: "idle" };
       case "hunt-campaign-get": return {};
