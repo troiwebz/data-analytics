@@ -33,7 +33,19 @@ import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHA
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
-import { ownership, takeOver, describe as describeOwner } from './owner.js';
+import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
+
+/**
+ * Settings → "This copy works for BHW account" against who Chrome is actually
+ * signed in as (read off every BHW page). Different: nothing is sent or
+ * posted, so a PC logged into the other account never messages as it.
+ * Unknown yet (no page read): not a reason to stop.
+ */
+export async function loginMismatch(cfg) {
+  if (!String(cfg?.boundAccount || '').trim()) return '';
+  const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
+  return loginProblem(cfg.boundAccount, bhwMe);
+}
 import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { loadKeysFile } from './keysfile.js';
 import { syncStatus } from './vault.js';
@@ -112,7 +124,7 @@ const FOUND_IN_LIST = 'your BHW message list';
 
 export async function syncSentPms({ pages = 1 } = {}) {
   const cfg = await getConfig();
-  const told = cfg.bhwUsername || '';
+  const told = cfg.bhwUsername || cfg.boundAccount || '';
   const { rows, me } = await fetchConversations(pages, { told });
   const leads = await getLeads();
   let marked = 0, known = 0, cleared = 0, maybes = 0;
@@ -961,7 +973,8 @@ export async function statusReport(cfg) {
     await checkLine(cfg),
     '',
     '<b>⚙️ System</b>',
-    `Copies: ${describeOwner(await ownership().catch(() => null))}`
+    `Copies: ${describeOwner(await ownership().catch(() => null))}`,
+    `Account: ${cfg.boundAccount ? `tied to ${escHtml(cfg.boundAccount)}` : 'not tied (Settings → This copy works for BHW account)'}${(await loginMismatch(cfg)) ? ' - ⚠️ ' + escHtml(await loginMismatch(cfg)) : ''}`
       + ((await conflictMinutes()) ? ` · 🚨 another program was reading this bot ${await conflictMinutes()} min ago` : ''),
     `Telegram shows: ${cfg.telegramOtherSources ? 'Hire a Freelancer + other forums' : 'Hire a Freelancer only (other forums muted - "others on")'}`,
     `Caps: ${r.count || 0}/${cfg.maxPostsPerDay || '∞'} replies · ${r.dmCount || 0}/${cfg.maxDmsPerDay || '∞'} PMs`,
@@ -1524,7 +1537,7 @@ const rowItem = (r, sourceKey) => ({
 async function whoAmI(cfg, page) {
   if (page?.me) await chrome.storage.local.set({ bhwMe: page.me });
   const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
-  return cfg.bhwUsername || page?.me || bhwMe || '';
+  return cfg.bhwUsername || page?.me || bhwMe || cfg.boundAccount || '';
 }
 
 /**
@@ -3275,7 +3288,7 @@ async function takeRewrite(ev, cfg) {
  */
 async function duplicateCheck(lead, preloaded = null) {
   try {
-    const told = (await getConfig()).bhwUsername || '';
+    const told = (await getConfig()).bhwUsername || (await getConfig()).boundAccount || '';
     // A preloaded read lets the auto queue look at the inbox once per tick,
     // two pages deep, instead of once per PM.
     const { rows, me } = preloaded || await fetchConversations(1, { told });
@@ -3738,6 +3751,12 @@ export async function runAutoQueue() {
     return { due: due.length, sent: 0, held: why };
   }
   await clearLogOnce('autoPaused');
+  const wrongLogin = await loginMismatch(cfg);
+  if (wrongLogin) {
+    await logOnce('wrongLogin', `auto mode: holding ${due.length} PM(s) - ${wrongLogin}`, 'error', 15);
+    return { due: due.length, sent: 0, held: wrongLogin };
+  }
+  await clearLogOnce('wrongLogin');
 
   let done = 0;
   let inbox = null, inboxErr = '';
@@ -3761,7 +3780,7 @@ export async function runAutoQueue() {
     // Unattended, so "could not read it" is not "nothing there": with the inbox
     // unreadable nothing sends, and it waits for the next tick.
     if (!inbox && !inboxErr) {
-      try { inbox = await fetchConversations(2, { told: cfg.bhwUsername || '' }); }
+      try { inbox = await fetchConversations(2, { told: cfg.bhwUsername || cfg.boundAccount || '' }); }
       catch (e) { inboxErr = e.message; }
     }
     if (!inbox) {
@@ -3870,6 +3889,11 @@ export async function postLead(lead, cfg, { edited = false, by = '' } = {}) {
     await log(`public reply to "${lead.title}" ${why}`, 'error');
     return { ok: false, blocked: true, error: why };
   }
+  const wrongPost = await loginMismatch(cfg);
+  if (wrongPost) {
+    await log(`public reply to "${lead.title}" refused: ${wrongPost}`, 'error');
+    return { ok: false, blocked: true, error: `refused: ${wrongPost}` };
+  }
 
   // Same rule as the PM: what the card showed is what goes up.
   if (lead.draftApproved && lead.draftApproved !== lead.draft) {
@@ -3939,6 +3963,11 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
       const why = `refused: ${describeOwner(own)}`;
       await log(`PM to ${lead.author} ${why}`, 'error');
       return { ok: false, blocked: true, error: why };
+    }
+    const wrongDm = await loginMismatch(cfg);
+    if (wrongDm) {
+      await log(`PM to ${lead.author} refused: ${wrongDm}`, 'error');
+      return { ok: false, blocked: true, error: `refused: ${wrongDm}` };
     }
   }
   // The text you approved on the card, verbatim - not a fresh render of it.
@@ -4221,7 +4250,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                        chat: !!cfg.telegramChatId, chatSynced: !!synced?.cfg?.telegramChatId, syncOn: !!sync.available });
         break;
       }
-      case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
+      case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes(), loginMismatch: await loginMismatch(await getConfig()), bhwMe: (await chrome.storage.local.get('bhwMe')).bhwMe || '', boundAccount: (await getConfig()).boundAccount || '' }); break;
       case 'owner-take': {
         const o = await takeOver().catch((e) => ({ error: e.message }));
         if (!o.error) {

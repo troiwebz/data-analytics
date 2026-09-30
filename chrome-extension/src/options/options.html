@@ -21,6 +21,41 @@
 <div class="w">
   <h1>HAF Watcher</h1>
 
+  <div class="c" id="accountCard">
+    <h2>Account <span class="hint">which BHW account this copy works for, and how Claude writes for it</span></h2>
+    <div class="row">
+      <div style="flex:1 1 260px"><label>This copy works for BHW account
+        <span class="hint">your BHW username, exactly as on the forum</span></label>
+        <input type="text" id="boundAccount" placeholder="e.g. bargainbed" autocomplete="off"></div>
+    </div>
+    <p id="acctState" class="hint" style="margin:6px 0 0"></p>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Two PCs, two BHW accounts - how to set it up</summary>
+      <ol class="hint" style="margin:6px 0 0 18px;padding:0">
+        <li>Each account gets <b>its own Telegram bot</b>. Make the second one in @BotFather (/newbot) - it is free and takes a minute. One bot can only be read by one copy.</li>
+        <li>On each PC: sign Chrome in to BHW as that PC's account, type the same name above, paste that account's bot token, Save.</li>
+        <li>The Claude key can be the same on both.</li>
+        <li>Then on each PC press "Keep THIS as the main system" on the dashboard. Each bot is locked to its account: a PC tied to account A can never take account B's bot.</li>
+        <li>The same account never runs twice: a second copy of it stands by (when both Chromes are signed in to the same Google account, even with different bots).</li>
+        <li>If Chrome is signed in to BHW as someone other than the account above, nothing is sent or posted until they match.</li>
+      </ol>
+    </details>
+
+    <label style="margin-top:14px">Claude prompt for this account
+      <span class="hint">how the lines are written - voice, "we" or "I", format. Empty = the built-in prompt</span></label>
+    <textarea id="claudeWriting" style="min-height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px"
+      placeholder="Empty: the built-in prompt is used. Press &quot;Load the built-in skeleton&quot; to start from it and change what you need."></textarea>
+    <div class="row" style="margin-top:6px">
+      <button id="loadSkeleton" class="sec" style="flex:0 0 auto">Load the built-in skeleton</button>
+      <button id="resetWriting" class="sec" style="flex:0 0 auto">Back to built-in (empty)</button>
+      <span id="writingState" class="hint" style="flex:1;align-self:center"></span>
+    </div>
+    <p class="hint" style="margin:6px 0 0"><b>{{account}}</b> anywhere in it becomes the account name above.
+      Your "What to say about you" and screen rules are still added. Saved with the Save button.</p>
+    <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Always added after it (locked - auto mode's safety check and the answer format)</summary>
+      <pre id="lockedPrompt" style="white-space:pre-wrap;font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;max-height:260px;overflow:auto"></pre>
+    </details>
+  </div>
+
   <div class="c">
     <h2>Connection</h2>
     <label class="sw"><input type="checkbox" id="enabled"> Watcher enabled</label>

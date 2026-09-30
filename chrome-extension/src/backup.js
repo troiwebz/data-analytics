@@ -73,13 +73,19 @@ export async function readSynced() {
  * same for itself. Returns the names it filled.
  */
 export const ESSENTIAL = ['telegramChatId', 'bhwUsername', 'timezone'];
+// Who you are on BHW is per machine once you run two accounts: another PC's
+// name, copied in, would make this one send as the wrong person. These never
+// come across from sync when this copy is (or the synced one was) tied.
+export const PER_ACCOUNT = ['boundAccount', 'bhwUsername', 'claudeWriting'];
 export async function fillEssentials() {
   const { config } = await chrome.storage.local.get('config');
   const synced = await readSynced();
   if (!synced) return [];
   const cur = config || {};
   const fill = {};
+  const tied = !!String(cur.boundAccount || synced.cfg.boundAccount || '').trim();
   for (const k of ESSENTIAL) {
+    if (tied && PER_ACCOUNT.includes(k)) continue;
     const here = cur[k], there = synced.cfg[k];
     if ((here == null || here === '') && there != null && there !== '') fill[k] = there;
   }
@@ -101,7 +107,9 @@ export async function restoreIfEmpty() {
   if (config && Object.keys(config).length > 3) return { restored: false, reason: 'already set up here' };
   const synced = await readSynced();
   if (!synced) return { restored: false, reason: 'nothing in sync yet' };
-  await chrome.storage.local.set({ config: { ...DEFAULT_CONFIG, ...synced.cfg } });
+  const cfg = { ...synced.cfg };
+  if (String(cfg.boundAccount || '').trim()) for (const k of PER_ACCOUNT) delete cfg[k];
+  await chrome.storage.local.set({ config: { ...DEFAULT_CONFIG, ...cfg } });
   return { restored: true, at: synced.at, keys: Object.keys(synced.cfg).length };
 }
 

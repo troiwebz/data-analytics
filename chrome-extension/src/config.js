@@ -232,6 +232,13 @@ export const DEFAULT_CONFIG = {
   // ever fails. It decides which conversations count as PMs YOU sent, so a
   // wrong value here means leads marked done that are not.
   bhwUsername: '',
+  // The BHW account this copy works for. Tied: the Telegram bot is locked to
+  // it (one bot per account), a second copy of the same account stands by, and
+  // nothing is sent while Chrome is signed in to BHW as anyone else.
+  boundAccount: '',
+  // Claude's writing instructions for this account ('' = the built-in ones).
+  // The screen verdict and answer format are always added after it.
+  claudeWriting: '',
 
   // Telegram is for threads worth acting on NOW. Anything older than this is
   // on the dashboard and does not need to buzz your phone - a thread from two

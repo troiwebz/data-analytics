@@ -1,11 +1,11 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
-import { RATES } from '../claude.js';
+import { RATES, DEFAULT_WRITING, LOCKED_PROMPT, MAX_WRITING } from '../claude.js';
 
-const PLAIN = ['screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
+const PLAIN = ['boundAccount', 'bhwUsername', 'screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
-            'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'bhwUsername', 'announceMaxAgeHours',
+            'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'announceMaxAgeHours',
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
@@ -43,6 +43,9 @@ function fill(cfg) {
   $('watchForumsText').value = forumsToText(cfg.watchForums);
   $('watchWordsText').value = wordsToText(cfg.watchWords);
   PLAIN.forEach((k) => ($(k).value = cfg[k] ?? ''));
+  $('claudeWriting').value = cfg.claudeWriting || '';
+  writingState();
+  accountState();
   NUM.forEach((k) => ($(k).value = cfg[k] ?? 0));
   BOOL.forEach((k) => ($(k).checked = !!cfg[k]));
   JSONF.forEach((k) => ($(k).value = JSON.stringify(cfg[k], null, 2)));
@@ -56,6 +59,11 @@ function status(msg, bad = false) {
 async function save() {
   const patch = {};
   PLAIN.forEach((k) => (patch[k] = $(k).value.trim()));
+  // The built-in text saved unchanged is the same as empty: keep following the built-in.
+  const w = $('claudeWriting').value.trim();
+  if (w.length > MAX_WRITING) return status(`Claude prompt is ${w.length} characters; keep it under ${MAX_WRITING}`, true);
+  patch.claudeWriting = w === DEFAULT_WRITING.trim() ? '' : w;
+  patch.boundAccount = patch.boundAccount.replace(/^@+/, '').trim().slice(0, 40);
   NUM.forEach((k) => (patch[k] = Number($(k).value)));
   BOOL.forEach((k) => (patch[k] = $(k).checked));
   patch.autoSkipPhrases = $('autoSkipPhrasesText').value.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -84,6 +92,43 @@ async function save() {
 }
 
 $('save').addEventListener('click', save);
+
+// ---- account + Claude prompt ----------------------------------------------
+$('lockedPrompt').textContent = LOCKED_PROMPT;
+function writingState() {
+  const v = $('claudeWriting').value.trim();
+  $('writingState').textContent = !v ? 'Using the built-in prompt.'
+    : v === DEFAULT_WRITING.trim() ? 'Same as the built-in (saved as empty).'
+    : `Your own prompt, ${v.length} characters${/\{\{\s*account\s*\}\}/i.test(v) ? ', uses {{account}}' : ''}.`;
+}
+$('claudeWriting').addEventListener('input', writingState);
+$('loadSkeleton').addEventListener('click', () => {
+  const cur = $('claudeWriting').value.trim();
+  if (cur && cur !== DEFAULT_WRITING.trim() && !confirm('Replace what is in the box with the built-in skeleton?')) return;
+  $('claudeWriting').value = DEFAULT_WRITING;
+  writingState();
+});
+$('resetWriting').addEventListener('click', () => {
+  if ($('claudeWriting').value.trim() && !confirm('Empty the box and go back to the built-in prompt? (takes effect when you Save)')) return;
+  $('claudeWriting').value = '';
+  writingState();
+});
+async function accountState() {
+  const el = $('acctState');
+  const bound = $('boundAccount').value.trim();
+  const own = await chrome.runtime.sendMessage({ cmd: 'owner-status' }).catch(() => null);
+  const me = own?.bhwMe || '';
+  const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  const parts = [];
+  parts.push(me ? `Chrome is signed in to BHW as <b>${esc(me)}</b>.` : 'Not known yet who Chrome is signed in to BHW as (it is read on the next check).');
+  if (!bound) parts.push('Not tied: this copy works for whoever Chrome is signed in as. Tie it before running a second account on another PC.');
+  else if (me && !same(me, bound)) parts.push(`<span style="color:#dc2626"><b>Does not match "${esc(bound)}"</b> - nothing is sent or posted until it does.</span>`);
+  else if (me) parts.push('<span style="color:#16a34a">✓ matches.</span>');
+  if (own?.wrongAccount) parts.push(`<span style="color:#dc2626">This Telegram bot belongs to account <b>${esc(own.owner?.acct || '')}</b>. Give this account its own bot.</span>`);
+  if (own?.accountElsewhere) parts.push(`<span style="color:#b45309">This account already runs on another machine; this copy stands by.</span>`);
+  el.innerHTML = parts.join(' ');
+}
+$('boundAccount').addEventListener('input', accountState);
 
 $('test').addEventListener('click', async () => {
   status('testing…');

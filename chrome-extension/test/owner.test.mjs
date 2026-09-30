@@ -31,7 +31,7 @@ const asMachine = async (id, os) => { store.instanceId = id; delete store.ownerS
 
 // --- the rule, pure -------------------------------------------------------------
 const now = Date.now();
-ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5, pin: false, auto: null }));
+ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5, pin: false, auto: null, acct: '' }));
 ok('anything else is no lock', parseLock('My helpful bot') === null && parseLock('') === null);
 ok('no lock is free to take', decide(null, 'me', now) === 'take');
 ok('my own lock is mine', decide({ id: 'me', at: now }, 'me', now) === 'mine');

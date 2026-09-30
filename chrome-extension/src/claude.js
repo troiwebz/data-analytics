@@ -226,7 +226,12 @@ export const OFFERS = {
   terms:   'invoice after the first batch, when the budget is large, or the post worries about being scammed'
 };
 
-const SYSTEM = [
+// The prompt in two parts. WRITING is how the lines are written - voice,
+// format, what to claim - and is yours to replace per account in Settings
+// ("Claude prompt"). CONTRACT is the screen verdict and the JSON shape: auto
+// mode's safety check and the parser depend on it, so it is always appended
+// as it is, whatever the writing part says.
+const WRITING_LINES = [
   'You write the technical middle of an outreach message about a job post on a freelancer forum.',
   'The greeting, the thread link and the closing offer are already written; you write ONLY the parts below.',
   '',
@@ -305,8 +310,9 @@ const SYSTEM = [
   '  "these usually get flagged".',
   '- Where a job is genuinely hard, say what you do about it, never that it is hard.',
   'Each line is a full sentence that reads correctly on its own, with no leading dash or number:',
-  'they are numbered 1. 2. 3. when they are laid out.',
-  '',
+  'they are numbered 1. 2. 3. when they are laid out.'
+];
+const CONTRACT_LINES = [
   'SCREEN. For each thread also decide whether a private message from a provider is welcome.',
   'This verdict is for the operator and is never shown to the buyer.',
   '- "pm":"yes" when the poster genuinely wants to hire someone or to buy a service or work - a job, a task, a',
@@ -318,7 +324,23 @@ const SYSTEM = [
   'Return ONLY a JSON object mapping each thread id to',
   '{"tips":[3 strings],"question":"...","offer":"id","pm":"yes" or "no","why":"..."}.',
   'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula","pm":"yes","why":"asks for a Google Ads manager"}}'
-].join('\n');
+];
+export const DEFAULT_WRITING = WRITING_LINES.join('\n');
+export const LOCKED_PROMPT = CONTRACT_LINES.join('\n');
+const SYSTEM = [...WRITING_LINES, '', ...CONTRACT_LINES].join('\n');
+export const MAX_WRITING = 12000;
+
+/**
+ * The prompt Claude gets: your writing part when you set one (with
+ * {{account}} filled in), else the built-in, then the locked part.
+ */
+export function promptBase(writing, account = '') {
+  const mine = String(writing || '').trim().slice(0, MAX_WRITING);
+  if (!mine) return SYSTEM;
+  const text = mine.replace(/\{\{\s*account\s*\}\}/gi, String(account || '').trim() || 'us');
+  return `${text}\n\n${LOCKED_PROMPT}\n`
+    + `The "offer" id must be one of: ${Object.keys(OFFERS).join(', ')}. The "tips" array holds exactly 3 strings.`;
+}
 
 /**
  * leads: [{ threadId, title, snippet, category }]
@@ -330,7 +352,8 @@ const SYSTEM = [
  * the cached system prefix rather than the per-thread message, so it is paid
  * for once per poll and read at a tenth of the price after that.
  */
-function systemFor(brief, rules) {
+export function systemFor(brief, rules, writing = '', account = '') {
+  const SYSTEM = promptBase(writing, account);
   const note = String(brief || '').trim().slice(0, 1200);
   const mine = String(rules || '').trim().slice(0, 1200);
   // The operator's own screen rules outrank the general ones: they know which
@@ -381,7 +404,7 @@ export async function writeSpecifics(leads, cfg = {}) {
   const body = {
     model: ai.model,
     max_tokens: 170 * batch.length + 60,
-    system: [{ type: 'text', text: systemFor(cfg.brief, cfg.screenRules), cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: systemFor(cfg.brief, cfg.screenRules, cfg.claudeWriting, cfg.boundAccount), cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
   };

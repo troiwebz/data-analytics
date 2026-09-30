@@ -29,9 +29,31 @@ export const SECRETS = { anthropic: 'key', telegram: 'tgToken' };
 export const RESETTABLE = ['config', 'ai', 'recentLeads', 'seenThreads', 'rateState', 'log', 'staged'];
 
 const readLocal = async () => (await chrome.storage.local.get(VAULT))[VAULT] || {};
+
+// Two PCs, two BHW accounts, one Google profile: each account has its own bot,
+// and a shared mirror would hand PC 2 the bot token PC 1 saved last. So a copy
+// tied to an account (Settings → "This copy works for BHW account") mirrors to
+// vault@<account>. A fresh copy of that account with nothing mirrored yet may
+// still take the Claude key from the plain mirror - never the bot token.
+async function syncKey() {
+  try {
+    const { config } = await chrome.storage.local.get('config');
+    const a = String(config?.boundAccount || '').trim().toLowerCase();
+    return a ? `${VAULT}@${a}` : VAULT;
+  } catch { return VAULT; }
+}
 const readSync = async () => {
-  try { return (await chrome.storage.sync.get(VAULT))[VAULT] || {}; }
-  catch { return {}; }                       // sync switched off or unavailable
+  try {
+    const k = await syncKey();
+    const own = (await chrome.storage.sync.get(k))[k] || {};
+    if (k === VAULT || Object.values(SECRETS).some((f) => own[f])) return own;
+    const plain = (await chrome.storage.sync.get(VAULT))[VAULT] || {};
+    return plain[SECRETS.anthropic] ? { [SECRETS.anthropic]: plain[SECRETS.anthropic], savedAt: 0 } : {};
+  } catch { return {}; }                     // sync switched off or unavailable
+};
+const writeSync = async (entry) => {
+  try { await chrome.storage.sync.set({ [await syncKey()]: entry }); }
+  catch { /* sync unavailable; the local copy still works */ }
 };
 
 /**
@@ -45,13 +67,23 @@ export async function read() {
 
   const has = (v) => Object.values(SECRETS).some((f) => v && v[f]);
   if (has(local) && !has(mirror)) {           // profile copy lost or never written
-    try { await chrome.storage.sync.set({ [VAULT]: local }); }
-    catch { /* sync unavailable; the local copy still works */ }
+    await writeSync(local);
     return local;
   }
   if (!has(local) && has(mirror)) {           // this is the case that used to lose the key
     await chrome.storage.local.set({ [VAULT]: mirror });
     return { ...mirror, restored: true };
+  }
+  // Only the Claude key came from the plain mirror: it fills a gap, never replaces.
+  if (has(local) && has(mirror) && !mirror.savedAt) {
+    if (!local[SECRETS.anthropic] && mirror[SECRETS.anthropic]) {
+      const merged = { ...local, [SECRETS.anthropic]: mirror[SECRETS.anthropic] };
+      await chrome.storage.local.set({ [VAULT]: merged });
+      await writeSync(merged);
+      return merged;
+    }
+    await writeSync(local);
+    return local;
   }
   // Both present: newer wins, so a secret saved on another machine takes over.
   if (has(local) && has(mirror) && (mirror.savedAt || 0) > (local.savedAt || 0)) {
@@ -76,7 +108,8 @@ export const getKey = () => getSecret('anthropic');
  */
 export async function syncStatus() {
   try {
-    const mirror = (await chrome.storage.sync.get(VAULT))[VAULT] || {};
+    const k = await syncKey();
+    const mirror = (await chrome.storage.sync.get(k))[k] || {};
     const hasSecrets = Object.values(SECRETS).some((f) => mirror[f]);
     return { available: true, hasSecrets, savedAt: mirror.savedAt || 0 };
   } catch {
@@ -94,7 +127,7 @@ export async function setSecret(name, value) {
   if (current[field] === String(value) && (await readSync())[field] === String(value)) return current;
   const entry = { ...current, [field]: String(value), savedAt: Date.now() };
   await chrome.storage.local.set({ [VAULT]: entry });          // must not fail
-  try { await chrome.storage.sync.set({ [VAULT]: entry }); } catch { /* local is enough */ }
+  await writeSync(entry);
   return entry;
 }
 export const setKey = (key) => setSecret('anthropic', key);
@@ -108,11 +141,11 @@ export async function removeSecret(name) {
   const empty = !Object.values(SECRETS).some((f) => entry[f]);
   if (empty) {
     await chrome.storage.local.remove(VAULT);
-    try { await chrome.storage.sync.remove(VAULT); } catch { /* nothing mirrored */ }
+    try { await chrome.storage.sync.remove(await syncKey()); } catch { /* nothing mirrored */ }
     return;
   }
   await chrome.storage.local.set({ [VAULT]: entry });
-  try { await chrome.storage.sync.set({ [VAULT]: entry }); } catch { /* local is enough */ }
+  await writeSync(entry);
 }
 export const removeKey = () => removeSecret('anthropic');
 

@@ -160,7 +160,20 @@ async function renderInner() {
     const NAME = { mac: 'MacBook', win: 'Windows server', linux: 'Linux server' };
     const nameOf = (os) => NAME[String(os || '').toLowerCase()] || 'another machine';
     const paint = (bg, border, ink) => { bar.style.background = bg; bar.style.borderColor = border; bar.style.color = ink; };
-    if (own && own.known && !own.active) {
+    if (own && own.wrongAccount) {
+      bar.hidden = false;
+      paint('#fef2f2', '#fecaca', '#991b1b');
+      bar.innerHTML = `<b>⛔ This Telegram bot belongs to BHW account "${esc(own.owner?.acct || '')}"</b> (running on the ${esc(nameOf(own.owner?.os))}). `
+        + `This copy is tied to <b>"${esc(own.myAccount || '')}"</b>, so it reads nothing, sends nothing and posts nothing. `
+        + `Give this account its own bot: make one in @BotFather and paste its token in Settings here.`;
+    } else if (own && own.accountElsewhere) {
+      const mins = Math.max(0, Math.round((Date.now() - (own.owner?.at || 0)) / 60000));
+      bar.hidden = false;
+      paint('#fffbeb', '#fde68a', '#92400e');
+      bar.innerHTML = `<b>⏸ Standby.</b> BHW account <b>"${esc(own.owner?.acct || '')}"</b> already runs on the <b>${esc(nameOf(own.owner?.os))}</b>${own.owner?.pin ? ' (chosen by you)' : ''}, last seen ${mins} min ago. `
+        + `One copy per account: this one reads nothing, sends nothing and posts nothing. `
+        + `<button id="takeover" style="margin-left:8px">Keep THIS as the main system for ${esc(own.owner?.acct || 'this account')}</button>`;
+    } else if (own && own.known && !own.active) {
       const mins = Math.max(0, Math.round((Date.now() - (own.owner?.at || 0)) / 60000));
       bar.hidden = false;
       paint('#fffbeb', '#fde68a', '#92400e');
@@ -181,6 +194,14 @@ async function renderInner() {
       bar.innerHTML = `<b>🚨 Another program was reading your Telegram bot ${own.conflictMinutes} min ago.</b> A second copy of HAF Watcher is running somewhere with the same token, `
         + `and it acts on your commands by its own rules. Auto mode here is paused. Remove it on that machine, or change your BHW password and revoke the bot token in @BotFather.`;
     } else { bar.hidden = true; bar.innerHTML = ''; }
+    if (own?.loginMismatch) {
+      bar.hidden = false;
+      paint('#fef2f2', '#fecaca', '#991b1b');
+      bar.innerHTML += `<div style="margin-top:6px"><b>⛔ Wrong BHW login.</b> ${esc(own.loginMismatch)}.</div>`;
+    }
+    if (own?.boundAccount && !own.wrongAccount && !own.loginMismatch && bar.innerHTML) {
+      bar.innerHTML += ` <span style="opacity:.8">· Account: <b>${esc(own.boundAccount)}</b></span>`;
+    }
   }
 
   tz = cfg;                                  // every when() below uses this zone
