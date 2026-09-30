@@ -3537,7 +3537,8 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   const pool = (await getLeads()).filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample'
     && !l.pmSent && !SILENT_STATUSES.includes(l.status) && !l.autoSendHeld && !l.autoSendAt && at(l) >= cutoff);
   // Unjudged, or judged under older rules: both are looked at again.
-  const stale = (l) => Number(l.autoRules || 0) !== auto.AUTO_RULES;
+  // Only a refusal can be stale: the rules only ever got looser, so an old "yes" still stands.
+  const stale = (l) => !!l.autoSendBlocked && Number(l.autoRules || 0) !== auto.AUTO_RULES;
   const pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked || stale(l))).sort((a, b) => at(b) - at(a)).slice(0, max);
   if (!pick.length) return { armed: 0, left: 0 };
 
