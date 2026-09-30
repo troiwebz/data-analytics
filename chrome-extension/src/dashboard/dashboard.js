@@ -172,7 +172,7 @@ async function renderInner() {
       bar.hidden = false;
       paint('#f0fdf4', '#bbf7d0', '#166534');
       bar.innerHTML = own.owner?.pin
-        ? `<b>✅ This ${esc(nameOf(own.me?.os))} is the main system</b> - chosen by you. Any other copy of HAF Watcher stays on standby until you choose it there.`
+        ? `<b>✅ This ${esc(nameOf(own.me?.os))} is the main system</b> - chosen by you. Auto mode here: <b>${cfg.autoMode ? 'ON' : 'OFF'}</b>${cfg.autoMode ? '' : ' - new threads wait for your tap (send "auto on")'}. Any other copy stays on standby until you choose it there.`
         : `<b>This ${esc(nameOf(own.me?.os))} is running as the main system</b> for now. `
           + `<button id="takeover" style="margin-left:8px">Keep this as the main system</button> `
           + `<span style="opacity:.8">so it stays main even if it is switched off for a while.</span>`;

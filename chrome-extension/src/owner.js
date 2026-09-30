@@ -23,11 +23,14 @@ const CACHE_MS = 60000;
 // pin=1 means you chose this copy as the MAIN system. A pinned lock is never
 // taken over by time: when the main system is switched off the others stay
 // on standby and say so, until you choose again on the one in front of you.
-export const lockText = (id, os, at = Date.now(), pin = false) => `HAF owner=${id} os=${os} at=${at}${pin ? ' pin=1' : ''}`;
+// auto=1/0 travels with the lock, so the machine you make main picks up the
+// auto-mode setting the previous main had - it is one decision, not per machine.
+export const lockText = (id, os, at = Date.now(), pin = false, auto = null) =>
+  `HAF owner=${id} os=${os} at=${at}${pin ? ' pin=1' : ''}${auto == null ? '' : ` auto=${auto ? 1 : 0}`}`;
 
 export function parseLock(text) {
-  const m = String(text || '').match(/HAF owner=([a-z0-9]+) os=([a-z0-9_]+) at=(\d+)( pin=1)?/i);
-  return m ? { id: m[1], os: m[2], at: Number(m[3]), pin: !!m[4] } : null;
+  const m = String(text || '').match(/HAF owner=([a-z0-9]+) os=([a-z0-9_]+) at=(\d+)( pin=1)?(?: auto=([01]))?/i);
+  return m ? { id: m[1], os: m[2], at: Number(m[3]), pin: !!m[4], auto: m[5] == null ? null : m[5] === '1' } : null;
 }
 
 /** A name a person recognises, not an id. */
@@ -57,6 +60,11 @@ export async function whoAmI() {
  * answer is not "known". When Telegram cannot be reached the last answer
  * stands; with no last answer the copy does not act by itself.
  */
+/** This copy's auto-mode setting, for the stamp. Read lazily so tests can stub config. */
+async function myAuto() {
+  try { const { config } = await chrome.storage.local.get('config'); return !!config?.autoMode; } catch { return null; }
+}
+
 export async function ownership({ fresh = false } = {}) {
   if (!(await telegram.hasToken())) return { active: true, known: false, reason: 'no bot token on this copy' };
   const { [STATE]: st } = await chrome.storage.local.get(STATE);
@@ -73,7 +81,7 @@ export async function ownership({ fresh = false } = {}) {
   let d = decide(lock, me.id, now);
   if (d === 'take' || (d === 'mine' && now - lock.at > BEAT_MS)) {
     try {
-      await telegram.setLockText(lockText(me.id, me.os, now, d === 'mine' && !!lock?.pin));
+      await telegram.setLockText(lockText(me.id, me.os, now, d === 'mine' && !!lock?.pin, await myAuto()));
       if (d === 'take') {
         // Two copies can find the lock free in the same second. Look again:
         // whoever wrote last holds it, and the other stands down.
@@ -94,8 +102,12 @@ export async function ownership({ fresh = false } = {}) {
 /** You chose this one as the MAIN system. Pinned: it stays main until you choose another. */
 export async function takeOver() {
   const me = await whoAmI();
-  await telegram.setLockText(lockText(me.id, me.os, Date.now(), true));
-  const out = { active: true, known: true, owner: { id: me.id, os: me.os, at: Date.now(), pin: true }, me, checkedAt: Date.now(), took: true };
+  // What the previous main was doing about auto mode is carried over.
+  let before = null;
+  try { before = parseLock(await telegram.getLockText()); } catch { /* none readable */ }
+  const inherit = before && before.id !== me.id && before.auto != null ? before.auto : null;
+  await telegram.setLockText(lockText(me.id, me.os, Date.now(), true, inherit ?? await myAuto()));
+  const out = { active: true, known: true, owner: { id: me.id, os: me.os, at: Date.now(), pin: true }, me, checkedAt: Date.now(), took: true, inheritAuto: inherit, from: before?.os || '' };
   await chrome.storage.local.set({ [STATE]: out });
   return out;
 }

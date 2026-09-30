@@ -7,7 +7,7 @@ $('back').addEventListener('click', () => { location.href = chrome.runtime.getUR
 try {
   $('url').value = localStorage.getItem('labUrl') || '';
   const f = JSON.parse(localStorage.getItem('labForm') || '{}');
-  for (const k of ['copies', 'gets', 'features', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
+  for (const k of ['copies', 'gets', 'features', 'targets', 'keywords', 'requirements', 'delivery']) if (f[k] != null && $(k)) $(k).value = f[k];
 } catch { /* no storage */ }
 function modeUi() {
   const main = document.querySelector('input[name=mode]:checked').value === 'main';
@@ -24,7 +24,7 @@ $('run').addEventListener('click', async () => {
   const opts = mode === 'main'
     ? { mode, url, pages: Number($('pages').value), open: Number($('open').value), reviewCopies: $('rc').checked, ownSection: $('own').checked }
     : { mode, url, pages: Number($('pages').value), open: Number($('open').value), alsoFrc: $('frc').checked,
-        copies: Number($('copies').value), gets: $('gets').value.trim(), features: $('features').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
+        copies: Number($('copies').value), gets: $('gets').value.trim(), features: $('features').value.trim(), targets: $('targets').value.trim(), keywords: $('keywords').value.trim(), requirements: $('requirements').value.trim(), delivery: $('delivery').value.trim() };
   if (mode === 'review' && !(opts.copies > 0)) return alert('Say how many free review copies you will give.');
   try { localStorage.setItem('labForm', JSON.stringify(opts)); } catch { /* fine */ }
   const r = await chrome.runtime.sendMessage({ cmd: 'lab-run', opts });
@@ -46,6 +46,8 @@ $('fill').addEventListener('click', async () => {
     put('gets', (r.gets || []).join('\n'));
     put('requirements', r.requirements);
     put('delivery', r.delivery);
+    put('targets', r.targets);
+    put('keywords', (r.keywords || []).join(', '));
     $('fillMsg').textContent = `Filled from "${String(r.title || '').slice(0, 60)}" - check and edit, then Run the Lab. Cost $${Number(r.cost || 0).toFixed(4)}.`;
     showSpend();
   } finally { b.disabled = false; b.textContent = '✨ Fill these from my thread'; }
@@ -78,7 +80,8 @@ function reviewReport(r) {
   <div class="card"><h2>Your review-copy thread</h2>
     <div class="sub">For <b>${esc(r.mine?.title)}</b> · ${r.copies} free review copies · studied ${r.scanned} threads in ${esc((r.sources || []).join(' + '))} · ${new Date(r.at).toLocaleString()} · Claude $${Number(r.cost || 0).toFixed(3)}</div>
     ${r.titlePattern ? `<div class="sub" style="margin-top:10px">Title pattern: <code>${esc(r.titlePattern)}</code></div>` : ''}
-    ${(r.titles || []).map((t, i) => copyBox(`Title ${i + 1}`, t)).join('')}
+    ${(r.keywordTargets || []).length ? `<div class="sub" style="margin:10px 0 4px">Long-tail keywords the titles target</div><div class="chips win">${r.keywordTargets.map((k) => `<span title="${esc(k.why || '')}">${esc(k.phrase)}</span>`).join('')}</div>` : ''}
+    ${(r.titles || []).map((t, i) => copyBox(`Title ${i + 1} · ${t.length} characters`, t)).join('')}
     ${copyBox('Post (paste as the first post)', r.description)}
     <p class="sub">Post it in <a href="https://www.blackhatworld.com/forums/service-reviews-beta-testers-help-wanted.165/post-thread" target="_blank" rel="noopener">Service Reviews &amp; Beta Testers → Post thread</a>. Do not bump it - the section rules forbid it.</p>
   </div>
@@ -86,6 +89,7 @@ function reviewReport(r) {
   <div class="card"><h2>The success formula</h2>
     <ol>${(r.formula || []).map((f) => `<li><b>${esc(f.rule)}</b><br><span class="sub">${esc(f.evidence)}</span></li>`).join('')}</ol>
     ${(r.postSkeleton || []).length ? `<div class="sub" style="margin:12px 0 4px">Post skeleton the winners use</div><ol>${r.postSkeleton.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+    ${(r.longTails || []).length ? `<div class="sub" style="margin:14px 0 4px">Long-tail phrases the viral titles are built on</div><div class="chips">${r.longTails.map((k) => `<span>${esc(k.phrase)}</span>`).join('')}</div>` : ''}
     <div class="sub" style="margin:14px 0 4px">Measured on the titles: top 10 by replies/day vs the rest</div>
     <table><thead><tr><th>The title…</th><th>Top 10</th><th>Rest</th><th></th></tr></thead><tbody>${meas}
       <tr><td>average length</td><td class="n"><b>${r.measured?.topLength}</b></td><td class="n">${r.measured?.restLength}</td><td class="sub">characters</td></tr></tbody></table>

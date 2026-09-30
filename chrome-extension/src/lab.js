@@ -145,6 +145,20 @@ export function cluster(rows, { threshold = 0.35 } = {}) {
  * section, so the formula says "8 of the top 10 put the count first" instead
  * of guessing.
  */
+// Markets and niches a title can target. A title that names both - "for
+// Indonesia Casino iGaming SEO" - ranks for a long-tail search and tells the
+// right buyer it is for them.
+export const COUNTRIES = ['indonesia', 'indonesian', 'indo', 'thailand', 'thai', 'korea', 'korean', 'malaysia', 'malay', 'vietnam', 'viet',
+  'philippines', 'india', 'indian', 'bangladesh', 'pakistan', 'brazil', 'brazilian', 'mexico', 'latam', 'spain', 'spanish', 'germany', 'german',
+  'france', 'french', 'italy', 'italian', 'uk', 'usa', 'us', 'canada', 'australia', 'japan', 'japanese', 'turkey', 'turkish', 'nigeria', 'africa',
+  'europe', 'eu', 'asia', 'arab', 'arabic', 'uae', 'dubai', 'saudi', 'russia', 'russian', 'poland', 'netherlands', 'nordic', 'global', 'worldwide'];
+export const NICHES = ['casino', 'igaming', 'gambling', 'betting', 'sportsbook', 'slot', 'slots', 'poker', 'crypto', 'forex', 'adult', 'dating',
+  'nutra', 'pharma', 'cbd', 'sweeps', 'sweepstakes', 'onlyfans', 'ofm', 'loan', 'finance', 'fintech', 'ecommerce', 'saas', 'local', 'real estate',
+  'health', 'vpn', 'gaming', 'esports', 'nft', 'web3', 'peptides'];
+const hasAny = (t, list) => { const x = ` ${String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ')} `; return list.filter((w) => x.includes(` ${w} `)); };
+export const marketsIn = (t) => hasAny(t, COUNTRIES);
+export const nichesIn = (t) => hasAny(t, NICHES);
+
 export function titleFeatures(title) {
   const t = String(title || '');
   const emoji = (t.match(/[☀-➿⬀-⯿]|[\uD83C-\uD83E][\uDC00-\uDFFF]|[⎝⎠【】★⭐✅❤♥⚡]/g) || []).length;
@@ -155,6 +169,8 @@ export function titleFeatures(title) {
     bracketTag: /^\s*[\[(【]/.test(t),
     brand: /\b[A-Z][a-z]+'s\b|[:\-–|]\s*[A-Z][A-Za-z0-9]+/.test(t),
     worth: /worth\s*\$?\d|\$\d+/i.test(t),
+    market: marketsIn(t).length > 0,
+    niche: nichesIn(t).length > 0,
     emojiHeavy: emoji >= 3,
     length: t.length
   };
@@ -167,9 +183,10 @@ export function titleFormula(rows, { now = Date.now(), top = 10 } = {}) {
   const head = ranked.slice(0, top), rest = ranked.slice(top);
   const share = (list, k) => (list.length ? Math.round(100 * list.filter((r) => r.f[k]).length / list.length) : 0);
   const avg = (list) => (list.length ? Math.round(list.reduce((s, r) => s + r.f.length, 0) / list.length) : 0);
-  const keys = ['countFirst', 'countAnywhere', 'reviewTag', 'bracketTag', 'brand', 'worth', 'emojiHeavy'];
+  const keys = ['countFirst', 'countAnywhere', 'reviewTag', 'bracketTag', 'brand', 'worth', 'market', 'niche', 'emojiHeavy'];
   const LABEL = { countFirst: 'puts the number of copies first', countAnywhere: 'states how many copies', reviewTag: 'says Free Review Copies / Reviewers / Beta Testers',
-                  bracketTag: 'opens with a [bracket] tag', brand: 'names the brand', worth: 'states what the copy is worth', emojiHeavy: 'uses 3+ emoji or symbols' };
+                  bracketTag: 'opens with a [bracket] tag', brand: 'names the brand', worth: 'states what the copy is worth',
+                  market: 'targets a country or market', niche: 'names a niche (casino, crypto, adult…)', emojiHeavy: 'uses 3+ emoji or symbols' };
   const features = keys.map((k) => ({ key: k, label: LABEL[k], top: share(head, k), rest: share(rest, k) }));
   return { features, topLength: avg(head), restLength: avg(rest), top: head, sample: ranked.length };
 }
@@ -190,6 +207,31 @@ export function viralOnly(rows, { now = Date.now() } = {}) {
   return out;
 }
 
+/**
+ * Long-tail phrases the viral titles are built on: runs of 2-4 meaningful
+ * words that include a niche, a market or a service noun, counted across the
+ * titles. "casino pbn backlinks", "indonesia casino seo", "edu guest posts".
+ */
+export function longTails(rows, { top = 12 } = {}) {
+  const SERVICE = /^(seo|backlink|link|pbn|guest|post|edu|domain|expired|aged|ads|ad|google|facebook|meta|tiktok|instagram|traffic|proxy|proxies|account|review|removal|audit|citation|indexing|campaign|management|setup|smm|panel|email|content|article|video|ugc)$/;
+  const counts = new Map();
+  for (const r of rows) {
+    const w = String(r.title || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+      .filter((x) => x.length > 1 && !/^\d+x?$/.test(x) && !['free', 'review', 'copies', 'copy', 'reviews', 'the', 'for', 'and', 'of', 'to', 'with', 'our', 'your', 'a', 'in', 'on', 'x'].includes(x));
+    const seen = new Set();
+    for (let n = 2; n <= 4; n++) for (let i = 0; i + n <= w.length; i++) {
+      const g = w.slice(i, i + n);
+      const strong = g.some((x) => NICHES.includes(x) || COUNTRIES.includes(x)) || g.filter((x) => SERVICE.test(x)).length >= 1;
+      if (!strong) continue;
+      const k = g.join(' ');
+      if (seen.has(k)) continue; seen.add(k);
+      counts.set(k, (counts.get(k) || 0) + 1 + Math.log1p(r.rpd || 0) / 3);
+    }
+  }
+  return [...counts.entries()].filter(([k]) => k.split(' ').length >= 2)
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).slice(0, top).map(([k, s]) => ({ phrase: k, weight: Math.round(s * 10) / 10 }));
+}
+
 /** Read your main thread and propose the form: what reviewers get, main features, requirements, delivery. */
 export const FILL_SYSTEM = [
   'You read a BlackHatWorld service thread and pull out, in the seller\'s own terms, what a free review copy of it',
@@ -198,13 +240,17 @@ export const FILL_SYSTEM = [
   '{ "gets": [3-5 short lines, what ONE reviewer receives - a small but real sample of the service],',
   '  "features": [3-6 short lines, the main features / selling points of the service as the thread states them],',
   '  "requirements": "one line: review timing, reviewer criteria, niches not accepted - only if stated or standard",',
-  '  "delivery": "delivery time as stated, e.g. 3-5 days, or empty" }'
+  '  "delivery": "delivery time as stated, e.g. 3-5 days, or empty",',
+  '  "targets": "the niches and countries/markets the service is for, as stated, e.g. Indonesia, Thailand; casino, iGaming, crypto",',
+  '  "keywords": [4-6 long-tail phrases a buyer of THIS service would search on BHW, each 3-6 words, niche + service (+ market),',
+  '                 e.g. "indonesia casino google ads", "crypto meta ads account management"] }'
 ].join('\n');
 
 export function parseFill(text) {
   const o = looseJson(text) || {};
   const lines = (v, n) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, n) : []);
-  return { gets: lines(o.gets, 5), features: lines(o.features, 6), requirements: String(o.requirements || '').trim(), delivery: String(o.delivery || '').trim() };
+  return { gets: lines(o.gets, 5), features: lines(o.features, 6), requirements: String(o.requirements || '').trim(), delivery: String(o.delivery || '').trim(),
+           targets: String(o.targets || '').trim(), keywords: lines(o.keywords, 6) };
 }
 
 /** The prompt, and the shape of the answer asked for. */
@@ -226,7 +272,8 @@ export const LAB_SYSTEM = [
   '  "irresistibleOffer": "the one offer structure that wins in this niche, and how the operator should frame theirs",',
   '  "painAngles": [3 pain angles, each one sentence, strongest first],',
   '  "hooks": [5 opening hooks for the operator, each under 20 words],',
-  '  "titles": [3 thread titles for the operator, each under 90 characters],',
+  '  "titles": [3 thread titles for the operator, 70-110 characters, each built on one long-tail keyword: Brand - Service for',
+  '             Market + Niche + Keyword, e.g. "Domain Coasters - Aged Expired Domains for Indonesia Casino iGaming SEO"],',
   '  "description": "the opening post for the operator\'s thread, 150-300 words, BBCode-free plain text with line breaks",',
   '  "reviewCopy": "a review-copy offer line for the Free Review Copies forum, 1-2 sentences",',
   '  "gaps": [3 things the operator\'s current thread is missing compared to the winners]',
@@ -248,13 +295,20 @@ export const REVIEW_SYSTEM = [
   '- The description MUST contain the operator\'s main thread link, verbatim, on a line after "Thread Link:".',
   '- The title and the description MUST state the number of free review copies exactly as given.',
   '- Plain text with line breaks and short section headings like the winners use. No BBCode, no emoji walls.',
+  '- KEYWORD TARGETING. Every title must carry ONE long-tail keyword built from the operator\'s service + niche',
+  '  (+ market/country when the operator targets one), placed after the count tag and brand, e.g.',
+  '  "[ 10x Free Review Copies ] - Domain Coasters: Aged Expired Domains for Indonesia Casino iGaming SEO".',
+  '  Use the operator\'s targets and keywords first, then the long-tail phrases the viral titles share.',
+  '  Titles should be 70-110 characters - long enough to hold the keyword, not a bare "Free Review Copies - Brand".',
+  '- The first line of the post and the "What You\'ll Get" lines must use the same long-tail keywords naturally.',
   '- Keep "What You\'ll Get" to 3-5 short lines. Do not invent specs, numbers or results the operator did not give;',
   '  where a detail is needed but unknown, write it as [fill in: ...] so the operator can complete it.',
   '',
   'Return ONLY one JSON object:',
   '{',
   '  "formula": [ { "rule": "one point of the success formula", "evidence": "what in the data shows it" } ],',
-  '  "titlePattern": "the title template, e.g. [ {N}x Free Review Copies ] - {Brand}\'s {Service}",',
+  '  "titlePattern": "the title template, e.g. [ {N}x Free Review Copies ] - {Brand}: {Service} for {Market} {Niche} {Keyword}",',
+  '  "keywordTargets": [ { "phrase": "long-tail keyword", "why": "who searches it / which viral title uses it" } ],',
   '  "postSkeleton": ["the post sections in order, e.g. Greeting", "Looking for N honest reviewers", "Thread Link", ...],',
   '  "titles": [3 titles for the operator in that pattern, each under 90 characters],',
   '  "description": "the full post for the operator, in the skeleton, 80-200 words",',
@@ -275,11 +329,15 @@ export function reviewPrompt(mine, offer, formula, winners) {
     `free review copies: ${offer.copies}`,
     `each reviewer gets: ${offer.gets || '(not given - infer from the main thread, mark unknowns as [fill in: ...])'}`,
     `main features of the service: ${offer.features || '(not given - take them from the main thread)'}`,
+    `target niches / markets: ${offer.targets || '(not given - take them from the main thread)'}`,
+    `keywords buyers search: ${offer.keywords || '(not given - derive from the thread and the viral titles)'}`,
     `requirements / not accepted: ${offer.requirements || '(not given)'}`,
     `delivery time: ${offer.delivery || '(not given)'}`,
     '', 'SECTION RULES', ...SECTION_RULES.map((r) => `- ${r}`),
     '', `TITLE STATISTICS (top 10 by replies/day vs the other ${Math.max(0, formula.sample - 10)} threads)`,
     ...formula.features.map((f) => `- ${f.label}: top ${f.top}% vs rest ${f.rest}%`),
+    '', 'LONG-TAIL PHRASES IN THE VIRAL TITLES (weighted by use and pull)',
+    ...(formula.longTails || []).map((k) => `- ${k.phrase} (${k.weight})`),
     `- average title length: top ${formula.topLength} chars vs rest ${formula.restLength}`,
     '', `TOP THREADS IN THE SECTION (${winners.length}, most replies per day first)`
   ];
@@ -290,13 +348,18 @@ export function reviewPrompt(mine, offer, formula, winners) {
 }
 
 /** Checks the copy against what must be in it and what the section forbids. Returns problems, [] when clean. */
-export function checkReviewCopy(result, { url, copies }) {
+export function checkReviewCopy(result, { url, copies, targets = [] }) {
   const out = [];
   const d = String(result.description || ''), titles = result.titles || [];
   const n = String(copies);
   if (!d.includes(url)) out.push('the description does not contain your main thread link');
   if (!new RegExp(`\\b${n}\\s*x?\\b`, 'i').test(d)) out.push(`the description does not say ${n} copies`);
   titles.forEach((t, i) => { if (!new RegExp(`\\b${n}\\s*x?\\b`, 'i').test(t)) out.push(`title ${i + 1} does not state ${n}`); });
+  // Keyword targeting: a title must name at least one niche or market you target.
+  if (targets.length) titles.forEach((t, i) => {
+    const hit = [...nichesIn(t), ...marketsIn(t)].filter((w) => targets.includes(w));
+    if (!hit.length) out.push(`title ${i + 1} names none of your niches or markets (${targets.slice(0, 5).join(', ')}) - no long-tail keyword`);
+  });
   const text = `${titles.join('\n')}\n${d}`;
   const bad = [
     [/\bbump\b/i, 'mentions bumping'], [/\blike (?:my|our|the) (?:main )?thread/i, 'asks for likes'],
@@ -378,6 +441,7 @@ export function parseLab(text) {
     reviewCopy: String(o.reviewCopy || '').trim(),
     gaps: arr(o.gaps, 3),
     formula: arr(o.formula, 8).filter((f) => f && typeof f === 'object'),
+    keywordTargets: arr(o.keywordTargets, 8).filter((k) => k && typeof k === 'object'),
     titlePattern: String(o.titlePattern || '').trim(),
     postSkeleton: arr(o.postSkeleton, 10),
     rulesCheck: arr(o.rulesCheck, 12).filter((r) => r && typeof r === 'object'),
@@ -451,7 +515,7 @@ export async function runLab({ url, pages = 5, reviewCopies = true, ownSection =
  * your review-copy thread in that format, with your main thread link and your
  * number of copies, inside the section rules.
  */
-export async function runReviewLab({ url, copies = 10, gets = '', features = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
+export async function runReviewLab({ url, copies = 10, gets = '', features = '', targets = '', keywords = '', requirements = '', delivery = '', pages = 3, open = 6, alsoFrc = false }, deps) {
   const { readThread, readListing, ask, step = () => {}, now = Date.now() } = deps;
   const id = (String(url).match(/\.(\d+)\/?(?:[?#].*)?$/) || [])[1] || '';
   if (!/blackhatworld\.com\//i.test(url) || !id) throw new Error('That is not a BlackHatWorld thread link.');
@@ -479,6 +543,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
   // never from a thread that merely sounds like yours.
   const viral = viralOnly(live, { now });
   const pick = viral.slice(0, Math.max(3, Number(open) || 6));
+  formula.longTails = longTails(viral);
 
   const opened = [];
   for (const [i, c] of pick.entries()) {
@@ -488,7 +553,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
   }
 
   await step('Working out the success formula and writing your thread…');
-  const user = reviewPrompt(mine, { copies: n, gets, features, requirements, delivery }, formula, opened);
+  const user = reviewPrompt(mine, { copies: n, gets, features, targets, keywords, requirements, delivery }, formula, opened);
   let answer = await ask(REVIEW_SYSTEM, user);
   let result = parseLab(answer.text);
   let cost = answer.cost || 0;
@@ -508,7 +573,8 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
   }
   answer = { ...answer, cost };
   result = repairReviewCopy(result, { url, copies: n });
-  const problems = checkReviewCopy(result, { url, copies: n });
+  const want = [...new Set([...nichesIn(`${targets} ${keywords} ${mine.title}`), ...marketsIn(`${targets} ${keywords}`)])];
+  const problems = checkReviewCopy(result, { url, copies: n, targets: want });
 
   return {
     mode: 'review', at: new Date(now).toISOString(), url, copies: n,
@@ -516,7 +582,7 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
     scanned: live.length, sources: sources.map((s) => s.label), pages: p, cost: answer.cost || 0,
     measured: { features: formula.features, topLength: formula.topLength, restLength: formula.restLength },
     competitors: opened.map((c) => ({ threadId: c.threadId, title: c.title, url: c.url, forum: c.forum, replies: c.replyCount, rpd: c.rpd, sim: c.sim || 0, shared: (c.shared || []).slice(0, 6), viral: !!c.viral })),
-    viralBar: viral.bar, median: viral.median,
+    viralBar: viral.bar, median: viral.median, longTails: formula.longTails, targets: want, keywordTargets: result.keywordTargets,
     formula: result.formula, titlePattern: result.titlePattern, postSkeleton: result.postSkeleton,
     titles: result.titles, description: result.description, rulesCheck: result.rulesCheck,
     keywords: result.keywords, irresistibleOffer: result.irresistibleOffer, hooks: result.hooks, gaps: result.gaps,

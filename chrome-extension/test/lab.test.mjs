@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -130,7 +130,7 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('the winners\' posts reach Claude', /looking for 10 honest reviewers/.test(asked));
   ok('the thread link is always in the final post', out.description.includes(URL), out.description);
   ok('the formula, the pattern and the rules check come back', out.formula.length && out.titlePattern && out.rulesCheck.length);
-  ok('the measured numbers come back for the page', out.measured.features.length === 7);
+  ok('the measured numbers come back for the page', out.measured.features.length === 9);
   ok('and a clean result has no problems listed', out.problems.length === 0, JSON.stringify(out.problems));
   let err = '';
   try { await runReviewLab({ url: URL, copies: 0 }, deps); } catch (e) { err = e.message; }
@@ -170,7 +170,25 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('a quiet section still gives three to learn from', viralOnly([1, 1, 1, 1].map((rep, i) => ({ threadId: String(i), title: 't', replyCount: rep, startedAt: ago(1) })), { now }).length === 3);
   const f = parseFill('```json\n{"gets":["1 campaign","tracking"],"features":["Casino ads","Agency accounts"],"requirements":"Review in 48h","delivery":"3-5 days"}\n```');
   ok('the form is filled from what Claude read', f.gets.length === 2 && f.features[0] === 'Casino ads' && f.delivery === '3-5 days');
-  ok('a thread that says nothing gives empty fields, not invented ones', JSON.stringify(parseFill('{}')) === JSON.stringify({ gets: [], features: [], requirements: '', delivery: '' }));
+  ok('a thread that says nothing gives empty fields, not invented ones', JSON.stringify(parseFill('{}')) === JSON.stringify({ gets: [], features: [], requirements: '', delivery: '', targets: '', keywords: [] }));
+}
+
+// --- long-tail keyword targeting ------------------------------------------
+{
+  const t = 'Domain Coasters - Aged Expired Domains for Indonesia Casino iGaming SEO';
+  ok('"for Indonesia Casino iGaming SEO" targets a market and a niche', marketsIn(t).includes('indonesia') && nichesIn(t).includes('casino') && nichesIn(t).includes('igaming'));
+  ok('"Indianapolis" is not India', !marketsIn('Local SEO for Indianapolis dentists').includes('india'));
+  const lt = longTails([{ title: 'Free Review Copies [ JOHNRANK PBN ] POWERFUL CASINO PBN BACKLINKS THAI INDO KOREAN NICHE ACCEPTED', rpd: 6 },
+                        { title: 'FREE REVIEW COPIES FOR CASINO Gambling PBN Do follow BACKLINKS DA 35 DR 50', rpd: 1 },
+                        { title: "30X Free Review Copies : Ajju's EDU Authority Network", rpd: 13 }]);
+  ok('long-tail phrases are pulled from the viral titles', lt.some((k) => /casino pbn/.test(k.phrase)), JSON.stringify(lt.slice(0, 6)));
+  const URL = 'https://www.blackhatworld.com/seo/casino-ads.1800000/';
+  const flat = { titles: ['[ 10x Free Review Copies ] - Bargain Ads'], description: `Looking for 10 reviewers.\nThread Link:\n${URL}` };
+  ok('a bare title with no niche or market is flagged', checkReviewCopy(flat, { url: URL, copies: 10, targets: ['casino', 'indonesia'] }).some((p) => /no long-tail keyword/.test(p)));
+  const tuned = { titles: ['[ 10x Free Review Copies ] - Bargain Ads: Google Ads Management for Indonesia Casino Brands'], description: flat.description };
+  ok('a title built on the long-tail keyword passes', checkReviewCopy(tuned, { url: URL, copies: 10, targets: ['casino', 'indonesia'] }).length === 0, JSON.stringify(checkReviewCopy(tuned, { url: URL, copies: 10, targets: ['casino', 'indonesia'] })));
+  const f = parseFill('{"targets":"Indonesia; casino, iGaming","keywords":["indonesia casino google ads","crypto meta ads"]}');
+  ok('Fill brings back targets and long-tail keywords', f.targets.includes('Indonesia') && f.keywords.length === 2);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

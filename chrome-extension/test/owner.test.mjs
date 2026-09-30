@@ -31,7 +31,7 @@ const asMachine = async (id, os) => { store.instanceId = id; delete store.ownerS
 
 // --- the rule, pure -------------------------------------------------------------
 const now = Date.now();
-ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5, pin: false }));
+ok('a lock round-trips', JSON.stringify(parseLock(lockText('abc123', 'mac', 5))) === JSON.stringify({ id: 'abc123', os: 'mac', at: 5, pin: false, auto: null }));
 ok('anything else is no lock', parseLock('My helpful bot') === null && parseLock('') === null);
 ok('no lock is free to take', decide(null, 'me', now) === 'take');
 ok('my own lock is mine', decide({ id: 'me', at: now }, 'me', now) === 'mine');
@@ -88,6 +88,19 @@ ok('choosing the MacBook moves main there', b.active && /owner=macbook1 .* pin=1
 await asMachine('winsrv01', 'win');
 a = await ownership({ fresh: true });
 ok('and the server goes on standby', a.active === false, JSON.stringify(a));
+description = '';
+
+// --- auto mode travels with the main system -----------------------------------
+ok('the lock can carry auto mode', parseLock(lockText('a', 'win', 5, true, true)).auto === true && parseLock(lockText('a', 'win', 5, true, false)).auto === false && parseLock(lockText('a', 'win', 5)).auto === null);
+await asMachine('winsrv01', 'win');
+store.config = { autoMode: true };
+await takeOver();
+ok('the main system stamps its auto mode on the bot', / auto=1/.test(description), description);
+await asMachine('macbook1', 'mac');
+store.config = { autoMode: false };
+const took = await takeOver();
+ok('making the MacBook main hands it the server\'s auto mode', took.inheritAuto === true && / auto=1/.test(description), JSON.stringify({ took: took.inheritAuto, description }));
+delete store.config;
 description = '';
 
 // --- the owner keeps its stamp fresh -------------------------------------------

@@ -4115,7 +4115,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes() }); break;
       case 'owner-take': {
         const o = await takeOver().catch((e) => ({ error: e.message }));
-        if (!o.error) { await clearLogOnce('passive'); await log('you chose this copy as the MAIN system'); }
+        if (!o.error) {
+          await clearLogOnce('passive');
+          const cfgT = await getConfig();
+          if (o.inheritAuto != null && o.inheritAuto !== !!cfgT.autoMode) {
+            await setConfig(o.inheritAuto ? { autoMode: true, autoModeSince: new Date().toISOString(), nightMode: false } : { autoMode: false });
+            await log(`auto mode ${o.inheritAuto ? 'ON' : 'OFF'} - carried over from the previous main system`);
+            if (o.inheritAuto) await armAutoBacklog(await getConfig(), { rescreen: false, max: 8 }).catch(() => {});
+          }
+          await log(`you chose this copy as the MAIN system (auto mode ${(await getConfig()).autoMode ? 'ON' : 'off'})`);
+          if (cfgT.telegramChatId) await telegram.say(cfgT.telegramChatId, `🖥 This ${o.me?.os === 'win' ? 'Windows server' : o.me?.os === 'mac' ? 'MacBook' : 'machine'} is now the MAIN system. Auto mode: ${(await getConfig()).autoMode ? 'ON' : 'OFF'}${o.inheritAuto != null ? ' (carried over)' : ''}.`).catch(() => {});
+        }
         sendResponse(o);
         break;
       }
