@@ -1627,3 +1627,28 @@ document.addEventListener("keydown", (e) => {
   setInterval(() => { refresh(true); checkAhead(); }, 20000);
   setInterval(showVersion, 15000);
 })();
+
+// ---- Auto / Manual ----------------------------------------------------------
+// One switch in the header. Auto: every NEW post the hunt finds from now on
+// gets one private DM by itself, once Claude has screened it (see autopilot.js).
+// Manual: nothing is sent by itself. Public replies are never automatic.
+async function apShow() {
+  const b = $("apMode");
+  if (!b) return;
+  const r = await sendOnce({ type: "ap-get" });
+  if (!r || !r.ok) return;
+  b.dataset.on = r.on ? "1" : "";
+  b.textContent = r.on ? `AUTO mode · ${r.gate.sentToday}/${r.gate.cap} DMs today` : "Manual mode";
+  b.className = r.on ? "stat go" : "ghost";
+}
+if ($("apMode")) {
+  $("apMode").onclick = async (e) => {
+    if (e.shiftKey) { chrome.tabs.create({ url: chrome.runtime.getURL("autopilot.html") }); return; }
+    const on = !$("apMode").dataset.on;
+    if (on && !confirm("Switch to AUTO mode?\n\nEvery NEW post found from now on gets one private DM by itself, after Claude screens it. Posts already in the queue are left for you. Nothing public is posted.\n\nClick this button again to go back to Manual.")) return;
+    await send({ type: "ap-turn", on });
+    apShow();
+  };
+  apShow();
+  setInterval(apShow, 10000);
+}

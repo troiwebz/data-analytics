@@ -1,4 +1,4 @@
-importScripts("lib.js", "v2-lib.js", "v2-bg.js");
+importScripts("lib.js", "v2-lib.js", "v2-bg.js", "autopilot-lib.js", "autopilot.js");
 
 // Crawler: walks each subreddit's /new listing page by page (100 posts a
 // page, up to Reddit's 1000-post cap), keeps every post that matches a
@@ -678,6 +678,7 @@ function huntCandidate(child, why, target) {
     comments: d.num_comments || 0,
     ups: d.score || 0,
     flair: d.link_flair_text || "",
+    distinguished: d.distinguished || "",   // "moderator" / "admin": the autopilot never messages these
     role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget,
     hunt, badge: c.badge || "cofounder", tier: c.tier || 2, kind: c.kind || "", budget: c.budget || "",
     firstSeen: Date.now(),

@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Auto / Manual — Reddit Lead Threads</title>
+<style>
+  body { max-width: 860px; margin: 24px auto; font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; color: #17191c; padding: 0 16px; }
+  h2 { margin: 0 0 4px; } h3 { margin: 26px 0 6px; }
+  .hint { color: #6b7280; font-size: 13px; }
+  .box { background: #f5f6f8; border: 1px solid #e4e6ea; border-radius: 8px; padding: 14px 16px; margin-top: 10px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  input[type=text], input[type=password] { font: inherit; padding: 6px 8px; border: 1px solid #cfd3da; border-radius: 6px; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #cfd3da; background: #fff; border-radius: 6px; cursor: pointer; }
+  .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .mode button { padding: 16px 14px; text-align: left; border-radius: 10px; border-width: 2px; }
+  .mode button b { display: block; font-size: 17px; }
+  .mode button span { color: #6b7280; font-size: 13px; }
+  .mode button.sel.auto { border-color: #16a34a; background: #ecfdf3; }
+  .mode button.sel.manual { border-color: #17191c; background: #fff; }
+  #state { font-size: 20px; font-weight: 700; } .ok { color: #2e7d32; } .bad { color: #c62828; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e4e6ea; vertical-align: top; }
+  th { color: #6b7280; font-weight: 600; }
+  ol { margin: 6px 0 0 18px; padding: 0; }
+  details { margin-top: 26px; } summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<h2>Auto or Manual</h2>
+<div class="hint">One switch. It stays where you leave it, through restarts of Chrome and of this machine.</div>
+
+<div class="box">
+  <div id="state">…</div>
+  <div class="hint" id="detail"></div>
+  <div class="mode">
+    <button id="turnOn" class="auto"><b>Auto mode</b><span>Every new post found from now on gets one private DM by itself. Claude must screen it first. Nothing public is ever posted.</span></button>
+    <button id="turnOff" class="manual"><b>Manual mode</b><span>Nothing is sent by itself. You open each post and send the DM from the hunt page, as before.</span></button>
+  </div>
+  <div id="checks" class="hint" style="margin-top:12px"></div>
+</div>
+
+<h3>What it did</h3>
+<table><thead><tr><th style="width:130px">When</th><th style="width:230px">What</th><th>Post</th></tr></thead><tbody id="log"></tbody></table>
+
+<details id="tgBox">
+  <summary>Optional: alerts and the switch on Telegram</summary>
+  <div class="hint" style="margin-top:6px">Not needed. Auto mode works without it. With a bot linked, every send and skip is also reported to your phone, and typing <b>auto on</b> or <b>off</b> there flips the same switch.</div>
+  <ol class="hint">
+    <li>In Telegram, open <b>@BotFather</b>, send <b>/newbot</b>, and copy the token it gives you.</li>
+    <li>Paste the token here and press Save.</li>
+    <li>Open your new bot in Telegram and send it any message.</li>
+    <li>Wait half a minute, then press <b>Link this chat</b>.</li>
+  </ol>
+  <div class="row">
+    <input type="password" id="token" placeholder="Bot token" style="width:380px" autocomplete="off">
+    <button id="save">Save</button>
+    <button id="test">Test</button>
+    <span id="msg"></span>
+  </div>
+  <div class="row">
+    <span id="chat" class="hint"></span>
+    <button id="link">Link this chat</button>
+    <button id="unlink">Unlink</button>
+  </div>
+</details>
+
+<script src="autopilot-page.js"></script>
+</body>
+</html>

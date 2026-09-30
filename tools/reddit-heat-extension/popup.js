@@ -21,6 +21,8 @@ async function load() {
 }
 $("board").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("board.html") }));
 $("hunt").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("hunt.html") }));
+$("apBtn").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("autopilot.html") }));
+chrome.runtime.sendMessage({ type: "ap-get" }, (r) => { void chrome.runtime.lastError; if (r && r.ok) $("apBtn").textContent = r.on ? "AUTO mode is on · change" : "Manual mode · switch to Auto"; });
 $("inboxBtn").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("inbox.html") }));
 $("advBtn").addEventListener("click", () => { const a = $("adv"); a.hidden = !a.hidden; });
 $("dash").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }));

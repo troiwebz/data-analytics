@@ -1,5 +1,18 @@
 # Reddit Lead Threads (private Chrome extension)
 
+## Auto or Manual — one switch (v4.12.1)
+
+On the hunt page, the button next to **Scan now** says **Manual mode** or **AUTO mode**. Click it to change. The same switch is on the icon's **Auto / Manual mode** page, with a log of what it did. No Telegram is needed.
+
+- **Auto mode:** every post the hunt finds *after* the switch gets one private DM by itself. It never writes a public comment.
+- **Manual mode:** nothing is sent by itself. You send each DM from the hunt page, as before.
+- A post is messaged only if all of these hold: it is not a moderator's post, Claude screened it and said yes, the DM gap and the daily ceiling allow it, and Reddit Chat confirmed the send. If the Claude screen cannot run or fails, that post is skipped and never retried.
+- The gap between DMs and the daily ceiling are the ones under **Your details**. The wording comes from **AI writing** and **Your details**.
+- The switch stays where you left it through a restart. Chrome must be open and logged in to Reddit.
+- Telegram is optional (bottom of the Auto / Manual page): alerts on your phone, and **auto on** / **off** flip the same switch.
+
+Tests: `node autopilot-test.js` and `node autopilot-flow-test.js`.
+
 ## v2 — the Growth Board (start here)
 
 Click the extension icon → **Growth Board**.
