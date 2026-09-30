@@ -102,7 +102,7 @@ const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; c
 
 await C.saveKey('sk-ant-api03-TESTKEYTESTKEY');
 // No webhookUrl, no sharedSecret: the Apps Script path must never be touched.
-await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0,
+await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0, hafMinThreads: 0,
                   telegramEnabled: true, telegramChatId: '999', telegramApprovals: true,
                   secondsBetweenThreadReads: 0 });   // no need to pace a stub
 const TG = await import('../src/telegram.js');

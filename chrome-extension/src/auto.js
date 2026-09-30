@@ -19,6 +19,8 @@
 // Pure functions: no chrome API and no network, so the rule can be read here
 // and proven with a plain array of objects.
 
+import { waitMs } from './sharp.js';
+
 const has = (s) => !!String(s || '').trim();
 
 /**
@@ -26,7 +28,7 @@ const has = (s) => !!String(s || '').trim();
  * rules change, so a "no" given under stricter rules is thrown away and the
  * thread judged again - rather than staying skipped for ever.
  */
-export const AUTO_RULES = 3;   // 3 = 1.7.5: every genuine request gets the first PM
+export const AUTO_RULES = 4;   // 4 = 1.10.1: History threads and the 72h window count
 
 /**
  * The first deal-breaker phrase found in the title or the post, as the words
@@ -56,7 +58,9 @@ export function blockedReason(lead, cfg) {
   if (!lead) return 'no lead';
   if (lead.kind === 'thread') return 'not a Hire a Freelancer thread - those are public reply only';
   if (lead.pmSent) return 'the PM was already sent';
-  if (['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL'].includes(lead.status)) return `already ${String(lead.status).toLowerCase()}`;
+  // History (BACKFILL) is only "recorded without a Telegram card" - a fresh install tags
+  // everything that way - so it is judged like any other thread, never skipped for it.
+  if (['SKIPPED', 'FAILED', 'EXPIRED'].includes(lead.status)) return `already ${String(lead.status).toLowerCase()}`;
   if (!has(lead.author)) return 'no author to message';
   if (!has(lead.dmApproved || lead.dm)) return 'no PM drafted';
   // Auto mode covers the last day: switching it on also clears the pending PMs
@@ -91,9 +95,13 @@ export function blockedReason(lead, cfg) {
 
 /**
  * 1 to 3 minutes from now, randomised so a whole poll's worth of new threads
- * does not all fire on the same tick.
+ * does not all fire on the same tick. With the sharp lane running (see
+ * sharp.js) the wait is its shorter one: being first is the point of it.
  */
-export const postAt = (cfg, now = Date.now(), rand = Math.random) => now + (60 + rand() * 120) * 1000;
+export const postAt = (cfg, now = Date.now(), rand = Math.random) => {
+  const sharpWait = waitMs(cfg, rand);
+  return now + (sharpWait ?? (60 + rand() * 120) * 1000);
+};
 
 const open = (l) => !l.pmSent && !['SKIPPED', 'FAILED', 'EXPIRED'].includes(l.status);
 

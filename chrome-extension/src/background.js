@@ -13,6 +13,7 @@ import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG 
 import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced, fillEssentials } from './backup.js';
 import * as night from './night.js';
 import * as auto from './auto.js';
+import * as sharp from './sharp.js';
 import { fetchFeed, threadIdFromUrl } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
 import { fetchThread, fetchThreads, fetchThreadTitle } from './thread.js';
@@ -329,6 +330,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, info) => {
 export async function scheduleAlarms(cfg) {
   await chrome.alarms.clear(FEED_ALARM);
   await chrome.alarms.clear(APPROVAL_ALARM);
+  await chrome.alarms.clear(sharp.SHARP_ALARM);
   if (!cfg.enabled) {
     // No alarms at all, which means pollTaps never runs and cannot report its
     // own reasons - so this is the one place the paused state can be said.
@@ -341,6 +343,11 @@ export async function scheduleAlarms(cfg) {
   chrome.alarms.create(FEED_ALARM, { periodInMinutes: Math.max(1, cfg.pollMinutes), delayInMinutes: 0.1 });
   chrome.alarms.create(APPROVAL_ALARM, { periodInMinutes: Math.max(1, cfg.approvalPollMinutes) });
   chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
+  // The sharp lane: the Hire a Freelancer page alone, every ~75 seconds, and
+  // only while auto mode is on. See src/sharp.js.
+  if (sharp.wanted(cfg)) {
+    chrome.alarms.create(sharp.SHARP_ALARM, { periodInMinutes: sharp.everySeconds(cfg) / 60, delayInMinutes: 0.5 });
+  }
   // Hourly is plenty: it is a safety net for PMs sent elsewhere, and the
   // button on the dashboard covers wanting it now.
   chrome.alarms.create(PM_ALARM, { periodInMinutes: 60, delayInMinutes: 2 });
@@ -442,11 +449,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await new Promise((r) => setTimeout(r, Math.random() * (cfg.jitterSeconds || 0) * 1000));
       await runCheck();          // new threads, then your message list
     }
+    if (alarm.name === sharp.SHARP_ALARM) await sharpCheck().catch((e) => log(`sharp lane: ${e.message}`, 'error'));
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === TAP_ALARM) await pollTaps();
     if (alarm.name === UPDATE_ALARM) {          // the minute tick doubles as the night/auto runner
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
-      await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
+      await runAutoQueueOnce().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
@@ -766,6 +774,82 @@ export async function settleExcludedLeads(cfg) {
   return { settled: n };
 }
 
+// ------------------------------------------------------------ sharp lane
+
+let feedBusy = null;
+/** One Hire a Freelancer read at a time, whichever alarm asked for it. */
+function pollFeedOnce() {
+  if (!feedBusy) feedBusy = pollFeed().finally(() => { feedBusy = null; });
+  return feedBusy;
+}
+let autoQueueBusy = null;
+/** One pass over the due PMs at a time: the minute tick and the sharp lane share it. */
+function runAutoQueueOnce() {
+  if (!autoQueueBusy) autoQueueBusy = runAutoQueue().finally(() => { autoQueueBusy = null; });
+  return autoQueueBusy;
+}
+async function sharpState() {
+  const { [sharp.SHARP_KEY]: s } = await chrome.storage.local.get(sharp.SHARP_KEY);
+  return s || {};
+}
+/** The ordinary check's HAF read - skipped while the sharp lane is keeping the page fresh. */
+async function hafTurn() {
+  const cfg = await getConfig();
+  if (sharp.keepsFresh(cfg, await sharpState())) return { skipped: 'the sharp lane read it' };
+  return pollFeedOnce();
+}
+/** A wall while reading fast: give up reading fast first, and for much longer. */
+async function sharpStandDown(why) {
+  const state = await sharpState();
+  if (state.backoffUntil && state.backoffUntil > Date.now()) return;
+  const until = Date.now() + sharp.WALL_BACKOFF_MS;
+  await chrome.storage.local.set({ [sharp.SHARP_KEY]: { ...state, backoffUntil: until } });
+  await log(`sharp lane: standing down for 2 hours - ${why}`, 'error');
+  const cfg = await getConfig();
+  if (cfg.telegramChatId) {
+    await telegram.say(cfg.telegramChatId, '🎯 Sharp lane is standing down for 2 hours: BlackHatWorld showed a wall. '
+      + 'Auto mode stays on and Hire a Freelancer is read on the ordinary check once the 30-minute pause ends.').catch(() => {});
+  }
+}
+/**
+ * The sharp lane's tick: read the Hire a Freelancer page, and when a thread is
+ * new, send its card and let its PM go as soon as its short wait is up -
+ * without waiting for the next minute tick. Finding is all this speeds up;
+ * every gate in runAutoQueue still decides whether the PM goes.
+ */
+export async function sharpCheck() {
+  const cfg = await getConfig();
+  const state = await sharpState();
+  const asleep = !!(cfg.sleepEnabled && night.inWindow(cfg, cfg.sleepStart, cfg.sleepEnd));
+  const why = sharp.skipReason(cfg, { state, wallUntil: await walled(), asleep, busy: !!feedBusy });
+  if (why) return { skipped: why };
+  await chrome.storage.local.set({ [sharp.SHARP_KEY]: { ...state, lastAt: Date.now(), runs: (state.runs || 0) + 1 } });
+  await new Promise((r) => setTimeout(r, sharp.jitterMs(cfg)));
+  if (feedBusy) return { skipped: 'another check is still running' };
+
+  let r;
+  try { r = await pollFeedOnce(); }
+  catch (e) {
+    if (/blocked/i.test(e.message) || await walled()) await sharpStandDown(e.message);
+    throw e;
+  }
+  if (await walled()) { await sharpStandDown('a thread page was blocked'); return { ...(r || {}), stoodDown: true }; }
+  if (!r || !r.matched) return r || {};
+
+  const now = await sharpState();
+  await chrome.storage.local.set({ [sharp.SHARP_KEY]: { ...now, found: (now.found || 0) + r.matched, lastFoundAt: Date.now() } });
+  // The card first, so the phone has the Hold button while the wait runs.
+  const cfg2 = await getConfig();
+  await announceNew(cfg2).catch((e) => log(`sharp lane announce: ${e.message}`, 'error'));
+  const waiting = auto.pending(await getLeads());
+  if (!waiting.length) return r;
+  const wait = Math.min(...waiting.map((l) => l.autoSendAt)) - Date.now() + 500;
+  if (wait > 90000) return r;                       // not one of ours: the minute tick has it
+  await new Promise((res) => setTimeout(res, Math.max(0, wait)));
+  const sent = await runAutoQueueOnce().catch(async (e) => { await log(`sharp lane send: ${e.message}`, 'error'); return null; });
+  return { ...r, auto: sent };
+}
+
 export async function runCheck() {
   await fillEssentials().catch(() => []);
   // Asleep: a member is not reading the forum at 3am. Nothing is fetched or
@@ -780,7 +864,7 @@ export async function runCheck() {
   // it. A forum that will not load says nothing about your message list, and
   // the list is what keeps the table honest about what has already been sent.
   let r, failed;
-  try { r = await pollFeed(); }
+  try { r = await hafTurn(); }
   catch (e) { failed = e.message; await log(`feed check: ${e.message}`, 'error'); }
 
   // The watched forums and the site-wide feed, after HAF so HAF keeps its own.
@@ -1942,6 +2026,7 @@ const HELP = [
   '<b>blocks</b> - the deal-breaker phrases auto mode refuses · <b>block payment after posting</b> · <b>unblock …</b>',
   '<b>retry &lt;thread url&gt;</b> - run auto mode on one thread it left for you, by link or number',
   '<b>auto test</b> - try it on the newest HAF thread ONLY: Claude screens it, the PM counts down, nothing else is touched',
+  '<b>sharp</b> / <b>sharp on</b> / <b>sharp off</b> - with auto mode on, read Hire a Freelancer every ~75s so the PM lands 1-3 min after the buyer posts · <b>off</b> alone = auto off',
   '',
   '<b>Working the queue</b>',
   '<b>next</b> / <b>next 5</b> - the next unanswered thread(s) · <b>next reset</b> - start over',
@@ -2386,6 +2471,62 @@ export function rematch(m, cfg) {
            allCategories: again.allCategories, matched: again.matched, budget: again.budget, budgetAmount: again.budgetAmount };
 }
 
+const hafMin = (cfg) => Math.max(0, Number(cfg.hafMinThreads ?? 20) || 0);
+const newestFirst = (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime();
+
+/** The recent ones, plus the newest others until there are at least hafMinThreads. */
+export function newestAtLeast(recent, items, cfg) {
+  const want = hafMin(cfg);
+  if (recent.length >= want) return recent;
+  const have = new Set(recent.map((i) => String(i.threadId)));
+  const more = items.filter((i) => !have.has(String(i.threadId))).sort(newestFirst).slice(0, want - recent.length);
+  return [...recent, ...more];
+}
+
+/**
+ * The dashboard keeps at least the newest hafMinThreads HAF threads. A fresh
+ * install (or a wiped list) starts with only the last 48h, which on a slow day
+ * is three or four threads. The missing ones are recorded as History - no
+ * Telegram card - and auto mode judges them like any other thread. Page 2 of
+ * the forum is read only when page 1 is not enough, and at most twice a day.
+ */
+export async function topUpHaf(items, listing, cfg) {
+  const want = hafMin(cfg);
+  if (!want) return { added: 0 };
+  const leads = await getLeads();
+  const haf = leads.filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample');
+  if (haf.length >= want) return { added: 0 };
+  const known = new Set(leads.map((l) => String(l.threadId)));
+  let pool = items.filter((i) => !known.has(String(i.threadId)));
+  if (haf.length + pool.length < want && cfg.readMode !== 'feeds') {
+    const { hafPage2At = 0 } = await chrome.storage.local.get('hafPage2At');
+    if (Date.now() - hafPage2At > 12 * 3600000 && !(await walled())) {
+      await chrome.storage.local.set({ hafPage2At: Date.now() });
+      const url = `${forumUrlFromFeed(cfg.feedUrl).replace(/\/?$/, '/')}page-2`;
+      try {
+        const page = await readListingTab(url);
+        const seenIds = new Set(pool.map((i) => String(i.threadId)));
+        for (const r of page.rows.filter((r) => !r.sticky)) {
+          if (known.has(String(r.threadId)) || seenIds.has(String(r.threadId))) continue;
+          pool.push({ threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
+            postedAt: r.startedAt || r.lastActivityAt || new Date().toISOString(), lastActivityAt: r.lastActivityAt,
+            postedAtSource: r.startedAt ? 'listing' : 'feed', replyCount: r.replyCount });
+          listing = { ...(listing || {}), [r.threadId]: { replyCount: r.replyCount, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, sticky: r.sticky } };
+        }
+      } catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); throw e; }
+    }
+  }
+  const pick = pool.sort(newestFirst).slice(0, want - haf.length)
+    .map((raw) => withListing(raw, (listing || {})[raw.threadId]))
+    .filter((item) => !isExcludedThread(item, cfg))
+    .map((item) => enrich(matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 }, cfg, 'BACKFILL'));
+  if (!pick.length) return { added: 0 };
+  await markSeen(pick.map((i) => i.threadId));
+  await recordLeads(pick);
+  await log(`HAF: ${pick.length} more recent thread(s) recorded so the dashboard shows at least ${want}`);
+  return { added: pick.length };
+}
+
 export async function pollFeed() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
@@ -2407,7 +2548,7 @@ export async function pollFeed() {
     items = page.rows.filter((r) => !r.sticky).map((r) => ({
       threadId: r.threadId, url: r.url, title: r.title, author: r.author, snippet: '',
       postedAt: r.startedAt || r.lastActivityAt || new Date().toISOString(), lastActivityAt: r.lastActivityAt,
-      postedAtSource: r.startedAt ? 'listing' : 'feed', replyCount: r.replyCount
+      postedAtSource: r.startedAt ? 'listing' : 'feed', replyCount: r.replyCount, staff: !!r.staff
     }));
     preListing = Object.fromEntries(page.rows.map((r) => [r.threadId, { replyCount: r.replyCount, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, sticky: r.sticky }]));
   }
@@ -2418,7 +2559,7 @@ export async function pollFeed() {
   // are recorded in the Sheet so the database starts with history, not empty.
   if (await isFirstRun()) {
     const cutoff = Date.now() - (cfg.backfillHours || 0) * 3600000;
-    const recent = items.filter((i) => new Date(i.postedAt).getTime() >= cutoff);
+    const recent = newestAtLeast(items.filter((i) => new Date(i.postedAt).getTime() >= cutoff), items, cfg);
     const listing = preListing || (recent.length ? await fetchListing(forumUrlFromFeed(cfg.feedUrl)) : {});
     const backfill = recent
       .map((raw) => withListing(raw, listing[raw.threadId]))
@@ -2433,9 +2574,10 @@ export async function pollFeed() {
       try { await pushLeads(cfg, backfill, { backfill: true }); }
       catch (e) { await log(`backfill push failed: ${e.message}`, 'error'); }
     }
-    await log(`first run: ${items.length} threads seen, ${backfill.length} from the last ${cfg.backfillHours}h recorded`);
+    await log(`first run: ${items.length} threads seen, ${backfill.length} recorded (the last ${cfg.backfillHours}h, and never fewer than the newest ${hafMin(cfg)})`);
     return { seeded: items.length, backfilled: backfill.length };
   }
+  await topUpHaf(items, preListing, cfg).catch((e) => log(`HAF top-up: ${e.message}`, 'error'));
   // Reply counts move fast on a job board — refresh them for everything we
   // already know about on every poll, not just for new threads.
   const listing = preListing || await fetchListing(forumUrlFromFeed(cfg.feedUrl));
@@ -2513,7 +2655,7 @@ export async function pollFeed() {
     }
     if (armed.length) {
       for (const l of armed) await updateLead(l.threadId, { autoSendAt: l.autoSendAt, autoSendBlocked: '' });
-      await log(`auto mode: ${armed.length} PM(s) sending in 1-3 min unless held`);
+      await log(`auto mode: ${armed.length} PM(s) sending in ${sharp.waitWords(cfg)} unless held`);
     }
     const held = leads.filter((l) => l.autoSendBlocked);
     for (const l of held) await updateLead(l.threadId, { autoSendBlocked: l.autoSendBlocked });
@@ -2851,7 +2993,18 @@ export async function pollTaps() {
         done++;
         continue;
       }
-      const am = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:turn\s+|switch\s+)?auto[\s-]*(?:mode|pilot)?\s*(on|off)?[.!]?\s*$/i);
+      // "sharp" / "sharp on" / "sharp off" - the fast read of the HAF page.
+      const sm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?sharp(?:[\s-]*lane)?\s*(on|off)?[.!]?\s*$/i);
+      if (sm) {
+        if (sm[1]) { await setConfig({ sharpLane: sm[1].toLowerCase() === 'on' }); await scheduleAlarms(await getConfig()); }
+        const c2 = await getConfig();
+        await telegram.say(cfg.telegramChatId, sharp.statusLine(c2, await sharpState())
+          || (c2.sharpLane ? '🎯 Sharp lane is set ON and starts with auto mode. Send "auto on".' : '🎯 Sharp lane is off.'));
+        done++;
+        continue;
+      }
+      // A bare "off" means auto mode off: the one word that must always work.
+      const am = ev.kind === 'reply' && String(ev.body || '').trim().replace(/^\/?off[.!]?$/i, 'auto off').match(/^\/?(?:turn\s+|switch\s+)?auto[\s-]*(?:mode|pilot)?\s*(on|off)?[.!]?\s*$/i);
       if (am) {
         if (am[1]) {
           const on = am[1].toLowerCase() === 'on';
@@ -2860,6 +3013,8 @@ export async function pollTaps() {
           // automated, so switching auto mode on switches that off.
           const nightWasOn = on && !!cfg.nightMode;
           await setConfig(on ? { autoMode: true, autoModeSince: new Date().toISOString(), nightMode: false } : { autoMode: false });
+          await scheduleAlarms(await getConfig());          // the sharp lane starts and stops with auto mode
+          const sharpSays = on ? sharp.statusLine(await getConfig(), await sharpState()) : '';
           if (nightWasOn) {
             for (const l of (await getLeads()).filter((x) => x.autoPostAt)) await updateLead(l.threadId, { autoPostAt: 0, autoBlocked: 'night mode was switched off' });
             await log('night mode switched off with auto mode on: no public reply is posted automatically');
@@ -2875,10 +3030,11 @@ export async function pollTaps() {
           let back = null;
           if (on && !noKey) back = await armAutoBacklog(await getConfig(), { rescreen: true, max: 12 }).catch((e) => ({ error: e.message }));
           await telegram.say(cfg.telegramChatId, on
-            ? '⚡ Auto mode is ON — for every Hire a Freelancer thread from the last 24 hours and every new one, the private message sends itself '
-              + '1-3 min after it is found, if Claude screened it as a real request. Tap ✋ Hold on a card to stop that one. '
+            ? `⚡ Auto mode is ON — for every Hire a Freelancer thread from the last ${cfg.autoBackfillHours || 72} hours and every new one, the private message sends itself `
+              + `${sharp.waitWords(await getConfig())} after it is found, if Claude screened it as a real request. Tap ✋ Hold on a card to stop that one. `
               + 'Public replies are never posted automatically.'
               + (nightWasOn ? ' Night mode was on and has been switched off for that reason.' : '')
+              + (sharpSays ? `\n\n${sharpSays}` : '')
               + (noKey ? '\n\n⚠️ Claude is not available on this install (no key saved, or switched off), so NOTHING will send until you add the key in Settings. That is the rule working: no Claude screen, no PM.' : '')
               + (back && !back.error ? `\n\n📬 Pending from the last ${cfg.autoBackfillHours || 24}h: ${back.armed} PM(s) counting down now (cards above), ${back.left} left for you${back.more ? ', more on the next tick' : ''}.` : '')
               + (back?.error ? `\n\n⚠️ Could not go through the pending threads: ${back.error}` : '')
@@ -3572,10 +3728,12 @@ export async function autoReport(cfg) {
   const why = {};
   for (const l of skipped) { const k = String(l.autoSendBlocked).replace(/\s*\(.*$/, '').replace(/:.*$/, ''); why[k] = (why[k] || 0) + 1; }
   const reasons = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `   • ${n} × ${escHtml(k)}`);
+  const sharpSays = sharp.statusLine(cfg, await sharpState());
   const lines = [
     `⚡ <b>Auto mode is ${cfg.autoMode ? 'ON' : 'OFF'}</b>` + (cfg.autoMode && since ? ` — since ${since.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''),
     `✉️ PMs sent by itself: <b>${sent.length} today</b>` + (cfg.autoMode && since ? ` · ${sinceOn} since it was switched on` : ''),
     `⏳ Counting down: ${counting.length}` + (counting.length ? ` (next in ~${mins(Math.min(...counting.map((l) => l.autoSendAt)))} min)` : ''),
+    ...(sharpSays ? [escHtml(sharpSays)] : []),
     `✋ Held by you today: ${held.length}`,
     `⏭ Left for you today: ${skipped.length}`,
     ...reasons,
@@ -3593,7 +3751,7 @@ export async function autoReport(cfg) {
 }
 
 /**
- * Everything from the last day that auto mode has not yet judged: screen it,
+ * Everything from the auto window (72h by default) that auto mode has not yet judged: screen it,
  * and either arm its PM or leave it for you with the reason. On "auto on"
  * (rescreen) earlier verdicts are thrown away and every pending thread in the
  * window is looked at again under the current rules; on the minute tick only
@@ -3604,7 +3762,7 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   const cutoff = Date.now() - hours * 3600000;
   const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
   const pool = (await getLeads()).filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample'
-    && !l.pmSent && !SILENT_STATUSES.includes(l.status) && !l.autoSendHeld && !l.autoSendAt && at(l) >= cutoff);
+    && !l.pmSent && !['POSTED', 'SKIPPED', 'EXPIRED'].includes(l.status) && !l.autoSendHeld && !l.autoSendAt && at(l) >= cutoff);
   // Unjudged, or judged under older rules: both are looked at again.
   // Only a refusal can be stale: the rules only ever got looser, so an old "yes" still stands.
   const stale = (l) => !!l.autoSendBlocked && Number(l.autoRules || 0) !== auto.AUTO_RULES;

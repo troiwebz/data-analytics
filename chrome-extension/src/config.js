@@ -129,6 +129,7 @@ export const DEFAULT_CONFIG = {
   jitterSeconds: 150,          // plus 0-150 s at random, so checks are never on the clock
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
   backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
+  hafMinThreads: 20,           // and never fewer than this many of the newest HAF threads on the dashboard
   aiSpecifics: true,           // let Claude write the bullets (needs ANTHROPIC_API_KEY
                                // in Apps Script Script Properties); falls back to rules
 
@@ -221,8 +222,20 @@ export const DEFAULT_CONFIG = {
     + 'any payment terms, any kind of work. Say no only when it is not a request at all: a seller advertising their own '
     + 'service, a moderator or rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
   autoModeSince: '',           // when it was last switched on (kept for the report)
-  autoBackfillHours: 24,       // switching auto mode on also sends the pending PMs from this far back
+  autoBackfillHours: 72,       // auto mode sends the pending PMs from this far back (3 days)
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
+
+  // ---- Sharp lane -------------------------------------------------------
+  // While auto mode is on, the Hire a Freelancer page alone is read every
+  // sharpSeconds (never under 60) instead of every pollMinutes, and a found
+  // thread's PM waits sharpWaitMin-sharpWaitMax seconds instead of 1-3
+  // minutes. Everything else stays on the slow check. One BHW wall and it
+  // stands down for two hours. "sharp off" on Telegram switches it off.
+  // See src/sharp.js.
+  sharpLane: true,
+  sharpSeconds: 75,
+  sharpWaitMin: 25,
+  sharpWaitMax: 50,
 
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
@@ -746,7 +759,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 34;
+export const CONFIG_VERSION = 35;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -929,6 +942,11 @@ export async function migrateConfig() {
     const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
     if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
     if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
+  }
+  if (v < 35) {
+    // 1.10.1: auto mode covers 3 days, not 1; the dashboard keeps the newest 20 HAF threads.
+    if (next.autoBackfillHours == null || Number(next.autoBackfillHours) === 24) next.autoBackfillHours = 72;
+    if (next.hafMinThreads == null) next.hafMinThreads = 20;
   }
   if (v < 33) {
     // Nothing public is ever posted without a tap. Night mode was the one

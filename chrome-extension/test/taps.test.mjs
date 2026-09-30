@@ -1183,7 +1183,7 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   await bg.runAutoQueue();
   const r1 = (await getLeads()).find((x) => x.threadId === 'r1');
   // The test has no Claude, so it cannot say yes - but the old "no" must not survive.
-  ok('an old-rules "no" is thrown away and judged again', !/pay per result/.test(r1.autoSendBlocked || '') && r1.autoRules === 3, JSON.stringify({ why: r1.autoSendBlocked, rules: r1.autoRules }));
+  ok('an old-rules "no" is thrown away and judged again', !/pay per result/.test(r1.autoSendBlocked || '') && r1.autoRules === 4, JSON.stringify({ why: r1.autoSendBlocked, rules: r1.autoRules }));
   await setConfig({ autoMode: false });
 
   // "auto off" stops a countdown already running.

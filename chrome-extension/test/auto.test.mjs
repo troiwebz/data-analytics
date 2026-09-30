@@ -51,9 +51,14 @@ ok('and it says which phrase', /banned phrase/.test(why({ dmLint: { ok: false, e
 ok('a buyer you have messaged before waits for you', /messaged buyer1 before/.test(why({ priorContact: '2026-09-01' }) || ''));
 ok('a possible duplicate waits for you', /duplicate/.test(why({ pmMaybe: 'same subject' }) || ''));
 ok('below the score bar it waits for you', /below your auto-mode bar/.test(why({ score: 1 }, { ...cfg, autoModeMinScore: 4 }) || ''));
-for (const status of ['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL']) {
+for (const status of ['SKIPPED', 'FAILED', 'EXPIRED']) {
   ok(`a lead already ${status.toLowerCase()} is not messaged`, !!why({ status }));
 }
+// A fresh install records everything as History (BACKFILL); that is not a decision,
+// so auto mode must judge those threads like any other (1.10.1).
+ok('a History (BACKFILL) thread is NOT refused for being History', !/backfill/i.test(why({ status: 'BACKFILL' }) || ''), why({ status: 'BACKFILL' }));
+ok('a 2-day-old thread is inside the 72h window', !/older than/.test(why({ postedAt: new Date(Date.now() - 50 * 3600000).toISOString() }, { ...cfg, autoBackfillHours: 72 }) || ''));
+ok('a 4-day-old thread is outside it', /older than 72 hours/.test(why({ postedAt: new Date(Date.now() - 96 * 3600000).toISOString() }, { ...cfg, autoBackfillHours: 72 }) || ''));
 
 // --- what auto mode will not message ---------------------------------------
 {
