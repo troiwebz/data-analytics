@@ -69,13 +69,15 @@ let ideasShown = null;
 
 function ideasTable(e) {
   const rows = e.ideas.map((i) => `<tr><td class="n">${i.n}</td><td>${esc(i.title)}${i.flags.length ? ` <span class="sub" style="color:#b45309">(${esc(i.flags.join(', '))})</span>` : ''}</td>
-    <td>${esc(i.niche)}</td><td>${esc(i.country)}</td><td class="sub">${esc(i.keyword)}</td><td class="n">${i.chars}</td>
+    <td class="sub">${esc((i.benefits || []).join(' + '))}</td><td>${esc(i.niche)}</td><td>${esc(i.country)}</td><td class="sub">${esc(i.keyword)}</td><td class="n">${i.chars}</td>
     <td><button data-copytext="${esc(i.title)}" style="padding:3px 8px;font-size:12px">📋</button></td></tr>`).join('');
-  const countries = new Set(e.ideas.map((i) => i.country.toLowerCase())).size;
+  const countries = new Set(e.ideas.flatMap((i) => (i.countries && i.countries.length ? i.countries : [i.country]).map((c) => String(c).toLowerCase()))).size;
+  const paired = e.ideas.filter((i) => (i.countries || []).length > 1).length;
   const niches = new Set(e.ideas.map((i) => i.niche.toLowerCase())).size;
-  return `<div class="sub" style="margin:12px 0 6px">For <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a> · ${e.ideas.length} ideas across ${countries} countries and ${niches} niches · ${new Date(e.at).toLocaleString()} · Claude $${Number(e.cost || 0).toFixed(3)}</div>
+  return `<div class="sub" style="margin:12px 0 6px">For <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a> · ${e.ideas.length} ideas across ${countries} countries (${paired} paired) and ${niches} niches · ${new Date(e.at).toLocaleString()} · Claude $${Number(e.cost || 0).toFixed(3)}</div>
+    ${(e.benefits || []).length ? `<div class="sub" style="margin:0 0 4px">Benefits found in the thread</div><div class="chips win" style="margin-bottom:8px">${e.benefits.map((b) => `<span>${esc(b)}</span>`).join('')}</div>` : ''}
     <div class="row" style="margin:0 0 8px"><button id="ideasCsv">⬇ Download CSV</button><button id="ideasCopy">📋 Copy all titles</button></div>
-    <table><thead><tr><th>#</th><th>Title</th><th>Niche</th><th>Country</th><th>Long-tail keyword</th><th>Chars</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table><thead><tr><th>#</th><th>Title</th><th>Benefits</th><th>Niche</th><th>Countries</th><th>Long-tail keyword</th><th>Chars</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 async function renderIdeas() {

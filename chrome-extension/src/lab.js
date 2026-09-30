@@ -600,24 +600,27 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
  */
 export const IDEAS_SYSTEM = [
   'You write BlackHatWorld (BHW) marketplace thread titles that rank for long-tail searches.',
-  'Given a seller\'s main thread, write 20 title ideas for it. Every title follows this shape:',
-  '  {Brand} - {Service, in the thread\'s own words} for {Country} {Niche} {Keyword}',
-  'e.g. "Advault - Reverse Engineer Competitor Ads for Indonesia Casino & iGaming SEO",',
-  '     "Domain Coasters - Aged Expired Domains for Indonesia Casino iGaming SEO".',
+  'Given a seller\'s main thread, write 20 title ideas. Every title follows this shape:',
+  '  {Brand} - {Benefit 1} + {Benefit 2} (+ {Benefit 3}) for {Country or Country & Country} {Niche} {Keyword}',
+  'e.g. "AdRecon - Spy Winning Ads + Clone Landing Pages for Indonesia & Thailand Casino iGaming",',
+  '     "AdRecon - Track Competitor Offers, Creatives & Funnels for Brazil Crypto Ad Intelligence".',
   '',
   'Rules:',
-  '- 20 DIFFERENT niche + country pairings. Spread across the niches the service can really serve and the',
-  '  countries where that niche buys this kind of service. Use the seller\'s stated targets first.',
-  '- One real country or market per title (Indonesia, Thailand, Brazil, Philippines, Vietnam, Korea, Malaysia,',
-  '  Mexico, Turkey, Germany, UK, USA, Canada, Australia, Nigeria, India, Japan, Spain, Italy, UAE...).',
-  '- Only services the thread actually offers. Never invent results, prices or guarantees.',
-  '- 60-110 characters each. Plain text, no emoji, no brackets.',
-  '- The keyword is what that buyer would type: niche + service words, e.g. "Casino SEO", "Crypto Meta Ads", "Forex Lead Gen".',
+  '- First list the BENEFITS the thread really offers (5-8 short verb phrases: "spy winning ads", "clone landing pages",',
+  '  "track competitor offers"...). Each title COUPLES 2-3 of them. Vary which benefit leads: no single benefit may',
+  '  open more than 3 of the 20 titles. Never invent a benefit the thread does not offer.',
+  '- COUNTRIES may be paired: about half the titles target two neighbouring or related markets joined with "&"',
+  '  (Indonesia & Thailand, Brazil & Mexico, UK & Ireland, UAE & Saudi, Philippines & Vietnam), the rest one market.',
+  '- 20 DIFFERENT niche + market combinations, spread across the niches the service really serves and the',
+  '  markets where that niche buys it. Use the seller\'s stated targets first.',
+  '- No results, prices or guarantees that are not in the thread. 70-115 characters, plain text, no emoji, no brackets.',
+  '- The keyword is what that buyer would type: market + niche + service words.',
   '',
   'Return ONLY JSON:',
-  '{ "brand": "brand as the thread uses it", "service": "the core service phrase",',
-  '  "ideas": [ { "title": "...", "niche": "Casino & iGaming", "country": "Indonesia",',
-  '               "keyword": "indonesia casino igaming seo", "intent": "who searches this, one short line" } ] }'
+  '{ "brand": "brand as the thread uses it", "benefits": ["the 5-8 benefits found in the thread"],',
+  '  "ideas": [ { "title": "...", "benefits": ["spy winning ads", "clone landing pages"], "niche": "Casino & iGaming",',
+  '               "countries": ["Indonesia", "Thailand"], "keyword": "indonesia thailand casino ad spy",',
+  '               "intent": "who searches this, under 10 words" } ] }'
 ].join('\n');
 
 export function ideasPrompt(mine, { brand = '', targets = '', keywords = '' } = {}) {
@@ -647,17 +650,26 @@ export function parseIdeas(text) {
     if (!nichesIn(`${title} ${raw.niche || ''}`).length && !raw.niche) flags.push('no niche');
     if (title.length < 55) flags.push('short');
     if (title.length > 115) flags.push('long');
-    ideas.push({ n: ideas.length + 1, title, niche: String(raw.niche || '').trim(), country: String(raw.country || '').trim(),
+    const countries = (Array.isArray(raw.countries) ? raw.countries : String(raw.country || '').split(/\s*(?:&|,|\band\b|\/)\s*/))
+      .map((c) => String(c).trim()).filter(Boolean).slice(0, 3);
+    const benefits = (Array.isArray(raw.benefits) ? raw.benefits : []).map((b) => String(b).trim()).filter(Boolean).slice(0, 3);
+    if (benefits.length && benefits.length < 2) flags.push('one benefit');
+    ideas.push({ n: ideas.length + 1, title, niche: String(raw.niche || '').trim(), country: countries.join(' & '), countries, benefits,
                  keyword: String(raw.keyword || '').trim().toLowerCase(), intent: String(raw.intent || '').trim(), chars: title.length, flags });
     if (ideas.length === 20) break;
   }
-  return { brand: String(o.brand || '').trim(), service: String(o.service || '').trim(), ideas };
+  // No single benefit may lead more than 3 titles - flag the repeats beyond that.
+  const opener = (t) => String(t).split(/\s[-–]\s/).slice(1).join(' ').toLowerCase().split(/\s+/).slice(0, 2).join(' ');
+  const led = new Map();
+  for (const i of ideas) { const k = opener(i.title); led.set(k, (led.get(k) || 0) + 1); if (led.get(k) > 3) i.flags.push(`same opening as ${led.get(k) - 1} others`); }
+  return { brand: String(o.brand || '').trim(), service: String(o.service || '').trim(),
+           benefits: (Array.isArray(o.benefits) ? o.benefits : []).map((b) => String(b).trim()).filter(Boolean).slice(0, 8), ideas };
 }
 
 /** CSV that opens cleanly in Excel and Google Sheets: quoted cells, a UTF-8 mark, Windows line ends. */
 export function ideasCsv(ideas, { thread = '' } = {}) {
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const head = ['#', 'Title', 'Niche', 'Country', 'Long-tail keyword', 'Characters', 'Who searches it', 'Main thread'];
-  const rows = ideas.map((i) => [i.n, i.title, i.niche, i.country, i.keyword, i.chars, i.intent, thread]);
+  const head = ['#', 'Title', 'Benefits', 'Niche', 'Countries', 'Long-tail keyword', 'Characters', 'Who searches it', 'Main thread'];
+  const rows = ideas.map((i) => [i.n, i.title, (i.benefits || []).join(' + '), i.niche, i.country, i.keyword, i.chars, i.intent, thread]);
   return '﻿' + [head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }

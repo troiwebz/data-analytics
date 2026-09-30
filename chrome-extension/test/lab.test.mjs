@@ -204,6 +204,14 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   const csv = ideasCsv([{ n: 1, title: 'Advault - Ads for "Indonesia", Casino', niche: 'Casino', country: 'Indonesia', keyword: 'indonesia casino ads', chars: 38, intent: 'operators' }], { thread: 'https://www.blackhatworld.com/seo/x.1/' });
   ok('the CSV opens cleanly in Excel: BOM, header, quotes and commas escaped', csv.startsWith('﻿"#","Title"') && csv.includes('"Advault - Ads for ""Indonesia"", Casino"') && csv.includes('\r\n'), csv);
   ok('the CSV names the main thread on every row', csv.includes('"https://www.blackhatworld.com/seo/x.1/"'));
+  const two = parseIdeas(JSON.stringify({ benefits: ['spy winning ads', 'clone landing pages', 'track offers'], ideas: [
+    { title: 'AdRecon - Spy Winning Ads + Clone Landing Pages for Indonesia & Thailand Casino iGaming', benefits: ['spy winning ads', 'clone landing pages'], niche: 'Casino', countries: ['Indonesia', 'Thailand'] },
+    { title: 'AdRecon - Track Offers for Brazil Crypto Ad Intelligence and more words here', benefits: ['track offers'], niche: 'Crypto', country: 'Brazil & Mexico' } ] }));
+  ok('two countries can be paired in one title', two.ideas[0].country === 'Indonesia & Thailand' && two.ideas[1].countries.length === 2, JSON.stringify(two.ideas.map((i) => i.countries)));
+  ok('benefits are listed, and a single-benefit title is flagged', two.benefits.length === 3 && two.ideas[1].flags.includes('one benefit'));
+  const same = parseIdeas(JSON.stringify({ ideas: Array.from({ length: 5 }, (_, k) => ({ title: `AdRecon - Reverse Engineer Winning Ads for Market${k} Casino iGaming Ad Spy Tool here`, benefits: ['a', 'b'], niche: 'Casino', countries: ['Indonesia'] })) }));
+  ok('a benefit leading more than 3 titles is flagged', same.ideas.filter((i) => i.flags.some((f) => /same opening/.test(f))).length === 2, JSON.stringify(same.ideas.map((i) => i.flags)));
+  ok('the CSV has a benefits column', ideasCsv(two.ideas).includes('"spy winning ads + clone landing pages"'));
   ok('the prompt carries the thread and the targets', /seller's stated niches \/ countries: Indonesia; casino/.test(ideasPrompt({ url: 'u', title: 't', body: 'b' }, { targets: 'Indonesia; casino' })));
 }
 
