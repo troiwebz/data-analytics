@@ -22,6 +22,13 @@
 const has = (s) => !!String(s || '').trim();
 
 /**
+ * Which set of auto-mode rules a verdict was made under. Bumped whenever the
+ * rules change, so a "no" given under stricter rules is thrown away and the
+ * thread judged again - rather than staying skipped for ever.
+ */
+export const AUTO_RULES = 3;   // 3 = 1.7.5: every genuine request gets the first PM
+
+/**
  * The first deal-breaker phrase found in the title or the post, as the words
  * that matched - so the reason on the card is "payment after delivery", not a
  * regex. A pattern that will not compile is skipped, never fatal.

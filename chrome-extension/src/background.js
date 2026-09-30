@@ -3536,12 +3536,14 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
   const pool = (await getLeads()).filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample'
     && !l.pmSent && !SILENT_STATUSES.includes(l.status) && !l.autoSendHeld && !l.autoSendAt && at(l) >= cutoff);
-  const pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked)).sort((a, b) => at(b) - at(a)).slice(0, max);
+  // Unjudged, or judged under older rules: both are looked at again.
+  const stale = (l) => Number(l.autoRules || 0) !== auto.AUTO_RULES;
+  const pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked || stale(l))).sort((a, b) => at(b) - at(a)).slice(0, max);
   if (!pick.length) return { armed: 0, left: 0 };
 
   // Claude's screen, for anything without a current "yes".
   let byId = new Map(pick.map((l) => [String(l.threadId), l]));
-  const need = pick.filter((l) => !(l.aiSpecifics?.tips?.length) || String(l.aiSpecifics.pm || '').toLowerCase() !== 'yes' || rescreen);
+  const need = pick.filter((l) => !(l.aiSpecifics?.tips?.length) || String(l.aiSpecifics.pm || '').toLowerCase() !== 'yes' || rescreen || stale(l));
   if (need.length) {
     const unread = need.filter((l) => !String(l.body || '').trim());
     const read = unread.length ? await withThreads(unread, cfg) : [];
@@ -3550,7 +3552,8 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
     const { specifics, note } = await specificsFor(asked, { ...cfg, aiSpecifics: true }, { force: true });
     for (const l of asked) {
       const got = specifics[String(l.threadId)];
-      if (!got) { byId.set(String(l.threadId), { ...l, aiSpecifics: rescreen ? null : l.aiSpecifics, draftedByNote: note || 'Claude did not answer' }); continue; }
+      // No fresh answer: an old verdict is never reused in its place.
+      if (!got) { byId.set(String(l.threadId), { ...l, aiSpecifics: (rescreen || stale(l)) ? null : l.aiSpecifics, draftedByNote: note || 'Claude did not answer' }); continue; }
       const fresh = enrich({ ...l }, cfg, l.status || 'SENT', got, '');
       const patch = { aiSpecifics: got, aiFrom: sourceOf(l), draft: fresh.draft, dm: fresh.dm, dmTitle: fresh.dmTitle, lint: fresh.lint, dmLint: fresh.dmLint,
                       draftedBy: 'claude', draftedByNote: '', dmApproved: plain(fresh.dm || ''), draftApproved: plain(fresh.draft || ''), card: fresh.card };
@@ -3564,10 +3567,10 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   for (const l of pick) {
     const cand = byId.get(String(l.threadId));
     const why = auto.blockedReason(cand, cfg);
-    if (why) { await updateLead(l.threadId, { autoSendAt: 0, autoSendBlocked: why }); reasons.push(why); left++; continue; }
+    if (why) { await updateLead(l.threadId, { autoSendAt: 0, autoSendBlocked: why, autoRules: auto.AUTO_RULES }); reasons.push(why); left++; continue; }
     // Staggered, so a day's worth does not all fire on one tick; the PM cap and spacing still apply at send time.
     const sendAt = auto.postAt(cfg) + i * 45000; i++;
-    await updateLead(l.threadId, { autoSendAt: sendAt, autoSendBlocked: '', autoSendHeld: false });
+    await updateLead(l.threadId, { autoSendAt: sendAt, autoSendBlocked: '', autoSendHeld: false, autoRules: auto.AUTO_RULES });
     armed++;
     // The card on your phone shows the countdown and the Hold button.
     const shown = { ...cand, autoSendAt: sendAt, autoSendBlocked: '', autoSendHeld: false };

@@ -1149,6 +1149,17 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   ok('a PM already sent is not armed', !(await getLeads()).find((x) => x.threadId === 'b3').autoSendAt);
   await setConfig({ autoMode: false });
 
+  // A "no" from the old strict rules is judged again by the tick, without "auto on".
+  await setConfig({ autoMode: true, autoRequireMatch: false });
+  const eveningAgo = new Date(Date.now() - 6 * 3600000).toISOString();
+  store.recentLeads = [ready('r1', { category: '', foundAt: eveningAgo, postedAt: eveningAgo, autoSendBlocked: 'it does not match any of your services',
+                                     aiSpecifics: { tips: ['old'], pm: 'no', why: 'pay per result' } })];
+  await bg.runAutoQueue();
+  const r1 = (await getLeads()).find((x) => x.threadId === 'r1');
+  // The test has no Claude, so it cannot say yes - but the old "no" must not survive.
+  ok('an old-rules "no" is thrown away and judged again', !/pay per result/.test(r1.autoSendBlocked || '') && r1.autoRules === 3, JSON.stringify({ why: r1.autoSendBlocked, rules: r1.autoRules }));
+  await setConfig({ autoMode: false });
+
   // "auto off" stops a countdown already running.
   store.recentLeads = [ready('a6', { autoSendAt: Date.now() + 90000 })];
   updates = [{ update_id: 9901, message: { message_id: 9901, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];
