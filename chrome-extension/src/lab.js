@@ -673,3 +673,57 @@ export function ideasCsv(ideas, { thread = '' } = {}) {
   const rows = ideas.map((i) => [i.n, i.title, (i.benefits || []).join(' + '), i.niche, i.country, i.keyword, i.chars, i.intent, thread]);
   return '﻿' + [head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }
+
+
+// ---------------------------------------------------------------- title builder
+
+const ACRONYMS = new Set(['seo', 'ppc', 'pbn', 'smm', 'edu', 'ugc', 'api', 'vpn', 'cpa', 'cpl', 'roas', 'geo', 'aeo', 'uae', 'uk', 'usa', 'us', 'eu', 'da', 'dr', 'ai', 'gmb', 'crm', 'b2b', 'nft']);
+const SMALL = new Set(['for', 'and', 'of', 'to', 'in', 'on', 'the', 'a', 'an', 'with', 'by']);
+/** "spy winning ads" -> "Spy Winning Ads", "casino seo" -> "Casino SEO"; words you capitalised stay as they are. */
+export function titleCase(text) {
+  return String(text || '').trim().split(/\s+/).map((w, i) => {
+    const l = w.toLowerCase();
+    if (ACRONYMS.has(l)) return l.toUpperCase();
+    if (w !== l) return w;                                     // already has capitals: iGaming, AdRecon
+    if (i > 0 && SMALL.has(l)) return l;
+    return l.charAt(0).toUpperCase() + l.slice(1);
+  }).join(' ');
+}
+
+/** Common choices, so every group has 5+ options even for a thin thread. */
+export const BUILDER_COUNTRIES = ['Indonesia', 'Thailand', 'Philippines', 'Vietnam', 'Malaysia', 'Brazil', 'Mexico', 'Turkey', 'UAE', 'Saudi', 'UK', 'USA', 'Canada', 'Australia', 'Germany', 'India', 'Nigeria', 'Japan', 'Korea'];
+export const BUILDER_NICHES = ['Casino & iGaming', 'Crypto', 'Forex', 'Betting', 'Dating', 'Pharma', 'Nutra', 'Adult', 'Sweepstakes', 'E-commerce'];
+
+/** The options for one thread: what its ideas used first, then common extras, no repeats, at least `min`. */
+export function builderOptions(entry, { min = 8 } = {}) {
+  const uniq = (list) => { const seen = new Set(); return list.map((x) => String(x || '').trim()).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())); };
+  const ideas = entry?.ideas || [];
+  const fill = (found, extra) => { const u = uniq(found); return u.length >= min ? u : uniq([...u, ...extra]).slice(0, Math.max(min, u.length)); };
+  const tails = uniq(ideas.map((i) => {
+    const kw = String(i.keyword || '').trim(); if (!kw) return '';
+    const drop = new Set([...(i.countries || []), ...String(i.niche || '').split(/\s*&\s*|\s+/)].map((w) => String(w).toLowerCase()));
+    return titleCase(kw.split(/\s+/).filter((w) => !drop.has(w)).join(' '));
+  }));
+  return {
+    countries: fill(ideas.flatMap((i) => i.countries || (i.country ? String(i.country).split(/\s*&\s*/) : [])), BUILDER_COUNTRIES),
+    niches: fill(ideas.map((i) => i.niche), BUILDER_NICHES),
+    offers: uniq([...(entry?.benefits || []), ...ideas.flatMap((i) => i.benefits || [])].map(titleCase)),
+    tails: tails.slice(0, 10)
+  };
+}
+
+const joinAnd = (list) => (list.length <= 1 ? list.join('') : `${list.slice(0, -1).join(', ')} & ${list[list.length - 1]}`);
+
+/**
+ * The title from what is ticked. Every part is optional: nothing ticked in a
+ * group means that part - and its joining words - simply is not there.
+ *   Brand - Offer + Offer for Country & Country Niche & Niche Tail
+ */
+export function buildTitle({ brand = '', offers = [], countries = [], niches = [], tail = '' } = {}) {
+  const b = String(brand).trim();
+  const o = offers.map((x) => String(x).trim()).filter(Boolean).join(' + ');
+  const where = [joinAnd(countries.map((x) => String(x).trim()).filter(Boolean)), joinAnd(niches.map((x) => String(x).trim()).filter(Boolean)), String(tail).trim()]
+    .filter(Boolean).join(' ');
+  const body = [o, where ? (o ? `for ${where}` : where) : ''].filter(Boolean).join(' ');
+  return [b, body].filter(Boolean).join(' - ').replace(/\s+/g, ' ').trim();
+}

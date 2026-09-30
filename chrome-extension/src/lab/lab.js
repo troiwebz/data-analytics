@@ -64,6 +64,67 @@ async function showSpend() {
 }
 showSpend();
 
+// ---------------------------------------------------------------- title builder
+// Tick countries, niches and offers; the title rebuilds as you go. Every part is
+// optional and comes out cleanly when unticked. Remembered per thread.
+let builder = null;          // { key, brand, tail, picks: { countries: [], niches: [], offers: [] }, extra: {...} }
+let builderLib = null;
+
+async function builderFor(e) {
+  const lib = builderLib || (builderLib = await import('../lab.js'));
+  const opts = lib.builderOptions(e);
+  const key = `builder:${e.url}`;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch { /* none */ }
+  builder = saved || { key, brand: e.brand || '', tail: opts.tails[0] || '', picks: { countries: [], niches: [], offers: [] }, extra: { countries: [], niches: [], offers: [], tails: [] } };
+  builder.key = key;
+  builder.opts = { countries: [...opts.countries, ...builder.extra.countries], niches: [...opts.niches, ...builder.extra.niches],
+                   offers: [...opts.offers, ...builder.extra.offers], tails: [...opts.tails, ...(builder.extra.tails || [])] };
+  return builder;
+}
+
+function builderHtml(bd) {
+  const group = (id, label, list) => `<div class="grp"><h3>${label} <span style="text-transform:none;letter-spacing:0">(tick any - order follows your ticks)</span></h3>
+    <div class="opts">${list.map((v) => `<label class="${bd.picks[id].includes(v) ? 'on' : ''}"><input type="checkbox" data-pick="${id}" value="${esc(v)}" ${bd.picks[id].includes(v) ? 'checked' : ''}>${esc(v)}</label>`).join('')}
+    <span class="add"><input type="text" data-addto="${id}" placeholder="+ add your own"><button data-addbtn="${id}" style="padding:3px 8px">Add</button></span></div></div>`;
+  return `<div class="card" style="margin-top:14px;border-color:#bfdbfe"><h2>🧩 Title builder</h2>
+    <p class="sub">Tick countries, niches and offers - the title updates as you tick, and an unticked part disappears with its joining words. Built to rank for long-tail searches.</p>
+    <div class="row"><label class="ck">Brand <input type="text" id="bBrand" value="${esc(bd.brand)}" style="width:180px"></label>
+      <label class="ck">Keyword ending <input type="text" id="bTail" list="bTails" value="${esc(bd.tail)}" style="width:220px" placeholder="e.g. Ad Spy Tool"></label>
+      <datalist id="bTails">${bd.opts.tails.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+    ${group('offers', 'Offers / benefits', bd.opts.offers)}
+    ${group('countries', 'Countries', bd.opts.countries)}
+    ${group('niches', 'Niches', bd.opts.niches)}
+    <div class="preview" id="bPreview"></div>
+    <div class="row"><span class="sub" id="bLen"></span><span style="flex:1"></span><button id="bClear">Clear ticks</button><button class="pri" id="bCopy">📋 Copy title</button></div></div>`;
+}
+
+async function paintTitle() {
+  if (!builder) return;
+  const lib = builderLib || (builderLib = await import('../lab.js'));
+  const t = lib.buildTitle({ brand: builder.brand, tail: builder.tail, ...builder.picks });
+  const el = document.getElementById('bPreview'); if (!el) return;
+  el.textContent = t || 'Tick something to start the title';
+  const n = t.length;
+  document.getElementById('bLen').innerHTML = `${n} characters · ${n < 60 ? '<span style="color:#b45309">short - add a country, niche or offer</span>' : n > 110 ? '<span style="color:#dc2626">long - BHW titles over ~110 get cut in lists</span>' : '<span style="color:#16a34a">good length for a long-tail title</span>'}`;
+  try { const { opts, ...keep } = builder; localStorage.setItem(builder.key, JSON.stringify(keep)); } catch { /* fine */ }
+}
+
+document.addEventListener('change', (e) => {
+  const pick = e.target.dataset?.pick;
+  if (pick && builder) {
+    const list = builder.picks[pick]; const v = e.target.value;
+    if (e.target.checked) { if (!list.includes(v)) list.push(v); } else builder.picks[pick] = list.filter((x) => x !== v);
+    e.target.closest('label').classList.toggle('on', e.target.checked);
+    paintTitle();
+  }
+});
+document.addEventListener('input', (e) => {
+  if (!builder) return;
+  if (e.target.id === 'bBrand') { builder.brand = e.target.value; paintTitle(); }
+  if (e.target.id === 'bTail') { builder.tail = e.target.value; paintTitle(); }
+});
+
 // ---------------------------------------------------------------- 20 ideas
 let ideasShown = null;
 
@@ -83,8 +144,11 @@ function ideasTable(e) {
 async function renderIdeas() {
   const { labIdeas = [] } = await chrome.storage.local.get('labIdeas');
   const e = ideasShown || labIdeas[0];
-  $('ideasOut').innerHTML = e ? ideasTable(e)
-    + (labIdeas.length > 1 ? `<div class="hist" style="margin-top:10px">${labIdeas.map((x, k) => `<button data-ideas="${k}">${esc(String(x.title || '').slice(0, 45))}</button>`).join('')}</div>` : '') : '';
+  if (!e) { $('ideasOut').innerHTML = ''; return; }
+  const bd = await builderFor(e);
+  $('ideasOut').innerHTML = builderHtml(bd) + ideasTable(e)
+    + (labIdeas.length > 1 ? `<div class="hist" style="margin-top:10px">${labIdeas.map((x, k) => `<button data-ideas="${k}">${esc(String(x.title || '').slice(0, 45))}</button>`).join('')}</div>` : '');
+  paintTitle();
 }
 
 $('ideasRun').addEventListener('click', async () => {
@@ -215,6 +279,20 @@ async function render() {
 }
 
 document.addEventListener('click', async (e) => {
+  const addb = e.target.closest('[data-addbtn]');
+  if (addb && builder) {
+    const g = addb.dataset.addbtn; const inp = document.querySelector(`[data-addto="${g}"]`);
+    const v = String(inp?.value || '').trim(); if (!v) return;
+    if (!builder.opts[g].some((x) => x.toLowerCase() === v.toLowerCase())) { builder.extra[g].push(v); }
+    if (!builder.picks[g].includes(v)) builder.picks[g].push(v);
+    await paintTitle(); renderIdeas(); return;
+  }
+  if (e.target.id === 'bClear' && builder) { builder.picks = { countries: [], niches: [], offers: [] }; await paintTitle(); renderIdeas(); return; }
+  if (e.target.id === 'bCopy') {
+    const t = document.getElementById('bPreview')?.textContent || '';
+    if (t && !/^Tick something/.test(t)) { await navigator.clipboard.writeText(t); e.target.textContent = '✅ Copied'; setTimeout(() => { e.target.textContent = '📋 Copy title'; }, 1500); }
+    return;
+  }
   if (e.target.id === 'ideasCsv') {
     const cur = await currentIdeas(); if (!cur) return;
     const { ideasCsv } = await import('../lab.js');

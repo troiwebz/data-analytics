@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn, parseIdeas, ideasCsv, ideasPrompt } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn, parseIdeas, ideasCsv, ideasPrompt, buildTitle, builderOptions, titleCase } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -213,6 +213,24 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('a benefit leading more than 3 titles is flagged', same.ideas.filter((i) => i.flags.some((f) => /same opening/.test(f))).length === 2, JSON.stringify(same.ideas.map((i) => i.flags)));
   ok('the CSV has a benefits column', ideasCsv(two.ideas).includes('"spy winning ads + clone landing pages"'));
   ok('the prompt carries the thread and the targets', /seller's stated niches \/ countries: Indonesia; casino/.test(ideasPrompt({ url: 'u', title: 't', body: 'b' }, { targets: 'Indonesia; casino' })));
+}
+
+// --- title builder: every part optional --------------------------------------
+{
+  ok('all ticked', buildTitle({ brand: 'AdRecon', offers: ['Spy Winning Ads', 'Clone Landing Pages'], countries: ['Indonesia', 'Thailand'], niches: ['Casino & iGaming'], tail: 'Ad Spy Tool' })
+     === 'AdRecon - Spy Winning Ads + Clone Landing Pages for Indonesia & Thailand Casino & iGaming Ad Spy Tool');
+  ok('three countries read naturally', buildTitle({ brand: 'A', offers: ['X'], countries: ['Indonesia', 'Thailand', 'Vietnam'] }) === 'A - X for Indonesia, Thailand & Vietnam');
+  ok('no countries: the country part goes, cleanly', buildTitle({ brand: 'AdRecon', offers: ['Spy Winning Ads'], niches: ['Crypto'], tail: 'Ad Intelligence' }) === 'AdRecon - Spy Winning Ads for Crypto Ad Intelligence');
+  ok('no offers: no dangling "for"', buildTitle({ brand: 'AdRecon', countries: ['Brazil'], niches: ['Betting'] }) === 'AdRecon - Brazil Betting');
+  ok('nothing but a brand', buildTitle({ brand: 'AdRecon' }) === 'AdRecon');
+  ok('nothing at all', buildTitle({}) === '');
+  const o = builderOptions({ benefits: ['spy winning ads', 'clone landing pages', 'track offers', 'see creatives', 'find funnels'],
+    ideas: [{ countries: ['Indonesia', 'Thailand'], niche: 'Casino & iGaming', keyword: 'indonesia thailand casino ad spy tool', benefits: ['spy winning ads'] }] });
+  ok('every group offers 5+ choices even from a thin thread', o.countries.length >= 5 && o.niches.length >= 5 && o.offers.length >= 5, JSON.stringify({ c: o.countries.length, n: o.niches.length, o: o.offers.length }));
+  ok('the thread\'s own countries and niches come first', o.countries[0] === 'Indonesia' && o.countries[1] === 'Thailand' && o.niches[0] === 'Casino & iGaming');
+  ok('keyword endings are taken from the ideas, cased properly', o.tails.includes('Ad Spy Tool'), JSON.stringify(o.tails));
+  ok('offers come out in Title Case', o.offers.includes('Spy Winning Ads') && o.offers.includes('Clone Landing Pages'), JSON.stringify(o.offers));
+  ok('acronyms stay acronyms, brand casing is kept', titleCase('casino seo for uae') === 'Casino SEO for UAE' && titleCase('iGaming ppc') === 'iGaming PPC');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
