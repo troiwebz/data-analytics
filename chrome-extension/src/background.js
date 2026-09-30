@@ -3147,10 +3147,12 @@ async function takeRewrite(ev, cfg) {
  * being able to check is not evidence of a duplicate, and refusing on it would
  * make an unreachable BHW look exactly like an already-sent PM.
  */
-async function duplicateCheck(lead) {
+async function duplicateCheck(lead, preloaded = null) {
   try {
     const told = (await getConfig()).bhwUsername || '';
-    const { rows, me } = await fetchConversations(1, { told });
+    // A preloaded read lets the auto queue look at the inbox once per tick,
+    // two pages deep, instead of once per PM.
+    const { rows, me } = preloaded || await fetchConversations(1, { told });
     const hit = matchConversation(lead, rows, me);
     if (!hit) return { sent: false, maybe: false };
     if (hit.sent) {
@@ -3608,6 +3610,7 @@ export async function runAutoQueue() {
   await clearLogOnce('autoPaused');
 
   let done = 0;
+  let inbox = null, inboxErr = '';
   for (const lead of due) {
     // Re-check at the moment of sending: you may have edited it, Claude's
     // verdict may have been replaced, or it may have been sent some other way.
@@ -3625,7 +3628,21 @@ export async function runAutoQueue() {
     }
 
     // Your message list, read now: a PM you already sent this buyer is never sent twice.
-    const dup = await duplicateCheck(lead);
+    // Unattended, so "could not read it" is not "nothing there": with the inbox
+    // unreadable nothing sends, and it waits for the next tick.
+    if (!inbox && !inboxErr) {
+      try { inbox = await fetchConversations(2, { told: cfg.bhwUsername || '' }); }
+      catch (e) { inboxErr = e.message; }
+    }
+    if (!inbox) {
+      await logOnce('autoInbox', `auto mode: holding ${due.length} PM(s) - could not read your BHW message list (${inboxErr}), so a duplicate cannot be ruled out`, 'error', 15);
+      for (const l of due) {
+        if (Date.now() - l.autoSendAt > 30 * 60000) await updateLead(l.threadId, { autoSendAt: 0, autoTest: false, autoSendBlocked: `held too long: could not read your BHW message list (${inboxErr})` });
+      }
+      break;
+    }
+    await clearLogOnce('autoInbox');
+    const dup = await duplicateCheck(lead, inbox);
     if (dup.sent || dup.maybe) {
       const w = dup.sent ? 'your message list already has a PM to them' : `might be a duplicate: ${dup.why || 'a conversation exists'}`;
       await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: w });

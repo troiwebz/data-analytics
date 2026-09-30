@@ -13,6 +13,17 @@ const msgListeners = [], tabWatchers = [];
 let tgCalls = [], posted = [], dmSent = [];
 let updates = [];
 // What the content script reports back when a tap fires the real posting code.
+let inboxHtml = '', inboxFail = false;
+const inboxReads = [];
+const ME_NAME = 'bargainbed';
+const convRow = (id, title, other, when, starter) => `
+  <div class="structItem structItem--conversation" data-author="${starter}">
+    <div class="structItem-title"><a href="/direct-messages/t.${id}/">${title}</a></div>
+    <div class="structItem-minor"><a href="/members/${other.toLowerCase()}.9/">${other}</a>
+      <a href="/members/${ME_NAME}.1/">${ME_NAME}</a></div>
+    <div class="structItem-cell--latest"><time data-timestamp="${Math.floor(new Date(when).getTime() / 1000)}"></time></div>
+  </div>`;
+const inboxOf = (...rows) => `<html><span class="p-navgroup-user-linkText">${ME_NAME}</span>` + rows.join('') + '</html>';
 let postResult = { ok: true, postUrl: 'https://bhw/threads/x.1/post-9' };
 let dmResult = { ok: true, sent: true };
 
@@ -72,6 +83,11 @@ globalThis.fetch = async (url, opts) => {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: out }) };
     }
     return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+  }
+  if (u.includes('/direct-messages/')) {          // your BHW inbox, as the duplicate check reads it
+    inboxReads.push(u);
+    if (inboxFail) return { ok: false, status: 429, text: async () => 'rate limited', json: async () => ({}) };
+    return { ok: true, status: 200, text: async () => inboxHtml, json: async () => ({}) };
   }
   return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
 };
@@ -1063,6 +1079,59 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   store.recentLeads = [{ ...l }];
   await bg.runAutoQueue();
   ok('a held lead never sends itself afterwards', !(await getLeads()).find((x) => x.threadId === 'a5').pmSent);
+
+  // --- no duplicates: the inbox is read before every unattended PM ---------------
+  await setConfig({ autoMode: true, maxDmsPerDay: 30, minSecondsBetweenDms: 0 });
+  const recent = new Date(Date.now() - 1800000).toISOString();
+  const twin = (id, over = {}) => ready(id, { foundAt: recent, postedAt: recent, autoSendAt: Date.now() - 1000, dmTitle: 'Need a Google Ads guy', title: 'Need a Google Ads guy', ...over });
+
+  // 1. You already sent this buyer a PM about this thread, by hand.
+  inboxFail = false; inboxReads.length = 0;
+  inboxHtml = inboxOf(convRow(701, 'Need a Google Ads guy', 'buyerd1', new Date(Date.now() - 600000).toISOString(), ME_NAME));
+  store.recentLeads = [twin('d1')];
+  globalThis.__acting = 'd1'; dmResult = { ok: true, sent: true };
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd1');
+  ok('a PM already in your inbox is not sent again', /already has a PM/.test(l.autoSendBlocked || ''), JSON.stringify({ why: l.autoSendBlocked, pm: l.pmSent }));
+  ok('and the thread is struck off as sent, from the inbox', l.pmSent === true && /list|message/i.test(String(l.pmFrom || '')), JSON.stringify({ pm: l.pmSent, from: l.pmFrom }));
+  ok('and it did not go out a second time', !l.autoSentAt, String(l.autoSentAt));
+
+  // 2. The buyer messaged you recently about something else: worth a look, not an automatic PM.
+  inboxHtml = inboxOf(convRow(702, 'Something else entirely', 'buyerd2', new Date(Date.now() - 300000).toISOString(), 'buyerd2'));
+  store.recentLeads = [twin('d2')];
+  globalThis.__acting = 'd2';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd2');
+  ok('a recent conversation with them waits for you', !l.pmSent && /duplicate/.test(l.autoSendBlocked || ''), JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+
+  // 3. The inbox cannot be read (rate limited): nothing sends, and it stays armed.
+  inboxFail = true; inboxReads.length = 0;
+  store.recentLeads = [twin('d3')];
+  globalThis.__acting = 'd3';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd3');
+  ok('with the inbox unreadable nothing is sent', !l.pmSent, JSON.stringify(l.pmSent));
+  ok('and it stays armed for the next tick', l.autoSendAt > 0, String(l.autoSendAt));
+
+  // 4. Read once per tick, two pages deep, however many PMs are due.
+  inboxFail = false; inboxReads.length = 0;
+  inboxHtml = inboxOf(convRow(799, 'An unrelated conversation', 'someoneelse', new Date(Date.now() - 900000).toISOString(), ME_NAME));
+  store.recentLeads = [twin('d4'), twin('d5'), twin('d6')];
+  globalThis.__acting = 'd4'; dmResult = { ok: true, sent: true };
+  await bg.runAutoQueue();
+  const page2 = inboxReads.filter((u) => /page-2/.test(u)).length;
+  ok('the pre-send check reads two pages deep', page2 >= 1, JSON.stringify(inboxReads));
+  ok('and only once for three due PMs, not once each', page2 === 1, `page-2 reads: ${page2}`);
+
+  // 5. A clean inbox sends.
+  inboxReads.length = 0;
+  store.recentLeads = [twin('d7')];
+  globalThis.__acting = 'd7';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd7');
+  ok('a clean inbox lets the PM go', l.pmSent === true, JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+  inboxHtml = '';
+  await setConfig({ autoMode: false });
 
   // The backlog: a thread from earlier today, already screened yes, not yet armed - the tick arms it.
   await setConfig({ autoMode: true, autoBackfillHours: 24 });
