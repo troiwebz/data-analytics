@@ -1447,7 +1447,7 @@ async function startLab(opts) {
         step,
         readThread: async (u) => { await gap(); return readThreadTab(u); },
         readListing: async (u, pages) => { await gap(); return readListingPages(u, pages, { gapMs: 6000 }); },
-        ask: (system, user) => askClaude(system, user, { maxTokens: 3000 })
+        ask: (system, user) => askClaude(system, user, { maxTokens: 8000, timeoutMs: 150000 })
       });
       const done = { ...run, status: 'done', finishedAt: Date.now(), result };
       const { [LAB_HISTORY]: hist = [] } = await chrome.storage.local.get(LAB_HISTORY);
@@ -1455,7 +1455,7 @@ async function startLab(opts) {
       await log(`Thread Lab (${result.mode === 'review' ? 'review copies' : 'main thread'}): ${result.competitors.length} thread(s) studied for "${String(result.mine.title).slice(0, 60)}" ($${Number(result.cost || 0).toFixed(3)})${(result.problems || []).length ? ` - ${result.problems.length} check(s) to look at` : ''}`);
     } catch (e) {
       if (/blocked/i.test(e.message)) await wall(e.message);
-      await chrome.storage.local.set({ [LAB_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message } });
+      await chrome.storage.local.set({ [LAB_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message, raw: e.raw || '' } });
       await log(`Thread Lab: ${e.message}`, 'error');
     } finally { await jobEnd(); }
   }).catch(() => {});

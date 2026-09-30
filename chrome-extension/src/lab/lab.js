@@ -128,7 +128,8 @@ async function render() {
   $('progress').hidden = !run || (!running && run.status !== 'error');
   if (run) {
     $('steps').innerHTML = (run.steps || []).map((s) => `<div>${new Date(s.t).toLocaleTimeString()} · ${esc(s.m)}</div>`).join('')
-      + (run.status === 'error' ? `<div class="err">Stopped: ${esc(run.error)}</div>` : '');
+      + (run.status === 'error' ? `<div class="err">Stopped: ${esc(run.error)}</div>`
+        + (run.raw ? `<details style="margin-top:6px"><summary class="sub">What Claude sent back</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(run.raw)}</pre></details>` : '') : '');
     $('progress').querySelector('h2').textContent = running ? 'Working…' : 'Last run';
   }
   const r = showing || (run?.status === 'done' ? run.result : null);

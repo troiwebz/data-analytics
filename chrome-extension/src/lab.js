@@ -303,11 +303,35 @@ export function labPrompt(mine, competitors) {
 }
 
 /** The model may wrap JSON in prose or a fence; take the outermost object, and fill what is missing. */
-export function parseLab(text) {
+/** JSON the way models actually return it: in a fence, with smart quotes or a trailing comma, or cut off. */
+export function looseJson(text) {
   const s = String(text || '');
-  const a = s.indexOf('{'), b = s.lastIndexOf('}');
-  let o = {};
-  if (a !== -1 && b > a) { try { o = JSON.parse(s.slice(a, b + 1)); } catch { o = {}; } }
+  const a = s.indexOf('{');
+  if (a === -1) return null;
+  let body = s.slice(a).replace(/```[\s\S]*$/, '');
+  const tries = [];
+  const b = body.lastIndexOf('}');
+  if (b > 0) tries.push(body.slice(0, b + 1));
+  // Cut off mid-answer: close what is open.
+  let inStr = false, esc = false; const stack = [];
+  for (const ch of body) {
+    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') stack.push(ch); else if (ch === '}' || ch === ']') stack.pop();
+  }
+  let closed = body + (inStr ? '"' : '');
+  closed = closed.replace(/,\s*$/, '').replace(/,\s*"[^"]*"\s*:?\s*$/, '');
+  closed += stack.reverse().map((c) => (c === '{' ? '}' : ']')).join('');
+  tries.push(closed);
+  for (const t of tries) {
+    for (const v of [t, t.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1')]) {
+      try { return JSON.parse(v); } catch { /* next */ }
+    }
+  }
+  return null;
+}
+
+export function parseLab(text) {
+  const o = looseJson(text) || {};
   const arr = (v, n) => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x.trim() : x)).filter(Boolean).slice(0, n) : []);
   return {
     keywords: { winning: arr(o.keywords?.winning, 12), missing: arr(o.keywords?.missing, 8) },
@@ -431,9 +455,25 @@ export async function runReviewLab({ url, copies = 10, gets = '', requirements =
   }
 
   await step('Working out the success formula and writing your thread…');
-  const answer = await ask(REVIEW_SYSTEM, reviewPrompt(mine, { copies: n, gets, requirements, delivery }, formula, opened));
+  const user = reviewPrompt(mine, { copies: n, gets, requirements, delivery }, formula, opened);
+  let answer = await ask(REVIEW_SYSTEM, user);
   let result = parseLab(answer.text);
-  if (!result.ok) throw new Error('Claude answered, but not with usable copy. Run it again.');
+  let cost = answer.cost || 0;
+  if (!result.ok) {
+    await step(answer.stop === 'max_tokens' ? 'The answer was cut off - asking again for a tighter one…' : 'The answer was not in the expected shape - asking again…');
+    answer = await ask(REVIEW_SYSTEM, `${user}\n\nIMPORTANT: return ONLY the JSON object, compact, no prose. Keep each formula evidence and rulesCheck note under 20 words.`);
+    cost += answer.cost || 0;
+    result = parseLab(answer.text);
+  }
+  if (!result.ok) {
+    const why = answer.stop === 'max_tokens' ? 'its answer was cut off at the length limit'
+      : !String(answer.text || '').includes('{') ? `it replied in prose instead of JSON: "${String(answer.text || '').slice(0, 140)}"`
+      : 'its JSON had no titles or post in it';
+    const e = new Error(`Claude answered twice, but ${why}. Nothing was charged beyond the two calls ($${cost.toFixed(3)}).`);
+    e.raw = String(answer.text || '').slice(0, 3000);
+    throw e;
+  }
+  answer = { ...answer, cost };
   result = repairReviewCopy(result, { url, copies: n });
   const problems = checkReviewCopy(result, { url, copies: n });
 

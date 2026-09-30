@@ -605,7 +605,8 @@ export async function askClaude(system, user, { maxTokens = 2500, timeoutMs = 90
   const before = spendOf(usageToday(await getAi()), ai.model);
   await recordUsage(data.usage, 0);
   const cost = spendOf(usageToday(await getAi()), ai.model) - before;
-  return { text: (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''), cost: round(cost, 5), model: ai.model };
+  return { text: (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''), cost: round(cost, 5), model: ai.model,
+           stop: data.stop_reason || '', outTokens: data.usage?.output_tokens || 0 };
 }
 
 /** The stored key, for copying into a password manager. Never logged. */

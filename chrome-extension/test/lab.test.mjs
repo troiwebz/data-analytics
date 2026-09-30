@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -124,6 +124,30 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   let err = '';
   try { await runReviewLab({ url: URL, copies: 0 }, deps); } catch (e) { err = e.message; }
   ok('no number of copies, no run', /how many free review copies/.test(err), err);
+}
+
+// --- answers the way models really send them --------------------------------
+{
+  ok('a fenced answer parses', looseJson('```json\n{"titles":["a"],"description":"d"}\n```').titles[0] === 'a');
+  ok('a trailing comma is forgiven', looseJson('{"titles":["a",],"description":"d",}').description === 'd');
+  ok('smart quotes are forgiven', looseJson('{“titles”:[“a”],"description":"d"}')?.titles?.[0] === 'a');
+  const cut = looseJson('{"titles":["A","B","C"],"description":"Hello\\n\\nThread Link:\\nhttps://x","formula":[{"rule":"Count first","evidence":"6 of');
+  ok('an answer cut off mid-way still yields the titles and post', cut?.titles?.length === 3 && /Thread Link/.test(cut.description), JSON.stringify(cut));
+  ok('prose with no JSON gives nothing', looseJson('Sorry, I cannot help with that.') === null);
+
+  // the run retries once, then says exactly why
+  const URL = 'https://www.blackhatworld.com/seo/casino-ads.1800000/';
+  const rows = Array.from({ length: 12 }, (_, i) => ({ threadId: String(3000 + i), title: `[ ${i + 5}x Free Review Copies ] - Brand${i} Guest Posts`, replyCount: 10 + i, startedAt: ago(i + 1), url: `https://www.blackhatworld.com/seo/t.${3000 + i}/` }));
+  let calls = 0;
+  const base = { now, step: () => {}, readThread: async () => ({ title: 'Casino ads', body: 'We run casino ads.' }), readListing: async () => Object.fromEntries(rows.map((r) => [r.threadId, r])) };
+  const good = JSON.stringify({ titles: ['[ 10x Free Review Copies ] - Casino Ads'], description: `Hello\n\nThread Link:\n${URL}\n\nLooking for 10 reviewers.` });
+  const out = await runReviewLab({ url: URL, copies: 10 }, { ...base, ask: async () => (++calls === 1 ? { text: '{"titles":["x"', stop: 'max_tokens', cost: 0.01 } : { text: good, cost: 0.01 }) });
+  ok('a cut-off first answer is retried and the second one used', calls === 2 && out.titles[0].includes('Casino Ads'), `calls ${calls}`);
+  ok('both calls are counted in the cost', Math.abs(out.cost - 0.02) < 1e-9, String(out.cost));
+  let err = null;
+  try { await runReviewLab({ url: URL, copies: 10 }, { ...base, ask: async () => ({ text: 'I would rather not.', stop: 'end_turn', cost: 0 }) }); } catch (e) { err = e; }
+  ok('two bad answers stop with the reason, not a shrug', /replied in prose/.test(err?.message || ''), err?.message);
+  ok('and what Claude sent is kept for you to see', err?.raw === 'I would rather not.');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
