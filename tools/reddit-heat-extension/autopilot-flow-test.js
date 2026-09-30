@@ -53,6 +53,8 @@ function world(opts = {}) {
       return { ok: true, ai: hunt.posts[id].ai };
     },
     huntAiWrite: async () => ({ ok: false, error: "wrong writer" }),
+    // background.js sends from its own visible window; here it is a tab we can count
+    openSenderTab: async (url) => chrome.tabs.create({ url, active: true }),
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
@@ -90,7 +92,7 @@ const texts = (w) => w.tg.sent.map((m) => m.text).join("\n---\n");
   assert.strictEqual(w.store.pendingDm.author, "user_a1");
   assert.strictEqual(w.tabs.created.length, 1);
   assert.ok(/\/chat\/room\/create$/.test(w.tabs.created[0].url), "only Reddit Chat is ever opened");
-  assert.strictEqual(w.tabs.created[0].active, false);
+  assert.strictEqual(w.tabs.created[0].active, true, "the chat opens where Reddit will run it");
   assert.strictEqual(w.store.pendingReply, undefined, "no public reply is ever queued");
   assert.strictEqual(w.store.autopilot.job.id, "a1");
 
@@ -270,7 +272,8 @@ const texts = (w) => w.tg.sent.map((m) => m.text).join("\n---\n");
     w.advance(61000); w.post(id); await w.tick();
     w.hunt.posts[id].dmAt = w.now(); w.hunt.contacted["user_" + id] = { at: w.now() }; delete w.store.pendingDm; await w.tick();
   }
-  assert.deepStrictEqual(w.tabs.created.map((t) => t.active), [true, true, false], JSON.stringify(w.tabs.created.map((t) => t.active)));
+  // every DM now goes out in front (Reddit Chat stalls in a hidden tab); the window closes itself after
+  assert.deepStrictEqual(w.tabs.created.map((t) => t.active), [true, true, true], JSON.stringify(w.tabs.created.map((t) => t.active)));
 
   // 24. look back: switching on takes posts found in the last hour, not older
   w = world(); await w.link({ backMin: 60, gapMinS: 60, gapMaxS: 60, watchFirst: 0 });

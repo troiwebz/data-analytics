@@ -625,7 +625,11 @@ async function huntHiringPoll() {
   if (hiringBusy) return { ok: false, error: "already reading" };
   const st0 = await huntGet();
   if (!st0.on) return { ok: false, error: "hunt is off" };
-  // a sweep running at the same time is fine: it merges with what is stored when it ends
+  // A full scan is already reading Reddit hard: two more requests on top of it
+  // are what Reddit refuses. Wait for it, and wait longer after a refusal.
+  const { scanState } = await chrome.storage.local.get(["scanState"]);
+  if (scanState && scanState.running && Date.now() - (scanState.at || 0) < 10 * 60000) return { ok: false, error: "a full scan is running" };
+  if (st0.hiringLane && st0.hiringLane.backoffUntil && Date.now() < st0.hiringLane.backoffUntil) return { ok: false, error: "waiting after Reddit limited us" };
   hiringBusy = true;
   try {
     const urls = [
@@ -655,7 +659,8 @@ async function huntHiringPoll() {
       st.posts[cand.id] = cand;
       added += 1;
     }
-    const lane = { at: Date.now(), seen, added, error };
+    const limited = /429|too many|rate/i.test(error);
+    const lane = { at: Date.now(), seen, added, error, backoffUntil: limited && !seen ? Date.now() + 10 * 60000 : 0 };
     if (added) await huntSet({ posts: st.posts, found: st.found + added, hiringLane: lane });
     else await huntSet({ hiringLane: lane });
     return { ok: !error || seen > 0, added, seen, error };
@@ -1044,6 +1049,7 @@ async function huntAct(id, action, variant) {
   if (action === "skip" || action === "not_relevant" || action === "later") for (const q of sameAuthor) { if (action === "later") q.laterUntil = p.laterUntil; else q.act = action; }
   if (action === "replied") { p.repliedAt = now; p.usedVariant = variant; st.contacted[p.author.toLowerCase()] = { at: now, id, how: "reply", sub: p.sub }; }
   if (action === "dm") {
+    closeSenderWin().catch(() => {});
     p.dmAt = now;
     const prev = st.contacted[p.author.toLowerCase()];
     st.contacted[p.author.toLowerCase()] = { at: now, id, how: prev && prev.how === "reply" ? "reply+dm" : "dm", sub: p.sub };
@@ -1539,6 +1545,35 @@ async function scheduleRetry(id) {
   return { ok: true };
 }
 
+// Reddit Chat does not run in a hidden tab: it waits until you look at it,
+// which is why DMs used to send only when you opened the chat. So a DM goes
+// out from its own small window, in front, which closes itself a moment after
+// the DM is sent and hands the focus back to the window you were in.
+async function openSenderTab(url) {
+  const { senderWin: old } = await chrome.storage.local.get(["senderWin"]);
+  if (old && Date.now() - (old.at || 0) > 5 * 60000) { try { await chrome.windows.remove(old.id); } catch (_) { /* gone */ } }
+  try {
+    if (chrome.windows && chrome.windows.create) {
+      let prev = null;
+      try { prev = (await chrome.windows.getLastFocused()).id; } catch (_) { /* none */ }
+      const w = await chrome.windows.create({ url, focused: true, type: "normal", width: 1000, height: 820 });
+      const tab = (w.tabs && w.tabs[0]) || { id: 0 };
+      await chrome.storage.local.set({ senderWin: { id: w.id, tabId: tab.id, prev, at: Date.now() } });
+      return tab;
+    }
+  } catch (_) { /* fall back to a tab */ }
+  return chrome.tabs.create({ url, active: true });
+}
+async function closeSenderWin() {
+  const { senderWin } = await chrome.storage.local.get(["senderWin"]);
+  if (!senderWin) return;
+  await chrome.storage.local.remove("senderWin");
+  setTimeout(async () => {
+    try { await chrome.windows.remove(senderWin.id); } catch (_) { /* already closed */ }
+    try { if (senderWin.prev) await chrome.windows.update(senderWin.prev, { focused: true }); } catch (_) { /* gone */ }
+  }, 2500);
+}
+
 // Delete from the schedule. With an id: every line of that post, whatever its
 // state. With "waiting": everything not yet opened. With "all": the lot.
 // A DM already sitting in the chat box for a deleted post is taken out too.
@@ -1611,7 +1646,7 @@ async function scheduleTick() {
   } else {
     const text = post.ai.dm_long || post.ai.dm_short;
     await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: due.id, author: post.author, text, screened: true, at: Date.now() } });
-    await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: false });
+    await openSenderTab("https://www.reddit.com/chat/room/create");
   }
   due.state = "opened"; due.openedAt = now;
   await save();

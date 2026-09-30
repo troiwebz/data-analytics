@@ -205,5 +205,28 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   assert.strictEqual(store.hunt.posts.f1.ai.readBody, true);
   assert.strictEqual(ctx.dmReadyFromClaude(store.hunt.posts.f1), true, "after the update it sends by itself");
 
+  // ---- a DM goes out from its own window in front, which closes once the DM is recorded ----
+  const wins = { created: [], removed: [], focused: [] };
+  chrome.windows = {
+    create: async (o) => { const w = { id: 900 + wins.created.length, tabs: [{ id: 800 + wins.created.length }] }; wins.created.push({ ...o, id: w.id }); return w; },
+    remove: async (id) => { wins.removed.push(id); },
+    update: async (id, o) => { if (o && o.focused) wins.focused.push(id); },
+    getLastFocused: async () => ({ id: 7 }),
+  };
+  const realSetTimeout = ctx.setTimeout;
+  ctx.setTimeout = (f) => { f(); return 0; };
+  const tab = await ctx.openSenderTab("https://www.reddit.com/chat/room/create");
+  assert.strictEqual(wins.created.length, 1);
+  assert.strictEqual(wins.created[0].focused, true, "in front, where Reddit Chat actually runs");
+  assert.ok(/chat\/room\/create/.test(wins.created[0].url));
+  assert.strictEqual(tab.id, 800);
+  assert.strictEqual(store.senderWin.prev, 7, "remembers the window you were in");
+  store.hunt.posts.w1 = { id: "w1", author: "user_w1", sub: "cofounder", title: "t", hunt: "cofounder", created: clock, firstSeen: clock };
+  await ctx.huntAct("w1", "dm");
+  assert.deepStrictEqual(wins.removed, [900], "the send window closes once the DM is recorded");
+  assert.deepStrictEqual(wins.focused, [7], "and your own window comes back to the front");
+  assert.strictEqual(store.senderWin, undefined);
+  ctx.setTimeout = realSetTimeout;
+
   console.log("schedule-test: all passed");
 })().catch((e) => { console.error(e); process.exit(1); });

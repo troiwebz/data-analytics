@@ -35,7 +35,7 @@
     const list = Object.values(posts).map((p) => ({ ...p, score: self.huntScore ? self.huntScore(p, Date.now()) : 40 }));
     const badges = {}; for (const p of list) badges[p.badge] = (badges[p.badge] || 0) + 1;
     switch (m.type) {
-      case "hunt-queue": return { queue: list, total: list.length, blocked: 0, later: 0, dupes: 40, aiCancelled: 0, doneToday: 0, doneYesterday: 0, newSince: 4, lastDone: 0,
+      case "hunt-queue": return { queue: list, total: list.length, blocked: 0, later: 0, dupes: 40, aiCancelled: 0, doneToday: 2, doneYesterday: 0, newSince: 4, lastDone: 0,
         lastReport: "scanned 966 posts in 8 subreddits + 2 searches · 0 new co-founder asks · 20 new projects", lastBulk: null, undoReset: 0, skippedTotal: 0, rejectTotal: 398,
         badges, spend: { day: "x", cents: 0, budget: 100 }, lastBackupAt: now - 2 * H, schedule: 3, scheduleAll: 3, scheduleSent: 0, scheduleNext: now + 4 * 60000,
         contactedTotal: 0, contactedToday: 0, on: true, server: null, stale: 0, maxAgeH: 48, me: "Noah_Basera", lastPoll: now - 60000, lastError: "", found: 299,
@@ -55,7 +55,7 @@
       case "inbox-list": return { threads: [], needs: 2 };
       case "hunt-campaign-status": return { ok: true, running: { id: "c1", startedAt: now - H, state: "running", plannedDms: 15, dmsSent: 4, dmsWaiting: 10, dmsOpen: 1, dmsDropped: 0 } };
       case "hunt-campaign-get": return {};
-      case "hunt-done": return { rows: [] };
+      case "hunt-done": return { rows: [{ id: "t3_sentA", title: "Looking for a growth/marketing cofounder to build a portfolio of apps", sub: "cofounderhunt", author: "Exact_Permit_7471", at: now - 20 * 60000, dmAt: now - 20 * 60000 }, { id: "t3_sentB", title: "[Hiring] LinkedIn Outreach Partner - Remote - US$50/month", sub: "forhire", author: "Acesleychan", at: now - 5 * 60000, dmAt: now - 5 * 60000 }] };
       case "hunt-whoami": return { me: "Noah_Basera" };
       default: return { ok: true };
     }

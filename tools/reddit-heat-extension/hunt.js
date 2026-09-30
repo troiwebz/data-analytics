@@ -364,6 +364,7 @@ async function refresh(keepCurrent = true) {
   $("sEver").textContent = r.contactedTotal;
   $("sBlocked").textContent = r.blocked + (r.later ? ` · ${r.later} later` : "") + (r.dupes ? ` · ${r.dupes} cross-posts folded` : "") + (r.aiCancelled ? ` · ${r.aiCancelled} cancelled by AI today` : "");
   $("sDoneToday").textContent = r.doneToday;
+  if ($("sSentToday")) { $("sSentToday").textContent = `✓ ${r.doneToday} sent today`; $("sSentToday").hidden = false; }
   const toGo = r.total;
   const pct = r.doneToday + toGo ? Math.round(100 * r.doneToday / (r.doneToday + toGo)) : 0;
   $("progText").textContent = `Today: ${r.doneToday} done · ${toGo} to go`;
@@ -379,7 +380,8 @@ async function refresh(keepCurrent = true) {
   const hl = r.hiringLane;
   $("sHiring").hidden = !r.on;
   $("sHiring").textContent = !hl ? "Hiring: first check in under 2 min"
-    : `Hiring: checked ${ago(hl.at)}${hl.added ? ` · ${hl.added} new` : ""}${hl.error && !hl.seen ? " · failed" : ""}`;
+    : `Hiring: checked ${ago(hl.at)}${hl.added ? ` · ${hl.added} new` : ""}${hl.error && !hl.seen ? ` · failed: ${String(hl.error).slice(0, 60)}` : ""}`;
+  $("sHiring").title = hl && hl.error ? "last error: " + hl.error : "r/forhire, r/hiring, r/jobbit, r/slavelabour, r/DoneDirtCheap, r/freelance_forhire and a search of all Reddit, every 2 minutes while watching";
   $("sHiring").style.color = hl && hl.error && !hl.seen ? "#ff8a65" : "";
   // always reachable: the schedule is also the record of what was sent, and a
   // chip that disappears when nothing is waiting is a chip nobody can find
@@ -990,7 +992,7 @@ function drawQueueRows() {
   const key = colSort.key && COL_SORT[colSort.key] ? colSort.key : "";
   if (key) rows.sort((a, b) => COL_SORT[key](a.p, b.p) * colSort.dir);
   // no column clicked: the queue keeps the Sort box's order, today's finished ones follow, newest first
-  else rows.sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || (a.done && b.done ? (b.p.at || 0) - (a.p.at || 0) : 0));
+  else rows.sort((a, b) => (b.done ? 1 : 0) - (a.done ? 1 : 0) || (a.done && b.done ? (b.p.at || 0) - (a.p.at || 0) : 0));
   const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const html = rows.map(({ p, done }) => {
     if (done) {

@@ -300,7 +300,7 @@ async function apNext() {
   // The first few after switching on open in front of you, so you watch the
   // chat fill and the 10-second countdown run. Clicking during it stops that one.
   const watch = (await apGet()).watchLeft > 0;
-  try { tabId = (await chrome.tabs.create({ url: "https://www.reddit.com/chat/room/create", active: watch })).id; }
+  try { void watch; tabId = (await openSenderTab("https://www.reddit.com/chat/room/create")).id; }
   catch (e) { await chrome.storage.local.remove("pendingDm"); return apSkip(fresh, "could not open Reddit Chat"); }
   await apSet({ job: { id: fresh.id, author: fresh.author, tabId, startedAt, text, watch } });
   await apLog(watch ? "sending (in front of you)" : "sending", fresh);
