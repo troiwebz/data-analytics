@@ -1,3 +1,4 @@
+import { canonicalThreadUrl } from './feed.js';
 // Reading the thread itself.
 //
 // Everything Claude used to know about a job came from the title and whatever
@@ -93,6 +94,7 @@ export function parseThread(html) {
  * whatever the feed carried, which is how it worked before.
  */
 export async function fetchThread(url) {
+  url = canonicalThreadUrl(url);            // page 1, never …/unread (see feed.js)
   try {
     const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
     if (!res.ok) return { body: '', replies: [] };

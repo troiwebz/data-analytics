@@ -28,6 +28,23 @@ function decode(s) {
 }
 
 /** XenForo thread URLs end in /threads/<slug>.<id>/ */
+/**
+ * A thread's own address, page 1: https://…/slug.1850834/
+ *
+ * Signed in, BHW links a thread you have not finished reading as
+ * …/slug.1850834/unread, which jumps to the first unread post - on page 3 of a
+ * busy thread. Read there, "the first post" was a seller's reply, Claude
+ * screened the buyer's thread as a seller advertising, and the PM never went.
+ * /latest, /page-N, /post-N and #anchors do the same. Everything is read and
+ * linked through this.
+ */
+export function canonicalThreadUrl(url) {
+  const u = String(url || '');
+  const m = u.match(/^(https?:\/\/[^?#]*?\.\d+)(?=\/|$|[?#])/);
+  return m ? `${m[1]}/` : u;
+}
+export const isJumpUrl = (url) => /\.\d+\/(unread|latest|page-\d+|post-\d+)|#post-/.test(String(url || ''));
+
 export function threadIdFromUrl(url) {
   const m = String(url).match(/\/threads\/[^/]*?\.(\d+)/) || String(url).match(/\.(\d+)\/?$/);
   return m ? m[1] : null;

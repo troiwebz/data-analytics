@@ -222,7 +222,8 @@ export const DEFAULT_CONFIG = {
     + 'any payment terms, any kind of work. Say no only when it is not a request at all: a seller advertising their own '
     + 'service, a moderator or rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
   autoModeSince: '',           // when it was last switched on (kept for the report)
-  autoBackfillHours: 72,       // auto mode sends the pending PMs from this far back (3 days)
+  autoBackfillHours: 72,
+  backlogGapMinutes: 6,        // PMs for threads older than 6h go at least this far apart (+ random), after your inbox is checked       // auto mode sends the pending PMs from this far back (3 days)
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
 
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight

@@ -1,3 +1,4 @@
+import { canonicalThreadUrl, isJumpUrl } from './feed.js';
 // Thin persistence layer over chrome.storage.local.
 
 const SEEN_KEY = 'seenThreads';   // { [threadId]: epochMs }
@@ -83,6 +84,7 @@ const EXPENSIVE = ['body', 'replies', 'aiSpecifics', 'aiFrom'];
  * everything else.
  */
 export async function recordLeads(leads) {
+  leads = leads.map((l) => (l && l.url ? { ...l, url: canonicalThreadUrl(l.url) } : l));
   const { [LEADS_KEY]: prev } = await chrome.storage.local.get(LEADS_KEY);
   const byId = new Map();
   for (const l of prev || []) byId.set(String(l.threadId), l);
@@ -328,4 +330,28 @@ export async function removeStagedByTab(tabId) {
   const s = await getStaged();
   for (const [id, e] of Object.entries(s)) if (e.tabId === tabId) delete s[id];
   await chrome.storage.local.set({ [STAGED_KEY]: s });
+}
+
+/**
+ * One-off repair (1.11.3): stored links that jumped to the first unread post.
+ * Every link becomes page 1. A HAF thread not yet messaged whose post was read
+ * through such a link may have been read from a reply, so its post, replies and
+ * verdict are dropped: auto mode reads it again, properly, and judges it again.
+ */
+export async function repairJumpLinks() {
+  const { [LEADS_KEY]: prev, linkFix1 } = await chrome.storage.local.get([LEADS_KEY, 'linkFix1']);
+  if (linkFix1 || !Array.isArray(prev)) return { fixed: 0, reread: 0 };
+  let fixed = 0, reread = 0;
+  const next = prev.map((l) => {
+    if (!l || !isJumpUrl(l.url)) return l;
+    fixed++;
+    const out = { ...l, url: canonicalThreadUrl(l.url) };
+    if (l.kind !== 'thread' && !l.pmSent && !l.autoSendAt && !['POSTED', 'SKIPPED'].includes(l.status)) {
+      reread++;
+      Object.assign(out, { body: '', replies: [], aiSpecifics: null, autoSendBlocked: '', autoRules: 0 });
+    }
+    return out;
+  });
+  await chrome.storage.local.set({ [LEADS_KEY]: next, linkFix1: Date.now() });
+  return { fixed, reread };
 }

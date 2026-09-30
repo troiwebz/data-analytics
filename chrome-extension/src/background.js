@@ -54,7 +54,7 @@ import { fetchConversations, matchLead as matchConversation } from './messages.j
 import { askClaude, writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend, ANGLES, checkLines } from './claude.js';
 import {
-  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
+  getSeen, markSeen, clearSeen, isFirstRun, recordLeads, repairJumpLinks, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
   getStaged, setStaged, removeStagedByTab, dedupeLeads, getTrafficSamples, addTrafficSample, getLog
 } from './store.js';
@@ -204,6 +204,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   const filled = await fillEssentials().catch(() => []);
   if (filled.length) await log(`from your Google account: ${filled.join(', ')}`);
   await settleOldLeads();
+  const links = await repairJumpLinks().catch(() => ({}));
+  if (links.fixed) await log(`thread links: ${links.fixed} pointed at the first UNREAD post (a later page), now page 1; ${links.reread} unsent HAF thread(s) will be read again and re-screened - they may have been judged on a seller's reply`);
   // haf-secrets.json in the extension folder, if there is one: the keys travel
   // with the folder, so a copy onto a new machine configures itself instead of
   // needing the Anthropic key and the Telegram token retyped over RDP. Runs
@@ -3700,6 +3702,48 @@ export async function autoReport(cfg) {
  * window is looked at again under the current rules; on the minute tick only
  * threads never judged are picked up.
  */
+// ---- your inbox, read far enough back ------------------------------------
+//
+// A PM you sent yourself two days ago can be page 3 of your message list. A
+// fixed two pages would miss it and message the buyer twice. So the list is
+// read back to the oldest thread being checked (a PM about a thread cannot be
+// older than the thread), up to INBOX_MAX_PAGES, and kept for a few minutes so
+// one tick reads it once.
+const INBOX_MAX_PAGES = 8;
+let inboxCache = null;
+async function inboxSince(sinceMs, cfg) {
+  const since = Math.max(0, sinceMs - 3600000);
+  if (inboxCache && Date.now() - inboxCache.at < 5 * 60000 && inboxCache.since <= since) return inboxCache.data;
+  const data = await fetchConversations(INBOX_MAX_PAGES, { told: cfg.bhwUsername || cfg.boundAccount || '', since });
+  inboxCache = { at: Date.now(), since, data };
+  return data;
+}
+const threadAt = (l) => new Date(l.postedAt || l.foundAt || 0).getTime() || Date.now();
+
+/**
+ * The preliminary check, before a waiting thread is screened or armed: is it
+ * already done? A PM you sent by hand, or one the list shows that was never
+ * marked here, is marked done now - with the proof - and never screened,
+ * charged or sent. A possible duplicate is left for you. Nothing unreadable is
+ * guessed at: with the list unreadable, the backlog waits.
+ */
+export async function crossCheckDone(leads, cfg) {
+  if (!leads.length) return { done: [], maybe: [], open: [], unread: '' };
+  let inbox;
+  try { inbox = await inboxSince(Math.min(...leads.map(threadAt)), cfg); }
+  catch (e) { return { done: [], maybe: [], open: [], unread: e.message }; }
+  const done = [], maybe = [], open = [];
+  for (const l of leads) {
+    const hit = await duplicateCheck(l, inbox);
+    if (hit.sent) done.push(l);
+    else if (hit.maybe) { maybe.push(l); await updateLead(l.threadId, { autoSendBlocked: `might be a duplicate: ${hit.why || 'a conversation with them exists'}`, autoRules: auto.AUTO_RULES }); }
+    else open.push(l);
+  }
+  if (done.length) await log(`auto mode: ${done.length} waiting thread(s) were already messaged (found in your BHW message list) - marked done, not sent again: ${done.map((l) => `"${String(l.title).slice(0, 40)}"`).join(', ')}`);
+  if (maybe.length) await log(`auto mode: ${maybe.length} waiting thread(s) may already have a PM - left for you`);
+  return { done, maybe, open, unread: '' };
+}
+
 export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   const hours = Number(cfg.autoBackfillHours) || 24;
   const cutoff = Date.now() - hours * 3600000;
@@ -3709,8 +3753,16 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   // Unjudged, or judged under older rules: both are looked at again.
   // Only a refusal can be stale: the rules only ever got looser, so an old "yes" still stands.
   const stale = (l) => !!l.autoSendBlocked && Number(l.autoRules || 0) !== auto.AUTO_RULES;
-  const pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked || stale(l))).sort((a, b) => at(b) - at(a)).slice(0, max);
+  let pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked || stale(l))).sort((a, b) => at(b) - at(a)).slice(0, max);
   if (!pick.length) return { armed: 0, left: 0 };
+  // Already done? Checked against your inbox BEFORE Claude is asked or anything is armed.
+  const pre = await crossCheckDone(pick, cfg);
+  if (pre.unread) {
+    await logOnce('autoInbox', `auto mode: waiting to check ${pick.length} thread(s) - could not read your BHW message list (${pre.unread}), so whether they were already messaged cannot be ruled out`, 'error', 15);
+    return { armed: 0, left: 0, waiting: pick.length };
+  }
+  pick = pre.open;
+  if (!pick.length) return { armed: 0, left: 0, done: pre.done.length };
 
   // Claude's screen, for anything without a current "yes".
   let byId = new Map(pick.map((l) => [String(l.threadId), l]));
@@ -3756,6 +3808,19 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
   }
   if (armed || left) await log(`auto mode: ${armed} pending PM(s) from the last ${hours}h counting down, ${left} left for you${reasons.length ? ` (${reasons.slice(0, 3).join('; ')})` : ''}`);
   return { armed, left, reasons, more: pool.length > pick.length };
+}
+
+/**
+ * How long a backlog PM still has to wait, in ms (0 = go). Threads under 6h
+ * old keep the ordinary spacing; older ones need backlogGapMinutes since the
+ * last PM, stretched by a per-thread 0-60% so the gaps are never regular.
+ */
+export function backlogWait(lead, lastDmAt, cfg, now = Date.now()) {
+  if (!lastDmAt || now - threadAt(lead) < 6 * 3600000) return 0;
+  const base = Math.max(0, Number(cfg.backlogGapMinutes ?? 6)) * 60000;
+  const h = [...String(lead.threadId)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 997, 7) / 997;
+  const need = base * (1 + 0.6 * h);
+  return Math.max(0, lastDmAt + need - now);
 }
 
 export async function runAutoQueue() {
@@ -3806,12 +3871,16 @@ export async function runAutoQueue() {
       await log(`auto mode: holding the PM for "${lead.title}" - ${gate.reason}`);
       continue;      // not a refusal, just not yet - try again on the next tick
     }
+    // A backlog is sent slowly: a thread older than 6h waits a longer, uneven gap after the last PM.
+    const slow = backlogWait(lead, (await getRateState()).lastDmAt, cfg);
+    if (slow) { await logOnce(`backlogGap`, `auto mode: backlog PMs go out slowly - next in about ${Math.ceil(slow / 60000)} min`, 'info', 10); continue; }
 
     // Your message list, read now: a PM you already sent this buyer is never sent twice.
     // Unattended, so "could not read it" is not "nothing there": with the inbox
     // unreadable nothing sends, and it waits for the next tick.
     if (!inbox && !inboxErr) {
-      try { inbox = await fetchConversations(2, { told: cfg.bhwUsername || cfg.boundAccount || '' }); }
+      inboxCache = null;                      // at the moment of sending: always a fresh read
+      try { inbox = await inboxSince(Math.min(...due.map(threadAt)), cfg); }
       catch (e) { inboxErr = e.message; }
     }
     if (!inbox) {

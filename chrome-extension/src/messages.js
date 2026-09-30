@@ -154,7 +154,7 @@ export function titlesMatch(a, b) {
  * Returns the rows and who you are, because deciding whether a conversation
  * proves anything needs both and the username is on the same page.
  */
-export async function fetchConversations(pages = 1, { told = '' } = {}) {
+export async function fetchConversations(pages = 1, { told = '', since = 0 } = {}) {
   const all = [];
   let firstHtml = '';
   for (let p = 1; p <= pages; p++) {
@@ -170,6 +170,9 @@ export async function fetchConversations(pages = 1, { told = '' } = {}) {
     const rows = parseConversations(html);
     all.push(...rows);
     if (rows.length === 0) break;
+    // The list is newest first. Once a whole page is older than the oldest
+    // thread being checked, no PM about that thread can be further back.
+    if (since && rows.every((r) => r.at && new Date(r.at).getTime() < since)) break;
   }
   // Worked out AFTER parsing, because the rows are the best evidence of who
   // you are and they only exist once the page is read.

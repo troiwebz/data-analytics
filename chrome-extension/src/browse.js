@@ -1,3 +1,4 @@
+import { canonicalThreadUrl } from './feed.js';
 // Reading BlackHatWorld the way a member does: in a real tab.
 //
 // A fetch() from the extension carries the cookies but not the rest - no
@@ -73,7 +74,8 @@ export function extractListing() {
     rows.push({
       lastPoster: lastEl ? (lastEl.textContent || '').trim() : '',
       threadId: m[1],
-      url: new URL(a.getAttribute('href'), location.href).href,
+      // Page 1 of the thread, never …/unread (see canonicalThreadUrl in feed.js - inlined, this runs in the page).
+      url: (() => { const u = new URL(a.getAttribute('href'), location.href).href; const c = u.match(/^(https?:\/\/[^?#]*?\.\d+)(?=\/|$|[?#])/); return c ? `${c[1]}/` : u; })(),
       title: (a.textContent || '').trim(),
       author: el.getAttribute('data-author') || '',
       startedAt: iso(el.querySelector('.structItem-startDate time')),
@@ -126,7 +128,16 @@ export function extractThread() {
   const forumNode = keyEl ? String(keyEl.getAttribute('data-container-key')).replace('node-', '') : '';
   const startEl = document.querySelector('.p-description time[data-timestamp]');
   const h1 = document.querySelector('h1.p-title-value');
+  // Which page this is, and who started the thread: the first post on the page
+  // is only the buyer's post on page 1, and only if the starter wrote it.
+  const cur = document.querySelector('.pageNav-page--current');
+  const page = cur ? parseInt(cur.textContent, 10) || 1 : ((location.pathname.match(/\/page-(\d+)/) || [])[1] | 0) || 1;
+  const starterEl = document.querySelector('.p-description .username') || document.querySelector('.p-description [data-user-id]');
+  const starter = starterEl ? (starterEl.textContent || '').trim() : '';
   return {
+    page,
+    starter,
+    firstAuthor: posts.length ? posts[0].author : '',
     title: h1 ? (h1.textContent || '').trim() : '',
     body: posts.length ? posts[0].text : '',
     replies: posts.slice(1).map((p) => ({ author: p.author, text: p.text })),
@@ -169,11 +180,22 @@ const NOISE = new RegExp([
 ].join('|'), 'i');
 const clean = (text) => String(text || '').split('\n').filter((l) => l.trim() && !NOISE.test(l)).join('\n').trim();
 
+/** Was the first post read the thread starter's own, on page 1? Pure. */
+export function opIsFirst(got) {
+  if (!got) return false;
+  if ((got.page || 1) > 1) return false;
+  if (got.starter && got.firstAuthor && got.starter.toLowerCase() !== got.firstAuthor.toLowerCase()) return false;
+  return true;
+}
+
 /** One thread, read in a tab. Same shape thread.js gives, never throws on an unreadable page. */
 export async function readThreadTab(url) {
   try {
-    const got = await readInTab(url, extractThread);
-    return { ...got, body: clean(got.body), replies: (got.replies || []).map((r) => ({ author: r.author, text: clean(r.text) })).filter((r) => r.text) };
+    const got = await readInTab(canonicalThreadUrl(url), extractThread);
+    const out = { ...got, body: clean(got.body), replies: (got.replies || []).map((r) => ({ author: r.author, text: clean(r.text) })).filter((r) => r.text) };
+    // Not the buyer's post: say nothing rather than hand Claude a seller's reply as the brief.
+    if (!opIsFirst(got)) { out.body = ''; out.replies = []; out.notOp = true; }
+    return out;
   } catch (e) {
     if (/blocked/i.test(e.message)) throw e;            // a wall is news; an odd page is not
     return { body: '', replies: [] };

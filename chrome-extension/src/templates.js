@@ -1,3 +1,4 @@
+import { canonicalThreadUrl } from './feed.js';
 import { specificsBlock } from './specifics.js';
 // Reply rendering: seeded spintax, variable substitution, layout variation.
 //
@@ -260,8 +261,8 @@ function render(lead, tpl, seed) {
     budgetLine: lead.budget ? `Your stated budget of ${lead.budget} works for this scope.` : '',
     category: (lead.categoryLabel || lead.category || 'this').toLowerCase(),
     threadTitle: lead.title || '',
-    url: lead.url || '',
-    link: lead.url || '',
+    url: canonicalThreadUrl(lead.url || ''),
+    link: canonicalThreadUrl(lead.url || ''),
     tip: lead.tip || '',
     tips: lead.tips || '',
     question: lead.question || '',
