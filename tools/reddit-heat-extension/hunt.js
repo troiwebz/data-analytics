@@ -369,6 +369,12 @@ async function refresh(keepCurrent = true) {
   $("sPoll").textContent = r.lastError ? "last check failed: " + r.lastError
     : r.lastPoll ? `checked ${ago(r.lastPoll)}${r.server ? " from your server" : ""} · ${r.found} found so far` : "never checked";
   $("sPoll").title = r.lastReport || "";
+  // the Hiring lane: job boards every two minutes
+  const hl = r.hiringLane;
+  $("sHiring").hidden = !r.on;
+  $("sHiring").textContent = !hl ? "Hiring: first check in under 2 min"
+    : `Hiring: checked ${ago(hl.at)}${hl.added ? ` · ${hl.added} new` : ""}${hl.error && !hl.seen ? " · failed" : ""}`;
+  $("sHiring").style.color = hl && hl.error && !hl.seen ? "#ff8a65" : "";
   // always reachable: the schedule is also the record of what was sent, and a
   // chip that disappears when nothing is waiting is a chip nobody can find
   $("schedChip").hidden = false;

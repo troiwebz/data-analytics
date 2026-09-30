@@ -1,10 +1,21 @@
 # Reddit Lead Threads (private Chrome extension)
 
+## Hiring — job boards every 2 minutes (v4.13.0)
+
+While the hunt is watching, a **Hiring** lane reads r/forhire, r/hiring, r/jobbit, r/slavelabour, r/DoneDirtCheap and r/freelance_forhire, plus a search of all of Reddit for hiring posts, **every 2 minutes**. Two requests per check.
+
+- A post is kept only when somebody is **hiring** for one of four kinds of work: **Programming**, **SEO**, **Digital marketing** or **Google Maps**. The kind and any budget show on the card.
+- Dropped: [For Hire] and other sellers, job seekers, co-founder asks, unpaid work, pinned and AutoModerator posts, other kinds of work (design, video, writing), and anything over a day old.
+- They appear on the hunt board under the green **Hiring** badge. The header shows when the lane last checked.
+- **Auto mode does not DM Hiring posts.** They want a quote and a date, so they wait on the board for you. Auto mode stays on co-founder posts.
+
+Test: `node hiring-test.js`.
+
 ## Auto or Manual — one switch (v4.12.1)
 
 On the hunt page, the button next to **Scan now** says **Manual mode** or **AUTO mode**. Click it to change. The same switch is on the icon's **Auto / Manual mode** page, with a log of what it did. No Telegram is needed.
 
-- **Auto mode:** every post the hunt finds *after* the switch gets one private DM by itself. It never writes a public comment.
+- **Auto mode:** every co-founder post the hunt finds *after* the switch gets one private DM by itself. It never writes a public comment. Hiring posts are left for you.
 - **Manual mode:** nothing is sent by itself. You send each DM from the hunt page, as before.
 - A post is messaged only if all of these hold: it is not a moderator's post, Claude screened it and said yes, the DM gap and the daily ceiling allow it, and Reddit Chat confirmed the send. If the Claude screen cannot run or fails, that post is skipped and never retried.
 - The gap between DMs and the daily ceiling are the ones under **Your details**. The wording comes from **AI writing** and **Your details**.

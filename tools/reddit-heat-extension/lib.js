@@ -1058,12 +1058,14 @@ HEAT.classifyProblem = function (title, body) {
 // and what comes back is a badge and a tier, never a yes or a no: a business
 // with the problem is worth seeing even though nobody is hiring yet.
 HEAT.BADGES = [
-  { key: "hiring", label: "Hiring now", colour: "#2ea043", tier: 3, note: "Budget said out loud. Worth a DM with a quote and a date." },
+  { key: "hiring", label: "Hiring", colour: "#2ea043", tier: 3, note: "Somebody hiring for programming, SEO, digital marketing or Google Maps work. Worth a DM with a quote and a date." },
   { key: "cofounder", label: "Co-founder", colour: "#ff5722", tier: 3, note: "A founder looking for a partner." },
   { key: "problem", label: "Has the problem", colour: "#2f80ed", tier: 2, note: "A business with the problem, not yet paying anybody. Answer in the open first." },
 ];
 HEAT.badgeDef = function (key) { return HEAT.BADGES.find((b) => b.key === key) || HEAT.BADGES[1]; };
 HEAT.classifyAny = function (title, body, source) {
+  // the job boards read every two minutes: only people hiring for our four kinds of work
+  if (source === "hiring") return HEAT.classifyHiring(title, body);
   // the co-founder list only ever produces co-founder leads
   if (source !== "project") {
     const c = HEAT.classifyCofounder(title, body);
@@ -1075,6 +1077,39 @@ HEAT.classifyAny = function (title, body, source) {
   if (prob.keep) return { ...prob, badge: "problem", tier: 2 };
   // the more specific reason is the more useful one to show
   return hire.why === "no budget, or unpaid" || hire.why === "nobody is being hired here" ? prob : hire;
+};
+
+// ---- Hiring -------------------------------------------------------------
+// The job boards, read every two minutes (background.js, huntHiringPoll), and
+// one site-wide search for hiring posts in any room. Kept only when somebody is
+// HIRING for one of four kinds of work - programming, SEO, digital marketing,
+// Google Maps - never someone offering themselves.
+HEAT.HIRING_SUBS = ["forhire", "hiring", "jobbit", "slavelabour", "DoneDirtCheap", "freelance_forhire"];
+HEAT.HIRING_QUERY = 'title:hiring (developer OR programmer OR coder OR "web developer" OR seo OR "digital marketing" OR marketer OR "google ads" OR "facebook ads" OR "google maps" OR "google business" OR gmb OR "local seo" OR wordpress OR shopify OR python OR javascript OR react OR automation)';
+// The four kinds, most specific first: a Google Maps job also says "SEO".
+HEAT.HIRING_KINDS = [
+  { key: "maps", label: "Google Maps", re: /\b(?:google maps?|google business(?: profile)?|gbp|gmb|google my business|map pack|maps listing|local seo|local search|citations?|nap)\b/i },
+  { key: "seo", label: "SEO", re: /\b(?:seo|search engine optimi[sz]ation|backlinks?|link building|on[- ]page|off[- ]page|rank(?:ing)? on google|organic traffic|keyword research)\b/i },
+  { key: "marketing", label: "Digital marketing", re: /\b(?:digital marketing|marketer|marketing (?:manager|specialist|agency|expert)|google ads|adwords|ppc|facebook ads|meta ads|instagram ads|tiktok ads|paid ads|paid social|media buyer|social media (?:manager|marketing)|lead gen\w*|email marketing|growth marketer|growth hacker|funnel)\b/i },
+  { key: "programming", label: "Programming", re: /\b(?:developer|programmer|coder|coding|software engineer|engineer|web ?dev\w*|full[- ]?stack|front[- ]?end|back[- ]?end|app developer|mobile app|ios|android|flutter|react(?: native)?|next\.?js|node(?:\.?js)?|javascript|typescript|python|django|flask|php|laravel|ruby|rails|golang|java\b|c#|\.net|wordpress|shopify|webflow|wix|website|web ?site|landing page|api|scraper|scraping|script|bot\b|automation|chrome extension|bug fix\w*|database|sql|devops|aws)\b/i },
+];
+// A hiring post says so: the board's own tag, or the words.
+const HIRING_ASK = /\[\s*(?:hiring|task|paid|job|request|looking)\s*\]|\bhiring\b|\blooking (?:for|to hire)\b|\bneed(?:ed|ing)? (?:an? |some ?one |somebody |help |a team )|\bseeking (?:an? |some ?one )|\bwant(?:ed)? (?:an? |some ?one )|\bwho can (?:build|make|fix|do|help)\b|\bpay(?:ing)? (?:some ?one|for|\$)/i;
+// Offering, not hiring. [For Hire] is the board's tag for a seller.
+const HIRING_OFFER = /\[\s*for ?hire\s*\]|\bfor hire\b|\[\s*offer(?:ing)?\s*\]|\bavailable for (?:work|hire|projects|freelance)\b|\bopen to (?:work|projects|new clients)\b|\bi(?:'m| am) (?:a|an) (?:freelance|experienced|professional|senior|junior|full[- ]?stack|web|seo|marketing)\b|\b(?:we|i) offer\b|\bmy (?:services|portfolio|rates)\b|\bhire (?:me|us)\b|\btaking on (?:new )?clients\b/i;
+HEAT.classifyHiring = function (title, body) {
+  const t = String(title || "");
+  const all = (t + "\n" + String(body || "").slice(0, 2000));
+  if (HIRING_OFFER.test(t)) return { keep: false, why: "offering, not hiring" };
+  if (HUNT_JOBSEEKER.test(t)) return { keep: false, why: "looking for a job" };
+  if (/\bco[- ]?founder\b|\bcofounder\b/i.test(t)) return { keep: false, why: "a co-founder ask" };
+  if (!HIRING_ASK.test(t) && !HIRING_ASK.test(all.slice(0, 400))) return { keep: false, why: "nobody is being hired here" };
+  if (HIRING_OFFER.test(all.slice(0, 300)) && !/\[\s*hiring\s*\]/i.test(t)) return { keep: false, why: "offering, not hiring" };
+  if (PROJECT_NO_MONEY.test(all)) return { keep: false, why: "no budget, or unpaid" };
+  const hit = HEAT.HIRING_KINDS.find((k) => k.re.test(t)) || HEAT.HIRING_KINDS.find((k) => k.re.test(all));
+  if (!hit) return { keep: false, why: "not programming, SEO, digital marketing or Google Maps" };
+  const budget = (all.match(/[$£€]\s?\d[\d,.]*\s?k?(?:\s?(?:\/\s?h(?:ou)?r|per hour|an hour|\/mo|per month|a month|monthly|fixed))?/i) || [""])[0].trim();
+  return { keep: true, why: "", role: "hiring", kind: hit.label, hiringKind: hit.key, budget, paid: !!budget, stage: budget ? "has budget" : "", hasBudget: !!budget, equityOnly: false, badge: "hiring", tier: 3 };
 };
 
 HEAT.classifyProject = function (title, body) {

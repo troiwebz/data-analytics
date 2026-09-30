@@ -185,6 +185,7 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "hunt-window") { huntSet({ maxAgeH: msg.hours || 48 }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-me") { huntSet({ me: (msg.me || "").replace(/^\/?u\//, "").trim() }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "hunt-contacted") { huntGet().then((st) => reply({ rows: Object.entries(st.contacted).map(([user, c]) => ({ user, ...c })).sort((a, b) => b.at - a.at) })); return true; }
+  if (msg.type === "hunt-hiring-poll") { huntHiringPoll().then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-poll") { huntPoll(true).then(reply).catch((e) => reply({ ok: false, error: String(e) })); return true; }
   if (msg.type === "hunt-on") { huntSet({ on: !!msg.on }).then(() => { huntArm(!!msg.on); if (msg.on) huntPoll(true); reply({ ok: true }); }); return true; }
   if (msg.type === "hunt-subs") { huntSet({ subs: msg.subs && msg.subs.length ? msg.subs : HUNT_SUBS, perTick: msg.perTick || 4 }).then(() => reply({ ok: true })); return true; }
@@ -591,6 +592,7 @@ async function huntGet() {
     rejects: Array.isArray(hunt.rejects) ? hunt.rejects : [],
     target: hunt.target === "project" ? "project" : "cofounder",
     projectSubs: hunt.projectSubs && hunt.projectSubs.length ? hunt.projectSubs : PROJECT_SUBS,
+    hiringLane: hunt.hiringLane || null,
   };
 }
 async function huntSet(patch) {
@@ -600,6 +602,58 @@ async function huntSet(patch) {
 function huntArm(on) {
   if (on) chrome.alarms.create(HUNT_ALARM, { periodInMinutes: 1, delayInMinutes: 0.1 });
   else chrome.alarms.clear(HUNT_ALARM);
+  // the Hiring lane: the job boards every two minutes, while the hunt is watching
+  if (on) chrome.alarms.create(HIRING_ALARM, { periodInMinutes: 2, delayInMinutes: 0.3 });
+  else chrome.alarms.clear(HIRING_ALARM);
+}
+const HIRING_ALARM = "hunt-hiring";
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === HIRING_ALARM) huntHiringPoll().catch(() => {}); });
+
+// The Hiring lane: two requests every two minutes. One reads the newest posts
+// of all the job boards at once, the other searches all of Reddit for hiring
+// posts in our four kinds of work. Only posts under a day old are kept.
+let hiringBusy = false;
+async function huntHiringPoll() {
+  if (hiringBusy) return { ok: false, error: "already reading" };
+  const st0 = await huntGet();
+  if (!st0.on) return { ok: false, error: "hunt is off" };
+  // a full sweep writes the whole database at its end; stay out of its way
+  const { scanState } = await chrome.storage.local.get(["scanState"]);
+  if (scanState && scanState.running && Date.now() - (scanState.at || 0) < 10 * 60000) return { ok: false, error: "a sweep is running" };
+  hiringBusy = true;
+  try {
+    const urls = [
+      `https://old.reddit.com/r/${HIRING_SUBS.join("+")}/new.json?limit=100&raw_json=1`,
+      `https://old.reddit.com/search.json?q=${encodeURIComponent(HIRING_QUERY)}&sort=new&t=day&limit=100&raw_json=1`,
+    ];
+    const found = [];
+    let seen = 0, error = "";
+    for (const url of urls) {
+      try {
+        const j = await huntFetch(url);
+        for (const child of (j && j.data && j.data.children) || []) {
+          seen += 1;
+          const cand = huntCandidate(child, null, "hiring");
+          if (!cand) continue;
+          if (cand.created && Date.now() - cand.created > 24 * 3600000) continue;
+          found.push(cand);
+        }
+      } catch (e) { error = String(e.message || e); }
+      await sleep(1500);
+    }
+    // read the database fresh and add only what is new, so nothing written meanwhile is lost
+    const st = await huntGet();
+    let added = 0;
+    for (const cand of found) {
+      if (st.posts[cand.id]) continue;
+      st.posts[cand.id] = cand;
+      added += 1;
+    }
+    const lane = { at: Date.now(), seen, added, error };
+    if (added) await huntSet({ posts: st.posts, found: st.found + added, hiringLane: lane });
+    else await huntSet({ hiringLane: lane });
+    return { ok: !error || seen > 0, added, seen, error };
+  } finally { hiringBusy = false; }
 }
 
 // Reddit answers 403 to JSON asked for by an extension worker: no cookies, no
@@ -657,8 +711,8 @@ function huntCandidate(child, why, target) {
   if (!author || author === "[deleted]" || /^automoderator$/i.test(author)) return null;
   const title = d.title || "", body = d.selftext || "";
   // which hunt this post is being judged for: the list it came from decides
-  const hunt = target === "project" ? "project" : "cofounder";
-  const c = classifyAny(title, body, hunt);
+  const hunt = target === "project" || target === "hiring" ? "project" : "cofounder";
+  const c = classifyAny(title, body, target === "hiring" ? "hiring" : hunt);
   if (!c.keep) {
     // Kept, in short, so the 88 posts a scan throws away are not invisible.
     if (why) why.push({ id: d.name || ("t3_" + d.id), author, sub: d.subreddit || "", title, hunt,
@@ -681,6 +735,7 @@ function huntCandidate(child, why, target) {
     distinguished: d.distinguished || "",   // "moderator" / "admin": the autopilot never messages these
     role: c.role, stage: c.stage, equityOnly: c.equityOnly, hasBudget: c.hasBudget,
     hunt, badge: c.badge || "cofounder", tier: c.tier || 2, kind: c.kind || "", budget: c.budget || "",
+    source: target === "hiring" ? "hiring" : "", hiringKind: c.hiringKind || "",
     firstSeen: Date.now(),
   };
 }
@@ -797,7 +852,17 @@ async function huntPoll(force) {
     .filter((r) => Date.now() - (r.created || r.at || 0) < 7 * 86400000)
     .slice(0, 400);
   await chrome.storage.local.set({ scanState: { running: false, at: Date.now(), done: ok, total: urls.length, seen, found: added, where: "", stop: false } });
-  await huntSet({ posts, rejects: keptRejects, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
+  // Merge with what is stored now: the Hiring lane and your own clicks may have
+  // written while this sweep was reading, and a sweep must not undo them.
+  const latest = (await huntGet()).posts;
+  const merged = { ...posts };
+  for (const [id, p] of Object.entries(latest)) {
+    merged[id] = posts[id] ? { ...p, comments: posts[id].comments, ups: posts[id].ups } : p;
+  }
+  for (const [id, p] of Object.entries(merged)) {
+    if (!p.act && !p.repliedAt && !p.dmAt && (p.created || p.firstSeen || 0) < cutoff) delete merged[id];
+  }
+  await huntSet({ posts: merged, rejects: keptRejects, cursor: (st.cursor + n) % subs.length, lastPoll: Date.now(), lastError: ok ? "" : error, found: st.found + added, lastReport: report });
   return { ok: true, added, seen, known, dropped, checked: ok, error: ok ? "" : error, report };
 }
 
@@ -927,6 +992,7 @@ async function huntQueue(limit = 40) {
     lastPoll: st.lastPoll,
     lastError: st.lastError,
     found: st.found,
+    hiringLane: st.hiringLane || null,
   };
 }
 

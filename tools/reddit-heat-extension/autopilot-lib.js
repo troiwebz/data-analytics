@@ -43,6 +43,9 @@
     if ((p.firstSeen || 0) < since) return "found before autopilot was switched on";
     if (p.act) return "skipped";
     if (p.dmAt) return "already messaged";
+    // Auto mode is for the co-founder hunt. Hiring and project posts want a
+    // quote and a date, so they wait on the board for you.
+    if (p.hunt && p.hunt !== "cofounder") return "a Hiring or project post, left for you";
     if (p.mine) return "you already commented there";
     if (p.laterUntil && p.laterUntil > now) return "snoozed";
     if (p.created && now - p.created > maxAgeH * 3600000) return "too old";
