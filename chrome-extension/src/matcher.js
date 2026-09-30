@@ -22,6 +22,7 @@ export function isExcludedThread(item, cfg) {
   const authors = (cfg?.excludeAuthors || []).map((a) => String(a).toLowerCase());
   if (item.author && authors.includes(String(item.author).toLowerCase())) return true;
   if (item.sticky) return true;
+  if (item.staff) return true;          // started by a moderator or admin account (the listing marks them)
   return false;
 }
 

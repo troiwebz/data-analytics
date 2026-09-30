@@ -230,9 +230,10 @@ export const DEFAULT_CONFIG = {
   // sharpSeconds (never under 60) instead of every pollMinutes, and a found
   // thread's PM waits sharpWaitMin-sharpWaitMax seconds instead of 1-3
   // minutes. Everything else stays on the slow check. One BHW wall and it
-  // stands down for two hours. "sharp off" on Telegram switches it off.
+  // stands down for two hours. OFF until you send "sharp on" to the bot -
+  // reading faster is a choice, never a side effect of an update.
   // See src/sharp.js.
-  sharpLane: true,
+  sharpLane: false,
   sharpSeconds: 75,
   sharpWaitMin: 25,
   sharpWaitMax: 50,
