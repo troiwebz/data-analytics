@@ -337,21 +337,21 @@ export const MAX_WRITING = 12000;
 const angle = (title, text) => `${DEFAULT_WRITING}\n\nANGLE FOR THIS ACCOUNT - ${title}.\n${text}\n`
   + 'Every rule above still applies in full. The angle decides only what leads and how the 3 lines divide the work.';
 export const ANGLES = [
-  { id: 'proof', label: 'Proof first', summary: 'leads with the closest thing we have done to this exact job',
+  { id: 'proof', label: 'Proof first', format: 'points', summary: 'leads with the closest thing we have done to this exact job',
     text: angle('PROOF FIRST', [
       'Line 1 states, as a plain fact, the closest thing we have already done to this exact job: the same market,',
       'platform, niche or volume. Only what "About the writer" or the post supports; with nothing to go on, state',
       'the capability instead and never invent a past client or a number.',
       'Line 2 answers the hardest constraint in the post. Line 3 names the deliverable exactly as they would check it.'
     ].join('\n')) },
-  { id: 'gap', label: 'The missing piece', summary: 'leads with the part of the request nobody on the thread has answered',
+  { id: 'gap', label: 'The missing piece', format: 'paragraph', summary: 'leads with the part of the request nobody on the thread has answered',
     text: angle('THE MISSING PIECE', [
       'Line 1 answers the part of the buyer\'s request that no reply on the thread has addressed yet (see',
       '"STILL UNANSWERED"). With no replies, or nothing unanswered, it answers the part the post stresses most.',
       'Never lead with anything the other replies already promise. Lines 2 and 3 show we also cover the rest',
       'of the job, most important first.'
     ].join('\n')) },
-  { id: 'method', label: 'How we deliver', summary: 'leads with the concrete steps, sources and checks of the work',
+  { id: 'method', label: 'How we deliver', format: 'steps', summary: 'leads with the concrete steps, sources and checks of the work',
     text: angle('HOW WE DELIVER', [
       'Each line names one concrete part of how we would do this exact job, in the order we would do it:',
       'line 1 the step that decides whether it works, line 2 how we build or source it (named platforms,',

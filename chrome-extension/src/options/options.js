@@ -1,8 +1,9 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
 import { RATES, DEFAULT_WRITING, LOCKED_PROMPT, MAX_WRITING, ANGLES } from '../claude.js';
+import { dmStyleList } from '../templates.js';
 
-const PLAIN = ['boundAccount', 'bhwUsername', 'screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
+const PLAIN = ['boundAccount', 'bhwUsername', 'dmStyle', 'screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
 const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHours', 'notifyScore', 'maxPostsPerDay',
             'minSecondsBetweenPosts', 'maxDmsPerDay', 'minSecondsBetweenDms', 'announceMaxAgeHours',
@@ -47,6 +48,7 @@ function fill(cfg) {
   $('claudeWriting').value = cfg.claudeWriting || '';
   writingState();
   accountState();
+  styleHelp();
   NUM.forEach((k) => ($(k).value = cfg[k] ?? 0));
   BOOL.forEach((k) => ($(k).checked = !!cfg[k]));
   JSONF.forEach((k) => ($(k).value = JSON.stringify(cfg[k], null, 2)));
@@ -133,20 +135,26 @@ $('boundAccount').addEventListener('input', accountState);
 
 // ---- angles + "Check the output" -------------------------------------------
 const angleOf = (text) => ANGLES.find((a) => a.text.trim() === String(text || '').trim());
-function useText(text, label) {
+const STYLES = dmStyleList();
+const styleLabel = (id) => (STYLES.find((x) => x.id === (id || '')) || STYLES[0]).label;
+$('dmStyle').innerHTML = STYLES.map((x) => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+const styleHelp = () => { $('dmStyleHelp').textContent = (STYLES.find((x) => x.id === $('dmStyle').value) || STYLES[0]).summary; };
+$('dmStyle').addEventListener('change', styleHelp);
+function useText(text, label, format) {
   const cur = $('claudeWriting').value.trim();
   if (cur && cur !== text.trim() && cur !== DEFAULT_WRITING.trim() && !angleOf(cur)
       && !confirm(`Replace your own prompt in the box with "${label}"?`)) return;
   $('claudeWriting').value = text;
+  if (format != null) { $('dmStyle').value = format; styleHelp(); }
   writingState();
-  status(`"${label}" is in the box - press Save to use it for this account.`);
+  status(`"${label}"${format != null ? ` with the ${styleLabel(format)} format` : ''} is set - press Save to use it for this account.`);
 }
 $('angleBtns').innerHTML = ANGLES.map((a) =>
   `<button class="sec" data-angle="${a.id}" style="flex:0 0 auto" title="${esc(a.summary)}">${esc(a.label)}</button>`).join('');
-$('angleHelp').innerHTML = ANGLES.map((a) => `<b>${esc(a.label)}</b>: ${esc(a.summary)}`).join('<br>');
+$('angleHelp').innerHTML = ANGLES.map((a) => `<b>${esc(a.label)}</b> (${esc(styleLabel(a.format))} format): ${esc(a.summary)}`).join('<br>');
 $('angleBtns').addEventListener('click', (e) => {
   const a = ANGLES.find((x) => x.id === e.target?.dataset?.angle);
-  if (a) useText(a.text, a.label);
+  if (a) useText(a.text, a.label, a.format);
 });
 const writingStateBase = writingState;
 writingState = function () {
@@ -168,7 +176,7 @@ function card(r, useLabel) {
   const clean = !r.problems.length;
   const verdict = r.pm === 'yes' ? `<span style="color:#16a34a">PM: yes</span>` : `<span style="color:#dc2626">PM: ${esc(r.pm || 'no verdict')}</span>`;
   return `<div style="border:1px solid ${clean ? '#bbf7d0' : '#fde68a'};background:#fff;border-radius:8px;padding:10px;min-width:0">
-    <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>${esc(r.label)}</b>
+    <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>${esc(r.label)}</b> <span class="hint">· ${esc(styleLabel(r.dmStyle))} format</span>
       <span class="hint">${verdict} · ${esc(r.why || '')}</span></div>
     <div style="margin:6px 0;font-size:12px;color:${clean ? '#16a34a' : '#b45309'}">${clean ? '✓ every rule kept' : '⚠ ' + r.problems.map(esc).join('; ')}</div>
     <ol style="margin:0 0 6px 18px;padding:0;font-size:13px">${(r.tips || []).map((t) => `<li>${esc(t)} <span class="hint">(${t.length})</span></li>`).join('')}</ol>
@@ -193,14 +201,14 @@ async function comparePrompts(variants, withUse) {
   } finally { for (const b of ['previewAngles', 'previewBox']) $(b).disabled = false; }
 }
 $('previewAngles').addEventListener('click', () =>
-  comparePrompts(ANGLES.map((a) => ({ id: a.id, label: a.label, text: a.text })), true));
+  comparePrompts(ANGLES.map((a) => ({ id: a.id, label: a.label, text: a.text, dmStyle: a.format })), true));
 $('previewBox').addEventListener('click', () => {
   const t = $('claudeWriting').value.trim();
-  comparePrompts([{ id: 'box', label: t ? (angleOf(t)?.label || 'Your prompt') : 'Built-in prompt', text: t }], false);
+  comparePrompts([{ id: 'box', label: t ? (angleOf(t)?.label || 'Your prompt') : 'Built-in prompt', text: t, dmStyle: $('dmStyle').value }], false);
 });
 $('previewOut').addEventListener('click', (e) => {
   const a = ANGLES.find((x) => x.id === e.target?.dataset?.use);
-  if (a) useText(a.text, a.label);
+  if (a) useText(a.text, a.label, a.format);
 });
 
 $('test').addEventListener('click', async () => {

@@ -154,6 +154,46 @@ ok('the rule check passes clean lines', claude.checkLines(['We build UK citation
   ok('and flags each broken rule', p.some((x) => /line 1 does not start/.test(x)) && p.some((x) => /line 2 has a dash/.test(x))
      && p.some((x) => /line 3 offers free/.test(x)) && p.some((x) => /line 3 is \d+ characters/.test(x)) && p.some((x) => /guarantee/.test(x)), p); }
 
+// --- PM formats: a different skeleton per account, same method, same rules ---------
+{
+  const { renderDm, DM_STYLES, dmStyleList } = await import('../src/templates.js');
+  const { DEFAULT_CONFIG } = await import('../src/config.js');
+  const { lintDraft } = await import('../src/compliance.js');
+  const tips = ['We have run local citation builds for UK agencies at volume.', 'We can verify GMB listings for US and UK locations.', 'We deliver a sheet of every live citation with its URL.'];
+  const ids = Object.keys(DM_STYLES);
+  ok('at least 3 formats besides your own', ids.length >= 3 && dmStyleList()[0].id === '');
+  ok('each angle comes with its own format', new Set(claude.ANGLES.map((a) => a.format)).size === claude.ANGLES.length && claude.ANGLES.every((a) => ids.includes(a.format)));
+  const bad = [];
+  const firsts = {};
+  for (const st of ['', ...ids]) {
+    for (let n = 0; n < 40; n++) {
+      for (const offer of ['pilot', 'ready', 'formula', 'terms']) {
+        for (const category of ['seo', 'ads', 'generic']) {
+          const lead = { threadId: String(1850000 + n), author: `buyer${n}`, url: `https://www.blackhatworld.com/seo/t.${1850000 + n}/`, category, aiSpecifics: { tips, offer } };
+          const dm = renderDm(lead, { ...DEFAULT_CONFIG, dmStyle: st });
+          const lint = lintDraft(dm, DEFAULT_CONFIG.compliance);
+          const why = [];
+          if (!dm.includes(lead.url)) why.push('no thread link');
+          if (!dm.includes(lead.author)) why.push('no name');
+          if (!tips.every((t) => dm.includes(t.replace(/\.$/, '').replace(/^We can /, 'We can').slice(10, 40)))) why.push('lines missing');
+          if (offer !== 'terms' && !/upfront/i.test(dm)) why.push('no upfront line');
+          if (!/reply/i.test(dm)) why.push('no reply ask');
+          if (!lint.ok || lint.warnings.length) why.push(...lint.errors, ...lint.warnings);
+          if (/\{\{|\}\}|\{[^}]*\|/.test(dm)) why.push('unfilled template');
+          if (/\bfree\b|guarantee|\$\d/i.test(dm)) why.push('free / guarantee / price');
+          if (why.length) bad.push(`${st || 'classic'} ${offer} ${category} #${n}: ${why.join(', ')}`);
+          if (n === 0 && offer === 'pilot' && category === 'seo') firsts[st || 'classic'] = dm;
+        }
+      }
+    }
+  }
+  ok('every format, every close, every service: link, name, 3 lines, upfront line, reply ask, rules clean', !bad.length, bad.slice(0, 4));
+  const shapes = Object.values(firsts).map((d) => d.split('\n')[0].replace(/buyer0/, '') + '|' + d.split('\n').slice(-1)[0] + '|' + (d.match(/^(\d\.|- |Step \d)/m) || ['prose'])[0]);
+  ok('the formats open, lay out and sign off differently', new Set(shapes).size === shapes.length, shapes);
+  ok('the paragraph format has no heading and no list', !/Why We Can Do It|^\s*(\d\.|- |Step)/m.test(firsts.paragraph), firsts.paragraph);
+  ok('the paragraph reads on - "We also" rather than three "We" openers', /We (can |have )?also /.test(firsts.paragraph), firsts.paragraph);
+}
+
 // --- a new PC restoring settings from sync never takes the other account's name ---
 here = 'fresh';
 machines.fresh = {};

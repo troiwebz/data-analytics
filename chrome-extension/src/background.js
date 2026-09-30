@@ -578,8 +578,8 @@ export async function previewPrompts(threadId, variants) {
     const { specifics, note } = await writeSpecifics([claudePayload(lead)], { ...cfg, aiSpecifics: true, claudeWriting: v.text || '' });
     const spec = specifics[String(lead.threadId)];
     if (!spec) { out.push({ id: v.id, label: v.label, error: note || 'Claude gave no usable answer' }); continue; }
-    const e = enrich(lead, cfg, lead.status, spec);
-    out.push({ id: v.id, label: v.label, tips: spec.tips, pm: spec.pm, why: spec.why, offer: spec.offer, question: spec.question,
+    const e = enrich(lead, { ...cfg, dmStyle: v.dmStyle ?? cfg.dmStyle }, lead.status, spec);
+    out.push({ id: v.id, label: v.label, dmStyle: v.dmStyle ?? cfg.dmStyle, tips: spec.tips, pm: spec.pm, why: spec.why, offer: spec.offer, question: spec.question,
       dm: e.dm, publicReply: e.draft, problems: [...checkLines(spec.tips), ...((e.dmLint?.errors) || [])] });
   }
   return { thread: { title: lead.title, author: lead.author, url: lead.url, read: !!String(lead.body || '').trim() }, results: out };

@@ -76,7 +76,7 @@ export const ESSENTIAL = ['telegramChatId', 'bhwUsername', 'timezone'];
 // Who you are on BHW is per machine once you run two accounts: another PC's
 // name, copied in, would make this one send as the wrong person. These never
 // come across from sync when this copy is (or the synced one was) tied.
-export const PER_ACCOUNT = ['boundAccount', 'bhwUsername', 'claudeWriting'];
+export const PER_ACCOUNT = ['boundAccount', 'bhwUsername', 'claudeWriting', 'dmStyle'];
 export async function fillEssentials() {
   const { config } = await chrome.storage.local.get('config');
   const synced = await readSynced();

@@ -239,6 +239,8 @@ export const DEFAULT_CONFIG = {
   // Claude's writing instructions for this account ('' = the built-in ones).
   // The screen verdict and answer format are always added after it.
   claudeWriting: '',
+  // The PM's format for this account ('' = your own dmTemplates; points / paragraph / steps).
+  dmStyle: '',
 
   // Telegram is for threads worth acting on NOW. Anything older than this is
   // on the dashboard and does not need to buzz your phone - a thread from two
