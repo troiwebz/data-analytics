@@ -1,6 +1,6 @@
 import { getConfig, setConfig, DEFAULT_CONFIG } from '../config.js';
 import { ping } from '../sync.js';
-import { RATES, DEFAULT_WRITING, LOCKED_PROMPT, MAX_WRITING } from '../claude.js';
+import { RATES, DEFAULT_WRITING, LOCKED_PROMPT, MAX_WRITING, ANGLES } from '../claude.js';
 
 const PLAIN = ['boundAccount', 'bhwUsername', 'screenRules', 'readMode', 'sleepStart', 'sleepEnd', 'webhookUrl', 'sharedSecret', 'feedUrl', 'telegramChatId', 'sound', 'soundHot', 'brief', 'telegramSend', 'timezone',
               'nightStart', 'nightEnd'];
@@ -16,6 +16,7 @@ const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeA
               'templates', 'offers', 'dmTemplates', 'compliance', 'specifics',
               'serviceThreads', 'bumpTemplates'];
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // The two source lists are plain lines, not JSON: "url | label | bump" and
 // "word | bump". Easier to type on the phone-sized box than brackets.
@@ -95,7 +96,7 @@ $('save').addEventListener('click', save);
 
 // ---- account + Claude prompt ----------------------------------------------
 $('lockedPrompt').textContent = LOCKED_PROMPT;
-function writingState() {
+let writingState = function () {
   const v = $('claudeWriting').value.trim();
   $('writingState').textContent = !v ? 'Using the built-in prompt.'
     : v === DEFAULT_WRITING.trim() ? 'Same as the built-in (saved as empty).'
@@ -129,6 +130,78 @@ async function accountState() {
   el.innerHTML = parts.join(' ');
 }
 $('boundAccount').addEventListener('input', accountState);
+
+// ---- angles + "Check the output" -------------------------------------------
+const angleOf = (text) => ANGLES.find((a) => a.text.trim() === String(text || '').trim());
+function useText(text, label) {
+  const cur = $('claudeWriting').value.trim();
+  if (cur && cur !== text.trim() && cur !== DEFAULT_WRITING.trim() && !angleOf(cur)
+      && !confirm(`Replace your own prompt in the box with "${label}"?`)) return;
+  $('claudeWriting').value = text;
+  writingState();
+  status(`"${label}" is in the box - press Save to use it for this account.`);
+}
+$('angleBtns').innerHTML = ANGLES.map((a) =>
+  `<button class="sec" data-angle="${a.id}" style="flex:0 0 auto" title="${esc(a.summary)}">${esc(a.label)}</button>`).join('');
+$('angleHelp').innerHTML = ANGLES.map((a) => `<b>${esc(a.label)}</b>: ${esc(a.summary)}`).join('<br>');
+$('angleBtns').addEventListener('click', (e) => {
+  const a = ANGLES.find((x) => x.id === e.target?.dataset?.angle);
+  if (a) useText(a.text, a.label);
+});
+const writingStateBase = writingState;
+writingState = function () {
+  writingStateBase();
+  const a = angleOf($('claudeWriting').value);
+  if (a) $('writingState').textContent = `Angle: ${a.label} (built-in rules + this angle).`;
+};
+
+(async () => {
+  const r = await chrome.runtime.sendMessage({ cmd: 'prompt-threads' }).catch(() => null);
+  const list = r?.list || [];
+  $('previewThread').innerHTML = list.length
+    ? list.map((t) => `<option value="${esc(t.threadId)}">${esc(String(t.title || '').slice(0, 90))} - ${esc(t.author || '')}</option>`).join('')
+    : '<option value="">No Hire a Freelancer threads yet - wait for the first check</option>';
+})();
+
+function card(r, useLabel) {
+  if (r.error) return `<div style="border:1px solid #fecaca;background:#fff;border-radius:8px;padding:10px"><b>${esc(r.label)}</b><div style="color:#dc2626;margin-top:6px">${esc(r.error)}</div></div>`;
+  const clean = !r.problems.length;
+  const verdict = r.pm === 'yes' ? `<span style="color:#16a34a">PM: yes</span>` : `<span style="color:#dc2626">PM: ${esc(r.pm || 'no verdict')}</span>`;
+  return `<div style="border:1px solid ${clean ? '#bbf7d0' : '#fde68a'};background:#fff;border-radius:8px;padding:10px;min-width:0">
+    <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>${esc(r.label)}</b>
+      <span class="hint">${verdict} · ${esc(r.why || '')}</span></div>
+    <div style="margin:6px 0;font-size:12px;color:${clean ? '#16a34a' : '#b45309'}">${clean ? '✓ every rule kept' : '⚠ ' + r.problems.map(esc).join('; ')}</div>
+    <ol style="margin:0 0 6px 18px;padding:0;font-size:13px">${(r.tips || []).map((t) => `<li>${esc(t)} <span class="hint">(${t.length})</span></li>`).join('')}</ol>
+    <details><summary class="hint" style="cursor:pointer">The full PM it would send</summary>
+      <pre style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border-radius:6px;padding:8px;margin:6px 0 0">${esc(r.dm || '')}</pre></details>
+    ${r.question ? `<div class="hint" style="margin-top:6px">Ask after they reply: ${esc(r.question)}</div>` : ''}
+    ${useLabel ? `<button class="sec" data-use="${esc(r.id)}" style="margin-top:8px">Use this one</button>` : ''}
+  </div>`;
+}
+async function comparePrompts(variants, withUse) {
+  const threadId = $('previewThread').value;
+  if (!threadId) return;
+  $('previewOut').innerHTML = '';
+  $('previewState').textContent = `Asking Claude ${variants.length} time(s) - reading the thread first if needed, 20-60 seconds…`;
+  for (const b of ['previewAngles', 'previewBox']) $(b).disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ cmd: 'prompt-preview', threadId, variants });
+    if (!r || r.error) { $('previewState').textContent = `Could not preview: ${r?.error || 'no answer'}`; return; }
+    $('previewState').innerHTML = `On <a href="${esc(r.thread.url)}" target="_blank">${esc(r.thread.title)}</a>`
+      + (r.thread.read ? '' : ' <b>(post could not be read - title only)</b>');
+    $('previewOut').innerHTML = r.results.map((x) => card(x, withUse)).join('');
+  } finally { for (const b of ['previewAngles', 'previewBox']) $(b).disabled = false; }
+}
+$('previewAngles').addEventListener('click', () =>
+  comparePrompts(ANGLES.map((a) => ({ id: a.id, label: a.label, text: a.text })), true));
+$('previewBox').addEventListener('click', () => {
+  const t = $('claudeWriting').value.trim();
+  comparePrompts([{ id: 'box', label: t ? (angleOf(t)?.label || 'Your prompt') : 'Built-in prompt', text: t }], false);
+});
+$('previewOut').addEventListener('click', (e) => {
+  const a = ANGLES.find((x) => x.id === e.target?.dataset?.use);
+  if (a) useText(a.text, a.label);
+});
 
 $('test').addEventListener('click', async () => {
   status('testing…');
@@ -218,7 +291,6 @@ function showAi(r, err) {
       : '<br><span class="hint">Enter what you topped up below and this becomes a balance countdown.</span>');
 }
 
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** The worker owns the key; the page only ever asks it for status. */
 const ai = (cmd, extra = {}) => chrome.runtime.sendMessage({ cmd, ...extra });

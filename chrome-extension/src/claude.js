@@ -330,6 +330,56 @@ export const LOCKED_PROMPT = CONTRACT_LINES.join('\n');
 const SYSTEM = [...WRITING_LINES, '', ...CONTRACT_LINES].join('\n');
 export const MAX_WRITING = 12000;
 
+// Three ready-made angles for Settings → Claude prompt. Each is the built-in
+// prompt, every rule intact, plus one paragraph that changes only what line 1
+// leads with and how the three lines are shared out. Pick one per account so
+// two accounts answering the same thread never read alike.
+const angle = (title, text) => `${DEFAULT_WRITING}\n\nANGLE FOR THIS ACCOUNT - ${title}.\n${text}\n`
+  + 'Every rule above still applies in full. The angle decides only what leads and how the 3 lines divide the work.';
+export const ANGLES = [
+  { id: 'proof', label: 'Proof first', summary: 'leads with the closest thing we have done to this exact job',
+    text: angle('PROOF FIRST', [
+      'Line 1 states, as a plain fact, the closest thing we have already done to this exact job: the same market,',
+      'platform, niche or volume. Only what "About the writer" or the post supports; with nothing to go on, state',
+      'the capability instead and never invent a past client or a number.',
+      'Line 2 answers the hardest constraint in the post. Line 3 names the deliverable exactly as they would check it.'
+    ].join('\n')) },
+  { id: 'gap', label: 'The missing piece', summary: 'leads with the part of the request nobody on the thread has answered',
+    text: angle('THE MISSING PIECE', [
+      'Line 1 answers the part of the buyer\'s request that no reply on the thread has addressed yet (see',
+      '"STILL UNANSWERED"). With no replies, or nothing unanswered, it answers the part the post stresses most.',
+      'Never lead with anything the other replies already promise. Lines 2 and 3 show we also cover the rest',
+      'of the job, most important first.'
+    ].join('\n')) },
+  { id: 'method', label: 'How we deliver', summary: 'leads with the concrete steps, sources and checks of the work',
+    text: angle('HOW WE DELIVER', [
+      'Each line names one concrete part of how we would do this exact job, in the order we would do it:',
+      'line 1 the step that decides whether it works, line 2 how we build or source it (named platforms,',
+      'sources, tools), line 3 how the buyer can see it is done right (report, live links, proof of placement).',
+      'No timelines, no prices, no guarantees.'
+    ].join('\n')) }
+];
+
+/**
+ * The rules, checked on what came back - so a preview shows at a glance
+ * whether an angle kept them. Returns a list of problems ('' problems = clean).
+ */
+export function checkLines(tips = []) {
+  const out = [];
+  if (tips.length !== 3) out.push(`${tips.length} line(s), not 3`);
+  tips.forEach((t, i) => {
+    const n = i + 1;
+    if (!/^We\s/.test(t)) out.push(`line ${n} does not start with "We"`);
+    if (t.length > 100) out.push(`line ${n} is ${t.length} characters (over 100)`);
+    if (/[\u2014\u2013\u2022]/.test(t)) out.push(`line ${n} has a dash or bullet glyph`);
+    if (/\b(free|trial|sample|no charge|demo)\b/i.test(t)) out.push(`line ${n} offers free work`);
+    if (/\b(usually|typically|it depends|worth noting|bear in mind|can be tricky)\b/i.test(t)) out.push(`line ${n} hedges`);
+    if (/\b(terms of service|ToS|policy|policies|banned|illegal|against the rules)\b/i.test(t)) out.push(`line ${n} mentions rules or policy`);
+    if (/\b(guarantee|guaranteed|\$\s?\d|discount)\b/i.test(t)) out.push(`line ${n} promises a price, discount or guarantee`);
+  });
+  return out;
+}
+
 /**
  * The prompt Claude gets: your writing part when you set one (with
  * {{account}} filled in), else the built-in, then the locked part.

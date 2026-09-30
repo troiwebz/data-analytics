@@ -141,6 +141,19 @@ ok('the operator\'s screen rules still go in', claude.systemFor('', 'never PM cr
 { const long = claude.systemFor('', '', 'x'.repeat(claude.MAX_WRITING + 500));
   ok('a prompt too long is cut, not sent whole', long.includes('x'.repeat(claude.MAX_WRITING)) && !long.includes('x'.repeat(claude.MAX_WRITING + 1))); }
 
+// --- three angles: every rule kept, only the lead changes ------------------------
+ok('there are at least 3 angles', claude.ANGLES.length >= 3);
+ok('each angle is the full built-in rules plus its own paragraph',
+  claude.ANGLES.every((a) => a.text.startsWith(claude.DEFAULT_WRITING) && /ANGLE FOR THIS ACCOUNT/.test(a.text)));
+ok('each angle is different', new Set(claude.ANGLES.map((a) => a.text)).size === claude.ANGLES.length);
+ok('each still gets the locked screen + JSON', claude.ANGLES.every((a) => claude.systemFor('', '', a.text, 'x').includes(claude.LOCKED_PROMPT)));
+ok('no angle loosens a rule (no free work, no prices, no guarantees)',
+  claude.ANGLES.every((a) => !/free (trial|sample|audit)|you may (offer|promise)|ignore the rules/i.test(a.text.slice(claude.DEFAULT_WRITING.length))));
+ok('the rule check passes clean lines', claude.checkLines(['We build UK citations by hand.', 'We verify GMB for US brands.', 'We send live links for each.']).length === 0);
+{ const p = claude.checkLines(['we do it', 'We do it \u2014 fast', 'We offer a free sample of our guaranteed work that is really very long indeed, much more than a hundred characters long']);
+  ok('and flags each broken rule', p.some((x) => /line 1 does not start/.test(x)) && p.some((x) => /line 2 has a dash/.test(x))
+     && p.some((x) => /line 3 offers free/.test(x)) && p.some((x) => /line 3 is \d+ characters/.test(x)) && p.some((x) => /guarantee/.test(x)), p); }
+
 // --- a new PC restoring settings from sync never takes the other account's name ---
 here = 'fresh';
 machines.fresh = {};

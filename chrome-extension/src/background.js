@@ -52,7 +52,7 @@ import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { askClaude, writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
-         revealKey, factoryReset, addCredits, resetSpend } from './claude.js';
+         revealKey, factoryReset, addCredits, resetSpend, ANGLES, checkLines } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
@@ -544,6 +544,47 @@ async function claudeNotice(cfg, n, note) {
     + 'Send "test claude" to check the key, or "credits" for the money side.');
 }
 
+/** One thread as Claude is given it. */
+function claudePayload(l) {
+  return {
+    threadId: String(l.threadId),
+    title: l.title,
+    snippet: String(l.snippet || '').slice(0, 800),
+    body: String(l.body || '').slice(0, 1500),
+    replies: (l.replies || []).slice(0, 4).map((r) => ({ text: String(r.text || '').slice(0, 300) })),
+    // Worked out locally and free: what the thread already promises, and the
+    // part of the buyer's ask nobody has answered.
+    rivalBrief: rivalBrief(l.body || l.snippet || '', l.replies || []),
+    category: l.category || ''
+  };
+}
+
+/**
+ * Settings → "Check the output": the same real thread through each prompt,
+ * side by side, with the PM each would send and the rules checked. A preview
+ * only - nothing is stored on the lead, nothing is sent. Costs one Claude call
+ * per prompt, counted in the day's spend like any other.
+ */
+export async function previewPrompts(threadId, variants) {
+  const cfg = await getConfig();
+  let lead = (await getLeads()).find((l) => String(l.threadId) === String(threadId));
+  if (!lead) return { error: 'that thread is no longer in the list' };
+  if (!String(lead.body || '').trim()) {
+    const [read] = await withThreads([lead], cfg).catch(() => []);
+    if (read?.body) { lead = { ...lead, ...read }; await updateLead(lead.threadId, { body: read.body, replies: read.replies || [] }); }
+  }
+  const out = [];
+  for (const v of (variants || []).slice(0, 4)) {
+    const { specifics, note } = await writeSpecifics([claudePayload(lead)], { ...cfg, aiSpecifics: true, claudeWriting: v.text || '' });
+    const spec = specifics[String(lead.threadId)];
+    if (!spec) { out.push({ id: v.id, label: v.label, error: note || 'Claude gave no usable answer' }); continue; }
+    const e = enrich(lead, cfg, lead.status, spec);
+    out.push({ id: v.id, label: v.label, tips: spec.tips, pm: spec.pm, why: spec.why, offer: spec.offer, question: spec.question,
+      dm: e.dm, publicReply: e.draft, problems: [...checkLines(spec.tips), ...((e.dmLint?.errors) || [])] });
+  }
+  return { thread: { title: lead.title, author: lead.author, url: lead.url, read: !!String(lead.body || '').trim() }, results: out };
+}
+
 export async function specificsFor(leads, cfg, { force = false } = {}) {
   if (!cfg.aiSpecifics || !leads.length) return { specifics: {}, note: '' };
 
@@ -558,17 +599,7 @@ export async function specificsFor(leads, cfg, { force = false } = {}) {
     return { specifics: {}, note: '' };
   }
 
-  const payload = wanted.map(({ l }) => ({
-    threadId: String(l.threadId),
-    title: l.title,
-    snippet: String(l.snippet || '').slice(0, 800),
-    body: String(l.body || '').slice(0, 1500),
-    replies: (l.replies || []).slice(0, 4).map((r) => ({ text: String(r.text || '').slice(0, 300) })),
-    // Worked out locally and free: what the thread already promises, and the
-    // part of the buyer's ask nobody has answered.
-    rivalBrief: rivalBrief(l.body || l.snippet || '', l.replies || []),
-    category: l.category || ''
-  }));
+  const payload = wanted.map(({ l }) => claudePayload(l));
   const { specifics, note } = await writeSpecifics(payload, cfg);
   const n = Object.keys(specifics).length;
   if (n) {
@@ -4251,6 +4282,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'owner-status':  sendResponse({ ...(await ownership({ fresh: !!msg.fresh }).catch((e) => ({ active: false, known: false, reason: e.message }))), conflictMinutes: await conflictMinutes(), loginMismatch: await loginMismatch(await getConfig()), bhwMe: (await chrome.storage.local.get('bhwMe')).bhwMe || '', boundAccount: (await getConfig()).boundAccount || '' }); break;
+      case 'prompt-threads': {
+        const list = (await getLeads()).filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample')
+          .sort((a, b) => new Date(b.postedAt || b.foundAt || 0) - new Date(a.postedAt || a.foundAt || 0)).slice(0, 25)
+          .map((l) => ({ threadId: l.threadId, title: l.title, author: l.author, postedAt: l.postedAt || l.foundAt }));
+        sendResponse({ list, angles: ANGLES.map(({ id, label, summary }) => ({ id, label, summary })) });
+        break;
+      }
+      case 'prompt-preview':
+        sendResponse(await previewPrompts(msg.threadId, msg.variants).catch((e) => ({ error: e.message })));
+        break;
       case 'owner-take': {
         const o = await takeOver().catch((e) => ({ error: e.message }));
         if (!o.error) {

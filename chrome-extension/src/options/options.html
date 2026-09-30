@@ -49,6 +49,23 @@
       <button id="resetWriting" class="sec" style="flex:0 0 auto">Back to built-in (empty)</button>
       <span id="writingState" class="hint" style="flex:1;align-self:center"></span>
     </div>
+    <label style="margin-top:10px">Or start from an angle <span class="hint">same rules, different lead - give each account its own so they never read alike</span></label>
+    <div class="row" id="angleBtns" style="margin-top:4px;align-items:center"></div>
+    <p id="angleHelp" class="hint" style="margin:4px 0 0"></p>
+
+    <div style="margin-top:14px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc">
+      <b>Check the output</b> <span class="hint">runs a real recent thread through the prompts and shows the exact PM each would send - nothing is saved or sent. About $0.01 per prompt.</span>
+      <div class="row" style="margin-top:8px">
+        <select id="previewThread" style="flex:1 1 320px;min-width:0"></select>
+      </div>
+      <div class="row" style="margin-top:6px;align-items:center">
+        <button id="previewAngles" style="flex:0 0 auto">Compare the 3 angles</button>
+        <button id="previewBox" class="sec" style="flex:0 0 auto">Preview what is in the box</button>
+      </div>
+      <p id="previewState" class="hint" style="margin:6px 0 0"></p>
+      <div id="previewOut" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px"></div>
+    </div>
+
     <p class="hint" style="margin:6px 0 0"><b>{{account}}</b> anywhere in it becomes the account name above.
       Your "What to say about you" and screen rules are still added. Saved with the Save button.</p>
     <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Always added after it (locked - auto mode's safety check and the answer format)</summary>
