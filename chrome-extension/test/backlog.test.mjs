@@ -91,5 +91,12 @@ ok('and goes once the gap is over', bg.backlogWait({ threadId: '1850910', posted
 const gaps = ['11', '222', '3333', '44444'].map((id) => bg.backlogWait({ threadId: id, postedAt: new Date(now - 30 * H).toISOString() }, now, cfg, now));
 ok('the gaps are uneven, never on the clock', new Set(gaps.map((g) => Math.round(g / 1000))).size > 1, gaps.map((g) => Math.round(g / 1000)));
 
+// --- "(as 0)": a username saved as the number 0 is no username ------------------------
+{ const { cleanUsername, getConfig } = await import('../src/config.js');
+  ok('0, "0", NaN and blanks are no name', ['', 0, '0', ' 0 ', 'NaN', null, undefined].every((v) => cleanUsername(v) === ''));
+  ok('a real name is kept', cleanUsername(' bargainbed ') === 'bargainbed' && cleanUsername('user0') === 'user0');
+  bags.local.config = { bhwUsername: '0', boundAccount: 'bargainbed' };
+  ok('getConfig never hands out "0"', (await getConfig()).bhwUsername === ''); }
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

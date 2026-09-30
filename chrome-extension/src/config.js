@@ -1004,8 +1004,18 @@ export async function adoptNewTemplates() {
 
 export async function getConfig() {
   const { config } = await chrome.storage.local.get('config');
-  return { ...DEFAULT_CONFIG, ...(config || {}) };
+  const cfg = { ...DEFAULT_CONFIG, ...(config || {}) };
+  // Settings used to save "Your BHW username" as a NUMBER: an empty box became
+  // 0, shown again as "0", saved back as the text "0". The inbox check then
+  // read your message list as a user called "0", decided the PMs there were not
+  // yours, and cleared marks it had set. A name is never a bare number.
+  cfg.bhwUsername = cleanUsername(cfg.bhwUsername);
+  return cfg;
 }
+export const cleanUsername = (v) => {
+  const t = String(v ?? '').trim();
+  return !t || /^(0|nan|null|undefined)$/i.test(t) ? '' : t;
+};
 
 export async function setConfig(patch) {
   const current = await getConfig();

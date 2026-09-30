@@ -464,6 +464,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await nightSummary().catch(() => {});
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
+    // One-off repairs also run here: when Chrome itself loads a new version
+    // (a profile window opened, Chrome restarted) the install/update event
+    // never fires, and the repair would wait for ever. Each runs once only.
+    if (alarm.name === UPDATE_ALARM) {
+      const links = await repairJumpLinks().catch(() => ({}));
+      if (links.fixed) await log(`thread links: ${links.fixed} pointed at the first UNREAD post (a later page), now page 1; ${links.reread} unsent HAF thread(s) will be read again and re-screened - they may have been judged on a seller's reply`);
+    }
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
     // The hourly alarm stays as a backstop: polling can be switched off, or a
     // cycle can fail, and the list should still be reconciled eventually.

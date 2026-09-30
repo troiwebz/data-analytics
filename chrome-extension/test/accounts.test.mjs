@@ -181,6 +181,8 @@ ok('the rule check passes clean lines', claude.checkLines(['We build UK citation
           if (!lint.ok || lint.warnings.length) why.push(...lint.errors, ...lint.warnings);
           if (/\{\{|\}\}|\{[^}]*\|/.test(dm)) why.push('unfilled template');
           if (/\bfree\b|guarantee|\$\d/i.test(dm)) why.push('free / guarantee / price');
+          if (st && /\(https?:/.test(dm)) why.push('link in brackets');
+          if (st && /squarely|in our lane|won or lost|delve|seamless|leverage|tailored|\bhappy\b[^.]*\bhappy\b/i.test(dm)) why.push('reads machine-written');
           if (why.length) bad.push(`${st || 'classic'} ${offer} ${category} #${n}: ${why.join(', ')}`);
           if (n === 0 && offer === 'pilot' && category === 'seo') firsts[st || 'classic'] = dm;
         }
