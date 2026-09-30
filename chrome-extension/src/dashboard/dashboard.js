@@ -810,6 +810,27 @@ $('services').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/services/services.html');
 });
 $('opts').addEventListener('click', () => chrome.runtime.openOptionsPage());
+// ---------------------------------------------------------------- updates
+// The running version, the version on disk, and the newest on GitHub. The
+// updater (a scheduled task on Windows, launchd on the Mac) keeps the disk
+// current; the extension reloads itself when the disk moves ahead.
+const GH_MANIFEST = 'https://raw.githubusercontent.com/troiwebz/data-analytics/claude/wizardly-brahmagupta-178bgm/chrome-extension/manifest.json';
+const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+async function showUpdate() {
+  const running = chrome.runtime.getManifest().version;
+  let disk = running, latest = '';
+  try { disk = (await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json()).version; } catch { /* keep running */ }
+  try { latest = (await (await fetch(`${GH_MANIFEST}?t=${Date.now()}`, { cache: 'no-store' })).json()).version; } catch { /* offline */ }
+  const el = $('upd'); if (!el) return;
+  $('updNow').hidden = !newer(disk, running);
+  if (newer(disk, running)) el.innerHTML = `<b style="color:#2563eb">v${disk} downloaded</b> - reloading within a minute`;
+  else if (latest && newer(latest, disk)) el.innerHTML = `<b style="color:#b45309">v${latest} available</b> - the updater installs it within 5 min <span title="Windows: run updater\\install-windows.ps1 once. Mac: load ~/haf-watcher/chrome-extension.">ⓘ</span>`;
+  else el.innerHTML = latest ? `<span style="color:#16a34a">✓ v${running} is the latest</span>` : `v${running}`;
+}
+showUpdate();
+setInterval(showUpdate, 5 * 60000);
+$('updNow')?.addEventListener('click', async () => { await chrome.runtime.sendMessage({ cmd: 'check-update' }); });
+
 $('cmd').addEventListener('click', async () => {
   await navigator.clipboard.writeText($('cmd').textContent.trim());
   $('cmdmsg').textContent = 'copied';
