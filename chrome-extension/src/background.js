@@ -2803,12 +2803,16 @@ export async function pollTaps() {
           }
           const ai = on ? await aiStatus().catch(() => null) : null;
           const noKey = on && !(ai && ai.configured && ai.enabled !== false);
+          let back = null;
+          if (on && !noKey) back = await armAutoBacklog(await getConfig(), { rescreen: true, max: 12 }).catch((e) => ({ error: e.message }));
           await telegram.say(cfg.telegramChatId, on
-            ? '⚡ Auto mode is ON — for every NEW Hire a Freelancer thread from now on, the private message sends itself '
-              + '1-3 min after it is found, if Claude screened it as a real buyer. Tap ✋ Hold on a card to stop that one. '
+            ? '⚡ Auto mode is ON — for every Hire a Freelancer thread from the last 24 hours and every new one, the private message sends itself '
+              + '1-3 min after it is found, if Claude screened it as a real request. Tap ✋ Hold on a card to stop that one. '
               + 'Public replies are never posted automatically.'
               + (nightWasOn ? ' Night mode was on and has been switched off for that reason.' : '')
               + (noKey ? '\n\n⚠️ Claude is not available on this install (no key saved, or switched off), so NOTHING will send until you add the key in Settings. That is the rule working: no Claude screen, no PM.' : '')
+              + (back && !back.error ? `\n\n📬 Pending from the last ${cfg.autoBackfillHours || 24}h: ${back.armed} PM(s) counting down now (cards above), ${back.left} left for you${back.more ? ', more on the next tick' : ''}.` : '')
+              + (back?.error ? `\n\n⚠️ Could not go through the pending threads: ${back.error}` : '')
             : '⚡ Auto mode is OFF — nothing sends by itself, and any countdown in progress was stopped. Everything waits for your tap.');
         } else {
           await telegram.say(cfg.telegramChatId, await autoReport(cfg), { html: true });
@@ -3517,8 +3521,72 @@ export async function autoReport(cfg) {
   return lines.join('\n');
 }
 
+/**
+ * Everything from the last day that auto mode has not yet judged: screen it,
+ * and either arm its PM or leave it for you with the reason. On "auto on"
+ * (rescreen) earlier verdicts are thrown away and every pending thread in the
+ * window is looked at again under the current rules; on the minute tick only
+ * threads never judged are picked up.
+ */
+export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
+  const hours = Number(cfg.autoBackfillHours) || 24;
+  const cutoff = Date.now() - hours * 3600000;
+  const at = (l) => new Date(l.postedAt || l.foundAt || 0).getTime();
+  const pool = (await getLeads()).filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample'
+    && !l.pmSent && !SILENT_STATUSES.includes(l.status) && !l.autoSendHeld && !l.autoSendAt && at(l) >= cutoff);
+  const pick = (rescreen ? pool : pool.filter((l) => !l.autoSendBlocked)).sort((a, b) => at(b) - at(a)).slice(0, max);
+  if (!pick.length) return { armed: 0, left: 0 };
+
+  // Claude's screen, for anything without a current "yes".
+  let byId = new Map(pick.map((l) => [String(l.threadId), l]));
+  const need = pick.filter((l) => !(l.aiSpecifics?.tips?.length) || String(l.aiSpecifics.pm || '').toLowerCase() !== 'yes' || rescreen);
+  if (need.length) {
+    const unread = need.filter((l) => !String(l.body || '').trim());
+    const read = unread.length ? await withThreads(unread, cfg) : [];
+    for (const r of read) { byId.set(String(r.threadId), { ...byId.get(String(r.threadId)), ...r }); if (r.body) await updateLead(r.threadId, { body: r.body, replies: r.replies || [] }); }
+    const asked = need.map((l) => byId.get(String(l.threadId)));
+    const { specifics, note } = await specificsFor(asked, { ...cfg, aiSpecifics: true }, { force: true });
+    for (const l of asked) {
+      const got = specifics[String(l.threadId)];
+      if (!got) { byId.set(String(l.threadId), { ...l, aiSpecifics: rescreen ? null : l.aiSpecifics, draftedByNote: note || 'Claude did not answer' }); continue; }
+      const fresh = enrich({ ...l }, cfg, l.status || 'SENT', got, '');
+      const patch = { aiSpecifics: got, aiFrom: sourceOf(l), draft: fresh.draft, dm: fresh.dm, dmTitle: fresh.dmTitle, lint: fresh.lint, dmLint: fresh.dmLint,
+                      draftedBy: 'claude', draftedByNote: '', dmApproved: plain(fresh.dm || ''), draftApproved: plain(fresh.draft || ''), card: fresh.card };
+      await updateLead(l.threadId, patch);
+      byId.set(String(l.threadId), { ...l, ...patch });
+    }
+  }
+
+  let armed = 0, left = 0, i = 0;
+  const reasons = [];
+  for (const l of pick) {
+    const cand = byId.get(String(l.threadId));
+    const why = auto.blockedReason(cand, cfg);
+    if (why) { await updateLead(l.threadId, { autoSendAt: 0, autoSendBlocked: why }); reasons.push(why); left++; continue; }
+    // Staggered, so a day's worth does not all fire on one tick; the PM cap and spacing still apply at send time.
+    const sendAt = auto.postAt(cfg) + i * 45000; i++;
+    await updateLead(l.threadId, { autoSendAt: sendAt, autoSendBlocked: '', autoSendHeld: false });
+    armed++;
+    // The card on your phone shows the countdown and the Hold button.
+    const shown = { ...cand, autoSendAt: sendAt, autoSendBlocked: '', autoSendHeld: false };
+    shown.card = buildCard(shown);
+    const mid = cand.tgCards?.PM;
+    let ok = false;
+    if (mid && cfg.telegramChatId) ok = await telegram.refreshCard(cfg.telegramChatId, mid, shown, 'PM', cfg).catch(() => false);
+    if (!ok && cfg.telegramChatId) {
+      const r = await telegram.sendLead(shown, { ...cfg, telegramEnabled: true, telegramSend: 'pm' }).catch(() => null);
+      if (r?.ids && Object.keys(r.ids).length) await stampCards(l.threadId, r.ids, { tgSentAt: cand.tgSentAt || new Date().toISOString() });
+    }
+  }
+  if (armed || left) await log(`auto mode: ${armed} pending PM(s) from the last ${hours}h counting down, ${left} left for you${reasons.length ? ` (${reasons.slice(0, 3).join('; ')})` : ''}`);
+  return { armed, left, reasons, more: pool.length > pick.length };
+}
+
 export async function runAutoQueue() {
   const cfg = await getConfig();
+  // Anything from the last day that has not been judged yet - a thread found
+  // while Claude was unavailable, or the backlog after Settings switched it on.
+  if (cfg.autoMode) await armAutoBacklog(cfg, { rescreen: false, max: 4 }).catch((e) => log(`auto mode backlog: ${e.message}`, 'error'));
   const leads = await getLeads();
   // Auto mode off still honours the ONE thread you armed with "auto test".
   const due = auto.dueNow(leads).filter((l) => cfg.autoMode || l.autoTest);

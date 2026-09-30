@@ -1064,6 +1064,22 @@ await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
   await bg.runAutoQueue();
   ok('a held lead never sends itself afterwards', !(await getLeads()).find((x) => x.threadId === 'a5').pmSent);
 
+  // The backlog: a thread from earlier today, already screened yes, not yet armed - the tick arms it.
+  await setConfig({ autoMode: true, autoBackfillHours: 24 });
+  const twoHoursAgo = new Date(Date.now() - 7200000).toISOString();
+  store.recentLeads = [ready('b1', { foundAt: twoHoursAgo, postedAt: twoHoursAgo }),
+                       ready('b2', { foundAt: new Date(Date.now() - 30 * 3600000).toISOString(), postedAt: new Date(Date.now() - 30 * 3600000).toISOString() }),
+                       ready('b3', { foundAt: twoHoursAgo, postedAt: twoHoursAgo, pmSent: true })];
+  tgCalls = [];
+  await bg.runAutoQueue();
+  let b1 = (await getLeads()).find((x) => x.threadId === 'b1');
+  let b2 = (await getLeads()).find((x) => x.threadId === 'b2');
+  ok('a pending PM from earlier today is armed by the tick', b1.autoSendAt > Date.now(), JSON.stringify({ at: b1.autoSendAt, why: b1.autoSendBlocked }));
+  ok('and its card on the phone shows the countdown', tgCalls.some((c) => /sendMessage|editMessageText/.test(c.method) && /sends itself/.test(JSON.stringify(c.body))), JSON.stringify(tgCalls.map((c) => c.method)));
+  ok('a thread older than the window is not touched', !b2.autoSendAt && !b2.pmSent, JSON.stringify({ at: b2.autoSendAt, pm: b2.pmSent }));
+  ok('a PM already sent is not armed', !(await getLeads()).find((x) => x.threadId === 'b3').autoSendAt);
+  await setConfig({ autoMode: false });
+
   // "auto off" stops a countdown already running.
   store.recentLeads = [ready('a6', { autoSendAt: Date.now() + 90000 })];
   updates = [{ update_id: 9901, message: { message_id: 9901, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];

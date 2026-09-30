@@ -28,10 +28,12 @@ ok('no PM text, nothing to send', /no PM drafted/.test(why({ dm: '', dmApproved:
 ok('the text you approved counts as the PM', why({ dm: '', dmApproved: 'Approved text' }) === null);
 ok('no author, nobody to message', /no author/.test(why({ author: '' }) || ''));
 
-// --- only after switch-on ------------------------------------------------
-ok('a lead found before auto mode was switched on is left alone',
-   /before auto mode/.test(why({ foundAt: new Date(Date.now() - 7200000).toISOString() }) || ''));
-ok('with no switch-on time recorded, age is not a reason', why({ foundAt: '2020-01-01T00:00:00Z' }, { autoMode: true }) === null);
+// --- the last day, not only after switch-on --------------------------------
+ok('a lead from earlier today is messaged', why({ foundAt: new Date(Date.now() - 7200000).toISOString(), postedAt: new Date(Date.now() - 7200000).toISOString() }) === null,
+   why({ foundAt: new Date(Date.now() - 7200000).toISOString(), postedAt: new Date(Date.now() - 7200000).toISOString() }));
+ok('a lead older than a day is left alone', /older than 24 hours/.test(why({ postedAt: '2020-01-01T00:00:00Z', foundAt: '2020-01-01T00:00:00Z' }) || ''));
+ok('the window is yours to widen', why({ postedAt: new Date(Date.now() - 30 * 3600000).toISOString(), foundAt: new Date(Date.now() - 30 * 3600000).toISOString() }, { ...cfg, autoBackfillHours: 48 }) === null);
+ok('an auto test ignores the window', why({ postedAt: '2020-01-01T00:00:00Z', foundAt: '2020-01-01T00:00:00Z', autoTest: true }) === null);
 
 // --- the Claude screen ----------------------------------------------------
 ok('a post that was never read cannot have been screened', /never read/.test(why({ body: '' }) || ''), why({ body: '' }));

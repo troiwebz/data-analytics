@@ -9,7 +9,7 @@ const NUM = ['pollMinutes', 'jitterSeconds', 'approvalPollMinutes', 'backfillHou
             'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'soundVolume',
             'maxThreadReads', 'secondsBetweenThreadReads', 'telegramPollSeconds',
             'nightVetoMinutes', 'nightMinScore', 'nightMaxPosts', 'autoModeMinScore',
-            'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays', 'sourcesPerPoll', 'secondsBetweenSourceFetches', 'threadReadGapSeconds', 'pmCheckMinutes', 'autoMinBudget'];
+            'servicesPeakStartHour', 'servicesPeakEndHour', 'threadMaxAgeHours', 'indexDays', 'sourcesPerPoll', 'secondsBetweenSourceFetches', 'threadReadGapSeconds', 'pmCheckMinutes', 'autoMinBudget', 'autoBackfillHours'];
 const BOOL = ['enabled', 'autoPost', 'aiSpecifics', 'telegramEnabled', 'soundEnabled', 'readThreads',
              'telegramApprovals', 'nightMode', 'nightSummary', 'autoMode', 'siteWideEnabled', 'sleepEnabled', 'pushBacklog', 'autoRequireMatch', 'telegramOtherSources'];
 const JSONF = ['categories', 'boosts', 'excludes', 'excludeThreadIds', 'excludeAuthors',

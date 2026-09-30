@@ -8,8 +8,8 @@
 //   reply is on the thread for everyone to read and cannot be taken back; it
 //   always waits for your tap.
 //
-//   ONLY THREADS FOUND AFTER IT WAS SWITCHED ON. Switching it on must never
-//   reach back into the table and message yesterday's buyers.
+//   THE LAST 24 HOURS. Switching it on also sends the PMs still pending from
+//   that window - the day's buyers - and nothing older.
 //
 //   CLAUDE'S SCREEN MUST PASS. Claude has to have read the actual post, said
 //   "yes, this is someone asking to hire", and written the lines. No key, no
@@ -52,10 +52,12 @@ export function blockedReason(lead, cfg) {
   if (['SKIPPED', 'FAILED', 'EXPIRED', 'BACKFILL'].includes(lead.status)) return `already ${String(lead.status).toLowerCase()}`;
   if (!has(lead.author)) return 'no author to message';
   if (!has(lead.dmApproved || lead.dm)) return 'no PM drafted';
-  // "auto test" names one existing thread on purpose, so its age is not a reason.
-  if (!lead.autoTest && cfg?.autoModeSince && lead.foundAt && new Date(lead.foundAt).getTime() < new Date(cfg.autoModeSince).getTime()) {
-    return 'found before auto mode was switched on';
-  }
+  // Auto mode covers the last day: switching it on also clears the pending PMs
+  // from that window. Older threads have moved on. "auto test" names one
+  // thread on purpose, so its age is not a reason.
+  const hours = Number(cfg?.autoBackfillHours) || 24;
+  const at = new Date(lead.postedAt || lead.foundAt || 0).getTime();
+  if (!lead.autoTest && at && Date.now() - at > hours * 3600000) return `older than ${hours} hours`;
   // The cheap rules first: your kind of work, no deal-breaker, enough budget.
   if (cfg?.autoRequireMatch === true && !has(lead.category)) return 'it does not match any of your services';   // off unless you switch it on
   const broke = dealBreaker(lead, cfg);

@@ -220,7 +220,8 @@ export const DEFAULT_CONFIG = {
   screenRules: 'Say yes to every genuine request to hire someone or to buy a service or work - any budget, any country, '
     + 'any payment terms, any kind of work. Say no only when it is not a request at all: a seller advertising their own '
     + 'service, a moderator or rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
-  autoModeSince: '',           // when it was last switched on; older leads are never auto-messaged
+  autoModeSince: '',           // when it was last switched on (kept for the report)
+  autoBackfillHours: 24,       // switching auto mode on also sends the pending PMs from this far back
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
 
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
