@@ -120,6 +120,12 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg.type === "version-state") { versionState().then(reply); return true; }
   if (msg.type === "version-check-now") { Promise.all([checkRemoteVersion(), checkVersion()]).then(() => reply({ ok: true })); return true; }
   if (msg.type === "reload-now") { chrome.runtime.reload(); reply({ ok: true }); return; }
+  if ((msg.type === "hunt-ai" || msg.type === "hunt-slots") && msg.id) {
+    // Hiring and project posts are read and written by the Hiring screen, never the co-founder letter
+    const handled = (async () => { const st = await huntGet(); const p = st.posts[msg.id]; if (!p || !(p.hunt === "project" || p.badge === "hiring")) return false; await huntReadBody(msg.id); reply(await huntHireWrite(msg.id)); return true; })();
+    handled.then((done) => { if (done) return; (msg.type === "hunt-ai" ? huntAiWrite(msg.id, !!msg.force) : huntSlotWrite(msg.id, !!msg.force)).then(reply).catch((e) => reply({ ok: false, error: String((e && e.message) || e) })); }).catch((e) => reply({ ok: false, error: String((e && e.message) || e) }));
+    return true;
+  }
   if (msg.type === "hunt-ai") { huntAiWrite(msg.id, !!msg.force).then(reply).catch((e) => reply({ ok: false, error: String(e && e.message || e) })); return true; }
   if (msg.type === "hunt-dm-gate") { dmGate().then(reply); return true; }
   if (msg.type === "hunt-spend") { spendReport().then(reply); return true; }

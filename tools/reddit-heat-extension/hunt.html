@@ -122,6 +122,43 @@
   body.light .body { color:#2a2f3a; } body.light .syn dt { color:#5b6472; }
   [hidden] { display:none !important; }
   @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+
+  /* ---- simple layout (4.16) ---- */
+  header { gap:8px; padding:10px 18px 0; }
+  header h1 { font-size:17px; margin:0 6px 0 0; }
+  .grow { flex:1; }
+  .statusbar, .morePanel { flex-basis:100%; display:flex; flex-wrap:wrap; align-items:center; gap:4px 16px; font-size:12px; color:var(--dim); }
+  .statusbar { padding:6px 0 8px; border-top:1px solid var(--line); margin-top:4px; }
+  .statusbar .stat { background:none; border:0; padding:0; color:var(--dim); }
+  .statusbar button.stat:hover { color:var(--fg); }
+  .statusbar #updNow { padding:2px 10px; font-size:12px; }
+  .statusbar #updNow:not(.updhot) { display:none; }
+  .morePanel { padding:8px 0 10px; border-top:1px solid var(--line); gap:8px; }
+  .morePanel[hidden], .menu[hidden], .filtersBox[hidden] { display:none; }
+  .menuWrap { position:relative; }
+  .menu { position:absolute; right:0; top:calc(100% + 6px); z-index:20; display:flex; flex-direction:column; gap:4px; min-width:210px; padding:6px; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  .menu button { text-align:left; border:0; }
+  .menu button:hover { background:#1d2129; }
+  .viewbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:0 0 12px; }
+  .filtersBox { flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+  #filtersBtn.on, #moreBtn.on, #setBtn.on { border-color:var(--or); color:var(--fg); }
+  button { transition:border-color .15s, background-color .15s, color .15s; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline:2px solid var(--or); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+  /* the paused banner lines up with the page, not the window */
+  #apBlocked { width:calc(100% - 36px); max-width:1204px; margin:14px auto 0 !important; box-sizing:border-box; }
+  body.onQueue #tableFind, body.onQueue #closeTable { display:none; }
+  body.light .winbar button, body.light .sizes button { background:#f1f3f6; color:var(--dim); }
+  body.light .winbar button.on, body.light .sizes button.on { background:var(--or); color:#fff; }
+  body.light #apBlocked { background:#fff7e0 !important; color:#7a5400 !important; border-color:var(--warn) !important; }
+  body.light button.stat.hot { background:#fff3ee; color:var(--or); }
+  body.light button.stat.go { background:#e9f7ee; color:#1a7f37; }
+  body.light #apMode[style*="230, 199, 107"] { color:#7a5400 !important; border-color:var(--warn) !important; background:#fff7e0; }
+  /* DMs only: the public reply is never shown or sent from here */
+  .pubOnly, #pubSizes, #genGuide, #opts, #short, #didReply { display:none !important; }
+  /* the Claude status line shows only when it has something to say */
+  p.step:has(> #aiState:empty):not(:has(> #aiRedo:not([hidden]))) { display:none; }
+  body.light .menu { background:#ffffff; } body.light .menu button:hover { background:#eef0f3; }
 </style>
 
 <div id="dead" hidden style="margin:10px 12px 0;padding:12px 14px;border:1px solid #ff8a65;border-radius:10px;background:#2a1410;color:#ffd9cf">
@@ -156,44 +193,60 @@
 </div>
 
 <header>
-  <h1 id="huntTitle" style="min-width:96px">Lead hunt</h1>
+  <!-- row 1: what you look at and what you switch -->
+  <h1 id="huntTitle">Lead hunt</h1>
   <span class="winbar" id="badgePick"></span>
+  <span class="grow"></span>
   <button id="toggle" class="primary">Start watching</button>
-  <button id="now" class="ghost">Scan now</button>
-  <button id="apMode" class="ghost" title="Auto mode: every new post found from now on gets one private DM by itself, after Claude screens it. Manual mode: nothing is sent by itself.">Manual mode</button>
-  <button id="scanStop" class="ghost" hidden style="color:#ff8a65">Stop</button>
-  <span class="stat" id="scanLive" hidden></span>
-  <button class="stat" id="sQueueBtn">In queue <b id="sQueue">0</b></button>
-  <button class="stat" id="sTodayBtn">Contacted today <b id="sToday">0</b></button>
-  <button class="stat" id="sEverBtn">Contacted ever <b id="sEver">0</b></button>
-  <button class="stat" id="sDoneBtn" title="replied or DM'd — struck through, never shown again">Done today <b id="sDoneToday">0</b></button>
-  <span class="stat" id="sSince" hidden></span>
-  <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
-  <button class="stat" id="undoBulk" hidden style="color:#e6c76b" title="put that whole batch back in the queue"></button>
-  <button class="stat" id="sSkippedBtn" hidden title="everything you set aside, and a way to put it back">Set aside <b id="sSkipped">0</b></button>
-  <button class="stat" id="sRejectBtn" hidden title="posts the scan decided were not co-founder asks — check its work">Filtered out <b id="sReject">0</b></button>
-  <button class="stat" id="undoReset" hidden style="color:#e6c76b" title="put the whole database back as it was before the reset">Undo the reset</button>
-  <span class="winbar" id="win"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
-  <button class="stat" id="schedChip" hidden title="click to see the schedule"></button>
-  <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
-  <button class="stat" id="sSpendWrap" title="click to see every call today: what it was for, who it was about, and what it cost">AI today <b id="sSpend">0¢</b></button>
-  <span class="stat" id="sPoll">never checked</span>
-  <span class="stat" id="sHiring" hidden title="r/forhire, r/hiring, r/jobbit, r/slavelabour, r/DoneDirtCheap, r/freelance_forhire and a search of all Reddit, every 2 minutes while watching"></span>
-  <button class="stat" id="ver" style="margin-left:auto" title="running · on disk · on GitHub">v?</button>
-  <button id="updNow" class="ghost">Update now</button>
-  <button class="stat" id="openInbox" title="opens in its own tab">Inbox ↗ <b id="sInbox">0</b></button>
-  <button id="openCampaign" class="ghost">Campaign</button>
-  <button id="openAi" class="ghost">AI writing</button>
-  <button id="openSetup" class="ghost">Your details</button>
-  <button id="theme" class="ghost">☀ light</button>
+  <button id="apMode" class="ghost" title="Auto mode: every new post found from now on gets one private DM by itself, after Claude reads it. Manual mode: nothing is sent by itself.">Manual mode</button>
+  <button class="stat" id="schedChip" hidden title="the schedule: every DM lined up, and what became of it"></button>
+  <button class="stat" id="openInbox" title="replies to your DMs · opens in its own tab">Inbox ↗ <b id="sInbox">0</b></button>
+  <span class="menuWrap">
+    <button id="setBtn" class="ghost" aria-haspopup="true" aria-expanded="false">Settings ▾</button>
+    <span class="menu" id="setMenu" hidden>
+      <button id="openSetup" class="ghost">Your details</button>
+      <button id="openAi" class="ghost">AI writing · Claude key</button>
+      <button id="openCampaign" class="ghost">Campaign</button>
+      <button id="theme" class="ghost">☀ light</button>
+    </span>
+  </span>
+  <button id="moreBtn" class="ghost" aria-expanded="false">More ▾</button>
+
+  <!-- row 2: one quiet line of status; warnings appear here only when they matter -->
+  <div class="statusbar" id="statusBar">
+    <span class="stat" id="sPoll">never checked</span>
+    <span class="stat" id="sHiring" hidden title="r/forhire, r/hiring, r/jobbit, r/slavelabour, r/DoneDirtCheap, r/freelance_forhire and a search of all Reddit, every 2 minutes while watching"></span>
+    <button class="stat" id="sSpendWrap" title="click to see every call today: what it was for, who it was about, and what it cost">AI today <b id="sSpend">0¢</b></button>
+    <span class="stat" id="scanLive" hidden></span>
+    <button id="scanStop" class="ghost" hidden style="color:#ff8a65">Stop</button>
+    <button class="stat" id="undoBulk" hidden style="color:#e6c76b" title="put that whole batch back in the queue"></button>
+    <button class="stat" id="undoReset" hidden style="color:#e6c76b" title="put the whole database back as it was before the reset">Undo the reset</button>
+    <button class="stat" id="backupWarn" hidden title="click to open Your details and back up" style="color:#e6c76b"></button>
+    <span class="grow"></span>
+    <button class="stat" id="ver" title="running · on disk · on GitHub">v?</button>
+    <button id="updNow" class="ghost">Update now</button>
+  </div>
+
+  <!-- More: everything you need now and then -->
+  <div class="morePanel" id="morePanel" hidden>
+    <button id="now" class="ghost">Scan now</button>
+    <span class="winbar" id="win" title="how far back the queue reaches"><button data-h="24">24h</button><button data-h="48" class="on">48h</button><button data-h="168">7d</button></span>
+    <button class="stat" id="sQueueBtn">In queue <b id="sQueue">0</b></button>
+    <button class="stat" id="sTodayBtn">Contacted today <b id="sToday">0</b></button>
+    <button class="stat" id="sEverBtn">Contacted ever <b id="sEver">0</b></button>
+    <button class="stat" id="sDoneBtn" title="replied or DM'd — struck through, never shown again">Done today <b id="sDoneToday">0</b></button>
+    <span class="stat" id="sSince" hidden></span>
+    <span class="stat" id="sBlockedWrap">Blocked <b id="sBlocked">0</b></span>
+    <button class="stat" id="sSkippedBtn" hidden title="everything you set aside, and a way to put it back">Set aside <b id="sSkipped">0</b></button>
+    <button class="stat" id="sRejectBtn" hidden title="posts the scan decided were not a match — check its work">Filtered out <b id="sReject">0</b></button>
+    <span class="foot" id="scan" style="margin:0;flex-basis:100%"></span>
+  </div>
 </header>
 
 <main>
   <!-- today's progress: done grows, to-go shrinks; the bar fills -->
-  <p class="foot" id="scan" style="margin:-6px 0 12px"></p>
   <!-- sort and filter: applies to the cards and to the queue table -->
-  <div id="viewBar" class="row" style="gap:8px 12px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
-    <label class="foot" style="margin:0">Sort</label>
+  <div id="viewBar" class="viewbar">
     <select id="qSort">
       <option value="fit">Best fit first</option>
       <option value="newest">Newest first</option>
@@ -204,16 +257,18 @@
       <option value="wants">Wants</option>
       <option value="who">Who</option>
     </select>
-    <label class="foot" style="margin:0 0 0 6px">Filter</label>
-    <select id="fCountry" title="country"><option value="">any country</option></select>
-    <select id="fWants" title="what they want"><option value="">any want</option><option value="technical">someone to build it</option><option value="marketing">marketing / growth</option><option value="design">design / UX</option><option value="business">business / sales</option><option value="unclear">unclear</option></select>
-    <select id="fWho" title="who is asking"><option value="">anyone</option></select>
-    <select id="fStage" title="stage"><option value="">any stage</option><option value="idea">idea only</option><option value="building">something built</option><option value="revenue">has revenue</option></select>
-    <select id="fMoney" title="money"><option value="">any money</option><option value="budget">has money to spend</option><option value="equity">equity only, no cash</option><option value="unknown">not stated</option></select>
-    <select id="fAge" title="posted"><option value="">any age</option><option value="2">under 2 hours</option><option value="6">under 6 hours</option><option value="24">under 24 hours</option><option value="old">older than 24 hours</option></select>
-    <input type="text" id="fFind" placeholder="find a word, a sub, a name…" style="width:200px">
-    <button id="fClear" class="ghost">Clear</button>
+    <input type="text" id="fFind" placeholder="find a word, a sub, a name…" style="width:240px">
+    <button id="filtersBtn" class="ghost" aria-expanded="false">Filters</button>
     <span class="foot" id="viewCount" style="margin:0"></span>
+    <div class="filtersBox" id="filtersBox" hidden>
+      <select id="fCountry" title="country"><option value="">any country</option></select>
+      <select id="fWants" title="what they want"><option value="">any want</option><option value="technical">someone to build it</option><option value="marketing">marketing / growth</option><option value="design">design / UX</option><option value="business">business / sales</option><option value="unclear">unclear</option></select>
+      <select id="fWho" title="who is asking"><option value="">anyone</option></select>
+      <select id="fStage" title="stage"><option value="">any stage</option><option value="idea">idea only</option><option value="building">something built</option><option value="revenue">has revenue</option></select>
+      <select id="fMoney" title="money"><option value="">any money</option><option value="budget">has money to spend</option><option value="equity">equity only, no cash</option><option value="unknown">not stated</option></select>
+      <select id="fAge" title="posted"><option value="">any age</option><option value="2">under 2 hours</option><option value="6">under 6 hours</option><option value="24">under 24 hours</option><option value="old">older than 24 hours</option></select>
+      <button id="fClear" class="ghost">Clear filters</button>
+    </div>
   </div>
   <div id="prog" class="card" style="margin-bottom:16px;padding:10px 16px">
     <div class="row" style="margin:0;justify-content:space-between"><b id="progText">Today: 0 done · 0 to go</b><span class="foot" id="progSub" style="margin:0"></span></div>
@@ -461,7 +516,7 @@
         <!-- STEP 1 owns the public reply: its own size toggle, its own write
              button, its own state line. Nothing about the DM lives here. -->
         <p class="step" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span><b>Step 1</b> · public reply</span>
+          <span class="pubOnly"><b>Step 1</b> · public reply</span>
           <span class="sizes" id="pubSizes"><button data-p="short" class="on">Short</button><button data-p="long">Detailed</button></span>
           <button id="genGuide" class="ghost" style="padding:3px 10px;font-size:11px">Write the detailed one</button>
           <button id="aiRedo" class="ghost" style="padding:3px 10px;font-size:11px" hidden>rewrite</button>
@@ -479,17 +534,17 @@
         </div>
         <div id="opts"></div>
         <textarea id="short"></textarea>
-        <div class="row">
+        <div class="row pubOnly">
           <button id="goPost" class="primary">Open the post, reply filled in ↗</button>
           <button id="copyShort" class="ghost">Copy only</button>
           <span id="repliedMark" class="done" hidden>✓ replied</span>
           <span class="foot" id="pubNote" style="margin:0 0 0 auto"></span>
         </div>
 
-        <div class="sep"></div>
+        <div class="sep pubOnly"></div>
 
         <p class="step" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span><b>Step 2</b> · the DM</span>
+          <span><b>The DM</b> · private message only</span>
           <button id="dmRedo" class="ghost" style="padding:3px 10px;font-size:11px" hidden>rewrite</button>
           <span id="dmState" style="text-transform:none;letter-spacing:0"></span>
         </p>
@@ -526,3 +581,4 @@
 </main>
 <script src="lib.js"></script>
 <script src="hunt.js"></script>
+<script src="hunt-simple.js"></script>

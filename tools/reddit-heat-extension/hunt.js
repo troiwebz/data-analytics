@@ -143,8 +143,14 @@ function render() {
   $("opts").hidden = true;                       // one reply, no menu
   aiStatus(p);
   for (const b of $("sizes").querySelectorAll("button")) b.classList.toggle("on", b.dataset.s === dmSize);
-  $("dm").value = useAi ? (p.ai["dm_" + dmSize] || p.ai.dm_long || p.ai.dm_short) : huntDM(p, profile, dmSize);
-  $("dmState").textContent = useAi ? `written for this post by ${p.ai.model === "on-device" ? "Chrome" : "Claude"}` : "template";
+  // A Hiring or project post never gets the co-founder letter: its DM is
+  // written by Claude from the post itself, or the box stays empty.
+  const isHire = p.hunt === "project" || p.badge === "hiring";
+  $("dm").value = useAi ? (p.ai["dm_" + dmSize] || p.ai.dm_long || p.ai.dm_short) : isHire ? "" : huntDM(p, profile, dmSize);
+  $("dm").placeholder = isHire ? "Claude writes this DM after reading the post. Press \"Write the DM with Claude\"." : "";
+  if (isHire && !useAi) $("genRow").hidden = false;
+  $("sizes").parentElement.hidden = isHire;      // one Claude-written DM; the co-founder offer does not apply
+  $("dmState").textContent = useAi ? `written for this post by ${p.ai.model === "on-device" ? "Chrome" : "Claude"}` : isHire ? "not written yet - Claude reads the post first" : "template";
   $("dmState").style.color = useAi ? "#7ee29a" : "#98a0b3";
   $("repliedMark").hidden = !p.repliedAt;
   $("dmMark").hidden = !p.dmAt;
