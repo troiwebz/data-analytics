@@ -647,8 +647,8 @@ $("goDm").onclick = async () => {
   // Reddit's "new chat" page; the bridge types the name, opens the chat and fills the box. Nothing is sent by us.
   // It sends itself only when it is exactly the DM Claude wrote after reading the
   // description; anything else is put in the box for you to read and send.
-  const claudeDm = cur.ai && cur.ai.readBody && cur.ai.fit !== "no" ? String(cur.ai.dm_long || cur.ai.dm_short || "").trim() : "";
-  const screened = !!claudeDm && $("dm").value.trim() === claudeDm;
+  const claudeDms = cur.ai && cur.ai.readBody && cur.ai.fit !== "no" ? [cur.ai.dm_long, cur.ai.dm_short].map((x) => String(x || "").trim()).filter((x) => x.length >= 80) : [];
+  const screened = claudeDms.includes($("dm").value.trim());   // Claude's long or short DM, unedited
   await chrome.storage.local.set({ pendingDm: { kind: "hunt", id: cur.id, author: cur.author, text: $("dm").value, screened, at: Date.now() } });
   window.open("https://www.reddit.com/chat/room/create", "_blank");
   if ($("assumeDm").checked) setTimeout(async () => { await act("dm"); gateTick(); }, 800);   // counts as sent; the post is struck through in Done and never returns

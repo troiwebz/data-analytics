@@ -1013,6 +1013,10 @@ async function huntReclassify() {
       delete p.act; delete p.actAt; delete p.cancelledBy; delete p.cancelReason; delete p.ai;
     }
   }
+  for (const p of Object.values(st.posts)) {
+    const m = String((p.ai && p.ai.model) || "");
+    if (p.ai && !p.ai.readBody && /^claude-(?!chrome|hire)/.test(m) && String(p.body || "").trim().length >= 40) p.ai.readBody = true;
+  }
   const sched = (st.schedule || []).filter((x) => !(x.state === "cancelled" && /^Claude read it/.test(x.reason || "") && st.posts[x.id] && !st.posts[x.id].act));
   if (sched.length !== (st.schedule || []).length) await huntSet({ schedule: sched });
   for (const [id, p] of Object.entries(st.posts)) {
@@ -1794,6 +1798,7 @@ async function huntAiWrite(id, force) {
   ai.model = j.model || model;
   ai.cents = aiCents(model, u);
   ai.cached = u.cache_read_input_tokens || 0;
+  ai.readBody = String(p.body || "").trim().length >= 40;   // the full writer is given the whole description
   await spendAdd(ai.cents, { kind: "full letter", who: p.author || "", what: (p.title || "").slice(0, 70), model, in: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 });
   await huntSet({ sent: [{ at: Date.now(), pl: ai.public_reply }, ...sentL].slice(0, 40) });
   // The polish pass: a cheaper model rewrites only the sentences that could

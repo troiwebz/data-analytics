@@ -194,5 +194,16 @@ vm.runInContext(fs.readFileSync(__dirname + "/background.js", "utf8"), ctx, { fi
   assert.ok(store.hunt.posts.k4 && !store.hunt.posts.k4.act, "the old drop is taken back");
   assert.ok(!store.hunt.schedule.some((x) => x.id === "k4"), "and its dropped line is cleared so it can be scheduled again");
 
+  // ---- the full Claude writer (the "Anthropic API (Claude)" choice) marks its DM as read too ----
+  const bg = fs.readFileSync(__dirname + "/background.js", "utf8");
+  const fullWriter = bg.slice(bg.indexOf("async function huntAiWrite("), bg.indexOf("async function huntAiWrite(") + 6000);
+  assert.ok(/ai\.readBody = String\(p\.body/.test(fullWriter), "huntAiWrite sets readBody");
+  store.hunt.posts.f1 = { id: "f1", author: "founder_f1", title: "Looking for a growth cofounder", body: "We built a reviews widget used by a few hundred shops on Wix, WordPress and Webflow and need a growth partner.", hunt: "cofounder", created: clock, firstSeen: clock,
+    ai: { model: "claude-sonnet-5", fit: "yes", dm_long: "Hi, read your post about the reviews widget on Wix, WordPress and Webflow. Two things decide it in your market. First install friction inside the app stores, then one dense city for the social app. What is the churn so far?" } };
+  assert.strictEqual(ctx.dmReadyFromClaude(store.hunt.posts.f1), false, "before the update it did not count");
+  await ctx.huntReclassify();
+  assert.strictEqual(store.hunt.posts.f1.ai.readBody, true);
+  assert.strictEqual(ctx.dmReadyFromClaude(store.hunt.posts.f1), true, "after the update it sends by itself");
+
   console.log("schedule-test: all passed");
 })().catch((e) => { console.error(e); process.exit(1); });
