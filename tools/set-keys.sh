@@ -25,14 +25,23 @@ PYX
 [ -z "$DIRS" ] && DIRS="$REPO/chrome-extension"
 echo "HAF Watcher is loaded from:"; echo "$DIRS" | sed 's/^/  /'; echo
 
-printf "Anthropic API key (sk-ant-..., hidden, Enter to keep): "; read -rs AK; echo
-printf "Telegram bot token (123456:ABC..., hidden, Enter to keep): "; read -rs TT; echo
-printf "Telegram chat id (digits, Enter to keep): "; read -r CI
+printf "Anthropic API key (sk-ant-..., hidden, Enter to keep): "; read -rs AK_IN; echo
+printf "Telegram bot token (paste anything containing it, hidden, Enter to keep): "; read -rs TT_IN; echo
+printf "Telegram chat id (digits, Enter to keep): "; read -r CI_IN
 
-if [ -n "$AK" ] && [[ "$AK" != sk-ant-* ]]; then echo "That Anthropic key does not start with sk-ant- - nothing written."; exit 1; fi
-if [ -n "$TT" ] && ! [[ "$TT" =~ ^[0-9]+:[A-Za-z0-9_-]{20,}$ ]]; then echo "That bot token does not look like 123456:ABC... - nothing written."; exit 1; fi
-if [ -n "$CI" ] && ! [[ "$CI" =~ ^-?[0-9]{4,}$ ]]; then echo "The chat id should be digits only - nothing written."; exit 1; fi
-if [ -z "$AK$TT$CI" ]; then echo "Nothing entered - nothing changed."; exit 0; fi
+# Take the key out of whatever was pasted - spaces, quotes, a line break, or
+# BotFather's whole sentence around the token - rather than refusing it.
+AK=$(printf '%s' "$AK_IN" | grep -oE 'sk-ant-[A-Za-z0-9_-]{20,}' | head -1 || true)
+TT=$(printf '%s' "$TT_IN" | grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' | head -1 || true)
+CI=$(printf '%s' "$CI_IN" | grep -oE '^-?[0-9]{4,}' | head -1 || true)
+mask() { local v="$1"; [ ${#v} -gt 12 ] && echo "${v:0:8}…${v: -4}" || echo "$v"; }
+
+echo
+[ -n "$AK_IN" ] && { [ -n "$AK" ] && echo "  Claude key : $(mask "$AK")  ✓" || echo "  Claude key : not found in what you pasted - skipped (the saved one stays)"; }
+[ -n "$TT_IN" ] && { [ -n "$TT" ] && echo "  Bot token  : $(mask "$TT")  ✓" || echo "  Bot token  : not found in what you pasted - skipped (the saved one stays)"; }
+[ -n "$CI_IN" ] && { [ -n "$CI" ] && echo "  Chat id    : $CI  ✓" || echo "  Chat id    : should be digits only - skipped (the saved one stays)"; }
+if [ -z "$AK$TT$CI" ]; then echo "  Nothing new to save - what is already in HAF Watcher stays as it is."; exit 0; fi
+echo
 
 echo "$DIRS" | while IFS= read -r dir; do
   [ -z "$dir" ] && continue
