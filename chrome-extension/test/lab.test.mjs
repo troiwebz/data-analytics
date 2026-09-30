@@ -1,6 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
 import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
-         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn } from '../src/lab.js';
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES, looseJson, viralOnly, parseFill, longTails, marketsIn, nichesIn, parseIdeas, ideasCsv, ideasPrompt } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -189,6 +189,22 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   ok('a title built on the long-tail keyword passes', checkReviewCopy(tuned, { url: URL, copies: 10, targets: ['casino', 'indonesia'] }).length === 0, JSON.stringify(checkReviewCopy(tuned, { url: URL, copies: 10, targets: ['casino', 'indonesia'] })));
   const f = parseFill('{"targets":"Indonesia; casino, iGaming","keywords":["indonesia casino google ads","crypto meta ads"]}');
   ok('Fill brings back targets and long-tail keywords', f.targets.includes('Indonesia') && f.keywords.length === 2);
+}
+
+// --- 20 title ideas + CSV --------------------------------------------------
+{
+  const ideas = Array.from({ length: 22 }, (_, k) => ({ title: `Advault - Reverse Engineer Competitor Ads for ${['Indonesia', 'Thailand', 'Brazil', 'Philippines'][k % 4]} ${['Casino & iGaming', 'Crypto', 'Forex', 'Betting', 'Dating'][k % 5]} SEO ${k}`,
+    niche: ['Casino & iGaming', 'Crypto', 'Forex', 'Betting', 'Dating'][k % 5], country: ['Indonesia', 'Thailand', 'Brazil', 'Philippines'][k % 4], keyword: 'X', intent: 'operators' }));
+  ideas.push({ title: ideas[0].title });                 // a repeat
+  const r = parseIdeas('```json\n' + JSON.stringify({ brand: 'Advault', service: 'Reverse Engineer Competitor Ads', ideas }) + '\n```');
+  ok('twenty ideas, no more', r.ideas.length === 20 && r.brand === 'Advault');
+  ok('repeats are dropped', new Set(r.ideas.map((i) => i.title)).size === 20);
+  ok('each idea is numbered and measured', r.ideas[0].n === 1 && r.ideas[19].n === 20 && r.ideas[0].chars === r.ideas[0].title.length);
+  ok('a title too short to hold a keyword is flagged', parseIdeas(JSON.stringify({ ideas: [{ title: 'Advault - Ads', niche: 'Casino', country: 'Indonesia' }] })).ideas[0].flags.includes('short'));
+  const csv = ideasCsv([{ n: 1, title: 'Advault - Ads for "Indonesia", Casino', niche: 'Casino', country: 'Indonesia', keyword: 'indonesia casino ads', chars: 38, intent: 'operators' }], { thread: 'https://www.blackhatworld.com/seo/x.1/' });
+  ok('the CSV opens cleanly in Excel: BOM, header, quotes and commas escaped', csv.startsWith('﻿"#","Title"') && csv.includes('"Advault - Ads for ""Indonesia"", Casino"') && csv.includes('\r\n'), csv);
+  ok('the CSV names the main thread on every row', csv.includes('"https://www.blackhatworld.com/seo/x.1/"'));
+  ok('the prompt carries the thread and the targets', /seller's stated niches \/ countries: Indonesia; casino/.test(ideasPrompt({ url: 'u', title: 't', body: 'b' }, { targets: 'Indonesia; casino' })));
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

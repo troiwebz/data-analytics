@@ -31,6 +31,7 @@ $('run').addEventListener('click', async () => {
   if (r?.error) return alert(r.error);
   showing = null;
   render();
+renderIdeas();
 });
 
 $('fill').addEventListener('click', async () => {
@@ -62,6 +63,47 @@ async function showSpend() {
       + (ai.credits > 0 ? ` · balance ~$${Number(ai.balance).toFixed(2)}` : '');
 }
 showSpend();
+
+// ---------------------------------------------------------------- 20 ideas
+let ideasShown = null;
+
+function ideasTable(e) {
+  const rows = e.ideas.map((i) => `<tr><td class="n">${i.n}</td><td>${esc(i.title)}${i.flags.length ? ` <span class="sub" style="color:#b45309">(${esc(i.flags.join(', '))})</span>` : ''}</td>
+    <td>${esc(i.niche)}</td><td>${esc(i.country)}</td><td class="sub">${esc(i.keyword)}</td><td class="n">${i.chars}</td>
+    <td><button data-copytext="${esc(i.title)}" style="padding:3px 8px;font-size:12px">📋</button></td></tr>`).join('');
+  const countries = new Set(e.ideas.map((i) => i.country.toLowerCase())).size;
+  const niches = new Set(e.ideas.map((i) => i.niche.toLowerCase())).size;
+  return `<div class="sub" style="margin:12px 0 6px">For <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a> · ${e.ideas.length} ideas across ${countries} countries and ${niches} niches · ${new Date(e.at).toLocaleString()} · Claude $${Number(e.cost || 0).toFixed(3)}</div>
+    <div class="row" style="margin:0 0 8px"><button id="ideasCsv">⬇ Download CSV</button><button id="ideasCopy">📋 Copy all titles</button></div>
+    <table><thead><tr><th>#</th><th>Title</th><th>Niche</th><th>Country</th><th>Long-tail keyword</th><th>Chars</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function renderIdeas() {
+  const { labIdeas = [] } = await chrome.storage.local.get('labIdeas');
+  const e = ideasShown || labIdeas[0];
+  $('ideasOut').innerHTML = e ? ideasTable(e)
+    + (labIdeas.length > 1 ? `<div class="hist" style="margin-top:10px">${labIdeas.map((x, k) => `<button data-ideas="${k}">${esc(String(x.title || '').slice(0, 45))}</button>`).join('')}</div>` : '') : '';
+}
+
+$('ideasRun').addEventListener('click', async () => {
+  const url = ($('ideasUrl').value.trim() || $('url').value.trim());
+  if (!/blackhatworld\.com\//i.test(url)) return alert('Paste a BHW main thread link.');
+  const b = $('ideasRun'); b.disabled = true; b.textContent = 'Reading the thread…';
+  $('ideasMsg').textContent = 'Opening the thread in a background tab, then one Claude call - about 20-40 seconds.';
+  try {
+    const r = await chrome.runtime.sendMessage({ cmd: 'lab-ideas', url, brand: $('ideasBrand').value.trim(),
+      targets: ($('targets')?.value || '').trim(), keywords: ($('keywords')?.value || '').trim() });
+    if (r?.error) { $('ideasMsg').textContent = `Could not get ideas: ${r.error}`; return; }
+    ideasShown = r;
+    $('ideasMsg').textContent = `${r.ideas.length} ideas ready.`;
+    await renderIdeas(); showSpend();
+  } finally { b.disabled = false; b.textContent = '📋 Get 20 ideas'; }
+});
+
+async function currentIdeas() {
+  const { labIdeas = [] } = await chrome.storage.local.get('labIdeas');
+  return ideasShown || labIdeas[0];
+}
 
 function copyBox(label, text) {
   const id = 'c' + Math.random().toString(36).slice(2);
@@ -171,6 +213,27 @@ async function render() {
 }
 
 document.addEventListener('click', async (e) => {
+  if (e.target.id === 'ideasCsv') {
+    const cur = await currentIdeas(); if (!cur) return;
+    const { ideasCsv } = await import('../lab.js');
+    const blob = new Blob([ideasCsv(cur.ideas, { thread: cur.url })], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `title-ideas-${String(cur.brand || cur.title || 'thread').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    return;
+  }
+  if (e.target.id === 'ideasCopy') {
+    const cur = await currentIdeas(); if (!cur) return;
+    await navigator.clipboard.writeText(cur.ideas.map((i) => i.title).join('\n'));
+    e.target.textContent = '✅ Copied'; setTimeout(() => { e.target.textContent = '📋 Copy all titles'; }, 1500);
+    return;
+  }
+  const ct = e.target.closest('[data-copytext]');
+  if (ct) { await navigator.clipboard.writeText(ct.dataset.copytext); ct.textContent = '✅'; setTimeout(() => { ct.textContent = '📋'; }, 1200); return; }
+  const ib = e.target.closest('[data-ideas]');
+  if (ib) { const { labIdeas = [] } = await chrome.storage.local.get('labIdeas'); ideasShown = labIdeas[Number(ib.dataset.ideas)]; renderIdeas(); return; }
   const c = e.target.closest('[data-copy]');
   if (c) { await navigator.clipboard.writeText($(c.dataset.copy).textContent); c.textContent = '✅ Copied'; setTimeout(() => { c.textContent = '📋 Copy'; }, 1500); return; }
   const h = e.target.closest('[data-hist]');
@@ -178,3 +241,4 @@ document.addEventListener('click', async (e) => {
 });
 chrome.storage.onChanged.addListener((ch) => { if (ch.labRun || ch.labHistory) render(); if (ch.ai) showSpend(); });
 render();
+renderIdeas();

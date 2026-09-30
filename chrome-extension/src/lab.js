@@ -589,3 +589,75 @@ export async function runReviewLab({ url, copies = 10, gets = '', features = '',
     problems
   };
 }
+
+
+// ---------------------------------------------------------------- 20 title ideas
+
+/**
+ * Twenty long-tail title ideas for one main thread, each aimed at a different
+ * niche + country pairing: "Advault - Reverse Engineer Competitor Ads for
+ * Indonesia Casino & iGaming SEO". A table you can export, not copy to post.
+ */
+export const IDEAS_SYSTEM = [
+  'You write BlackHatWorld (BHW) marketplace thread titles that rank for long-tail searches.',
+  'Given a seller\'s main thread, write 20 title ideas for it. Every title follows this shape:',
+  '  {Brand} - {Service, in the thread\'s own words} for {Country} {Niche} {Keyword}',
+  'e.g. "Advault - Reverse Engineer Competitor Ads for Indonesia Casino & iGaming SEO",',
+  '     "Domain Coasters - Aged Expired Domains for Indonesia Casino iGaming SEO".',
+  '',
+  'Rules:',
+  '- 20 DIFFERENT niche + country pairings. Spread across the niches the service can really serve and the',
+  '  countries where that niche buys this kind of service. Use the seller\'s stated targets first.',
+  '- One real country or market per title (Indonesia, Thailand, Brazil, Philippines, Vietnam, Korea, Malaysia,',
+  '  Mexico, Turkey, Germany, UK, USA, Canada, Australia, Nigeria, India, Japan, Spain, Italy, UAE...).',
+  '- Only services the thread actually offers. Never invent results, prices or guarantees.',
+  '- 60-110 characters each. Plain text, no emoji, no brackets.',
+  '- The keyword is what that buyer would type: niche + service words, e.g. "Casino SEO", "Crypto Meta Ads", "Forex Lead Gen".',
+  '',
+  'Return ONLY JSON:',
+  '{ "brand": "brand as the thread uses it", "service": "the core service phrase",',
+  '  "ideas": [ { "title": "...", "niche": "Casino & iGaming", "country": "Indonesia",',
+  '               "keyword": "indonesia casino igaming seo", "intent": "who searches this, one short line" } ] }'
+].join('\n');
+
+export function ideasPrompt(mine, { brand = '', targets = '', keywords = '' } = {}) {
+  const cut = (x, n) => String(x || '').replace(/[ \t]+/g, ' ').slice(0, n);
+  return [
+    `thread link: ${mine.url}`,
+    `title: ${cut(mine.title, 200)}`,
+    brand ? `brand to use: ${brand}` : 'brand: take it from the title',
+    targets ? `seller's stated niches / countries: ${targets}` : '',
+    keywords ? `keywords the seller wants: ${keywords}` : '',
+    `post:\n${cut(mine.body, 3500) || '(could not be read)'}`
+  ].filter(Boolean).join('\n');
+}
+
+/** The ideas, cleaned and checked: a real country, a niche, a sane length, no repeats. */
+export function parseIdeas(text) {
+  const o = looseJson(text) || {};
+  const seen = new Set();
+  const ideas = [];
+  for (const raw of Array.isArray(o.ideas) ? o.ideas : []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim();
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    const flags = [];
+    if (!marketsIn(`${title} ${raw.country || ''}`).length && !raw.country) flags.push('no country');
+    if (!nichesIn(`${title} ${raw.niche || ''}`).length && !raw.niche) flags.push('no niche');
+    if (title.length < 55) flags.push('short');
+    if (title.length > 115) flags.push('long');
+    ideas.push({ n: ideas.length + 1, title, niche: String(raw.niche || '').trim(), country: String(raw.country || '').trim(),
+                 keyword: String(raw.keyword || '').trim().toLowerCase(), intent: String(raw.intent || '').trim(), chars: title.length, flags });
+    if (ideas.length === 20) break;
+  }
+  return { brand: String(o.brand || '').trim(), service: String(o.service || '').trim(), ideas };
+}
+
+/** CSV that opens cleanly in Excel and Google Sheets: quoted cells, a UTF-8 mark, Windows line ends. */
+export function ideasCsv(ideas, { thread = '' } = {}) {
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['#', 'Title', 'Niche', 'Country', 'Long-tail keyword', 'Characters', 'Who searches it', 'Main thread'];
+  const rows = ideas.map((i) => [i.n, i.title, i.niche, i.country, i.keyword, i.chars, i.intent, thread]);
+  return '﻿' + [head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}

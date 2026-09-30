@@ -28,7 +28,7 @@ import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intent
 import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
-import { runLab, runReviewLab, FILL_SYSTEM, parseFill } from './lab.js';
+import { runLab, runReviewLab, FILL_SYSTEM, parseFill, IDEAS_SYSTEM, ideasPrompt, parseIdeas } from './lab.js';
 import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
@@ -4102,6 +4102,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
+      case 'lab-ideas': {                            // 20 long-tail title ideas for one main thread
+        try {
+          if (await walled()) { sendResponse({ error: 'BlackHatWorld showed a wall recently - try again in a few minutes.' }); break; }
+          const url = String(msg.url || '');
+          const t = await readThreadTab(url);
+          if (!t.title && !t.body) { sendResponse({ error: 'That thread could not be read - check the link and that you are logged in.' }); break; }
+          const user = ideasPrompt({ ...t, url }, msg);
+          let a = await askClaude(IDEAS_SYSTEM, user, { maxTokens: 5000, timeoutMs: 120000 });
+          let r = parseIdeas(a.text); let cost = a.cost || 0;
+          if (r.ideas.length < 15) {                  // cut off or short: one tighter retry
+            a = await askClaude(IDEAS_SYSTEM, `${user}\n\nReturn ONLY the JSON, all 20 ideas, intent under 10 words each.`, { maxTokens: 5000, timeoutMs: 120000 });
+            cost += a.cost || 0;
+            const r2 = parseIdeas(a.text); if (r2.ideas.length > r.ideas.length) r = r2;
+          }
+          if (!r.ideas.length) { sendResponse({ error: 'Claude answered but gave no usable titles. Try again.' }); break; }
+          const entry = { at: new Date().toISOString(), url, title: t.title, ...r, cost };
+          const { labIdeas = [] } = await chrome.storage.local.get('labIdeas');
+          await chrome.storage.local.set({ labIdeas: [entry, ...labIdeas.filter((x) => x.url !== url)].slice(0, 20) });
+          await log(`Thread Lab: ${r.ideas.length} long-tail title ideas for "${String(t.title).slice(0, 60)}" ($${cost.toFixed(3)})`);
+          sendResponse({ ok: true, ...entry });
+        } catch (e) { sendResponse({ error: e.message }); }
+        break;
+      }
       case 'lab-fill': {                             // read your thread, propose the form
         try {
           if (await walled()) { sendResponse({ error: 'BlackHatWorld showed a wall recently - try again in a few minutes.' }); break; }

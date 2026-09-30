@@ -83,6 +83,17 @@
     </div>
     <p class="sub" style="margin-top:10px">Read in real tabs at a human pace - about 10 page loads, 3-4 minutes, one Claude call of a few cents. Nothing is posted: you copy what you want.</p>
   </div>
+  <div class="card">
+    <h2>20 long-tail title ideas</h2>
+    <p class="sub">For any main thread: 20 titles in the "Brand - Service for Country + Niche" shape, each on a different niche and country - e.g. <i>Advault - Reverse Engineer Competitor Ads for Indonesia Casino &amp; iGaming SEO</i>. One short Claude call, about 1-2 cents.</p>
+    <div class="row">
+      <input type="text" id="ideasUrl" placeholder="Main thread link (defaults to the one above)" style="flex:3;min-width:260px">
+      <input type="text" id="ideasBrand" placeholder="Brand (optional)" style="flex:1;min-width:140px">
+      <button class="pri" id="ideasRun">📋 Get 20 ideas</button>
+    </div>
+    <div class="sub" id="ideasMsg" style="margin-top:8px"></div>
+    <div id="ideasOut"></div>
+  </div>
   <div class="card" id="progress" hidden><h2>Working…</h2><div class="steps" id="steps"></div></div>
   <div id="out"></div>
   <div class="card" id="histCard" hidden><h2>Earlier runs</h2><div class="hist" id="hist"></div></div>
