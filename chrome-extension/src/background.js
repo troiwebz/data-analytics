@@ -52,7 +52,7 @@ import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
 import { fetchConversations, matchLead as matchConversation } from './messages.js';
 import { askClaude, writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
-         revealKey, factoryReset, addCredits, resetSpend, ANGLES, checkLines } from './claude.js';
+         revealKey, factoryReset, addCredits, resetSpend, ANGLES, checkLines, REPLY_SYSTEM, replyPrompt, composeReply } from './claude.js';
 import {
   getSeen, markSeen, clearSeen, isFirstRun, recordLeads, repairJumpLinks, getLeads, updateLead, mergeLeads, updateReplyCounts,
   checkRateLimit, recordPost, unrecordPost, checkDmLimit, recordDm, unrecordDm, getRateState, log, logOnce, clearLogOnce,
@@ -592,6 +592,38 @@ export async function previewPrompts(threadId, variants) {
       dm: e.dm, publicReply: e.draft, problems: [...checkLines(spec.tips), ...((e.dmLint?.errors) || [])] });
   }
   return { thread: { title: lead.title, author: lead.author, url: lead.url, read: !!String(lead.body || '').trim() }, results: out };
+}
+
+/**
+ * ✍️ Draft with Claude, for a thread on another forum: two technical lines and
+ * one question, written from the post and the replies already there. Only on
+ * request; kept on the lead (claudeReply) and reused while the thread has no
+ * new replies, so a second press is free. Fills the answer box - posting is
+ * still your tap.
+ */
+export async function draftThreadReply(threadId, { force = false } = {}) {
+  const cfg = await getConfig();
+  let lead = (await getLeads()).find((l) => String(l.threadId) === String(threadId));
+  if (!lead) return { error: 'that thread is no longer in the list' };
+  if (!String(lead.body || '').trim()) {
+    const got = await readThreadTab(lead.url).catch(() => ({ body: '', replies: [] }));
+    if (got.body || got.replies?.length) {
+      lead = { ...lead, body: got.body || lead.body, replies: got.replies?.length ? got.replies : (lead.replies || []) };
+      await updateLead(lead.threadId, { body: lead.body, replies: lead.replies });
+    }
+  }
+  const nReplies = (lead.replies || []).length;
+  const kept = lead.claudeReply;
+  // v2: drafts from the first prompt (which lectured instead of answering the ask) are never reused.
+  if (!force && kept?.text && kept.v === 2 && kept.replies === nReplies) return { text: kept.text, problems: kept.problems || [], asked: kept.asked || '', cached: true, cost: 0 };
+  const a = await askClaude(REPLY_SYSTEM, replyPrompt(lead, cfg.brief), { maxTokens: 320, timeoutMs: 45000 });
+  const r = composeReply(a.text);
+  if (r.error) return { error: r.error, cost: a.cost };
+  const lint = lintDraft(r.text, cfg.compliance);
+  const problems = [...r.problems, ...lint.errors];
+  await updateLead(lead.threadId, { claudeReply: { v: 2, text: r.text, asked: r.asked, problems, replies: nReplies, at: new Date().toISOString(), cost: a.cost } });
+  await log(`Claude drafted a public reply for "${String(lead.title).slice(0, 60)}" ($${(a.cost || 0).toFixed(4)}) - waiting for your tap`);
+  return { text: r.text, problems, asked: r.asked, cost: a.cost, read: !!String(lead.body || '').trim(), replies: nReplies };
 }
 
 export async function specificsFor(leads, cfg, { force = false } = {}) {
@@ -4150,7 +4182,14 @@ export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
     // own record of what exists. Reading it here means "sent" on the dashboard
     // means the same thing as "sent" on BHW - which is the whole point, since
     // the strike-through on the row is what stops a second PM going out.
-    const proof = await duplicateCheck(lead);
+    let proof = await duplicateCheck(lead);
+    // The page gave up (a slow BHW, a timeout) - but the PM may well have gone.
+    // A new conversation can take a few seconds to show in the list, so look
+    // again before calling it failed: a false "failed" is how a buyer gets two.
+    for (let i = 0; !proof.sent && !result.sent && i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 8000 + i * 4000));
+      proof = await duplicateCheck(lead);
+    }
     if (proof.sent) {
       // The list has it. That settles it whatever the tab thought, and the
       // conversation URL comes along so the row can link to it.
@@ -4390,6 +4429,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                        index: await indexStats(), bank: await bankStats() });
         break;
       }
+      case 'draft-reply':                            // ✍️ from the dashboard: Claude drafts the public reply, you post it
+        sendResponse(await draftThreadReply(msg.threadId, { force: !!msg.force }).catch((e) => ({ error: e.message })));
+        break;
       case 'save-answer': {                          // 💾 from the dashboard: your answer, kept on the lead and its card
         const cfg = await getConfig();
         const lead = (await getLeads()).find((l) => String(l.threadId) === String(msg.threadId));

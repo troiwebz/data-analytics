@@ -687,3 +687,67 @@ export const revealKey = () => vault.getKey();
 
 /** Wipe settings and the local database; the Claude key is kept. */
 export const factoryReset = () => vault.resetKeepingVault();
+
+// ---- public reply drafts for threads on other forums (1.11.5) -------------
+//
+// "✍️ Draft with Claude" on a thread row: two technical lines that add
+// something the replies already there have not said, and one question that
+// keeps the thread going. Written only when you press the button, from a
+// trimmed copy of the thread, with a small answer budget; kept on the lead, so
+// pressing it again costs nothing unless the thread has new replies. Never
+// posted by itself - it only fills the answer box.
+export const REPLY_SYSTEM = [
+  'You write a short public reply to a thread on a marketing forum (BlackHatWorld), for a practitioner to post under their own name.',
+  '',
+  'STEP 1 - work out what the poster actually wants, in their own terms: an answer to a question, experiences from people who',
+  'have done it, a recommendation, help fixing a problem, or someone to hire. Put it in "asked", under 12 words.',
+  'The whole reply answers THAT. A thread asking "has anyone used X, how does it compare" gets experience and a comparison,',
+  'not a lecture on something adjacent. A reply that is technically true but does not answer what was asked is a failure.',
+  '',
+  'STEP 2 - write exactly 2 lines, then 1 question:',
+  '- Line 1 answers what was asked, directly, as someone who has done it ("In our experience...", "We run these and...",',
+  '  "The difference we see is..."). Concrete: name the platform, setting, number or result the poster would notice.',
+  '- Line 2 adds ONE practical detail that none of the replies already on the thread gave. Read every reply first; if a',
+  '  reply already made a point (even in other words), that point is used up - do not repeat or rephrase it.',
+  '- The question asks about THEIR situation (what niche, volume, platform or goal they have), short and easy to answer,',
+  '  so they reply. It should naturally lead to a conversation about doing the work. Never ask their budget.',
+  '',
+  'Tone: one practitioner to another, plain and short. No greeting, no sign-off, no pitch, no mention of PMs, prices,',
+  'discounts, guarantees or free work. Never warn, lecture or mention rules or terms of service.',
+  'Plain punctuation only: no em dash, no en dash, no bullets, no brackets, no emojis. Each line under 170 characters.',
+  'Avoid words that read machine-written: squarely, delve, seamless, leverage, tailored, robust, game changer, unlock, in today\'s.',
+  '',
+  'Return ONLY JSON: {"asked":"...","lines":["line 1","line 2"],"question":"..."}'
+].join('\n');
+
+/** The thread, trimmed: the post, and the gist of each reply already there. */
+export function replyPrompt(lead, brief = '') {
+  const squash = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const replies = (lead.replies || []).slice(0, 6).map((r, i) => `${i + 1}. ${squash(r.text, 220)}`).filter((x) => x.length > 4);
+  return [
+    `title: ${squash(lead.title, 200)}`,
+    `forum: ${squash(lead.forum || lead.sourceLabel, 60)}`,
+    lead.intent ? `looks like: ${lead.intent === 'BUYER' ? 'someone looking to buy or hire' : lead.intent === 'QUESTION' ? 'a question' : 'sharing or asking for experiences'}` : '',
+    `post: ${squash(lead.body || lead.snippet, 1200) || '(not available - go on the title and claim less)'}`,
+    replies.length ? `replies already on the thread (${lead.replies.length}):\n${replies.join('\n')}` : 'replies already on the thread: none',
+    brief ? `about the writer (for what "we" can honestly say): ${squash(brief, 400)}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+const STIFF = /squarely|delve|seamless|leverage|tailored|robust|game[- ]?changer|\bunlock|in today's/i;
+
+/** Claude's answer as the text for the box, or an error naming what was wrong. */
+export function composeReply(text) {
+  let o;
+  try { o = parseObject(text); } catch { o = null; }
+  const lines = (Array.isArray(o?.lines) ? o.lines : []).map((l) => String(l || '')
+    .replace(/[—–]/g, ',').replace(/[•()[\]]/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 2);
+  let q = String(o?.question || '').replace(/[—–]/g, ',').replace(/[()[\]]/g, '').replace(/\s+/g, ' ').trim();
+  if (q && !/\?$/.test(q)) q += '?';
+  if (lines.length < 2 || !q) return { error: 'Claude did not return two lines and a question - press Draft again' };
+  const out = `${lines[0]}\n${lines[1]}\n\n${q}`;
+  const problems = [];
+  if (STIFF.test(out)) problems.push('a stiff word slipped in - edit it before posting');
+  if (/\b(free|guarantee|discount|pm me|dm me|\$\d)/i.test(out)) problems.push('mentions free work, a price, a guarantee or a PM - edit it before posting');
+  return { text: out, problems, asked: String(o?.asked || '').trim().slice(0, 120) };
+}

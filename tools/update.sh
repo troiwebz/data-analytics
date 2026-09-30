@@ -23,7 +23,12 @@ fi
 # Chrome may be running the extension from another folder (a zip unzipped into
 # Downloads, say). Find every folder Chrome loads HAF Watcher from and bring it
 # up to this version too - keys file and all your own files are left alone.
-SRC="$(pwd)/chrome-extension"
+# Only COMMITTED code is ever copied: a copy of HEAD, not the working folder,
+# so edits still being made or tested in this clone never reach Chrome.
+SNAP=$(mktemp -d "${TMPDIR:-/tmp}/haf-snap.XXXXXX")
+trap 'rm -rf "$SNAP"' EXIT
+git archive HEAD chrome-extension | tar -x -C "$SNAP"
+SRC="$SNAP/chrome-extension"
 version=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$SRC/manifest.json" | head -1)
 LOADED=$(python3 - <<'PYX'
 import json, glob, os
@@ -41,7 +46,7 @@ if [ -z "$LOADED" ]; then
 fi
 echo "$LOADED" | while IFS= read -r dir; do
   [ -z "$dir" ] && continue
-  if [ "$(cd "$dir" && pwd -P)" = "$(cd "$SRC" && pwd -P)" ]; then
+  if [ "$(cd "$dir" && pwd -P)" = "$(cd "$(pwd)/chrome-extension" && pwd -P)" ]; then
     echo "Chrome loads $dir - v$version"
     continue
   fi

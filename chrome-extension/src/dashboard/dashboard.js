@@ -490,7 +490,7 @@ function detailThread(l, cfg) {
   const why = l.intent === 'BUYER' ? 'Someone asking for a service — you can pitch in public.'
             : l.intent === 'QUESTION' ? 'A question — answer it properly, no pitch; your signature sells.'
             : 'Sharing, not asking — reply only if you add something.';
-  const answer = plain(edited[l.threadId] ?? l.draftApproved ?? l.draft ?? '');
+  const answer = plain(edited[l.threadId] ?? l.draftApproved ?? (l.draft || l.claudeReply?.text) ?? '');
   return `<tr class="detail"><td colspan="${cols().length}">
     <div class="sub" style="margin-bottom:8px"><span class="tag ${esc(l.intent || 'INFO')}">${esc(l.intent || 'INFO')}</span> ${why}
       · ${esc(l.sourceLabel || '')}${l.forum ? ' · ' + esc(l.forum) : ''} · <b>public reply only, no PM</b></div>
@@ -500,6 +500,7 @@ function detailThread(l, cfg) {
       <div class="lbl">Your answer</div>
       <textarea data-draft="${id}" ${done ? 'readonly' : ''} placeholder="Write it here, or paste what Claude/ChatGPT gave you. 📋 Material sends the question and the replies to Telegram as copy blocks.">${esc(answer)}</textarea>
       <div class="acts">
+        ${done ? '' : `<button data-act="draftai" data-id="${id}" title="Claude writes two technical lines and one question from the post and the replies already there - fills the box, posts nothing. About $0.01, free when pressed again">✍️ Draft with Claude</button>`}
         <button data-act="material" data-id="${id}" title="Send the question, the existing replies and similar past answers to Telegram as copy blocks">📋 Material → Telegram</button>
         <button data-act="tg" data-id="${id}" title="Send this thread's card to Telegram now">✈️ Card → Telegram</button>
         <button data-act="copyans" data-id="${id}" title="Copy the answer text only - does not mark anything">📋 Copy answer</button>
@@ -577,6 +578,22 @@ async function rowAction(btn) {
   const lead = (await getLeads()).find((l) => String(l.threadId) === String(id));
   if (!lead) return;
   if (act === 'copyans') { await navigator.clipboard.writeText(plain(draft)); say(id, 'Copied.', true); return; }
+  if (act === 'draftai') {
+    btn.disabled = true;
+    say(id, 'Claude is reading the thread and the replies… 10-30 seconds.', true);
+    const r = await chrome.runtime.sendMessage({ cmd: 'draft-reply', threadId: id, force: btn.dataset.again === '1' }).catch((e) => ({ error: e.message }));
+    btn.disabled = false;
+    if (!r || r.error) { say(id, `Could not draft: ${r?.error || 'no answer'}`, false); return; }
+    edited[id] = r.text;
+    const box = document.querySelector(`textarea[data-draft="${CSS.escape(String(id))}"]`);
+    if (box) box.value = r.text;
+    btn.textContent = '✍️ Draft again';
+    btn.dataset.again = '1';
+    say(id, (r.asked ? `Claude read the ask as: "${r.asked}". ` : '')
+      + (r.cached ? 'Your saved draft (free - no new replies since). ' : `Drafted ($${Number(r.cost || 0).toFixed(4)}). `)
+      + (r.problems?.length ? `Check before posting: ${r.problems.join('; ')}.` : 'Read it, edit if you like, then 🚀 Post now.'), !r.problems?.length);
+    return;
+  }
   if (act === 'material') {
     const r = await chrome.runtime.sendMessage({ cmd: 'tg-material', threadId: id });
     say(id, r?.error ? `Could not send: ${r.error}`
@@ -584,13 +601,13 @@ async function rowAction(btn) {
     return;
   }
   if (act === 'save') {
-    const draft = edited[id] ?? lead.draft ?? '';
+    const draft = edited[id] ?? lead.draftApproved ?? (lead.draft || (lead.kind === 'thread' ? lead.claudeReply?.text : '')) ?? '';
     const r = await chrome.runtime.sendMessage({ cmd: 'save-answer', threadId: id, draft });
     delete edited[id];
     say(id, r?.error ? r.error : (r?.card ? 'Saved. The Telegram card now shows it with 🚀.' : 'Saved on the lead.'), !r?.error);
     return render();
   }
-  const draft = edited[id] ?? lead.draft ?? '';
+  const draft = edited[id] ?? (lead.kind === 'thread' ? (lead.draftApproved ?? (lead.draft || lead.claudeReply?.text)) : lead.draft) ?? '';
   let dm = editedDm[id] ?? lead.dm;
   if (dm == null) { try { dm = renderDm(lead, cfg); } catch { dm = ''; } }
 
