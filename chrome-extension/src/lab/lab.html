@@ -35,6 +35,10 @@
   a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
   ol,ul{margin:6px 0 0 18px;padding:0} li{margin-bottom:4px}
   .hist button{margin:0 6px 6px 0;font-weight:500}
+  .bar{height:8px;border-radius:99px;background:#e2e8f0;position:relative;min-width:120px}
+  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:99px}
+  .okc{color:var(--green);font-weight:700}.bad{color:var(--red);font-weight:700}
+  .warn{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:10px 14px;margin-bottom:10px}
 </style>
 <header>
   <h1>🧪 Thread Lab</h1>
@@ -44,18 +48,31 @@
 </header>
 <div class="w">
   <div class="card">
-    <h2>1. Your service thread</h2>
-    <p class="sub">Paste the link to your own BHW service thread. It reads it, then reads competing threads, finds the ones selling what you sell, ranks them by replies per day and studies the best.</p>
+    <div class="row" style="margin-top:0">
+      <label class="ck"><input type="radio" name="mode" value="review" checked> <b>Review-copy thread</b> for Service Reviews &amp; Beta Testers</label>
+      <label class="ck"><input type="radio" name="mode" value="main"> Rewrite my main sales thread</label>
+    </div>
+    <h2 style="margin-top:14px">1. Your main sales thread</h2>
     <input type="text" id="url" placeholder="https://www.blackhatworld.com/seo/your-service-thread.123456/">
+    <div id="reviewFields">
+      <div class="row">
+        <label class="ck">Free review copies <input type="number" id="copies" value="10" min="1" max="100" style="width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:8px"></label>
+        <label class="ck">Delivery <input type="text" id="delivery" placeholder="e.g. 3-5 days" style="width:160px"></label>
+      </div>
+      <label class="sub" style="display:block;margin-top:10px">What each reviewer gets <span>(3-5 short lines - left empty, it is taken from your main thread and gaps are marked [fill in])</span></label>
+      <textarea id="gets" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font:13px system-ui" placeholder="1 casino Google Ads campaign setup&#10;Ad account + tracking&#10;7 days of optimisation"></textarea>
+      <label class="sub" style="display:block;margin-top:8px">Requirements / not accepted</label>
+      <textarea id="requirements" rows="2" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font:13px system-ui" placeholder="Review within 48h of delivery. Jr VIP or 100+ posts. Adult not accepted."></textarea>
+    </div>
     <div class="row">
-      <label class="ck"><input type="checkbox" id="rc" checked> Free Review Copies forum</label>
-      <label class="ck"><input type="checkbox" id="own" checked> My thread's own section</label>
-      <label class="ck">Pages each <select id="pages"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+      <label class="ck">Pages <select id="pages"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
       <label class="ck">Open the best <select id="open"><option>4</option><option selected>6</option><option>8</option></select></label>
+      <label class="ck" id="frcBox"><input type="checkbox" id="frc"> also Free Review Copies forum</label>
+      <label class="ck" id="mainBoxes" hidden><input type="checkbox" id="rc" checked> Free Review Copies <input type="checkbox" id="own" checked> my own section</label>
       <span class="sp" style="flex:1"></span>
       <button class="pri" id="run">Run the Lab</button>
     </div>
-    <p class="sub" style="margin-top:10px">Read in real tabs at a human pace - 3 pages × 2 places + 6 threads is about 13 page loads, roughly 3-4 minutes. One Claude call at the end, usually a few cents. Nothing is posted.</p>
+    <p class="sub" style="margin-top:10px">Read in real tabs at a human pace - about 10 page loads, 3-4 minutes, one Claude call of a few cents. Nothing is posted: you copy what you want.</p>
   </div>
   <div class="card" id="progress" hidden><h2>Working…</h2><div class="steps" id="steps"></div></div>
   <div id="out"></div>

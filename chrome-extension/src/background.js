@@ -28,7 +28,7 @@ import { sourcesOf, watchWordsOf, wordHits, isSalesThread, isMarketForum, intent
 import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './threadindex.js';
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
-import { runLab } from './lab.js';
+import { runLab, runReviewLab } from './lab.js';
 import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
@@ -1443,7 +1443,7 @@ async function startLab(opts) {
     const step = async (m) => { run.steps.push({ t: Date.now(), m }); await chrome.storage.local.set({ [LAB_KEY]: { ...run } }); };
     try {
       const gap = () => new Promise((r) => setTimeout(r, 4000 + Math.random() * 5000));
-      const result = await runLab(opts, {
+      const result = await (opts.mode === 'main' ? runLab : runReviewLab)(opts, {
         step,
         readThread: async (u) => { await gap(); return readThreadTab(u); },
         readListing: async (u, pages) => { await gap(); return readListingPages(u, pages, { gapMs: 6000 }); },
@@ -1452,7 +1452,7 @@ async function startLab(opts) {
       const done = { ...run, status: 'done', finishedAt: Date.now(), result };
       const { [LAB_HISTORY]: hist = [] } = await chrome.storage.local.get(LAB_HISTORY);
       await chrome.storage.local.set({ [LAB_KEY]: done, [LAB_HISTORY]: [result, ...hist].slice(0, 10) });
-      await log(`Thread Lab: ${result.competitors.length} competitor(s) studied for "${String(result.mine.title).slice(0, 60)}" ($${Number(result.cost || 0).toFixed(3)})`);
+      await log(`Thread Lab (${result.mode === 'review' ? 'review copies' : 'main thread'}): ${result.competitors.length} thread(s) studied for "${String(result.mine.title).slice(0, 60)}" ($${Number(result.cost || 0).toFixed(3)})${(result.problems || []).length ? ` - ${result.problems.length} check(s) to look at` : ''}`);
     } catch (e) {
       if (/blocked/i.test(e.message)) await wall(e.message);
       await chrome.storage.local.set({ [LAB_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message } });

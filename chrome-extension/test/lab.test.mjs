@@ -1,5 +1,6 @@
 // Thread Lab: relevance by meaning, pull by replies per day, and a full run.
-import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES } from '../src/lab.js';
+import { tokens, rankCompetitors, repliesPerDay, cluster, parseLab, labPrompt, runLab, REVIEW_COPIES, REVIEW_SECTION,
+         titleFeatures, titleFormula, checkReviewCopy, repairReviewCopy, reviewPrompt, runReviewLab, SECTION_RULES } from '../src/lab.js';
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
@@ -62,6 +63,67 @@ ok('the prompt carries your post and theirs', /OPERATOR'S THREAD/.test(labPrompt
   let err = '';
   try { await runLab({ url: 'https://google.com/x' }, deps); } catch (e) { err = e.message; }
   ok('a link that is not BHW is refused before any reading', /not a BlackHatWorld thread/.test(err), err);
+}
+
+// --- review-copy mode, on the real section (read 2026-09-30) -------------------
+{
+  const REAL = [
+    [37, 2, "[ 10x Free Review Copies ] - Locke's Authority Guest Posts"], [35, 6, '10 X High DR Guest Post Review Copy'],
+    [89, 75, '♥️ Free Review ♥️  500MB Mobile Proxy Free Experience!'], [29, 1, '[BETA TESTERS] Free Google Knowledge Panel account for 20 founders/creators (honest feedback required)'],
+    [44, 16, '[CROWDO - SEPTEMBER] 50 Crowdo Link Copies & 5 Guest Posts & 15 Quora & 5 Reddit'], [37, 44, 'Free Review Copy - D0Follow / NoFollow Podcast Backlinks to your website'],
+    [4, 237, '[FREE REVIEW COPIES] AutoSmmPanel.com | SMM PANEL ⚡ Free $1 Balance ✅'], [41, 7, 'Free review copies to 20 members: 1 edu email each'],
+    [39, 3, "30X Free Review Copies : Ajju's EDU Authority Network⚡"], [19, 5, 'StrixSeo - $ 1 Network Free Review Copy - Sep 2026'],
+    [137, 203, '【Free Review】1GB Free Trial – High-Quality Residential Proxies'], [12, 2, 'Free Reivew Copies [ JOHNRANK PBN ]⭐POWERFUL CASINO PBN BACKLINKS ❤️ THAI ✅ INDO ✅ KOREAN NICHE ACCEPTED'],
+    [37, 16, '5 Free Review Copies -⚡Permuim Guest Posts⚡✅ High DA 50+✅❤️ 2k+ Traffic❤️ Do follow Link❤️'], [50, 34, '5x Free Review Copies of our 18 month Gemini Pro Upgrade Link Worth $360'],
+    [17, 12, 'FREE Review Copies — Human-Run AI Visibility Audit (AEO/GEO), New Features Released - 5 Spots Available!'],
+    [10, 9, '10x Free Review Copies:⭐⭐⭐⎝⎝ Casino/iGaming SEO Package ⎠⎠ ✅Slot-UFABET-Sportsbook-Poker-Crypto Casino⚡Indexing & Rank Tracking ✅ Worth $1499'],
+    [59, 100, 'Claude Code and Codex API service: Beta Testers Needed'], [13, 9, 'Free Review Copy - 7-Point Semrush Audit All AI Cited Sites'],
+    [6, 25, '[BETA TESTERS] Ubot/Zennoposter like browser automation tool - NEED FEEDBACK'], [94, 709, 'FREE REVIEW COPIES FOR CASINO Gambling PBN Do follow BACKLINKS DA 35 DR 50']
+  ].map(([rep, d, title], i) => ({ threadId: String(2000 + i), title, replyCount: rep, startedAt: ago(d), url: `https://www.blackhatworld.com/seo/t.${2000 + i}/` }));
+
+  ok('"[ 10x Free Review Copies ] - Locke\'s…" has count first, tag, bracket and brand',
+     (({ countFirst, reviewTag, bracketTag, brand }) => countFirst && reviewTag && bracketTag && brand)(titleFeatures(REAL[0].title)), JSON.stringify(titleFeatures(REAL[0].title)));
+  ok('an emoji-wall title is flagged', titleFeatures(REAL[15].title).emojiHeavy);
+  const f = titleFormula(REAL, { now });
+  const feat = (k) => f.features.find((x) => x.key === k);
+  ok('the formula ranks by replies per day', f.top[0].title.startsWith('[BETA TESTERS] Free Google Knowledge Panel'), f.top[0].title);
+  ok('it measures the top against the rest', f.sample === 20 && typeof feat('countAnywhere').top === 'number');
+  ok('on the real section, the top titles state the count more than the rest', feat('countAnywhere').top > feat('countAnywhere').rest, JSON.stringify(feat('countAnywhere')));
+  // Measured, not assumed: on this sample the top titles use emoji walls MORE (20% vs 10%).
+  ok('emoji use is measured, whichever way it goes', feat('emojiHeavy').top === 20 && feat('emojiHeavy').rest === 10, JSON.stringify(feat('emojiHeavy')));
+
+  const URL = 'https://www.blackhatworld.com/seo/casino-ads.1800000/';
+  const clean = { titles: ['[ 10x Free Review Copies ] - Bargain\'s Casino Ads'], description: `Hello,\n\nLooking for 10 honest reviewers.\n\nThread Link:\n${URL}\n\nHow to Apply: reply here.` };
+  ok('good copy passes every check', checkReviewCopy(clean, { url: URL, copies: 10 }).length === 0, JSON.stringify(checkReviewCopy(clean, { url: URL, copies: 10 })));
+  const probs = checkReviewCopy({ titles: ['Free Review Copies - Casino Ads'], description: 'Get 20% off after. Please bump my thread. Apply at https://forms.gle/x' }, { url: URL, copies: 10 });
+  ok('a missing thread link is caught', probs.some((p) => /main thread link/.test(p)));
+  ok('a missing count is caught, in the title too', probs.some((p) => /does not say 10/.test(p)) && probs.some((p) => /title 1 does not state 10/.test(p)));
+  ok('bump requests, upsells and off-site forms are caught', ['bumping', 'upsell', 'links off BHW'].every((w) => probs.some((p) => p.includes(w))), JSON.stringify(probs));
+  const fixed = repairReviewCopy({ description: 'Hello.\n\nThread Link:\n[link]\n\nReply below.' }, { url: URL, copies: 10 });
+  ok('a missing link is put in, under Thread Link', /Thread Link:\s*\n?\s*https:\/\/www\.blackhatworld\.com\/seo\/casino-ads/.test(fixed.description) || fixed.description.includes(URL), fixed.description);
+  const prompt = reviewPrompt({ url: URL, title: 'Casino ads', body: 'We run casino ads.' }, { copies: 10, gets: '1 campaign setup' }, f, [{ title: 'W', replyCount: 9, rpd: 3, body: 'winner post' }]);
+  ok('the prompt carries the rules, the numbers, the offer and the winners', SECTION_RULES.every((r) => prompt.includes(r)) && /free review copies: 10/.test(prompt) && /top \d+% vs rest/.test(prompt) && /winner post/.test(prompt));
+
+  // the whole run
+  const read = []; let asked = '';
+  const deps = {
+    now, step: () => {},
+    readThread: async (u) => { read.push(u); return u === URL ? { title: 'Casino ads management', body: 'We run Google and Meta ads for casino brands.' } : { body: 'Hello brothers, looking for 10 honest reviewers. Thread Link: ...' }; },
+    readListing: async (u, pages) => { read.push(`${u} x${pages}`); return Object.fromEntries(REAL.map((r) => [r.threadId, r])); },
+    ask: async (sys, user) => { asked = user; return { text: JSON.stringify({ titles: ['[ 10x Free Review Copies ] - Bargain\'s Casino Ads'], description: 'Hello,\n\nLooking for 10 honest reviewers.\n\nThread Link:\n[link]\n\nReply below.',
+      formula: [{ rule: 'Count first', evidence: '8/10' }], titlePattern: '[ {N}x Free Review Copies ] - {Brand}', rulesCheck: [{ rule: 'free', ok: true }] }), cost: 0.03 }; }
+  };
+  const out = await runReviewLab({ url: URL, copies: 10, pages: 7 }, deps);
+  ok('the Service Reviews & Beta Testers section is what is read', read.some((u) => u.startsWith(REVIEW_SECTION)) && !read.some((u) => u.startsWith(REVIEW_COPIES)), JSON.stringify(read));
+  ok('never more than 5 pages', read.filter((u) => / x\d$/.test(u)).every((u) => / x5$/.test(u)));
+  ok('the winners\' posts reach Claude', /looking for 10 honest reviewers/.test(asked));
+  ok('the thread link is always in the final post', out.description.includes(URL), out.description);
+  ok('the formula, the pattern and the rules check come back', out.formula.length && out.titlePattern && out.rulesCheck.length);
+  ok('the measured numbers come back for the page', out.measured.features.length === 7);
+  ok('and a clean result has no problems listed', out.problems.length === 0, JSON.stringify(out.problems));
+  let err = '';
+  try { await runReviewLab({ url: URL, copies: 0 }, deps); } catch (e) { err = e.message; }
+  ok('no number of copies, no run', /how many free review copies/.test(err), err);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
