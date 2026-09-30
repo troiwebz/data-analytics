@@ -76,10 +76,6 @@ export function extractListing() {
       url: new URL(a.getAttribute('href'), location.href).href,
       title: (a.textContent || '').trim(),
       author: el.getAttribute('data-author') || '',
-      // The thread starter's name carries XenForo's staff classes when a
-      // moderator or admin started it. Those are never buyers.
-      staff: [...el.querySelectorAll('.structItem-cell--main .structItem-minor .username, .structItem-cell--main .structItem-minor .username *')]
-        .some((u) => /username--(staff|moderator|admin)/.test(String(u.className || ''))),
       startedAt: iso(el.querySelector('.structItem-startDate time')),
       lastActivityAt: iso(el.querySelector('.structItem-latestDate time') || el.querySelector('.structItem-cell--latest time')),
       replyCount: replies,

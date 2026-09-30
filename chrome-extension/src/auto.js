@@ -19,8 +19,6 @@
 // Pure functions: no chrome API and no network, so the rule can be read here
 // and proven with a plain array of objects.
 
-import { waitMs } from './sharp.js';
-
 const has = (s) => !!String(s || '').trim();
 
 /**
@@ -95,13 +93,9 @@ export function blockedReason(lead, cfg) {
 
 /**
  * 1 to 3 minutes from now, randomised so a whole poll's worth of new threads
- * does not all fire on the same tick. With the sharp lane running (see
- * sharp.js) the wait is its shorter one: being first is the point of it.
+ * does not all fire on the same tick.
  */
-export const postAt = (cfg, now = Date.now(), rand = Math.random) => {
-  const sharpWait = waitMs(cfg, rand);
-  return now + (sharpWait ?? (60 + rand() * 120) * 1000);
-};
+export const postAt = (cfg, now = Date.now(), rand = Math.random) => now + (60 + rand() * 120) * 1000;
 
 const open = (l) => !l.pmSent && !['SKIPPED', 'FAILED', 'EXPIRED'].includes(l.status);
 

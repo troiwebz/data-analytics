@@ -225,19 +225,6 @@ export const DEFAULT_CONFIG = {
   autoBackfillHours: 72,       // auto mode sends the pending PMs from this far back (3 days)
   autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
 
-  // ---- Sharp lane -------------------------------------------------------
-  // While auto mode is on, the Hire a Freelancer page alone is read every
-  // sharpSeconds (never under 60) instead of every pollMinutes, and a found
-  // thread's PM waits sharpWaitMin-sharpWaitMax seconds instead of 1-3
-  // minutes. Everything else stays on the slow check. One BHW wall and it
-  // stands down for two hours. OFF until you send "sharp on" to the bot -
-  // reading faster is a choice, never a side effect of an update.
-  // See src/sharp.js.
-  sharpLane: false,
-  sharpSeconds: 75,
-  sharpWaitMin: 25,
-  sharpWaitMax: 50,
-
   maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
   minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
   // Your BHW username. Normally worked out from your own message list - you
