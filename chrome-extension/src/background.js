@@ -29,7 +29,7 @@ import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './th
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
 import { runLab, runReviewLab, FILL_SYSTEM, parseFill, IDEAS_SYSTEM, ideasPrompt, parseIdeas } from './lab.js';
-import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW } from './browse.js';
+import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, WHATS_NEW, onPageRead } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
@@ -122,10 +122,50 @@ export async function playSound(cfg, which) {
  */
 const FOUND_IN_LIST = 'your BHW message list';
 
+// ---- new BHW messages -> Telegram (1.11.6) ---------------------------------
+//
+// Every BHW page the extension reads anyway shows the envelope's unread count.
+// When it is above zero, your message list is read ONCE (at most every three
+// minutes) and each unread conversation you have not been told about yet
+// becomes one Telegram line: who wrote, the subject, the link. No extra page
+// visits while nothing is unread. Settings → dmAlerts turns it off.
+const DM_ALERTED = 'dmAlerted';
+let dmCheckAt = 0;
+export async function alertUnreadDms(rows, me, cfg) {
+  if (cfg.dmAlerts === false || !cfg.telegramChatId) return { told: 0 };
+  const mine = String(me || '').trim().toLowerCase();
+  const unread = (rows || []).filter((r) => r.unread && (!r.lastBy || r.lastBy.toLowerCase() !== mine));
+  if (!unread.length) return { told: 0 };
+  const { [DM_ALERTED]: done = {} } = await chrome.storage.local.get(DM_ALERTED);
+  const fresh = unread.filter((r) => done[r.id] !== r.at);
+  if (!fresh.length) return { told: 0 };
+  const lines = fresh.slice(0, 6).map((r) => `📩 ${r.lastBy || 'Someone'}: ${r.title}\n${r.url}`);
+  if (fresh.length > 6) lines.push(`…and ${fresh.length - 6} more: https://www.blackhatworld.com/direct-messages/`);
+  await telegram.say(cfg.telegramChatId, `New BHW message${fresh.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`);
+  const next = { ...done };
+  for (const r of fresh) next[r.id] = r.at;
+  const keep = Object.entries(next).slice(-300);
+  await chrome.storage.local.set({ [DM_ALERTED]: Object.fromEntries(keep) });
+  await log(`told you on Telegram about ${fresh.length} new BHW message(s)`);
+  return { told: fresh.length };
+}
+export async function checkDmBadge(badge) {
+  if (!(badge > 0) || Date.now() - dmCheckAt < 3 * 60000) return { skipped: true };
+  dmCheckAt = Date.now();
+  const cfg = await getConfig();
+  if (cfg.dmAlerts === false || !cfg.telegramChatId) return { skipped: 'off' };
+  const own = await ownership().catch(() => ({ active: true }));
+  if (own.known && !own.active) return { skipped: 'standby' };
+  const { rows, me } = await fetchConversations(1, { told: cfg.bhwUsername || cfg.boundAccount || '' });
+  return alertUnreadDms(rows, me || cfg.boundAccount, cfg);
+}
+onPageRead((page) => { checkDmBadge(page.dmBadge).catch((e) => log(`new-message check: ${e.message}`, 'error')); });
+
 export async function syncSentPms({ pages = 1 } = {}) {
   const cfg = await getConfig();
   const told = cfg.bhwUsername || cfg.boundAccount || '';
   const { rows, me } = await fetchConversations(pages, { told });
+  await alertUnreadDms(rows, me || cfg.boundAccount, cfg).catch(() => {});   // the hourly read doubles as a backstop
   const leads = await getLeads();
   let marked = 0, known = 0, cleared = 0, maybes = 0;
 

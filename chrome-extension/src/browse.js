@@ -93,7 +93,9 @@ export function extractListing() {
   const meEl = document.querySelector('.p-navgroup-link--user .p-navgroup-linkText');
   const me = meEl ? (meEl.textContent || '').trim() : '';
   const next = !!document.querySelector('a.pageNav-jump--next');
-  return { rows, loggedIn, me, next, title: t, url: location.href };
+  const env = document.querySelector('.p-navgroup-link--conversations, a[href*="/direct-messages/"][data-badge]');
+  const dmBadge = env ? parseInt(env.getAttribute('data-badge') || '0', 10) || 0 : null;
+  return { rows, loggedIn, me, next, dmBadge, title: t, url: location.href };
 }
 
 /** The first post and every reply on a thread page. Runs in the page. */
@@ -148,7 +150,8 @@ export function extractThread() {
     forum: crumbs.length ? crumbs[crumbs.length - 1] : '',
     section: crumbs.slice(2).join(' › '),
     forumUrl,
-    loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true'
+    loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true',
+    dmBadge: (() => { const e = document.querySelector('.p-navgroup-link--conversations, a[href*="/direct-messages/"][data-badge]'); return e ? parseInt(e.getAttribute('data-badge') || '0', 10) || 0 : null; })()
   };
 }
 
@@ -191,7 +194,7 @@ export function opIsFirst(got) {
 /** One thread, read in a tab. Same shape thread.js gives, never throws on an unreadable page. */
 export async function readThreadTab(url) {
   try {
-    const got = await readInTab(canonicalThreadUrl(url), extractThread);
+    const got = seen(await readInTab(canonicalThreadUrl(url), extractThread));
     const out = { ...got, body: clean(got.body), replies: (got.replies || []).map((r) => ({ author: r.author, text: clean(r.text) })).filter((r) => r.text) };
     // Not the buyer's post: say nothing rather than hand Claude a seller's reply as the brief.
     if (!opIsFirst(got)) { out.body = ''; out.replies = []; out.notOp = true; }
@@ -224,7 +227,12 @@ export async function readThreadsInTabs(leads, { max = 5, gapMs = 6000, onOne } 
 }
 
 /** A listing page (a forum, or What's new) as rows. Throws on a wall. */
-export const readListingTab = (url) => readInTab(url, extractListing);
+// Every page the extension reads anyway carries the envelope's unread count.
+// Whoever wants it (the new-message alert) registers here: no extra visits.
+let pageHook = null;
+export const onPageRead = (fn) => { pageHook = fn; };
+const seen = (r) => { try { if (pageHook && r && r.dmBadge != null) pageHook(r); } catch { /* never break a read */ } return r; };
+export const readListingTab = async (url) => seen(await readInTab(url, extractListing));
 
 /** Several pages of one listing, as { [threadId]: row }, a human gap between pages. */
 export async function readListingPages(url, pages = 1, { gapMs = 5000, onPage } = {}) {

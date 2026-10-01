@@ -76,7 +76,17 @@ export function parseConversations(html) {
       // NOT when it started - XenForo puts the LAST message's time here. The
       // old code read this as a start date and called any bumped conversation
       // proof of a fresh PM, which is the bug this whole file now guards.
-      at: ts ? new Date(parseInt(ts[1], 10) * 1000).toISOString() : null
+      at: ts ? new Date(parseInt(ts[1], 10) * 1000).toISOString() : null,
+      // The row's class list starts this chunk: "… is-unread …" marks a
+      // conversation with a message you have not opened yet.
+      unread: /^[^>]*\bis-unread\b/.test(chunk),
+      // Who wrote the latest message: the first member link in the "latest" cell.
+      lastBy: (() => {
+        const i = chunk.indexOf('structItem-cell--latest');
+        if (i < 0) return '';
+        const m = chunk.slice(i).match(/<a[^>]+href="[^"]*\/members\/[^"]*"[^>]*>([\s\S]*?)<\/a>/);
+        return m ? strip(m[1]) : '';
+      })()
     });
   }
   return out;
