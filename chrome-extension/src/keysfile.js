@@ -36,9 +36,12 @@ export async function loadKeysFile({ setChatId } = {}) {
   try { d = JSON.parse(text); } catch (e) { return { error: `${KEYS_FILE} is not valid JSON: ${e.message}` }; }
   const took = [];
   const clean = (v) => String(v || '').trim();
+  // A key pasted twice arrives glued together ("sk-ant-…sk-ant-…"): one key, not two.
+  // Anthropic rejects the doubled string, so only the first key is kept.
+  const oneKey = (v) => { const s = clean(v); const i = s.indexOf('sk-ant-', 1); return i > 0 ? s.slice(0, i) : s; };
   if (clean(d.anthropicKey)) {
     if (!/^sk-ant-/.test(clean(d.anthropicKey))) return { error: 'the Anthropic key in haf-keys.json does not start with sk-ant- - check it and run set-keys again' };
-    await vault.setSecret('anthropic', clean(d.anthropicKey)); took.push('Claude key');
+    await vault.setSecret('anthropic', oneKey(d.anthropicKey)); took.push('Claude key');
   }
   if (clean(d.telegramToken)) {
     if (!/^\d+:[\w-]{20,}$/.test(clean(d.telegramToken))) return { error: 'the bot token in haf-keys.json does not look like 123456:ABC… - check it and run set-keys again' };

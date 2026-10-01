@@ -1,0 +1,2 @@
+date	mode	build	pass	failing
+2026-10-01	pre (L3 forced, shared files)	1.12.0→1.12.1	12/14 then 14/14 after fixes	13(keywords),15(doubled key) → fixed

@@ -186,6 +186,49 @@ const NOISE = new RegExp([
 ].join('|'), 'i');
 const clean = (text) => String(text || '').split('\n').filter((l) => l.trim() && !NOISE.test(l)).join('\n').trim();
 
+/**
+ * A BHW search results page (signed in only - signed out, BHW shows the search
+ * form and nothing else). Each row carries the title, forum, start date, reply
+ * count and a snippet of the post, so a niche can be researched from two page
+ * loads instead of a crawl. Runs inside the page.
+ */
+export function extractSearch() {
+  const t = String(document.title || '');
+  const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
+      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+    return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
+  }
+  const rows = [];
+  for (const c of document.querySelectorAll('.contentRow')) {
+    const a = c.querySelector('.contentRow-title a');
+    const minor = c.querySelector('.contentRow-minor');
+    if (!a || !minor) continue;
+    const txt = [...minor.querySelectorAll('li')].map((l) => String(l.textContent || '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ');
+    if (!/\bThread\b/.test(txt)) continue;                    // posts, media and profiles are not threads
+    const tm = minor.querySelector('time[data-timestamp]');
+    const ms = tm ? parseInt(tm.getAttribute('data-timestamp'), 10) * 1000 : NaN;
+    const href = new URL(a.getAttribute('href'), location.href).href;
+    const m = href.match(/^(https?:\/\/[^?#]*?\.\d+)(?=\/|$|[?#])/);
+    rows.push({
+      threadId: (m ? m[1].match(/\.(\d+)$/)[1] : (href.match(/\.(\d+)(?=\/|$|[?#])/) || [])[1]) || '',
+      url: m ? `${m[1]}/` : href,
+      title: (a.textContent || '').trim(),
+      author: ((minor.querySelector('.username') || {}).textContent || '').trim(),
+      startedAt: isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null,
+      replyCount: parseInt(String((txt.match(/Replies:\s*([\d,]+)/) || [])[1] || '').replace(/,/g, ''), 10) || 0,
+      forum: String((txt.match(/Forum:\s*(.+?)\s*$/) || [])[1] || '').trim(),
+      snippet: String((c.querySelector('.contentRow-snippet') || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+    });
+  }
+  const loggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+  const next = !!document.querySelector('a.pageNav-jump--next');
+  return { rows, loggedIn, next, title: t, url: location.href };
+}
+
+/** One BHW search, read in a tab. */
+export const readSearchTab = (url) => readInTab(url, extractSearch);
+
 /** Was the first post read the thread starter's own, on page 1? Pure. */
 export function opIsFirst(got) {
   if (!got) return false;

@@ -10,7 +10,7 @@ const casino = nicheRegex('casino');
 ok('casino also catches gambling, igaming, betting', ['Gambling advertising on Facebook', 'iGaming Facebook Ads in Malaysia', 'Best sportsbook traffic'].every((t) => casino.test(t)));
 ok('and not unrelated threads', !casino.test('How to stop Facebook ads from getting limited reach?'));
 const crypto = nicheRegex('crypto ads');
-ok('crypto catches token and web3', crypto.test('Launching a token on MEXC') && crypto.test('Web3 project marketing'));
+ok('crypto catches web3 and memecoin', crypto.test('Web3 project marketing') && crypto.test('The memecoin boom'));
 ok('an unknown niche uses its own words', nicheRegex('roofing leads').test('Need roofing leads in Texas'));
 ok('an empty niche gives nothing', nicheRegex('  ') === null);
 
@@ -59,6 +59,36 @@ ok('the copied body ends with the question', /Which one worked for you\?$/.test(
 let err = '';
 try { parseStudio('{"threads":[1,2]}'); } catch (e) { err = e.message; }
 ok('a short or broken answer is an error, never half a plan', /too few|malformed|did not return/.test(err), err);
+
+// --- GROW 1.12.1: "bet" matched "better", "token" matched Facebook's System User Tokens -----
+ok('"bet" never matches "better" (root cause: no closing word boundary)', !nicheRegex('casino').test('Which Is Better for a Website: Auto Ads or Manual Ads?') && !nicheRegex('casino').test('Are original Reels getting better reach now?'));
+ok('crypto does not catch Facebook System User Tokens', !nicheRegex('crypto').test('working with BMs via System User Tokens'));
+
+// --- GROW 1.12.1: a cut-off Claude answer is repaired, not thrown away -----------------
+const full = JSON.stringify({ pains: [{ pain: 'x', threads: 1, replies: 2, fit: 'strong', evidence: [] }], threads: [0, 1, 2, 3, 4].map(mk) });
+const cut = full.slice(0, Math.floor(full.length * 0.93));
+let repaired = null; try { repaired = parseStudio(cut); } catch (e) { repaired = e.message; }
+ok('an answer cut off near the end still yields the complete threads (root cause: 9k token cap, strict JSON.parse)', repaired && repaired.threads && repaired.threads.length >= 4, typeof repaired === 'string' ? repaired : repaired.threads.length);
+
+// --- the BHW search reader, on a search results page as XenForo renders it -----------------
+{
+  const { JSDOM } = await import('jsdom');
+  const row = (id, title, forum, replies, ts, snippet, kind = 'Thread') => `<li class="block-row"><div class="contentRow"><div class="contentRow-main">
+    <h3 class="contentRow-title"><a href="/seo/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${id}/unread">${title}</a></h3>
+    <div class="contentRow-snippet">${snippet}</div>
+    <div class="contentRow-minor contentRow-minor--hideLinks"><ul class="listInline listInline--bullet"><li><a href="/members/u.9/" class="username">someone</a></li><li>${kind}</li><li><time data-timestamp="${ts}"></time></li><li>Replies: ${replies}</li><li>Forum: ${forum}</li></ul></div></div></div></li>`;
+  const html = `<html data-logged-in="true"><body><ol>${row(1850834, 'GMB services Require for US Uk', 'Hire a Freelancer', 64, 1790000000, 'I can handle US and UK Google Business Profile')}
+    ${row(1839358, 'gambling advertising !!!!', 'FaceBook', 32, 1789000000, 'Is there a way to advertise in the gambling niche without getting rejected?')}
+    ${row(39136, '$5 Casino Guest Posts', 'Marketplace', 0, 1788000000, 'offer', 'Media item')}</ol><a class="pageNav-jump pageNav-jump--next" href="#">Next</a></body></html>`;
+  const dom = new JSDOM(html, { url: 'https://www.blackhatworld.com/search/12/?q=casino' });
+  globalThis.document = dom.window.document; globalThis.location = dom.window.location; globalThis.URL = dom.window.URL;
+  const { extractSearch } = await import('../src/browse.js');
+  const r = extractSearch();
+  ok('search rows are read: title, forum, replies, date, snippet', r.rows.length === 2 && r.rows[1].forum === 'FaceBook' && r.rows[1].replyCount === 32 && /rejected/.test(r.rows[1].snippet) && r.rows[1].startedAt.startsWith('2026'), r.rows);
+  ok('the link is the thread itself, never /unread', r.rows[0].url === 'https://www.blackhatworld.com/seo/gmb-services-require-for-us-uk.1850834/' && r.rows[0].threadId === '1850834', r.rows[0].url);
+  ok('media and non-thread results are skipped, signed-in and next-page flags set', r.loggedIn === true && r.next === true);
+  delete globalThis.document; delete globalThis.location;
+}
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

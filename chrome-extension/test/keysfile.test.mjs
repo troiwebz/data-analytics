@@ -30,5 +30,11 @@ ok('and the good key stays', (await vault.getSecret('anthropic')) === 'sk-ant-NE
 fileText = JSON.stringify({ telegramChatId: '555123' });
 r = await loadKeysFile(deps);
 ok('a file with only a chat id changes only the chat id', JSON.stringify(r.took) === '["chat id"]' && (await vault.getSecret('anthropic')) === 'sk-ant-NEW-key-123');
+// GROW 1.12.1: a key pasted twice arrived glued together (216 chars) and Anthropic
+// rejected it; the server zips carried that file. Only the first key is kept.
+fileText = JSON.stringify({ anthropicKey: 'sk-ant-api03-DOUBLED-key-ABCDEFsk-ant-api03-DOUBLED-key-ABCDEF' });
+r = await loadKeysFile(deps);
+ok('a doubled key is cut back to one key (root cause: paste echoed twice, glued by the extractor)', (await vault.getSecret('anthropic')) === 'sk-ant-api03-DOUBLED-key-ABCDEF', await vault.getSecret('anthropic'));
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -7,6 +7,7 @@ function Plain($s) { if (-not $s -or $s.Length -eq 0) { return '' }; $b = [Runti
 $ak = Plain (Read-Host 'Anthropic API key (sk-ant-..., Enter to keep)' -AsSecureString)
 $tt = Plain (Read-Host 'Telegram bot token (123456:ABC..., Enter to keep)' -AsSecureString)
 $ci = Read-Host 'Telegram chat id (digits, Enter to keep)'
+if ($ak) { $second = $ak.IndexOf('sk-ant-', 1); if ($second -gt 0) { $ak = $ak.Substring(0, $second) } }   # pasted twice = glued together; keep one
 if ($ak -and -not $ak.StartsWith('sk-ant-')) { Write-Output 'That Anthropic key does not start with sk-ant- - nothing written.'; exit 1 }
 if ($tt -and $tt -notmatch '^\d+:[\w-]{20,}$') { Write-Output 'That bot token does not look like 123456:ABC... - nothing written.'; exit 1 }
 if ($ci -and $ci -notmatch '^-?\d{4,}$') { Write-Output 'The chat id should be digits only - nothing written.'; exit 1 }

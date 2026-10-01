@@ -40,7 +40,7 @@ function showResult() {
   $('result').hidden = !r;
   if (!r) return;
   $('rtitle').textContent = `"${r.niche}" · researched ${String(r.at).slice(0, 10)}`;
-  $('rsub').textContent = `${r.scanned} discussion threads read · ${r.recent.length} recent (last ${r.days} days) and ${r.viral.length} all-time on-niche threads · Claude $${Number(r.cost || 0).toFixed(3)}${r.service ? ' · Service: ' + r.service.slice(0, 140) : ''}`;
+  $('rsub').textContent = `${r.how ? 'Via ' + r.how + ' · ' : ''}${r.scanned} threads read · ${r.recent.length} recent (last ${r.days} days) and ${r.viral.length} older on-niche threads${r.seconds ? ' · ' + r.seconds + 's' : ''} · Claude $${Number(r.cost || 0).toFixed(3)}${r.service ? ' · Service: ' + r.service.slice(0, 140) : ''}`;
   $('pains').innerHTML = (r.pains || []).map((p) => `<tr><td>${esc(p.pain)}${p.evidence?.length ? `<div class="sub">${p.evidence.map(esc).join(' · ')}</div>` : ''}</td><td class="n">${p.threads}</td><td class="n">${p.replies}</td><td><span class="fit ${esc(p.fit)}">${esc(p.fit || '–')}</span></td></tr>`).join('') || '<tr><td colspan="4" class="sub">No pains returned.</td></tr>';
   renderPlan();
 }

@@ -32,6 +32,8 @@ printf "Telegram chat id (digits, Enter to keep): "; read -r CI_IN
 # Take the key out of whatever was pasted - spaces, quotes, a line break, or
 # BotFather's whole sentence around the token - rather than refusing it.
 AK=$(printf '%s' "$AK_IN" | grep -oE 'sk-ant-[A-Za-z0-9_-]{20,}' | head -1 || true)
+# A key pasted twice comes out glued together; keep the first copy only.
+AK=$(printf '%s' "$AK" | awk '{ i = index(substr($0, 8), "sk-ant-"); print (i > 0) ? substr($0, 1, i + 6) : $0 }')
 TT=$(printf '%s' "$TT_IN" | grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' | head -1 || true)
 CI=$(printf '%s' "$CI_IN" | grep -oE '^-?[0-9]{4,}' | head -1 || true)
 mask() { local v="$1"; [ ${#v} -gt 12 ] && echo "${v:0:8}…${v: -4}" || echo "$v"; }

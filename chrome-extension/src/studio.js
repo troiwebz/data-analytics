@@ -1,3 +1,4 @@
+import { looseJson } from './lab.js';
 // Thread Studio - research a niche on BHW's discussion sections and draft a
 // 4-week plan of discussion threads that bring buyers to you (1.12.0).
 //
@@ -35,8 +36,8 @@ export const STUDIO_SECTIONS = [
 
 /** Keyword families: a niche word pulls in the words people actually use for it. */
 const FAMILIES = [
-  { k: /casino|gambl|igaming|i-gaming|betting|sportsbook|slot|poker/i, words: ['casino', 'gambl', 'igaming', 'i-gaming', 'betting', 'bet', 'sportsbook', 'slots?', 'poker', 'bookmaker', 'ftd', 'roulette'] },
-  { k: /crypto|bitcoin|web3|token|defi|nft|coin|exchange|wallet/i, words: ['crypto', 'bitcoin', 'btc', 'web3', 'defi', 'nft', 'token', 'memecoin', 'presale', 'airdrop', 'blockchain', 'altcoin', 'binance', 'solana', 'ethereum'] },
+  { k: /casino|gambl|igaming|i-gaming|betting|sportsbook|slot|poker/i, words: ['casinos?', 'gambl\\w*', 'igaming', 'i-gaming', 'betting', 'bets?', 'sportsbooks?', 'slots?', 'poker', 'bookmakers?', 'ftds?', 'roulette'] },
+  { k: /crypto|bitcoin|web3|token|defi|nft|coin|exchange|wallet/i, words: ['crypto\\w*', 'bitcoin', 'btc', 'web3', 'defi', 'nfts?', 'memecoins?', 'presales?', 'airdrops?', 'blockchain', 'altcoins?', 'binance', 'solana', 'ethereum'] },
   { k: /nutra|supplement|health|keto|weight|diet/i, words: ['nutra', 'supplements?', 'health', 'keto', 'weight loss', 'diet', 'skincare'] },
   { k: /adult|dating|onlyfans|\bof\b|nsfw/i, words: ['adult', 'dating', 'onlyfans', 'nsfw', 'cam'] },
   { k: /forex|trading|trader|prop/i, words: ['forex', 'trading', 'trader', 'prop firm', 'signals'] },
@@ -51,9 +52,10 @@ export function nicheRegex(niche) {
   if (!n) return null;
   const words = new Set();
   for (const f of FAMILIES) if (f.k.test(n)) f.words.forEach((w) => words.add(w));
-  for (const w of n.toLowerCase().split(/[^a-z0-9-]+/)) if (w.length >= 3 && !['ads', 'the', 'and', 'for'].includes(w)) words.add(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  for (const w of n.toLowerCase().split(/[^a-z0-9-]+/)) if (w.length >= 3 && !['ads', 'the', 'and', 'for'].includes(w)) words.add(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\w*');
   if (!words.size) return null;
-  return new RegExp(`\\b(${[...words].join('|')})`, 'i');
+  // Whole words only: "bet" must not match "better", "token" must not match "tokens" unless listed so.
+  return new RegExp(`\\b(${[...words].join('|')})\\b`, 'i');
 }
 
 /** Titles that are sales, not discussion. */
@@ -88,7 +90,7 @@ export const STUDIO_SYSTEM = [
   'EVERY thread body: open with a question or a situation the reader recognises; share what "I" see on real accounts,',
   'talking to "you"; a short numbered list of 3-5 concrete points; one quick check the reader can do today; end with ONE',
   'easy question (either/or, "your number", "what was it for you", or "am I wrong?"). Plain friendly English, short',
-  'sentences, 120-220 words. No em dashes, no brackets around links, no hype words (squarely, delve, seamless, leverage,',
+  'sentences, 100-170 words. No em dashes, no brackets around links, no hype words (squarely, delve, seamless, leverage,',
   'game changer, unlock).',
   '',
   'BHW RULES - break none of them, ever: no links, URLs, emails, Telegram or any contact detail in the body (3.15); no',
@@ -98,8 +100,8 @@ export const STUDIO_SYSTEM = [
   'If the member sells a tool, never ask "what is the best tool" and never name it; talk about what the work reveals.',
   'Do not invent specific numbers of accounts or results; keep claims general unless the service text gives them.',
   '',
-  'For each thread also write 2 example replies from other members and the member\'s answer to each: one new point, then',
-  'a question. Never just "agreed". If someone asks "do you do this?", one line: they do it day to day, details in the',
+  'For each thread also write 2 short example replies (under 25 words) from other members and the member\'s answer to each',
+  '(under 35 words): one new point, then a question. Never just "agreed". If someone asks "do you do this?", one line: they do it day to day, details in the',
   'signature.',
   '',
   'Return ONLY JSON:',
@@ -150,11 +152,8 @@ export function plainBody(th) {
 
 /** Claude's answer, cleaned and checked; a broken answer is an error, never a half plan. */
 export function parseStudio(text) {
-  const s = String(text || '');
-  const i = s.indexOf('{'), j = s.lastIndexOf('}');
-  if (i < 0 || j <= i) throw new Error('Claude did not return a plan - run it again');
-  let o;
-  try { o = JSON.parse(s.slice(i, j + 1)); } catch { throw new Error('Claude\'s plan was cut off or malformed - run it again'); }
+  const o = looseJson(text);
+  if (!o) throw new Error(String(text || '').includes('{') ? 'Claude\'s plan was cut off or malformed - run it again' : 'Claude did not return a plan - run it again');
   const threads = (Array.isArray(o.threads) ? o.threads : []).filter((t) => t && t.title && Array.isArray(t.body)).slice(0, 8)
     .map((t, n) => {
       const th = { id: n + 1, week: Math.min(4, Math.max(1, Number(t.week) || Math.floor(n / 2) + 1)), type: String(t.type || 'Question'),
