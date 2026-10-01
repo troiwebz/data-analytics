@@ -34,6 +34,7 @@ import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
+import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio } from './studio.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -1603,6 +1604,86 @@ async function startLab(opts) {
       if (/blocked/i.test(e.message)) await wall(e.message);
       await chrome.storage.local.set({ [LAB_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message, raw: e.raw || '' } });
       await log(`Thread Lab: ${e.message}`, 'error');
+    } finally { await jobEnd(); }
+  }).catch(() => {});
+  return { started: true };
+}
+
+// ------------------------------------------------------------- Thread Studio
+//
+// Separate from HAF entirely: its own keys, nothing written to the leads,
+// nothing sent or posted. Runs only when you press Run on its page.
+const STUDIO_KEY = 'studioRun';
+const STUDIO_RUNS = 'studioRuns';
+
+async function startStudio(opts) {
+  const niche = String(opts?.niche || '').trim();
+  const rx = nicheRegex(niche);
+  if (!rx) return { error: 'Type a niche or keyword first, for example casino or crypto ads.' };
+  const { [STUDIO_KEY]: cur } = await chrome.storage.local.get(STUDIO_KEY);
+  if (cur?.status === 'running' && Date.now() - (cur.startedAt || 0) < 25 * 60000) return { error: 'A Thread Studio run is already going - it finishes in about 10 minutes.' };
+  const until = await walled();
+  if (until) return { error: `BlackHatWorld showed a wall recently; reading resumes at ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` };
+  const days = [30, 60, 90].includes(Number(opts.days)) ? Number(opts.days) : 90;
+  const run = { status: 'running', startedAt: Date.now(), steps: [], opts: { niche, service: String(opts.service || '').slice(0, 800), days } };
+  await chrome.storage.local.set({ [STUDIO_KEY]: run });
+  alive(async () => {
+    await jobStart('Thread Studio');
+    const step = async (m) => { run.steps.push({ t: Date.now(), m }); await chrome.storage.local.set({ [STUDIO_KEY]: { ...run } }); };
+    const gap = () => new Promise((r) => setTimeout(r, 4000 + Math.random() * 5000));
+    try {
+      const cutoff = Date.now() - days * 86400000;
+      const rows = [];
+      for (const sec of STUDIO_SECTIONS) {
+        let pages = 0;
+        for (let p = 1; p <= 4; p++) {
+          await gap();
+          const url = `${sec.url}${p > 1 ? `page-${p}` : ''}?order=post_date&direction=desc`;
+          const page = await readListingTab(url);
+          if (page.blocked) throw new Error(page.blocked);
+          const got = (page.rows || []).filter((r) => !r.sticky).map((r) => ({ ...r, forum: sec.name }));
+          rows.push(...got); pages++;
+          const oldest = Math.min(...got.map((r) => new Date(r.startedAt || 0).getTime()).filter(Boolean));
+          if (!got.length || oldest < cutoff) break;
+        }
+        await gap();
+        const top = await readListingTab(`${sec.url}?order=reply_count&direction=desc`);
+        if (top.blocked) throw new Error(top.blocked);
+        rows.push(...(top.rows || []).filter((r) => !r.sticky).map((r) => ({ ...r, forum: sec.name, topList: true })));
+        await step(`${sec.name}: ${pages} page(s) of recent threads + the most-replied list`);
+      }
+      const { recent, viral } = pickThreads(rows, rx, { days });
+      await step(`Found ${recent.length} recent and ${viral.length} all-time "${niche}" discussion threads out of ${rows.length} read`);
+      if (!recent.length && !viral.length) throw new Error(`No "${niche}" discussion threads found - try a broader word`);
+      const toRead = [...recent.slice(0, 8), ...viral.slice(0, 4)];
+      const ops = [];
+      for (const [i, r] of toRead.entries()) {
+        await gap();
+        await step(`Reading opening post ${i + 1} of ${toRead.length}: ${String(r.title).slice(0, 60)}`);
+        const got = await readThreadTab(r.url);
+        if (got.body) ops.push({ title: r.title, body: got.body });
+      }
+      await step('Claude is grouping the pains and drafting 8 threads (about a minute)');
+      const a = await askClaude(STUDIO_SYSTEM, studioPrompt({ niche, service: run.opts.service, recent, viral, ops }), { maxTokens: 9000, timeoutMs: 180000 });
+      let plan;
+      try { plan = parseStudio(a.text); }
+      catch (e) {
+        await step('The first answer was not usable - asking once more');
+        const b = await askClaude(STUDIO_SYSTEM, studioPrompt({ niche, service: run.opts.service, recent, viral, ops }) + '\n\nReturn ONLY the JSON object, complete.', { maxTokens: 9000, timeoutMs: 180000 });
+        plan = parseStudio(b.text); a.cost = (a.cost || 0) + (b.cost || 0);
+      }
+      const slim = (r) => ({ title: r.title, url: r.url, forum: r.forum, startedAt: r.startedAt, replies: r.replyCount, views: r.views });
+      const result = { niche, service: run.opts.service, days, at: new Date().toISOString(), scanned: rows.length,
+        recent: recent.slice(0, 40).map(slim), viral: viral.map(slim), pains: plan.pains, threads: plan.threads, cost: a.cost || 0 };
+      const { [STUDIO_RUNS]: runs = {} } = await chrome.storage.local.get(STUDIO_RUNS);
+      const next = { ...runs, [niche.toLowerCase()]: result };
+      const keep = Object.fromEntries(Object.entries(next).sort((x, y) => String(y[1].at).localeCompare(String(x[1].at))).slice(0, 10));
+      await chrome.storage.local.set({ [STUDIO_KEY]: { ...run, status: 'done', finishedAt: Date.now(), key: niche.toLowerCase() }, [STUDIO_RUNS]: keep });
+      await log(`Thread Studio: "${niche}" - ${recent.length} recent + ${viral.length} viral threads studied, 8 threads drafted ($${Number(a.cost || 0).toFixed(3)})`);
+    } catch (e) {
+      if (/blocked/i.test(e.message)) await wall(e.message);
+      await chrome.storage.local.set({ [STUDIO_KEY]: { ...run, status: 'error', finishedAt: Date.now(), error: e.message } });
+      await log(`Thread Studio: ${e.message}`, 'error');
     } finally { await jobEnd(); }
   }).catch(() => {});
   return { started: true };
@@ -4395,6 +4476,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'sources-now':   sendResponse(await pollSources({ all: !!msg.all }).catch((e) => ({ error: e.message }))); break;
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
+      case 'studio-run':    sendResponse(await startStudio(msg.opts || {})); break;
       case 'lab-ideas': {                            // 20 long-tail title ideas for one main thread
         try {
           if (await walled()) { sendResponse({ error: 'BlackHatWorld showed a wall recently - try again in a few minutes.' }); break; }

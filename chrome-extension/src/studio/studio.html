@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Thread Studio</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626;--forum:#1f2630;--forum2:#283140;--fink:#e6e9ee;--fmute:#9aa5b4;--gold:#c2861a}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0} header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)} button:disabled{opacity:.55;cursor:default}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  button.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+  .w{max-width:1100px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+  .card h2{font-size:15px;margin:0 0 4px}
+  .sub{color:var(--mute);font-size:12.5px}
+  input[type=text],textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;background:#fff;color:var(--ink)}
+  .fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) 140px;gap:12px;margin-top:10px}
+  @media (max-width:800px){.fields{grid-template-columns:1fr}}
+  .fields label{display:grid;gap:5px;font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .steps div{font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#475569}
+  .err{color:var(--red);font-weight:600}
+  .chips button{margin:0 6px 6px 0;font-weight:500}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  .fit{font:700 11px system-ui;padding:2px 8px;border-radius:99px}
+  .fit.strong{background:#dcfce7;color:#15803d}.fit.medium{background:#fef3c7;color:#92400e}.fit.none{background:#f1f5f9;color:#64748b}
+  .plan{display:grid;grid-template-columns:290px minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:860px){.plan{grid-template-columns:1fr}}
+  .rail{display:grid;gap:12px}
+  .rail h3{margin:0;font:700 11.5px system-ui;text-transform:uppercase;letter-spacing:.05em;color:var(--mute)}
+  .tb{display:grid;gap:4px;text-align:left;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-weight:600}
+  .tb[aria-current="true"]{border-color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}
+  .chip{display:inline-block;font:600 11px system-ui;padding:2px 7px;border-radius:5px;background:#e2e8f0;color:#334155;margin-right:4px}
+  .chip.t{background:var(--gold);color:#fff}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .forum{background:var(--forum);color:var(--fink);border-radius:10px;overflow:hidden}
+  .crumb{padding:9px 14px;font-size:12px;color:var(--fmute);border-bottom:1px solid #ffffff14}
+  .ftitle{padding:12px 14px 2px;font:700 17px/1.35 system-ui}
+  .post{display:grid;grid-template-columns:130px minmax(0,1fr);border-top:1px solid #ffffff14;margin-top:10px}
+  @media (max-width:620px){.post{grid-template-columns:1fr}}
+  .user{background:var(--forum2);padding:12px;display:grid;gap:6px;justify-items:center;align-content:start;text-align:center}
+  .ava{width:56px;height:56px;border-radius:10px;display:grid;place-items:center;font:800 20px system-ui;background:#3a4556;color:#f3d28b}
+  .uname{background:#2337c7;color:#fff;font-size:12px;padding:4px 7px;border-radius:4px;font-weight:600}
+  .fbody{padding:14px;min-width:0} .fbody p{margin:0 0 10px} .fbody ol{margin:0 0 10px 18px;padding:0}
+  .q{border-left:3px solid var(--gold);padding:7px 11px;background:#ffffff0d}
+  .sig{margin-top:12px;padding-top:10px;border-top:1px solid #ffffff1f;font-size:12px;color:var(--fmute);text-align:center}
+  .reply{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .reply.you{border-color:var(--gold)} .reply b{display:block;font-size:12.5px;margin-bottom:4px} .reply.you b{color:var(--gold)}
+  .rule{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+  .pass{font:700 11px ui-monospace,monospace;color:#fff;background:var(--green);padding:3px 7px;border-radius:5px}
+  .fail{background:var(--red)}
+</style>
+<header>
+  <button id="back">← HAF Watcher</button>
+  <h1>✍️ Thread Studio</h1>
+  <span class="sub" style="color:#94a3b8">research a niche on BHW, then a 4-week plan of discussion threads that bring buyers to you</span>
+  <span class="sp"></span>
+</header>
+<div class="w">
+  <form class="card" id="intake">
+    <h2>Step 1 · Your niche and your service</h2>
+    <div class="sub">Reads BHW's discussion sections only (never Hire a Freelancer, Marketplace or Want to Buy), in real tabs at a human pace: about 10 minutes, roughly $0.05–0.15 of Claude. Nothing is posted or sent.</div>
+    <div class="fields">
+      <label>Niche or keyword<input type="text" id="niche" placeholder="e.g. casino, crypto ads, nutra" autocomplete="off"></label>
+      <label>Your service: sales thread URL or one paragraph<textarea id="service" rows="2" placeholder="e.g. We run Meta, Instagram and Google ads for casino and crypto brands on our own agency accounts."></textarea></label>
+      <label>Look back<select id="days"><option value="30">30 days</option><option value="60">60 days</option><option value="90" selected>90 days</option></select></label>
+    </div>
+    <div class="row"><button class="pri" type="submit" id="run">Run research</button><span class="sub" id="msg" aria-live="polite"></span></div>
+    <div class="row chips" id="past"></div>
+  </form>
+  <div class="card" id="progress" hidden><h2 id="ptitle">Researching…</h2><div class="steps" id="steps"></div></div>
+  <div id="result" hidden>
+    <div class="card"><h2 id="rtitle"></h2><div class="sub" id="rsub"></div>
+      <h2 style="margin-top:14px">The pains people have right now</h2>
+      <div style="overflow-x:auto"><table><thead><tr><th>Pain</th><th>Threads</th><th>Replies</th><th>Fits your service</th></tr></thead><tbody id="pains"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>Your 4-week plan</h2><div class="sub">Two threads a week, a different type each time. Edit any line that does not match your own accounts before posting.</div>
+      <div class="plan" style="margin-top:12px"><nav class="rail" id="rail"></nav><section style="min-width:0">
+        <div class="tabs" id="tabs"><button data-t="thread" aria-selected="true">Thread</button><button data-t="replies">Replies</button><button data-t="rules">BHW rules</button><button data-t="proof">Research proof</button></div>
+        <div id="view"></div></section></div>
+    </div>
+  </div>
+</div>
+<script type="module" src="studio.js"></script>

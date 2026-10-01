@@ -65,9 +65,11 @@ export function extractListing() {
     for (const x of el.querySelectorAll('.structItem-cell--main a[href*="/forums/"]')) {
       if (/\/forums\/[a-z0-9-]+\.\d+\/?$/i.test(x.getAttribute('href') || '')) { forumA = x; break; }
     }
-    let replies = null;
+    let replies = null, views = null;
     for (const dl of el.querySelectorAll('.structItem-cell--meta dl')) {
-      if (/repl/i.test(dl.textContent || '')) { const dd = dl.querySelector('dd'); replies = num(dd && dd.textContent); break; }
+      const dd = dl.querySelector('dd');
+      if (replies == null && /repl/i.test(dl.textContent || '')) replies = num(dd && dd.textContent);
+      else if (views == null && /view/i.test(dl.textContent || '')) views = num(dd && dd.textContent);
     }
     const href = forumA ? forumA.getAttribute('href') || '' : '';
     const lastEl = el.querySelector('.structItem-cell--latest .username');
@@ -81,6 +83,7 @@ export function extractListing() {
       startedAt: iso(el.querySelector('.structItem-startDate time')),
       lastActivityAt: iso(el.querySelector('.structItem-latestDate time') || el.querySelector('.structItem-cell--latest time')),
       replyCount: replies,
+      views,
       // BHW pins threads by putting them in a sticky GROUP, not with a class on
       // the row; checking the row alone let rules threads through as leads.
       sticky: /structItem--sticky/.test(String(el.className)) || !!el.closest('.structItemContainer-group--sticky')

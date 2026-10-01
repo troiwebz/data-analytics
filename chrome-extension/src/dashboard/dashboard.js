@@ -844,6 +844,7 @@ $('insights').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/insights/insights.html');
 });
 $('lab').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/lab/lab.html'); });
+$('studio').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/studio/studio.html'); });
 $('services').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/services/services.html');
 });
