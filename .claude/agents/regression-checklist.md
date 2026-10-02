@@ -19,7 +19,7 @@ You are the HAF Watcher regression gate. Run Step 0 first, then walk the checkli
 
 ## BLAST RADIUS MAP (file/folder → checklist items)
 Modules (a fix confined here runs only its items + [SMOKE]):
-- `src/studio.js`, `src/studio/` → items 10–14, 17, 18
+- `src/studio.js`, `src/studio/` → items 10–14, 17–21
 - `src/lab.js`, `src/lab/` → item 9
 - `src/auto.js` → items 5, 6
 - `src/owner.js` → item 7
@@ -48,6 +48,10 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 
 17. Thread Studio saved plans: a run appears in "Saved plans" with its name, niche, date and service text; a second run for the same niche adds a row (never replaces); click opens it; Rename and Delete work; the list survives a reload. (root cause of the gap: plans were keyed by niche, so a new run overwrote the old one, and only 10 were kept)
 18. [MECH] `TZ=UTC node test/studio.test.mjs` also asserts: the closing question appears once (root cause: Claude repeated it in the last paragraph and in the question field).
+
+19. Thread Studio saved plans stay closed on page load; a plan opens when its name is clicked and closes on a second click; a run that just finished opens by itself; "Made" shows date and time.
+20. Thread Studio used ticks: "Mark as used" on a thread shows ✓ on the rail and "✓ n/8 used" in the Saved plans list; undo works; the ticks survive a reload.
+21. Thread Studio retries the Claude call once when the connection drops ("could not reach Anthropic") instead of losing the run. (root cause: a network blip after the research was done ended the whole run)
 
 ## Report format
 REGRESSION CHECKLIST — <mode> — <L1|L2|L3> — build <version> — <date>

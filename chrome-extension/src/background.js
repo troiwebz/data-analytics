@@ -1686,7 +1686,17 @@ async function startStudio(opts) {
       const ops = [...recent.slice(0, 10), ...viral.slice(0, 4)].filter((r) => r.snippet).map((r) => ({ title: r.title, body: r.snippet }));
       await step('Claude is grouping the pains and drafting 8 threads (about a minute)');
       const user = studioPrompt({ niche, service: run.opts.service, recent, viral, ops });
-      const ask = (extra) => askClaude(STUDIO_SYSTEM, user + (extra || ''), { maxTokens: 16000, timeoutMs: 240000 });
+      // A dropped connection to Anthropic is retried once: the research is already done and should not be lost to a blip.
+      const ask = async (extra) => {
+        const call = () => askClaude(STUDIO_SYSTEM, user + (extra || ''), { maxTokens: 16000, timeoutMs: 240000 });
+        try { return await call(); }
+        catch (e) {
+          if (!/could not reach Anthropic|did not answer/i.test(e.message)) throw e;
+          await step(`Claude did not answer (${e.message}) - trying once more`);
+          await new Promise((r) => setTimeout(r, 5000));
+          return call();
+        }
+      };
       let a = await ask();
       let plan;
       try { plan = parseStudio(a.text); }

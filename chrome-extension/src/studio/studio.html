@@ -26,6 +26,10 @@
   .plink{background:none;border:0;padding:0;color:var(--blue);font:600 13px system-ui;cursor:pointer;text-align:left}
   .plink:hover{text-decoration:underline}
   tr.cur td{background:#fffbeb}
+  .used{font:600 12px system-ui;color:var(--green);white-space:nowrap}
+  .unused{font:500 12px system-ui;color:var(--mute);white-space:nowrap}
+  .tb .tick{color:var(--green);font-weight:800;margin-right:4px}
+  .tb.done{opacity:.72}
   .mini{padding:3px 8px;font-size:12px;font-weight:500}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
@@ -80,8 +84,8 @@
     <div class="row"><button class="pri" type="submit" id="run">Run research</button><span class="sub" id="msg" aria-live="polite"></span></div>
   </form>
   <div class="card" id="saved" hidden>
-    <h2>Saved plans</h2><div class="sub">Every run is kept here with its name, niche and the service text you gave. Click a name to open it.</div>
-    <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>Plan</th><th>Niche</th><th>Made</th><th>Your service</th><th></th></tr></thead><tbody id="plans"></tbody></table></div>
+    <h2>Saved plans</h2><div class="sub">Every run is kept here with its name, niche, date and the service text you gave. Click a name to open it, click again to close. Tick threads as used once you have posted them.</div>
+    <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>Plan</th><th>Niche</th><th>Made</th><th>Used</th><th>Your service</th><th></th></tr></thead><tbody id="plans"></tbody></table></div>
   </div>
   <div class="card" id="progress" hidden><h2 id="ptitle">Researching…</h2><div class="steps" id="steps"></div></div>
   <div id="result" hidden>

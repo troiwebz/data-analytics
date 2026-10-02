@@ -21,18 +21,26 @@ $('intake').addEventListener('submit', async (e) => {
 });
 
 const planName = (p) => p.name || `${p.niche} · ${String(p.at || '').slice(0, 10)}`;
+const when = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+const day = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { day: 'numeric', month: 'short' }); };
+const usedOf = (p) => (p.threads || []).filter((t) => t.used).length;
 function savedList() {
   const list = Object.entries(runs).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
   $('saved').hidden = !list.length;
   $('plans').innerHTML = list.map(([k, v]) => `<tr class="${k === key ? 'cur' : ''}">
     <td><button type="button" class="plink" data-open="${esc(k)}">${esc(planName(v))}</button></td>
-    <td>${esc(v.niche)}</td><td class="n">${esc(String(v.at || '').slice(0, 10))}</td>
+    <td>${esc(v.niche)}</td><td class="n" style="text-align:left">${esc(when(v.at))}</td>
+    <td>${usedOf(v) ? `<span class="used">✓ ${usedOf(v)}/${v.threads.length} used</span>` : `<span class="unused">0/${(v.threads || []).length}</span>`}</td>
     <td class="sub">${esc(String(v.service || '').slice(0, 110))}${String(v.service || '').length > 110 ? '…' : ''}</td>
     <td class="n"><button type="button" class="mini" data-ren="${esc(k)}">Rename</button> <button type="button" class="mini" data-del="${esc(k)}">Delete</button></td></tr>`).join('');
 }
 $('plans').addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.open) { key = b.dataset.open; cur = runs[key].threads[0]?.id || 1; tab = 'thread'; savedList(); showResult(); $('result').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  if (b.dataset.open) {
+    // Click a plan to open it; click the open one again to close it.
+    if (key === b.dataset.open) { key = ''; savedList(); showResult(); return; }
+    key = b.dataset.open; cur = runs[key].threads[0]?.id || 1; tab = 'thread'; savedList(); showResult(); $('result').scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
+  }
   const { studioRuns = {} } = await chrome.storage.local.get('studioRuns');
   if (b.dataset.ren) {
     const k = b.dataset.ren; if (!studioRuns[k]) return;
@@ -61,7 +69,7 @@ function showResult() {
   const r = runs[key];
   $('result').hidden = !r;
   if (!r) return;
-  $('rtitle').textContent = `${planName(r)} · niche "${r.niche}" · researched ${String(r.at).slice(0, 10)}`;
+  $('rtitle').textContent = `${planName(r)} · niche "${r.niche}" · made ${when(r.at)}`;
   $('rsub').textContent = `${r.how ? 'Via ' + r.how + ' · ' : ''}${r.scanned} threads read · ${r.recent.length} recent (last ${r.days} days) and ${r.viral.length} older on-niche threads${r.seconds ? ' · ' + r.seconds + 's' : ''} · Claude $${Number(r.cost || 0).toFixed(3)}${r.service ? ' · Service: ' + r.service.slice(0, 140) : ''}`;
   $('pains').innerHTML = (r.pains || []).map((p) => `<tr><td>${esc(p.pain)}${p.evidence?.length ? `<div class="sub">${p.evidence.map(esc).join(' · ')}</div>` : ''}</td><td class="n">${p.threads}</td><td class="n">${p.replies}</td><td><span class="fit ${esc(p.fit)}">${esc(p.fit || '–')}</span></td></tr>`).join('') || '<tr><td colspan="4" class="sub">No pains returned.</td></tr>';
   renderPlan();
@@ -70,7 +78,7 @@ function showResult() {
 function renderPlan() {
   const r = runs[key]; if (!r) return;
   const th = r.threads.find((t) => t.id === cur) || r.threads[0];
-  $('rail').innerHTML = [1, 2, 3, 4].map((w) => `<div><h3>Week ${w}</h3>${r.threads.filter((t) => t.week === w).map((t) => `<button type="button" class="tb" data-id="${t.id}" aria-current="${t.id === th.id}"><span>${esc(t.title)}</span><span><span class="chip t">${esc(t.type)}</span><span class="chip">${esc(t.section)}</span></span></button>`).join('')}</div>`).join('');
+  $('rail').innerHTML = [1, 2, 3, 4].map((w) => `<div><h3>Week ${w}</h3>${r.threads.filter((t) => t.week === w).map((t) => `<button type="button" class="tb ${t.used ? 'done' : ''}" data-id="${t.id}" aria-current="${t.id === th.id}"><span>${t.used ? '<span class="tick" title="Used">✓</span>' : ''}${esc(t.title)}</span><span><span class="chip t">${esc(t.type)}</span><span class="chip">${esc(t.section)}</span></span></button>`).join('')}</div>`).join('');
   for (const b of $('tabs').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.t === tab));
   const v = $('view');
   if (tab === 'thread') {
@@ -78,10 +86,17 @@ function renderPlan() {
     v.innerHTML = `<article class="forum"><div class="crumb">Forums › ${esc(th.section)}</div><div class="ftitle">${esc(th.title)}</div>
       <div class="post"><div class="user"><div class="ava">B</div><span class="uname">bargainbed</span><span class="sub" style="color:var(--fmute)">Elite Member · Jr. VIP</span></div>
       <div class="fbody">${body}<div class="sig">your signature</div></div></div></article>
-      <div class="row"><button class="pri" id="cpT">Copy title</button><button id="cpB">Copy body</button><span class="sub" id="cpM" aria-live="polite"></span></div>`;
+      <div class="row"><button class="pri" id="cpT">Copy title</button><button id="cpB">Copy body</button>
+        <button id="useT">${th.used ? `✓ Used on ${esc(day(th.used))} · undo` : 'Mark as used'}</button><span class="sub" id="cpM" aria-live="polite"></span></div>`;
     const copy = async (t, l) => { try { await navigator.clipboard.writeText(t); $('cpM').textContent = l + ' copied.'; } catch { $('cpM').textContent = 'Copy blocked - select the text and copy it.'; } };
     $('cpT').onclick = () => copy(th.title, 'Title');
     $('cpB').onclick = () => copy(plainBody(th), 'Body');
+    $('useT').onclick = async () => {
+      const { studioRuns = {} } = await chrome.storage.local.get('studioRuns');
+      const plan = studioRuns[key]; if (!plan) return;
+      plan.threads = plan.threads.map((t) => (t.id === th.id ? { ...t, used: t.used ? '' : new Date().toISOString() } : t));
+      await chrome.storage.local.set({ studioRuns });
+    };
   } else if (tab === 'replies') {
     v.innerHTML = `<div class="sub" style="margin-bottom:8px">Example replies from members (made up) and the answer to give back: one new point, then a question.</div>`
       + th.replies.map((x) => `<div class="reply ${x.you ? 'you' : ''}"><b>${x.you ? 'You (bargainbed)' : esc(x.who)}</b>${esc(x.text)}</div>`).join('');
@@ -103,8 +118,7 @@ async function load() {
   runs = studioRuns;
   savedList();
   showProgress(studioRun);
-  if (studioRun?.status === 'done' && studioRun.key && runs[studioRun.key] && !key) key = studioRun.key;
-  if (!key || !runs[key]) key = Object.entries(runs).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)))[0]?.[0] || '';
+  if (key && !runs[key]) key = '';              // the open plan was deleted
   if (key && runs[key] && !runs[key].threads.some((t) => t.id === cur)) cur = runs[key].threads[0]?.id || 1;
   $('run').disabled = studioRun?.status === 'running';
   showResult();
