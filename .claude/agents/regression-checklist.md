@@ -19,7 +19,7 @@ You are the HAF Watcher regression gate. Run Step 0 first, then walk the checkli
 
 ## BLAST RADIUS MAP (file/folder → checklist items)
 Modules (a fix confined here runs only its items + [SMOKE]):
-- `src/studio.js`, `src/studio/` → items 10–14
+- `src/studio.js`, `src/studio/` → items 10–14, 17, 18
 - `src/lab.js`, `src/lab/` → item 9
 - `src/auto.js` → items 5, 6
 - `src/owner.js` → item 7
@@ -45,6 +45,9 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 14. Thread Studio stops cleanly on a Cloudflare wall: "Stopped: BHW blocked the page…", 30-minute pause logged, no console errors.
 15. [MECH] `TZ=UTC node test/keysfile.test.mjs` — a key pasted twice is cut back to one key (root cause: set-keys glued the echoed paste; Anthropic rejected the 216-char string; server zips carried it).
 16. [MECH] `TZ=UTC node test/keysync.test.mjs` — keys follow the account via Chrome Sync.
+
+17. Thread Studio saved plans: a run appears in "Saved plans" with its name, niche, date and service text; a second run for the same niche adds a row (never replaces); click opens it; Rename and Delete work; the list survives a reload. (root cause of the gap: plans were keyed by niche, so a new run overwrote the old one, and only 10 were kept)
+18. [MECH] `TZ=UTC node test/studio.test.mjs` also asserts: the closing question appears once (root cause: Claude repeated it in the last paragraph and in the question field).
 
 ## Report format
 REGRESSION CHECKLIST — <mode> — <L1|L2|L3> — build <version> — <date>

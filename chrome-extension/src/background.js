@@ -34,7 +34,7 @@ import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
-import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio } from './studio.js';
+import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -1625,7 +1625,7 @@ async function startStudio(opts) {
   const until = await walled();
   if (until) return { error: `BlackHatWorld showed a wall recently; reading resumes at ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` };
   const days = [30, 60, 90].includes(Number(opts.days)) ? Number(opts.days) : 90;
-  const run = { status: 'running', startedAt: Date.now(), steps: [], opts: { niche, service: String(opts.service || '').slice(0, 800), days } };
+  const run = { status: 'running', startedAt: Date.now(), steps: [], opts: { niche, service: String(opts.service || '').slice(0, 800), days, name: String(opts.name || '').slice(0, 80) } };
   await chrome.storage.local.set({ [STUDIO_KEY]: run });
   alive(async () => {
     await jobStart('Thread Studio');
@@ -1700,9 +1700,9 @@ async function startStudio(opts) {
         recent: recent.slice(0, 40).map(slim), viral: viral.map(slim), pains: plan.pains, threads: plan.threads, cost: a.cost || 0,
         seconds: Math.round((Date.now() - run.startedAt) / 1000) };
       const { [STUDIO_RUNS]: runs = {} } = await chrome.storage.local.get(STUDIO_RUNS);
-      const next = { ...runs, [niche.toLowerCase()]: result };
-      const keep = Object.fromEntries(Object.entries(next).sort((x, y) => String(y[1].at).localeCompare(String(x[1].at))).slice(0, 10));
-      await chrome.storage.local.set({ [STUDIO_KEY]: { ...run, status: 'done', finishedAt: Date.now(), key: niche.toLowerCase() }, [STUDIO_RUNS]: keep });
+      // Every run is its own saved plan - a later run for the same niche never replaces it.
+      const saved = addPlan(runs, result, { name: run.opts.name });
+      await chrome.storage.local.set({ [STUDIO_KEY]: { ...run, status: 'done', finishedAt: Date.now(), key: saved.id }, [STUDIO_RUNS]: saved.plans });
       await log(`Thread Studio: "${niche}" - ${recent.length} recent + ${viral.length} older threads via ${how}, 8 threads drafted in ${result.seconds}s ($${Number(a.cost || 0).toFixed(3)})`);
     } catch (e) {
       if (/blocked/i.test(e.message)) await wall(e.message);

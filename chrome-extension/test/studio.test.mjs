@@ -1,6 +1,6 @@
 // Thread Studio (1.12.0): niche keywords, discussion-only picking, the rule
 // check and the plan parser. The page and the background runner sit on top.
-import { nicheRegex, pickThreads, ruleCheck, plainBody, parseStudio, studioPrompt, STUDIO_SECTIONS, STUDIO_SYSTEM } from '../src/studio.js';
+import { nicheRegex, pickThreads, ruleCheck, plainBody, parseStudio, studioPrompt, addPlan, STUDIO_SECTIONS, STUDIO_SYSTEM } from '../src/studio.js';
 
 let fails = 0;
 const ok = (n, c, e) => { if (!c) fails++; console.log(`${c ? '  ok' : 'FAIL'}  ${n}${c || e === undefined ? '' : `  -> ${JSON.stringify(e).slice(0, 300)}`}`); };
@@ -88,6 +88,29 @@ ok('an answer cut off near the end still yields the complete threads (root cause
   ok('the link is the thread itself, never /unread', r.rows[0].url === 'https://www.blackhatworld.com/seo/gmb-services-require-for-us-uk.1850834/' && r.rows[0].threadId === '1850834', r.rows[0].url);
   ok('media and non-thread results are skipped, signed-in and next-page flags set', r.loggedIn === true && r.next === true);
   delete globalThis.document; delete globalThis.location;
+}
+
+// --- 1.12.2: every run is its own saved plan -----------------------------------------------
+{
+  const res = (niche, at) => ({ niche, service: 'Advauult, competitor ads tool', at, threads: [{ id: 1 }], pains: [] });
+  let a = addPlan({}, res('crypto', '2026-10-01T10:00:00Z'), { name: 'Advauult crypto October', now: 1 });
+  ok('a plan is saved with the name, niche and service text given', a.plans[a.id].name === 'Advauult crypto October' && a.plans[a.id].niche === 'crypto' && /Advauult/.test(a.plans[a.id].service));
+  let b = addPlan(a.plans, res('crypto', '2026-10-02T10:00:00Z'), { now: 2 });
+  ok('a second run for the same niche does not replace the first', Object.keys(b.plans).length === 2 && !!b.plans[a.id] && b.id !== a.id, Object.keys(b.plans));
+  ok('with no name given it is called niche + date', b.plans[b.id].name === 'crypto · 2026-10-02', b.plans[b.id].name);
+  const old = addPlan({ casino: res('casino', '2026-09-30T10:00:00Z') }, res('nutra', '2026-10-03T10:00:00Z'), { now: 3 });
+  ok('plans saved by the older version (keyed by niche, no id) are kept and get a name', Object.values(old.plans).some((p) => p.niche === 'casino' && p.id && p.name === 'casino · 2026-09-30'), Object.values(old.plans).map((p) => p.name));
+  let many = {}; for (let i = 0; i < 70; i++) many = addPlan(many, res('n' + i, new Date(Date.UTC(2026, 0, 1) + i * 86400000).toISOString()), { now: 100 + i }).plans;
+  ok('the list is capped at 60, oldest dropped', Object.keys(many).length === 60 && !Object.values(many).some((p) => p.niche === 'n0') && Object.values(many).some((p) => p.niche === 'n69'));
+}
+
+// --- 1.12.2: the closing question is not repeated in the last paragraph ---------------------
+{
+  const t = { week: 1, type: 'Quick tip', section: 'CryptoCurrency', title: 'Tip', body: ['Got a faucet live?', ['One', 'Two'], 'Pick one offer today. How many offerwall providers are you running right now?'], question: 'How many offerwall providers are you running right now?', replies: [] };
+  const pl = parseStudio(JSON.stringify({ pains: [], threads: [t, t, t, t] }));
+  const body = plainBody(pl.threads[0]);
+  ok('the question appears once, as the last line', body.split('How many offerwall providers').length === 2 && /right now\?$/.test(body), body);
+  ok('and the rest of that paragraph is kept', /Pick one offer today\./.test(body));
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

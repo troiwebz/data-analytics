@@ -161,6 +161,12 @@ export function parseStudio(text) {
         body: t.body.map((b) => (Array.isArray(b) ? b.map((x) => String(x).replace(/[—–]/g, ',')) : String(b).replace(/[—–]/g, ','))),
         question: String(t.question || '').trim(), basedOn: (t.basedOn || []).map(String).slice(0, 3),
         replies: (t.replies || []).slice(0, 4).map((r) => ({ who: r.you ? '' : String(r.who || 'member'), you: !!r.you, text: String(r.text || '') })) };
+      // The closing question belongs on its own line: when the last paragraph repeats it, take it out there.
+      const lastI = th.body.length - 1;
+      if (th.question && typeof th.body[lastI] === 'string' && th.body[lastI].trim().endsWith(th.question)) {
+        const rest = th.body[lastI].trim().slice(0, -th.question.length).trim();
+        if (rest) th.body[lastI] = rest; else th.body.pop();
+      }
       th.checks = ruleCheck(plainBody(th));
       return th;
     });
@@ -168,4 +174,17 @@ export function parseStudio(text) {
   const pains = (Array.isArray(o.pains) ? o.pains : []).slice(0, 6).map((p) => ({ pain: String(p.pain || ''), threads: Number(p.threads) || 0,
     replies: Number(p.replies) || 0, fit: String(p.fit || ''), evidence: (p.evidence || []).map(String).slice(0, 4) }));
   return { threads, pains };
+}
+
+/**
+ * Saved plans: every run is kept as its own plan (id, name, niche, the service
+ * text given, the research and the threads), newest first, never replaced by a
+ * later run for the same niche. The oldest drop off past `max`.
+ */
+export function addPlan(plans, result, { name = '', max = 60, now = Date.now() } = {}) {
+  const id = `p${now.toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const plan = { ...result, id, name: String(name || '').trim().slice(0, 80) || `${result.niche} · ${String(result.at || new Date(now).toISOString()).slice(0, 10)}` };
+  const list = [plan, ...Object.values(plans || {}).map((p, i) => ({ ...p, id: p.id || `old${i}`, name: p.name || `${p.niche} · ${String(p.at || '').slice(0, 10)}` }))]
+    .sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, max);
+  return { plans: Object.fromEntries(list.map((p) => [p.id, p])), id };
 }

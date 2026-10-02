@@ -11,7 +11,7 @@ try { $('service').value = localStorage.getItem('studioService') || ''; } catch 
 
 $('intake').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const opts = { niche: $('niche').value.trim(), service: $('service').value.trim(), days: Number($('days').value) };
+  const opts = { niche: $('niche').value.trim(), service: $('service').value.trim(), days: Number($('days').value), name: $('pname').value.trim() };
   try { localStorage.setItem('studioService', opts.service); } catch {}
   $('msg').textContent = '';
   const r = await chrome.runtime.sendMessage({ cmd: 'studio-run', opts }).catch((err) => ({ error: err.message }));
@@ -20,11 +20,33 @@ $('intake').addEventListener('submit', async (e) => {
   load();
 });
 
-function pastChips() {
+const planName = (p) => p.name || `${p.niche} · ${String(p.at || '').slice(0, 10)}`;
+function savedList() {
   const list = Object.entries(runs).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
-  $('past').innerHTML = list.length ? '<span class="sub">Earlier runs:</span> ' + list.map(([k, v]) => `<button type="button" data-k="${esc(k)}">${esc(v.niche)} · ${esc(String(v.at).slice(0, 10))}</button>`).join('') : '';
+  $('saved').hidden = !list.length;
+  $('plans').innerHTML = list.map(([k, v]) => `<tr class="${k === key ? 'cur' : ''}">
+    <td><button type="button" class="plink" data-open="${esc(k)}">${esc(planName(v))}</button></td>
+    <td>${esc(v.niche)}</td><td class="n">${esc(String(v.at || '').slice(0, 10))}</td>
+    <td class="sub">${esc(String(v.service || '').slice(0, 110))}${String(v.service || '').length > 110 ? '…' : ''}</td>
+    <td class="n"><button type="button" class="mini" data-ren="${esc(k)}">Rename</button> <button type="button" class="mini" data-del="${esc(k)}">Delete</button></td></tr>`).join('');
 }
-$('past').addEventListener('click', (e) => { const k = e.target?.dataset?.k; if (!k) return; key = k; cur = runs[k].threads[0]?.id || 1; showResult(); });
+$('plans').addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.open) { key = b.dataset.open; cur = runs[key].threads[0]?.id || 1; tab = 'thread'; savedList(); showResult(); $('result').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  const { studioRuns = {} } = await chrome.storage.local.get('studioRuns');
+  if (b.dataset.ren) {
+    const k = b.dataset.ren; if (!studioRuns[k]) return;
+    const name = prompt('Plan name', planName(studioRuns[k]));
+    if (name == null || !name.trim()) return;
+    studioRuns[k] = { ...studioRuns[k], name: name.trim().slice(0, 80) };
+  } else if (b.dataset.del) {
+    const k = b.dataset.del; if (!studioRuns[k]) return;
+    if (!confirm(`Delete the plan "${planName(studioRuns[k])}"? This cannot be undone.`)) return;
+    delete studioRuns[k];
+    if (key === k) key = '';
+  } else return;
+  await chrome.storage.local.set({ studioRuns });
+});
 
 function showProgress(run) {
   const on = run && (run.status === 'running' || run.status === 'error');
@@ -39,7 +61,7 @@ function showResult() {
   const r = runs[key];
   $('result').hidden = !r;
   if (!r) return;
-  $('rtitle').textContent = `"${r.niche}" · researched ${String(r.at).slice(0, 10)}`;
+  $('rtitle').textContent = `${planName(r)} · niche "${r.niche}" · researched ${String(r.at).slice(0, 10)}`;
   $('rsub').textContent = `${r.how ? 'Via ' + r.how + ' · ' : ''}${r.scanned} threads read · ${r.recent.length} recent (last ${r.days} days) and ${r.viral.length} older on-niche threads${r.seconds ? ' · ' + r.seconds + 's' : ''} · Claude $${Number(r.cost || 0).toFixed(3)}${r.service ? ' · Service: ' + r.service.slice(0, 140) : ''}`;
   $('pains').innerHTML = (r.pains || []).map((p) => `<tr><td>${esc(p.pain)}${p.evidence?.length ? `<div class="sub">${p.evidence.map(esc).join(' · ')}</div>` : ''}</td><td class="n">${p.threads}</td><td class="n">${p.replies}</td><td><span class="fit ${esc(p.fit)}">${esc(p.fit || '–')}</span></td></tr>`).join('') || '<tr><td colspan="4" class="sub">No pains returned.</td></tr>';
   renderPlan();
@@ -79,10 +101,10 @@ $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'
 async function load() {
   const { studioRun, studioRuns = {} } = await chrome.storage.local.get(['studioRun', 'studioRuns']);
   runs = studioRuns;
-  pastChips();
+  savedList();
   showProgress(studioRun);
   if (studioRun?.status === 'done' && studioRun.key && runs[studioRun.key] && !key) key = studioRun.key;
-  if (!key) key = Object.keys(runs)[0] || '';
+  if (!key || !runs[key]) key = Object.entries(runs).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)))[0]?.[0] || '';
   if (key && runs[key] && !runs[key].threads.some((t) => t.id === cur)) cur = runs[key].threads[0]?.id || 1;
   $('run').disabled = studioRun?.status === 'running';
   showResult();

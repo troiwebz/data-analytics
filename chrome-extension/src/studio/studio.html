@@ -23,7 +23,10 @@
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
   .steps div{font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#475569}
   .err{color:var(--red);font-weight:600}
-  .chips button{margin:0 6px 6px 0;font-weight:500}
+  .plink{background:none;border:0;padding:0;color:var(--blue);font:600 13px system-ui;cursor:pointer;text-align:left}
+  .plink:hover{text-decoration:underline}
+  tr.cur td{background:#fffbeb}
+  .mini{padding:3px 8px;font-size:12px;font-weight:500}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
   th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
@@ -73,9 +76,13 @@
       <label>Your service: sales thread URL or one paragraph<textarea id="service" rows="2" placeholder="e.g. We run Meta, Instagram and Google ads for casino and crypto brands on our own agency accounts."></textarea></label>
       <label>Look back<select id="days"><option value="30">30 days</option><option value="60">60 days</option><option value="90" selected>90 days</option></select></label>
     </div>
+    <div class="fields" style="grid-template-columns:minmax(0,1fr)"><label>Plan name (optional)<input type="text" id="pname" placeholder="e.g. Advauult crypto, October. Left empty: niche + date" autocomplete="off"></label></div>
     <div class="row"><button class="pri" type="submit" id="run">Run research</button><span class="sub" id="msg" aria-live="polite"></span></div>
-    <div class="row chips" id="past"></div>
   </form>
+  <div class="card" id="saved" hidden>
+    <h2>Saved plans</h2><div class="sub">Every run is kept here with its name, niche and the service text you gave. Click a name to open it.</div>
+    <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>Plan</th><th>Niche</th><th>Made</th><th>Your service</th><th></th></tr></thead><tbody id="plans"></tbody></table></div>
+  </div>
   <div class="card" id="progress" hidden><h2 id="ptitle">Researching…</h2><div class="steps" id="steps"></div></div>
   <div id="result" hidden>
     <div class="card"><h2 id="rtitle"></h2><div class="sub" id="rsub"></div>
