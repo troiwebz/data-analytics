@@ -53,6 +53,10 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 20. Thread Studio used ticks: "Mark as used" on a thread shows ✓ on the rail and "✓ n/8 used" in the Saved plans list; undo works; the ticks survive a reload.
 21. Thread Studio retries the Claude call once when the connection drops ("could not reach Anthropic") instead of losing the run. (root cause: a network blip after the research was done ended the whole run)
 
+22. [MECH] `TZ=UTC node test/pmcap.test.mjs` - the old PM cap of 8 is lifted to 30 on update for any settings version (root cause: the zip's settings file was saved by settings version 26, and the old lift only ran for versions under 22, so the server stayed at 8/8); "pm cap N" / "pm cap off" from Telegram; a PM held by the cap is said on Telegram once a day.
+23. A fresh install with the zip's settings file shows "PMS 0/30" on the dashboard, and changing "Max PMs per day" in Settings saves ("Saved.") and shows on the dashboard.
+- Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
+
 ## Report format
 REGRESSION CHECKLIST — <mode> — <L1|L2|L3> — build <version> — <date>
  0 ✓ Step 0 mechanical: <commands run> (<timing>)

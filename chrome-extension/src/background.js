@@ -2189,6 +2189,7 @@ const HELP = [
   '<b>pending</b> / <b>pending 48</b> - everything not yet dealt with, as cards',
   '<b>others off</b> / <b>others on</b> - mute or unmute the other forums on Telegram (off = Hire a Freelancer only)',
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
+  '<b>pm cap 30</b> / <b>pm cap off</b> - the daily limit on private messages ("pm cap" shows it)',
   '',
   '<b>Search</b>',
   '<b>casino</b> (any word) - every thread in the 7-day index that mentions it',
@@ -2267,6 +2268,20 @@ async function takeHuntCommand(ev, cfg) {
     await telegram.say(cfg.telegramChatId, `✅ Removed "${m[1].trim()}" from the deal-breakers.`);
     return true;
   }
+  // "pm cap 30", "pm cap off", "pm cap" - the daily PM limit, from the phone.
+  { const m = body.match(/^\/?(?:pm|dm)s?\s*(?:cap|limit)\s*(off|none|\d{1,4})?\s*$/i);
+    if (m) {
+      const r = await getRateState();
+      if (m[1] != null) {
+        const n = /off|none/i.test(m[1]) ? 0 : Math.min(500, Number(m[1]));
+        await setConfig({ maxDmsPerDay: n });
+        await log(`PM cap set to ${n || 'no cap'} from Telegram`);
+        await telegram.say(cfg.telegramChatId, `📊 Daily PM limit is now ${n ? n : 'OFF (no limit)'}. Sent today: ${r.dmCount || 0}. Waiting PMs go out one at a time from the next minute.`);
+      } else {
+        await telegram.say(cfg.telegramChatId, `📊 Daily PM limit: ${Number(cfg.maxDmsPerDay) > 0 ? cfg.maxDmsPerDay : 'OFF (no limit)'} · sent today: ${r.dmCount || 0}. Change it with "pm cap 30" or "pm cap off".`);
+      }
+      return true;
+    } }
   if (/^\/?stats\b/i.test(body)) { await sendStats(cfg); return true; }
   if (/^\/?(?:keywords?|commands?|menu)\b/i.test(body)) { await telegram.say(cfg.telegramChatId, HELP, { html: true }); return true; }
   if (/^\/?sent\b\s*$/i.test(body)) { await sendSentList(cfg); return true; }
@@ -4063,6 +4078,17 @@ export async function runAutoQueue() {
     const gate = await checkDmLimit(cfg);
     if (!gate.ok) {
       await log(`auto mode: holding the PM for "${lead.title}" - ${gate.reason}`);
+      // A PM held by the daily cap looked sent on Telegram (the card said "sending in 1-3 min")
+      // and was only explained in the dashboard log. Say it on Telegram, once a day.
+      if (/daily PM cap/.test(gate.reason) && cfg.telegramChatId) {
+        const key = `${new Date().toLocaleDateString('en-CA')}:${cfg.maxDmsPerDay}`;
+        const { capNotice } = await chrome.storage.local.get('capNotice');
+        if (capNotice !== key) {
+          await chrome.storage.local.set({ capNotice: key });
+          await telegram.say(cfg.telegramChatId, `⏸ Daily PM limit of ${cfg.maxDmsPerDay} reached - ${due.length} PM(s) are waiting and have NOT been sent. `
+            + `Send "pm cap 30" (or "pm cap off") to raise it and they go out; otherwise they wait for tomorrow.`).catch(() => {});
+        }
+      }
       continue;      // not a refusal, just not yet - try again on the next tick
     }
     // A backlog is sent slowly: a thread older than 6h waits a longer, uneven gap after the last PM.

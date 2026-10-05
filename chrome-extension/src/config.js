@@ -758,7 +758,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 35;
+export const CONFIG_VERSION = 36;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -941,6 +941,12 @@ export async function migrateConfig() {
     const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
     if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
     if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
+  }
+  if (v < 36) {
+    // 1.12.4: the PM cap of 8 came back on the server through the settings file in the
+    // zip (saved by settings version 26, so the lift below, which runs only for versions
+    // under 22, never touched it). The old default is lifted again here, for any version.
+    if (Number(next.maxDmsPerDay) === 8) next.maxDmsPerDay = DEFAULT_CONFIG.maxDmsPerDay;
   }
   if (v < 35) {
     // 1.10.1: auto mode covers 3 days, not 1; the dashboard keeps the newest 20 HAF threads.
