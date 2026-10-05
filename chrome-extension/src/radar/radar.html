@@ -1,0 +1,91 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Reply Radar</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626;--teal:#0f766e}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0} header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)} button:disabled{opacity:.55;cursor:default}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  button.pri{background:var(--teal);border-color:var(--teal);color:#fff}
+  button.on{background:var(--green);border-color:var(--green);color:#fff}
+  button.off{background:#475569;border-color:#475569;color:#fff}
+  .mini{padding:3px 8px;font-size:12px;font-weight:500}
+  .w{max-width:1180px;margin:0 auto;padding:20px}
+  .how{background:#ecfeff;border:1px solid #a5f3fc;color:#155e75;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .tile .k{font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  .tile .v{font:700 22px system-ui;margin-top:2px}
+  .tile .s{font-size:12px;color:var(--mute)}
+  .tile.warn .v{color:var(--red)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);white-space:nowrap}
+  td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  .chip{display:inline-block;font:600 11px system-ui;padding:2px 8px;border-radius:99px;white-space:nowrap}
+  .chip.A{background:#dcfce7;color:#15803d}.chip.B{background:#dbeafe;color:#1d4ed8}.chip.C{background:#fef3c7;color:#92400e}.chip.G{background:#f1f5f9;color:#475569}
+  .brief{margin-top:6px;padding:8px 10px;background:#f8fafc;border-left:3px solid var(--teal);font-size:12.5px;color:#334155}
+  .brief b{color:var(--ink)}
+  .sub{color:var(--mute);font-size:12.5px}
+  .empty{padding:18px;text-align:center;color:var(--mute)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  label.f{display:grid;gap:5px;font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  input[type=number],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;background:#fff;color:var(--ink)}
+  textarea{min-height:58px;resize:vertical}
+  .chk{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .okmsg{color:var(--green);font-weight:600;font-size:13px}
+  .errmsg{color:var(--red);font-weight:600;font-size:13px}
+</style>
+<header>
+  <h1>📡 Reply Radar</h1>
+  <span class="sp"></span>
+  <button id="toggle" class="off">Radar is OFF</button>
+  <button id="send" class="pri" title="Read the sections now and send the next 3 cards to Telegram">Send a batch now</button>
+  <button id="refresh" title="Read the sections now and update this page. Nothing is sent to Telegram.">Check BHW now</button>
+  <button id="back">← HAF dashboard</button>
+</header>
+<div class="w">
+  <div class="how">Every hour Radar reads 8 ad sections on BHW and sends you the <b>3 best threads to reply to</b> on Telegram. You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
+  <div id="msg" class="errmsg" hidden></div>
+  <div class="tiles">
+    <div class="tile" id="t-today"><div class="k">Public replies today</div><div class="v" id="today">–</div><div class="s"><button class="mini" id="minus">−</button> <button class="mini" id="plus">+</button> correct the number</div></div>
+    <div class="tile"><div class="k">Threads waiting</div><div class="v" id="waiting">–</div><div class="s" id="waiting-s"></div></div>
+    <div class="tile"><div class="k">Last batch</div><div class="v" id="last">–</div><div class="s" id="last-s"></div></div>
+    <div class="tile"><div class="k">Next batch</div><div class="v" id="next">–</div><div class="s" id="next-s"></div></div>
+  </div>
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="queue" aria-selected="true">Waiting</button>
+      <button role="tab" data-tab="replied" aria-selected="false">Replied</button>
+      <button role="tab" data-tab="unmatched" aria-selected="false">Not matched</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings and words</button>
+    </div>
+    <div id="p-queue"></div>
+    <div id="p-replied" hidden></div>
+    <div id="p-unmatched" hidden></div>
+    <div id="p-settings" hidden>
+      <div class="grid">
+        <label class="f">Minutes between batches<input type="number" id="s-every" min="30" max="720"></label>
+        <label class="f">Threads per batch<input type="number" id="s-per" min="1" max="5"></label>
+        <label class="f">Daily reply limit shown<input type="number" id="s-target" min="1" max="50"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="s-briefs"> Add the short summary to each card (what was asked, what was already said, what is missing). Uses a little Claude credit.</label>
+      <label class="chk"><input type="checkbox" id="s-general"> Also offer brand-new general ads questions with 0–2 replies when niche threads run low.</label>
+      <h3 style="margin:18px 0 4px;font-size:14px">Words Radar looks for in thread titles</h3>
+      <div class="sub">Separate with commas. Add * for any ending: gambl* finds gambling and gamblers.</div>
+      <div id="words" class="grid" style="margin-top:10px"></div>
+      <div class="row"><button class="pri" id="save">Save</button><button id="reset">Put the default words back</button><span id="saved" class="okmsg" hidden>Saved</span></div>
+    </div>
+  </div>
+</div>
+<script type="module" src="radar.js"></script>

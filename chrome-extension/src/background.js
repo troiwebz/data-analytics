@@ -29,12 +29,14 @@ import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './th
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
 import { runLab, runReviewLab, FILL_SYSTEM, parseFill, IDEAS_SYSTEM, ideasPrompt, parseIdeas } from './lab.js';
-import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, readSearchTab, WHATS_NEW, onPageRead } from './browse.js';
+import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, readSearchTab, WHATS_NEW, onPageRead, readInTab, extractThread } from './browse.js';
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
+import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
+  countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard } from './radar.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -503,6 +505,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
+      await radarTick().catch((e) => log(`Reply Radar: ${e.message}`, 'error'));
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
     // One-off repairs also run here: when Chrome itself loads a new version
@@ -1721,6 +1724,181 @@ async function startStudio(opts) {
     } finally { await jobEnd(); }
   }).catch(() => {});
   return { started: true };
+}
+
+// --------------------------------------------------------------- Reply Radar
+//
+// Separate from HAF entirely: its own keys (radar, radarCfg), nothing written
+// to the leads, nothing typed or posted on BHW. Once an hour it reads the first
+// page of eight discussion sections (never Hire a Freelancer or the
+// Marketplace), picks the best three threads you have not answered, reads those
+// three, has Claude say what is already there, and sends three cards.
+const RADAR_KEY = 'radar';
+const RADAR_CFG = 'radarCfg';
+
+export async function getRadarCfg() {
+  const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
+  return { ...DEFAULT_RADAR_CFG, ...c, words: { ...RADAR_WORDS, ...(c.words || {}) } };
+}
+async function getRadar() { const { [RADAR_KEY]: st } = await chrome.storage.local.get(RADAR_KEY); return { ...radarEmpty(), ...(st || {}) }; }
+const setRadar = (st) => chrome.storage.local.set({ [RADAR_KEY]: st });
+
+/** For the Radar page: settings, the queue and today's number. */
+async function radarStatus() {
+  const [cfg, st] = [await getRadarCfg(), await getRadar()];
+  return { cfg, state: st, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS }, sections: RADAR_SECTIONS.map((x) => x.name),
+    nextAt: st.lastBatch?.at ? st.lastBatch.at + cfg.everyMinutes * 60000 : 0, wallUntil: await walled() };
+}
+
+/** The minute tick: is a batch due? Never blocks the tick - the run is its own job. */
+async function radarTick() {
+  const cfg = await getRadarCfg();
+  if (!cfg.on) return;
+  const st = await getRadar();
+  const every = Math.max(30, Number(cfg.everyMinutes) || 60) * 60000;
+  if (st.lastTryAt && Date.now() - st.lastTryAt < every) return;
+  alive(() => runRadar()).catch(() => {});
+}
+
+/** One sweep and one batch. `send: false` reads and queues only (the page's Refresh). `fast` drops the human pauses - tests only. */
+export async function runRadar({ send = true, fast = false } = {}) {
+  const cfg = await getConfig();
+  const rc = await getRadarCfg();
+  let st = await getRadar();
+  if (st.running && Date.now() - st.running < 10 * 60000) return { skipped: 'busy' };
+  const until = await walled();
+  if (until) return { skipped: 'wall', until };
+  st = { ...st, running: Date.now(), ...(send ? { lastTryAt: Date.now() } : {}) };
+  await setRadar(st);
+  const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
+  const tabOpts = fast ? { settleMs: 0 } : {};
+  let cost = 0, read = 0, note = '';
+  try {
+    // 1. The eight section pages.
+    const rx = compileWords(rc.words);
+    const pages = [];
+    for (const section of RADAR_SECTIONS) {
+      if (RADAR_NEVER.test(section.url)) continue;
+      const page = await readInTab(section.url, extractRadarListing, tabOpts);
+      if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+      pages.push({ section, rows: page.rows || [] });
+      read += (page.rows || []).length;
+      await gap();
+    }
+    st = { ...foldSweep(st, pages, rx, { general: rc.general !== false }), running: st.running, lastTryAt: st.lastTryAt };
+    await setRadar(st);
+    if (!send) return { ok: true, read, queued: Object.keys(st.queue).length };
+
+    // 2. The batch, and what is already in each of its threads.
+    const want = Math.min(5, Math.max(1, Number(rc.perBatch) || 3));
+    let batch = pickBatch(st, { n: want });
+    const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
+    const me = String(cfg.bhwUsername || bhwMe || cfg.boundAccount || '').toLowerCase();
+    const texts = [];
+    if (rc.briefs !== false) {
+      const tried = new Set();
+      // Two rounds: a pick that turns out to carry your reply already is dropped and replaced once.
+      for (let round = 0; round < 2; round++) {
+        for (const q of batch) {
+          if (q.brief || tried.has(q.threadId)) continue;      // nothing new on it since the last brief
+          tried.add(q.threadId);
+          try {
+            const first = await readInTab(q.url, extractThread, tabOpts);
+            let replies = first.replies || [];
+            const pagesIn = Math.ceil(((Number(q.replyCount) || 0) + 1) / 20);
+            if (pagesIn > 1) { await gap(); const lastPage = await readInTab(`${q.url}page-${pagesIn}`, extractThread, tabOpts); replies = [...replies.slice(0, 4), ...[{ author: lastPage.firstAuthor, text: lastPage.body }, ...(lastPage.replies || [])]]; }
+            // Your name is already in it (the section page did not show that): out, quietly.
+            if (me && replies.some((r) => String(r.author || '').toLowerCase() === me)) { st = { ...st, queue: Object.fromEntries(Object.entries(st.queue).filter(([id]) => id !== q.threadId)), replied: { ...st.replied, [q.threadId]: { at: Date.now(), title: q.title, section: q.section, url: q.url } } }; continue; }
+            texts.push({ threadId: q.threadId, title: q.title, starter: first.starter || first.firstAuthor || q.author, author: q.author, body: first.body, replies });
+          } catch (e) { if (/blocked/i.test(e.message)) throw e; }
+          await gap();
+        }
+        const kept = batch.filter((q) => st.queue[q.threadId]);
+        if (kept.length === batch.length) break;
+        batch = pickBatch(st, { n: want });
+      }
+      batch = batch.filter((q) => st.queue[q.threadId]);
+      if (texts.length) {
+        try {
+          const a = await askClaude(BRIEF_SYSTEM, briefPrompt(texts), { maxTokens: 4000, timeoutMs: 90000 });
+          cost = a.cost || 0;
+          const briefs = parseBriefs(a.text);
+          const queue = { ...st.queue };
+          for (const [id, b] of Object.entries(briefs)) if (queue[id]) queue[id] = { ...queue[id], brief: b, briefAt: queue[id].lastActivityAt };
+          st = { ...st, queue };
+          batch = batch.map((q) => st.queue[q.threadId] || q);
+        } catch (e) { note = ` (no briefs: ${e.message})`; }
+      }
+    }
+    if (!batch.length) { await setRadar({ ...st, running: 0 }); await log(`Reply Radar: ${read} threads read, nothing new to send`); return { ok: true, read, sent: 0 }; }
+
+    // 3. Three cards, like HAF's: one per thread, each with its own buttons.
+    if (!cfg.telegramChatId || !(await telegram.hasToken())) { await setRadar({ ...st, running: 0 }); await log('Reply Radar: batch ready on the Radar page - Telegram is not set up, so no cards were sent', 'error'); return { ok: true, read, sent: 0 }; }
+    const count = countToday(st), cards = { ...(st.cards || {}) };
+    let sent = 0;
+    for (let i = 0; i < batch.length; i++) {
+      const id = await telegram.sendCard(cfg.telegramChatId, formatCard(batch[i], { i: i + 1, of: batch.length, count, target: rc.dailyTarget }), radarKeyboard(batch[i]));
+      if (id) cards[batch[i].threadId] = id;
+      sent++;
+    }
+    st = { ...markShown(st, batch.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).slice(-200)), running: 0 };
+    await setRadar(st);
+    await log(`Reply Radar: ${read} threads read, ${Object.keys(st.queue).length} in the queue, ${sent} card(s) sent${cost ? ` ($${Number(cost).toFixed(3)})` : ''}${note}`);
+    return { ok: true, read, sent, cost };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message);
+    await log(`Reply Radar: ${e.message}`, 'error');
+    return { error: e.message };
+  } finally {
+    const cur = await getRadar();
+    if (cur.running) await setRadar({ ...cur, running: 0 });
+  }
+}
+
+/** A tap on a Radar card: "I replied" or "Not relevant". Returns the toast. */
+async function radarTap(ev, cfg) {
+  const rc = await getRadarCfg();
+  let st = await getRadar();
+  const id = String(ev.threadId || '');
+  const q = st.queue[id] || st.replied[id] || { title: '', url: '' };
+  if (ev.action === 'rr') {
+    if (!st.replied[id] || !st.counted?.[id]) st = markReplied(st, id);
+    await setRadar(st);
+    await telegram.editCard(ev.chatId, ev.messageId, settledCard(q, 'replied', { count: countToday(st), target: rc.dailyTarget }));
+    return `Marked as replied. Today: ${countToday(st)} of ${rc.dailyTarget}.`;
+  }
+  st = markHidden(st, id);
+  await setRadar(st);
+  await telegram.editCard(ev.chatId, ev.messageId, settledCard(q, 'hidden'));
+  return 'Hidden - it will not be shown again.';
+}
+
+/** "radar", "radar on", "radar off", "radar now", "radar count 4". True when the message was for Radar. */
+async function radarCommand(body, cfg) {
+  const m = String(body || '').trim().match(/^\/?radar\b\s*(on|off|now|count)?\s*(\d{1,3})?\s*[.!]?$/i);
+  if (!m) return false;
+  const rc = await getRadarCfg();
+  const verb = (m[1] || '').toLowerCase();
+  if (verb === 'on' || verb === 'off') {
+    const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
+    await chrome.storage.local.set({ [RADAR_CFG]: { ...c, on: verb === 'on' } });
+    await telegram.say(cfg.telegramChatId, verb === 'on' ? `📡 Reply radar is ON - ${rc.perBatch} threads every ${rc.everyMinutes} minutes.` : '📡 Reply radar is OFF. Send "radar on" to start it again.');
+    return true;
+  }
+  if (verb === 'count' && m[2] != null) {
+    const st = setCount(await getRadar(), Number(m[2]));
+    await setRadar(st);
+    await telegram.say(cfg.telegramChatId, `📡 Public replies today set to ${countToday(st)} of ${rc.dailyTarget}.`);
+    return true;
+  }
+  if (verb === 'now') {
+    const r = await runRadar();
+    if (r.skipped || r.error || !r.sent) await telegram.say(cfg.telegramChatId, `📡 ${r.error ? `Could not run: ${r.error}` : r.skipped === 'busy' ? 'A sweep is already running.' : r.skipped === 'wall' ? 'BHW showed a wall recently; reading is paused for a while.' : 'Nothing new to send right now.'}`);
+    return true;
+  }
+  const st = await getRadar();
+  await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting.\nCommands: radar on · radar off · radar now · radar count 4`);
+  return true;
 }
 
 export async function pollSources({ all = false } = {}) {
@@ -3106,6 +3284,14 @@ export async function pollTaps() {
       if (ev.kind === 'tap') await telegram.ackTap(ev.id, 'Not your chat.');
       continue;
     }
+
+    // Reply Radar's own two buttons and its "radar ..." words: answered here, never reaching the lead code below.
+    if (ev.kind === 'tap' && (ev.action === 'rr' || ev.action === 'rx')) {
+      await telegram.ackTap(ev.id, await radarTap(ev, cfg).catch((e) => `Could not do that: ${e.message}`));
+      done++;
+      continue;
+    }
+    if (ev.kind === 'reply' && await radarCommand(ev.body, cfg).catch(() => false)) { done++; continue; }
 
     // Typed commands, answered before anything treats the message as a rewrite.
     if (ev.kind === 'reply' && /^\/?status\b/i.test(String(ev.body || '').trim())) {
@@ -4537,6 +4723,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'clear-wall':    await clearWall(); sendResponse({ ok: true }); break;
       case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
       case 'studio-run':    sendResponse(await startStudio(msg.opts || {})); break;
+      case 'radar-status':  sendResponse(await radarStatus()); break;
+      case 'radar-run':     alive(() => runRadar({ send: !!msg.send })).catch(() => {}); sendResponse({ started: true }); break;
+      case 'radar-save': {                           // the Radar page's settings: its own key, HAF settings untouched
+        const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
+        const p = msg.patch || {}, next = { ...c };
+        if (typeof p.on === 'boolean') next.on = p.on;
+        if (typeof p.briefs === 'boolean') next.briefs = p.briefs;
+        if (typeof p.general === 'boolean') next.general = p.general;
+        if (p.everyMinutes != null) next.everyMinutes = Math.min(720, Math.max(30, Number(p.everyMinutes) || 60));
+        if (p.perBatch != null) next.perBatch = Math.min(5, Math.max(1, Number(p.perBatch) || 3));
+        if (p.dailyTarget != null) next.dailyTarget = Math.min(50, Math.max(1, Number(p.dailyTarget) || 10));
+        if (p.words && typeof p.words === 'object') next.words = Object.fromEntries(Object.keys(RADAR_WORDS).filter((k) => Array.isArray(p.words[k])).map((k) => [k, p.words[k].map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 80)]));
+        if (p.resetWords) delete next.words;
+        await chrome.storage.local.set({ [RADAR_CFG]: next });
+        sendResponse(await radarStatus());
+        break;
+      }
+      case 'radar-mark': {                           // the Radar page's row buttons
+        let st = await getRadar();
+        const id = String(msg.threadId || '');
+        if (msg.what === 'replied') st = markReplied(st, id);
+        else if (msg.what === 'hidden') st = markHidden(st, id);
+        else if (msg.what === 'undo') { const { [id]: _r, ...replied } = st.replied || {}; const { [id]: _c, ...counted } = st.counted || {}; const { [id]: _h, ...hidden } = st.hidden || {}; st = { ...st, replied, counted, hidden }; }
+        else if (msg.what === 'count') st = setCount(st, Number(msg.n));
+        await setRadar(st);
+        sendResponse(await radarStatus());
+        break;
+      }
       case 'lab-ideas': {                            // 20 long-tail title ideas for one main thread
         try {
           if (await walled()) { sendResponse({ error: 'BlackHatWorld showed a wall recently - try again in a few minutes.' }); break; }

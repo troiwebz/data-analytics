@@ -3,3 +3,4 @@ date	mode	build	pass	failing
 2026-10-02	pre (L3 forced: background.js)	1.12.2	16/16	-
 2026-10-02	pre (L3: background.js retry)	1.12.3	19/19	-
 2026-10-05	pre (L3: config.js, background.js)	1.12.4	16/16 walked+mech (poll, taps pass standalone)	-
+2026-10-06	pre (L3: background.js, telegram.js, dashboard, manifest)	1.13.0	49 mech pass (taps, poll alone) + items 24-30 walked; live sweep in isolated browser walled by Cloudflare, reader run on live pages in normal Chrome instead	29 (brief cut at 1500 tokens) -> fixed, cap 4000

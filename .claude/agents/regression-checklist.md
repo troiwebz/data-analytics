@@ -25,6 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
+- `src/radar.js`, `src/radar/` → items 24–30
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
 
@@ -55,6 +56,13 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 
 22. [MECH] `TZ=UTC node test/pmcap.test.mjs` - the old PM cap of 8 is lifted to 30 on update for any settings version (root cause: the zip's settings file was saved by settings version 26, and the old lift only ran for versions under 22, so the server stayed at 8/8); "pm cap N" / "pm cap off" from Telegram; a PM held by the cap is said on Telegram once a day.
 23. A fresh install with the zip's settings file shows "PMS 0/30" on the dashboard, and changing "Max PMs per day" in Settings saves ("Saved.") and shows on the dashboard.
+24. [MECH] `TZ=UTC node test/radar.test.mjs` - Reply Radar: 8 discussion sections and never Hire a Freelancer or a sales section; whole-word niche lists; tiers A/B/C/G with nothing older than 7 days; sticky, locked and already-replied threads left out; a sent thread is not sent again the next hour; the card and its three buttons.
+25. [MECH] `TZ=UTC node test/radarrun.test.mjs` - one run opens the 8 section pages and at most first + last page of 3 threads, sends 3 cards, asks Claude once; "I replied" counts once and rewrites the card; "Not relevant" hides for good; "radar on/off/count"; Claude down = cards without summary; a Cloudflare wall stops the sweep and sets the shared 30-minute pause; nothing is written to HAF's leads; a plain word typed in Telegram is still HAF's search.
+26. [SMOKE] The teal "Reply Radar" button on the HAF dashboard opens the Radar page; tiles show Public replies today "n of 10", Threads waiting, Last batch, Next batch; no console errors.
+27. Radar page rows: "I replied" removes the row, raises today's number and lists it under Replied (Undo restores the number); "Not relevant" removes the row without counting; + and - correct the number.
+28. Radar page settings: a word added to a group and a changed daily limit survive a reload ("Saved" shows); "Put the default words back" removes the added word; HAF's own settings carry no radar keys.
+29. Radar brief: the real Claude call on three real threads returns Asked / Already said (with counts) / Missing for each and the card shows them. (root cause of the item: with a 1,500-token answer cap the first live answer was cut off and every card went out with no summary; cap is 4,000)
+30. Radar reads live BHW: the extension's own section reader returns 20+ rows per section with start date, last-reply date, replies and page-1 links, sticky and locked flagged. (the isolated test browser is often walled by Cloudflare: when it is, run the reader's exact source on the live pages in a normal browser, read-only, and say so in the report)
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format

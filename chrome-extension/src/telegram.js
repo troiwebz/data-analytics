@@ -860,3 +860,30 @@ export async function settleTap(tap, line) {
     catch { /* nothing more we can do from here */ }
   }
 }
+
+// ------------------------------------------------------------ Reply Radar
+// Two plain helpers for a card that is not a lead: send one with buttons, and
+// rewrite it after a tap. Nothing above uses them and they change nothing above.
+
+/** Send one HTML message with an inline keyboard; returns Telegram's message id (0 if unknown). */
+export async function sendCard(chatId, html, keyboard) {
+  const body = { chat_id: chatId, text: String(html).slice(0, LIMIT), disable_web_page_preview: true, ...(keyboard ? { reply_markup: keyboard } : {}) };
+  let r;
+  try { r = await call('sendMessage', { ...body, parse_mode: 'HTML' }); }
+  catch (e) {
+    if (!/pars|entit|tag|markup/i.test(e.message)) throw e;
+    r = await call('sendMessage', { ...body, text: stripTags(html) });
+  }
+  return (r && r.message_id) || 0;
+}
+
+/** Rewrite a card in place (buttons removed unless given). Never throws: the tap was already taken. */
+export async function editCard(chatId, messageId, html, keyboard) {
+  if (!messageId) return false;
+  const body = { chat_id: chatId, message_id: messageId, disable_web_page_preview: true, reply_markup: keyboard || { inline_keyboard: [] } };
+  try { await call('editMessageText', { ...body, text: String(html).slice(0, LIMIT), parse_mode: 'HTML' }); return true; }
+  catch (e) {
+    if (/message is not modified/i.test(e?.message || '')) return true;
+    try { await call('editMessageText', { ...body, text: stripTags(html) }); return true; } catch { return false; }
+  }
+}
