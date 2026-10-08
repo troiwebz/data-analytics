@@ -82,6 +82,8 @@ ok('niche, account and general threads are queued with their tier', st.queue[1]?
 ok('sticky and locked threads never enter', !st.queue[4] && !st.queue[5]);
 ok('a thread you already replied in is left out and remembered', !st.queue[8] && !!st.replied[8]);
 ok('a thread quiet for more than 7 days is left out', !st.queue[11]);
+ok('a thread that has slipped off page 1 leaves the queue on the next sweep (1.14.1)', !foldSweep(st, [{ section: sec('Facebook ads'), rows: pages[0].rows.filter((r) => r.threadId !== '1') }, pages[1]], rx, { now: now + 3600000, general: true }).queue[1] && !!foldSweep(st, pages, rx, { now: now + 3600000, general: true }).queue[1]);
+ok('a thread that came from a search stays until it ages out', !!foldSweep({ ...st, queue: { ...st.queue, s1: { threadId: 's1', title: 'x', match: 'search', tier: 'S', lastActivityAt: hAgo(10) } } }, pages, rx, { now, general: true }).queue.s1);
 ok('a Hire a Freelancer page handed in by mistake is ignored whole', !st.queue[99] && !st.unmatched.some((u) => /casino ads expert/.test(u.title)));
 ok('unmatched titles are kept for the "Not matched" list', st.unmatched.some((u) => /high cpc/.test(u.title)) && !st.unmatched.some((u) => /gambling/.test(u.title)), st.unmatched);
 ok('an old reply of yours found on the first sweep is not counted as today\'s', countToday(st, now) === 0, st.counted);

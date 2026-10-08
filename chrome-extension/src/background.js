@@ -37,7 +37,7 @@ import { ownership, takeOver, describe as describeOwner, loginProblem } from './
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
-  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP } from './radar.js';
+  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage } from './radar.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -1858,13 +1858,13 @@ export async function runRadar({ send = true, fast = false } = {}) {
     // The first cards of the day come after the list of words you can send.
     const today = new Date().toLocaleDateString('en-CA');
     if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
-    for (let i = 0; i < batch.length; i++) {
-      const id = await telegram.sendCard(cfg.telegramChatId, formatCard(batch[i], { i: i + 1, of: batch.length, count, target: rc.dailyTarget }), radarKeyboard(batch[i]));
-      if (id) cards[batch[i].threadId] = id;
-      sent++;
-    }
-    st = await saveRadar({ ...markSent(markShown(st, batch.map((q) => q.threadId)), batch.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).slice(-200)), running: 0 });
-    await log(`Reply Radar: ${read} threads read, ${Object.keys(st.queue).length} in the queue, ${sent} card(s) sent${cost ? ` ($${Number(cost).toFixed(3)})` : ''}${note}`);
+    // One message for the whole batch (1.14.1): three threads, buttons per thread, keyword ideas at the end.
+    const mid = await telegram.sendCard(cfg.telegramChatId, formatBatchMessage(batch, { count, target: rc.dailyTarget, families: rc.families }), batchKeyboard(batch));
+    // A slim copy of what the message shows, so a tap can redraw it even after the thread leaves the queue.
+    if (mid) cards[String(mid)] = { kind: 'batch', ids: batch.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(batch.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: q.brief || null }])) };
+    sent = batch.length;
+    st = await saveRadar({ ...markSent(markShown(st, batch.map((q) => q.threadId)), batch.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)), running: 0 });
+    await log(`Reply Radar: ${read} threads read, ${Object.keys(st.queue).length} in the queue, ${sent} thread(s) in one message${cost ? ` ($${Number(cost).toFixed(3)})` : ''}${note}`);
     return { ok: true, read, sent, cost };
   } catch (e) {
     if (/blocked/i.test(e.message)) await wall(e.message);
@@ -1882,16 +1882,23 @@ async function radarTap(ev, cfg) {
   let st = await getRadar();
   const id = String(ev.threadId || '');
   const q = st.queue[id] || st.replied[id] || { title: '', url: '' };
-  if (ev.action === 'rr') {
-    if (!st.replied[id] || !st.counted?.[id]) st = markReplied(st, id);
-    await setRadar(st);
-    await telegram.editCard(ev.chatId, ev.messageId, settledCard(q, 'replied', { count: countToday(st), target: rc.dailyTarget }));
-    return `Marked as replied. Today: ${countToday(st)} of ${rc.dailyTarget}.`;
-  }
-  st = markHidden(st, id);
+  const replied = ev.action === 'rr';
+  if (replied) { if (!st.replied[id] || !st.counted?.[id]) st = markReplied(st, id); }
+  else st = markHidden(st, id);
+  const card = st.cards?.[String(ev.messageId)];
+  const done = { ...(card?.done || {}), [id]: replied ? 'replied' : 'hidden' };
+  if (card) st = { ...st, cards: { ...st.cards, [String(ev.messageId)]: { ...card, done } } };
   await setRadar(st);
-  await telegram.editCard(ev.chatId, ev.messageId, settledCard(q, 'hidden'));
-  return 'Hidden - it will not be shown again.';
+  if (card && card.ids) {
+    // The message holds several threads: redraw it with this one marked and its buttons gone.
+    const items = card.ids.map((tid) => card.items?.[tid] || st.queue[tid] || (st.replied[tid] ? { threadId: tid, ...st.replied[tid], replyCount: 0 } : null)).filter(Boolean);
+    const text = card.kind === 'search' ? formatClusterMessage(card.clusters || [], card.rows || [], { keyword: card.keyword, count: countToday(st), target: rc.dailyTarget, done, families: rc.families })
+      : formatBatchMessage(items, { count: countToday(st), target: rc.dailyTarget, done, families: rc.families });
+    await telegram.editCard(ev.chatId, ev.messageId, text, card.kind === 'search' ? batchKeyboard((card.clusters || []).map((c) => (card.rows || []).find((r) => String(r.threadId) === c.ids[0])).filter(Boolean), done) : batchKeyboard(items, done));
+  } else {
+    await telegram.editCard(ev.chatId, ev.messageId, settledCard(q, replied ? 'replied' : 'hidden', { count: countToday(st), target: rc.dailyTarget }));
+  }
+  return replied ? `Marked as replied. Today: ${countToday(st)} of ${rc.dailyTarget}.` : 'Hidden - it will not be shown again.';
 }
 
 const setRadarCfg = async (patch) => { const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG); await chrome.storage.local.set({ [RADAR_CFG]: { ...c, ...patch } }); };
@@ -1952,16 +1959,18 @@ async function radarSearch(keyword, n, cfg) {
     } catch (e) { clusters = parseClusters('', found); await log(`Reply Radar search: clusters without Claude (${e.message})`); }
     clusters = clusters.slice(0, Math.min(5, Math.max(1, n || rc.perBatch || 3)));
     const count = countToday(st), cards = { ...(st.cards || {}) }, shown = [];
-    for (let i = 0; i < clusters.length; i++) {
-      const best = found.find((r) => String(r.threadId) === clusters[i].ids[0]);
-      const id = await telegram.sendCard(chat, formatClusterCard(clusters[i], found, { i: i + 1, of: clusters.length, keyword: kw, count, target: rc.dailyTarget }), radarKeyboard(best));
-      if (id) cards[best.threadId] = id;
-      shown.push(...clusters[i].ids.slice(0, 3));
-      // The best thread also joins the queue, so "I replied" and the Radar page know it.
+    const bests = clusters.map((c) => found.find((r) => String(r.threadId) === c.ids[0]));
+    for (const c of clusters) shown.push(...c.ids.slice(0, 3));
+    for (const best of bests) {
+      // The best thread of each cluster also joins the queue, so "I replied" and the Radar page know it.
       if (!st.queue[best.threadId]) st.queue[best.threadId] = { threadId: best.threadId, url: best.url, title: best.title, section: best.forum, author: best.author || '', startedAt: null, lastActivityAt: best.lastActivityAt, replyCount: best.replyCount, views: null, match: 'search', tier: 'S', shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() };
     }
-    await saveRadar({ ...markSent(st, shown), cards: Object.fromEntries(Object.entries(cards).slice(-200)) });
-    await log(`Reply Radar search "${kw}": ${rows.length} results, ${found.length} new threads, ${clusters.length} card(s)${cost ? ` ($${cost.toFixed(3)})` : ''}`);
+    // One message for the whole search (1.14.1), buttons per cluster's best thread.
+    const slimRows = found.filter((r) => shown.includes(String(r.threadId))).map((r) => ({ threadId: r.threadId, url: r.url, title: r.title, forum: r.forum, replyCount: r.replyCount, lastActivityAt: r.lastActivityAt }));
+    const mid = await telegram.sendCard(chat, formatClusterMessage(clusters, found, { keyword: kw, count, target: rc.dailyTarget, families: rc.families }), batchKeyboard(bests));
+    if (mid) cards[String(mid)] = { kind: 'search', keyword: kw, ids: bests.map((b) => b.threadId), clusters, rows: slimRows, at: Date.now() };
+    await saveRadar({ ...markSent(st, shown), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) });
+    await log(`Reply Radar search "${kw}": ${rows.length} results, ${found.length} new threads, ${clusters.length} cluster(s) in one message${cost ? ` ($${cost.toFixed(3)})` : ''}`);
   } catch (e) {
     if (/blocked/i.test(e.message)) await wall(e.message);
     await log(`Reply Radar search: ${e.message}`, 'error');

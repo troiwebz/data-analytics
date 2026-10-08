@@ -207,8 +207,9 @@ export function foldSweep(state, pages, rx, { now = Date.now(), general = true, 
         brief: old.brief && old.briefAt === r.lastActivityAt ? old.brief : null, briefAt: old.briefAt && old.briefAt === r.lastActivityAt ? old.briefAt : null, firstSeen: old.firstSeen || now };
     }
   }
-  // Off the first page for a week, or simply too old now: gone.
-  for (const [id, q] of Object.entries(s.queue)) if (now - ms(q.lastActivityAt) > 168 * HOUR) delete s.queue[id];
+  // Only what is on page 1 right now (1.14.1): a thread that slipped to page 2 is gone from the queue.
+  // Threads that came through "next <keyword>" are kept until they age out, they were never on a page.
+  for (const [id, q] of Object.entries(s.queue)) if ((q.match !== 'search' && !seen.has(id)) || now - ms(q.lastActivityAt) > 168 * HOUR) delete s.queue[id];
   // Keep the day's count only.
   for (const [id, d] of Object.entries(s.counted)) if (d !== today) delete s.counted[id];
   s.unmatched = unmatched.slice(0, 160);
@@ -541,3 +542,71 @@ export const RADAR_HELP = [
   'On every card: 🔗 Open thread · ✅ I replied (counted, never shown again) · ⏭ Not relevant (hidden for good).',
   'Hourly cards and search results both skip anything sent before, anything you replied to, and anything older than 7 days.'
 ].join('\n');
+
+// ------------------------------------------- 1.14.1: one message per batch, keyword ideas on every message
+
+/** "next cloaker · next vcc": what to search next, drawn from the words the threads matched and the families you have. */
+export function keywordIdeas(items, { families = {}, exclude = '' } = {}) {
+  const ideas = [];
+  const titles = (items || []).map((q) => String(q.title || '')).join(' ');
+  const rx = compileWords(DEFAULT_WORDS);
+  for (const [k, hint] of [['casino', 'casino'], ['cloak', 'cloaker'], ['crypto', 'crypto'], ['restricted', 'nutra'], ['setup', 'agency account'], ['trouble', 'suspended']]) if (rx[k] && rx[k].test(titles)) ideas.push(hint);
+  for (const k of [...Object.keys(families || {}), ...Object.keys(KNOWN_FAMILIES)]) ideas.push(k);
+  const out = [...new Set(ideas)].filter((k) => k !== String(exclude).toLowerCase()).slice(0, 4);
+  return out.length ? `Try: ${out.map((k) => `next ${k}`).join(' · ')} · radar help` : 'Try: next casino · radar help';
+}
+
+const doneLine = (done, id) => (done?.[id] === 'replied' ? ' ✅ replied' : done?.[id] === 'hidden' ? ' ⏭ hidden' : '');
+
+/** The whole hourly batch as ONE message (1.14.1): numbered threads, briefs, the count, keyword ideas. */
+export function formatBatchMessage(items, { now = Date.now(), count = 0, target = 10, done = {}, families = {} } = {}) {
+  const d = new Date(now);
+  const lines = [`📡 <b>Reply radar</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} thread${items.length === 1 ? '' : 's'}`, ''];
+  items.forEach((q, i) => {
+    const rep = Number(q.replyCount) || 0;
+    lines.push(`<b>${i + 1}. ${h(q.title)}</b>${i === 0 ? ' ⭐' : ''}${doneLine(done, String(q.threadId))}`);
+    lines.push(`${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep ? ` · last ${last(q.lastActivityAt, now)}` : ''}`);
+    const b = q.brief;
+    if (b && !done?.[String(q.threadId)]) {
+      if (b.asked) lines.push(`Asked: ${h(b.asked)}`);
+      if (b.said && b.said.length) lines.push(`Already said: ${b.said.map((x) => `${h(x.point)} (${x.n})`).join('; ')}`);
+      else if (!rep) lines.push('Already said: nothing yet');
+      if (b.back) lines.push(`Starter asked again: ${h(b.back)}`);
+      if (b.gap) lines.push(`Missing: ${h(b.gap)}`);
+    }
+    lines.push(h(q.url), '');
+  });
+  lines.push(`Public replies today: <b>${count} of ${target}</b>${count >= target ? ' (limit reached)' : ''}`, keywordIdeas(items, { families }));
+  return lines.join('\n').slice(0, 3900);
+}
+
+/** Buttons for a multi-thread message: per thread, Open / I replied / Not relevant, numbered; a done thread keeps only its link. */
+export function batchKeyboard(items, done = {}) {
+  const rows = [];
+  items.forEach((q, i) => {
+    const id = String(q.threadId);
+    rows.push([{ text: `🔗 Open ${i + 1}`, url: q.url }]);
+    if (!done?.[id]) rows.push([{ text: `✅ I replied ${i + 1}`, callback_data: `rr:${id}` }, { text: `⏭ Not relevant ${i + 1}`, callback_data: `rx:${id}` }]);
+  });
+  return { inline_keyboard: rows };
+}
+
+/** All clusters of one search as ONE message (1.14.1). */
+export function formatClusterMessage(clusters, rows, { now = Date.now(), keyword = '', count = 0, target = 10, done = {}, families = {} } = {}) {
+  const by = new Map(rows.map((r) => [String(r.threadId), r]));
+  const lines = [`🔎 <b>next ${h(keyword)}</b> · ${clusters.length} cluster${clusters.length === 1 ? '' : 's'}, ${clusters.reduce((n, c) => n + c.ids.length, 0)} threads this week`, ''];
+  clusters.forEach((c, i) => {
+    const best = by.get(c.ids[0]);
+    const more = c.ids.slice(1, 3).map((id) => by.get(id)).filter(Boolean);
+    const rep = Number(best.replyCount) || 0;
+    lines.push(`<b>${i + 1}. ${h(c.name)}</b> · ${c.ids.length} thread${c.ids.length === 1 ? '' : 's'}${c.why ? ` · ${h(c.why)}` : ''}`);
+    lines.push(`${h(best.title)}${doneLine(done, String(best.threadId))}`, `${h(best.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · last ${last(best.lastActivityAt, now)}`);
+    if (c.asked && !done?.[String(best.threadId)]) lines.push(`Asked: ${h(c.asked)}`);
+    if (c.need && !done?.[String(best.threadId)]) lines.push(`A good reply covers: ${h(c.need)}`);
+    lines.push(h(best.url));
+    for (const m of more) lines.push(`• ${h(m.title)} (${m.replyCount || 0}) ${h(m.url)}`);
+    lines.push('');
+  });
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(rows, { families, exclude: keyword }));
+  return lines.join('\n').slice(0, 3900);
+}

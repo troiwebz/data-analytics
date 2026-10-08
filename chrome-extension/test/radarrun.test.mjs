@@ -111,13 +111,17 @@ const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
 ok('the first cards of the day come after the list of words you can send', tg.filter((m) => m.method === 'sendMessage')[0]?.text.includes('what you can send') && tg.filter((m) => m.method === 'sendMessage' && /what you can send/.test(m.text)).length === 1, tg[0]?.text?.slice(0, 80));
 ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 8, { r, n: opened.length });
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
-ok('each card is its own message with Open / I replied / Not relevant', cards.length === r.sent && cards.every((c) => c.reply_markup?.inline_keyboard?.[0]?.[0]?.url && /^rr:\d+$/.test(c.reply_markup.inline_keyboard[1][0].callback_data) && /^rx:\d+$/.test(c.reply_markup.inline_keyboard[1][1].callback_data)), cards.map((c) => c.reply_markup));
-ok('the first card is the best pick and every card carries the day\'s count', /1 of \d · ⭐ best pick/.test(cards[0].text) && cards.every((c) => /Public replies today: <b>0 of 10<\/b>/.test(c.text)), cards[0]?.text);
-ok('Claude was asked once for the whole batch, and its summary is on the cards', claude.length === 1 && cards.some((c) => /<b>Asked:<\/b> What thread \d+ asked\./.test(c.text) && /Already said:<\/b> check the GEO is allowed \(3\)/.test(c.text) && /Missing:<\/b> Nobody named a network\./.test(c.text)), cards[0]?.text);
+const kb = cards[0]?.reply_markup?.inline_keyboard || [];
+ok('the batch is ONE message (1.14.1) with Open / I replied / Not relevant per thread', cards.length === 1 && r.sent === 3 && kb.length === 6 && kb[0][0].url && /^rr:\d+$/.test(kb[1][0].callback_data) && /^rx:\d+$/.test(kb[1][1].callback_data) && /I replied 3/.test(kb[5][0].text), kb);
+ok('keyword ideas close the message', /Try: next \w+ · next \w+/.test(cards[0].text) && /radar help/.test(cards[0].text), cards[0].text.split('\n').pop());
+ok('threads are numbered, the first is starred, and the day\'s count is on the message', /<b>1\. .+<\/b> ⭐/.test(cards[0].text) && /<b>3\. /.test(cards[0].text) && /Public replies today: <b>0 of 10<\/b>/.test(cards[0].text), cards[0]?.text);
+ok('Claude was asked once for the whole batch, and its summary is in the message', claude.length === 1 && /Asked: What thread \d+ asked\./.test(cards[0].text) && /Already said: check the GEO is allowed \(3\)/.test(cards[0].text) && /Missing: Nobody named a network\./.test(cards[0].text), cards[0]?.text);
 ok('a thread that already has your reply inside is dropped, not sent', !cards.some((c) => /which cloaking services/.test(c.text)) && !!bags.local.radar.replied['10'] && !bags.local.radar.queue['10']);
 ok('a long thread is read on its first and last page only', opened.includes('https://www.blackhatworld.com/seo/t.20/') ? opened.includes('https://www.blackhatworld.com/seo/t.20/page-2') && !opened.some((u) => /t\.20\/page-[3-9]/.test(u)) : true, opened.filter((u) => /t\.20/.test(u)));
 ok('nothing is written to HAF\'s leads', JSON.stringify(bags.local.recentLeads || null) === leadsBefore);
 ok('the batch is remembered: shown once, time kept, not running any more', bags.local.radar.lastBatch.ids.length === r.sent && !bags.local.radar.running && Object.values(bags.local.radar.queue).filter((q) => q.shown === 1).length === r.sent);
+const batchMsgId = 100 + tg.indexOf(cards[0]) + 1;
+ok('the message is remembered with its threads, so a tap can redraw it', bags.local.radar.cards[String(batchMsgId)]?.ids.length === 3, Object.keys(bags.local.radar.cards));
 
 // --- the second hour: no thread opened twice when nothing changed, new threads first ------------
 const before = { opened: opened.length, claude: claude.length };
@@ -125,22 +129,23 @@ tg = [];
 r = await bg.runRadar({ fast: true });
 const cards2 = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
 ok('the help is not repeated on the same day', !tg.some((m) => /what you can send/.test(m.text || '')));
-ok('the second hour sends only what was not sent before - no card twice in a row', cards2.length === 1 && !cards.some((x) => x.text.split('\n')[2] === cards2[0].text.split('\n')[2]) && opened.length - before.opened === 8 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: cards2.map((c) => c.text.split('\n')[2]), n: opened.length - before.opened });
+const titleOf = (t) => (t.match(/<b>1\. (.+?)<\/b>/) || [])[1];
+ok('the second hour sends only what was not sent before - no thread twice', cards2.length === 1 && /1 thread\b/.test(cards2[0].text) && !cards[0].text.includes(titleOf(cards2[0].text)) && opened.length - before.opened === 8 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: titleOf(cards2[0].text), n: opened.length - before.opened });
 tg = []; r = await bg.runRadar({ fast: true });
 ok('a third hour with nothing new sends nothing at all', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'), r);
 
 // --- the buttons ---------------------------------------------------------------------------------
 const firstId = cards[0].reply_markup.inline_keyboard[1][0].callback_data.split(':')[1];
-const tap = async (data, messageId = 101) => { tg = []; updates = [{ update_id: Math.floor(Math.random() * 1e9), callback_query: { id: 'cb' + Math.random(), data, from: { id: 1 }, message: { message_id: messageId, chat: { id: 999 }, text: 'x' } } }]; await bg.pollTaps(); return tg; };
+const tap = async (data, messageId = batchMsgId) => { tg = []; updates = [{ update_id: Math.floor(Math.random() * 1e9), callback_query: { id: 'cb' + Math.random(), data, from: { id: 1 }, message: { message_id: messageId, chat: { id: 999 }, text: 'x' } } }]; await bg.pollTaps(); return tg; };
 let out = await tap(`rr:${firstId}`);
 ok('"I replied": the thread leaves the queue and today\'s count is 1', !bags.local.radar.queue[firstId] && !!bags.local.radar.replied[firstId] && Object.keys(bags.local.radar.counted).length === 1, bags.local.radar.counted);
-ok('the card is rewritten in place with the new count, buttons gone', out.some((m) => m.method === 'editMessageText' && /Marked as replied · public replies today: <b>1 of 10<\/b>/.test(m.text) && m.reply_markup.inline_keyboard.length === 0), out);
+ok('the message is redrawn in place: that thread marked ✅ replied, its two buttons gone, count 1 of 10, the other two threads untouched', out.some((m) => m.method === 'editMessageText' && /✅ replied/.test(m.text) && /Public replies today: <b>1 of 10<\/b>/.test(m.text) && m.reply_markup.inline_keyboard.length === 5 && /<b>2\. /.test(m.text)), out.find((m) => m.method === 'editMessageText'));
 ok('the tap is answered with a toast', out.some((m) => m.method === 'answerCallbackQuery' && /Today: 1 of 10/.test(m.text)), out.map((m) => m.method));
 out = await tap(`rr:${firstId}`);
 ok('tapping it twice does not count twice', Object.keys(bags.local.radar.counted).length === 1);
-const otherId = Object.keys(bags.local.radar.queue)[0];
+const otherId = bags.local.radar.cards[String(batchMsgId)].ids[1];
 out = await tap(`rx:${otherId}`);
-ok('"Not relevant": hidden for good, not counted', !bags.local.radar.queue[otherId] && !!bags.local.radar.hidden[otherId] && Object.keys(bags.local.radar.counted).length === 1 && out.some((m) => m.method === 'editMessageText' && /will not be shown again/.test(m.text)));
+ok('"Not relevant": hidden for good, not counted, and the message keeps all 3 threads with that one marked ⏭ hidden', !bags.local.radar.queue[otherId] && !!bags.local.radar.hidden[otherId] && Object.keys(bags.local.radar.counted).length === 1 && out.some((m) => m.method === 'editMessageText' && /⏭ hidden/.test(m.text) && /3 threads/.test(m.text) && /✅ replied/.test(m.text) && m.reply_markup.inline_keyboard.length === 4), out.find((m) => m.method === 'editMessageText')?.text);
 ok('Radar\'s buttons never reach the lead code (no "Did not recognise" or lead errors)', !out.some((m) => /recognise|lead/i.test(m.text || '')), out.map((m) => m.text));
 
 // --- the words -----------------------------------------------------------------------------------
@@ -169,8 +174,8 @@ ok('HAF\'s own words still work: a plain word is still a search, not Radar', !/R
     await bg.pollTaps();                                      // ...you tap "I replied" on one of the queued threads
   };
   r = await bg.runRadar({ fast: true });
-  const sentTitles = tg.filter((m) => m.method === 'sendMessage').map((m) => m.text.split('\n')[2]);
-  ok('a thread marked replied during the sweep is not sent in that batch', tapped && !sentTitles.some((t) => t.includes(bags.local.radar.replied[tapped]?.title || '@@')), { tapped, sentTitles, replied: Object.keys(bags.local.radar.replied) });
+  const sentText = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup).map((m) => m.text).join('\n');
+  ok('a thread marked replied during the sweep is not sent in that batch', tapped && !sentText.includes(bags.local.radar.replied[tapped]?.title || '@@'), { tapped, replied: Object.keys(bags.local.radar.replied) });
   ok('and it stays replied and counted after the run has written its state', !!bags.local.radar.replied[tapped] && !bags.local.radar.queue[tapped] && Object.keys(bags.local.radar.counted).includes(tapped), bags.local.radar.counted);
   tg = []; r = await bg.runRadar({ fast: true });
   ok('the next sweep does not bring it back either', !bags.local.radar.queue[tapped] && !tg.some((m) => m.method === 'sendMessage' && m.text.includes(bags.local.radar.replied[tapped].title)));
@@ -181,7 +186,7 @@ ok('HAF\'s own words still work: a plain word is still a search, not Radar', !/R
 bags.local.radar = undefined; delete bags.local.radar; claudeFail = true; tg = []; threadPosts = {};
 r = await bg.runRadar({ fast: true });
 const plain = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
-ok('with Claude unavailable the cards are still sent, just without the summary', r.sent >= 2 && plain.length === r.sent && !plain.some((c) => /Asked:/.test(c.text)) && plain.every((c) => /Public replies today/.test(c.text)), { r, t: plain[0]?.text });
+ok('with Claude unavailable the message still goes, just without the summary', r.sent >= 2 && plain.length === 1 && !/Asked:/.test(plain[0].text) && /Public replies today/.test(plain[0].text), { r, t: plain[0]?.text });
 claudeFail = false;
 
 // --- a wall: stop at once, send nothing, pause every reader ------------------------------------------
@@ -204,20 +209,20 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; claude = []; opened.length = 0;
   let out = await say('next casino');
   const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
-  ok('"next casino" searches the family terms on BHW and sends cluster cards', cards.length === 2 && cards.every((c) => /🔎 <b>casino<\/b> · cluster \d of 2/.test(c.text)), { n: cards.length, first: cards[0]?.text });
+  ok('"next casino" searches the family terms on BHW and sends ONE message with the clusters', cards.length === 1 && /🔎 <b>next casino<\/b> · 2 clusters/.test(cards[0].text) && /<b>1\. Ads and accounts<\/b>/.test(cards[0].text) && /<b>2\. SEO side<\/b>/.test(cards[0].text), { n: cards.length, first: cards[0]?.text });
   ok('the known casino family is used without a Claude call for it', !claude.some((c) => /expand one keyword/.test(c.system)) && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 5, opened.filter((u) => /keywords=/.test(u)).map((u) => decodeURIComponent(u.match(/keywords=([^&]+)/)[1])));
   ok('search is limited to the last 7 days', opened.every((u) => !/keywords=/.test(u) || /c\[newer_than\]=\d{4}-\d{2}-\d{2}/.test(u)));
   const txt = cards.map((c) => c.text).join('\n');
   ok('Hire a Freelancer and sales rows are left out, a thread 400 days old is left out', !/casino ads expert/.test(txt) && !/Casino backlinks \$5/.test(txt) && !/affiliate journey/.test(txt));
   ok('a thread found by two terms appears once', (txt.match(/Casino ads on TikTok/g) || []).length === 1, txt);
-  ok('each card: cluster name, why, best thread with asked / covers, two more links, the count, and the three buttons', /cluster 1 of 2: <b>Ads and accounts<\/b>/.test(cards[0].text) && /<b>Asked:<\/b>/.test(cards[0].text) && /<b>A good reply covers:<\/b>/.test(cards[0].text) && /Public replies today/.test(cards[0].text) && cards[0].reply_markup.inline_keyboard.flat().length === 3, cards[0].text);
+  ok('each cluster: name, why, best thread with asked / covers, more links; buttons per cluster; count and keyword ideas at the end', /Several asked this week/.test(cards[0].text) && /Asked: /.test(cards[0].text) && /A good reply covers: /.test(cards[0].text) && /Public replies today/.test(cards[0].text) && /Try: next /.test(cards[0].text) && !/next casino ·/.test(cards[0].text.split('\n').pop()) && cards[0].reply_markup.inline_keyboard.length === 4, cards[0].text);
   const sentIds = Object.keys(bags.local.radar.sent || {});
   ok('every thread shown is remembered as sent', sentIds.includes('3001') && sentIds.includes('3002') && sentIds.includes('3006'), sentIds);
   tg = []; out = await say('next casino');
   ok('"next casino" again never repeats: nothing new is left, and it says so', !tg.some((m) => m.reply_markup) && /Nothing new for <b>casino<\/b>/.test(out), out.slice(0, 160));
   tg = []; claude = []; out = await say('next linkwheel 2');
   ok('an unknown keyword gets a family from Claude once, shown to you, then searched', claude.some((c) => /expand one keyword/.test(c.system)) && /Searching <b>linkwheel<\/b> as: linkwheel, pbn, private blog network, expired domain/.test(out) && bags.local.radarCfg.families.linkwheel.includes('aged domain'), out.slice(0, 200));
-  ok('and the PBN cards come', tg.filter((m) => m.reply_markup).length >= 1 && tg.some((m) => /Is PBN still working/.test(m.text)));
+  ok('and the PBN message comes', tg.filter((m) => m.reply_markup).length === 1 && tg.some((m) => /Is PBN still working/.test(m.text)));
   out = await say('family linkwheel');
   ok('"family linkwheel" shows the saved family', /<b>linkwheel<\/b> searches as: linkwheel, pbn, private blog network/.test(out), out);
   out = await say('add linkwheel domain authority');

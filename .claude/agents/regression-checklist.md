@@ -25,7 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
-- `src/radar.js`, `src/radar/` → items 24–34
+- `src/radar.js`, `src/radar/` → items 24–36
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
 
@@ -67,6 +67,8 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 32. [MECH] `TZ=UTC node test/radarrun.test.mjs` also asserts: "next <keyword>" searches the family terms on BHW (7-day window), drops Hire a Freelancer / sales / old rows, dedupes, sends cluster cards with the three buttons, remembers every shown thread (nothing twice), builds an unknown family with one Claude call, "family/add/drop/mute/unmute" work, HAF's "next 5" and "next reset" are untouched, 11th search in an hour refused, signed-out falls back to the sweep.
 33. [MECH] `TZ=UTC node test/radar.test.mjs` also asserts: a sent thread is never sent again (not after a new reply, not days later); muted words keep threads out at sweep and at pick; general ads questions are off by default.
 34. Radar page settings: Muted words and Search families boxes save and survive a reload; the help list is sent on Telegram before the first cards of the day and on "radar help" (help part is [MECH] in radarrun).
+35. [MECH] `TZ=UTC node test/radarrun.test.mjs` also asserts (1.14.1): the hourly batch is ONE Telegram message (threads numbered, buttons per thread, keyword ideas at the end) and a search is ONE message; a tap redraws that message in place with the thread marked replied / hidden and its buttons removed, the other threads untouched (root cause: separate cards per thread read as bulk messages; a hidden thread vanished from the redraw).
+36. [MECH] `TZ=UTC node test/radar.test.mjs` also asserts (1.14.1): a thread that slipped off page 1 of its section leaves the queue on the next sweep; search-found threads stay until they age out.
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format
