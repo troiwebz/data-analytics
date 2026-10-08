@@ -113,7 +113,7 @@ ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 &
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
 const kb = cards[0]?.reply_markup?.inline_keyboard || [];
 ok('the batch is ONE message (1.14.1) with Open / I replied / Not relevant per thread', cards.length === 1 && r.sent === 3 && kb.length === 6 && kb[0][0].url && /^rr:\d+$/.test(kb[1][0].callback_data) && /^rx:\d+$/.test(kb[1][1].callback_data) && /I replied 3/.test(kb[5][0].text), kb);
-ok('keyword ideas close the message', /Try: next \w+ · next \w+/.test(cards[0].text) && /radar help/.test(cards[0].text), cards[0].text.split('\n').pop());
+ok('keyword ideas and the fixed code words close every message', /Try: next \w+ · next \w+/.test(cards[0].text) && cards[0].text.split('\n').pop() === 'Send: next &lt;word&gt; · next &lt;word&gt; 5 · mute &lt;word&gt; · radar · radar help', cards[0].text.split('\n').slice(-2));
 ok('threads are numbered, the first is starred, and the day\'s count is on the message', /<b>1\. .+<\/b> ⭐/.test(cards[0].text) && /<b>3\. /.test(cards[0].text) && /Public replies today: <b>0 of 10<\/b>/.test(cards[0].text), cards[0]?.text);
 ok('Claude was asked once for the whole batch, and its summary is in the message', claude.length === 1 && /Asked: What thread \d+ asked\./.test(cards[0].text) && /Already said: check the GEO is allowed \(3\)/.test(cards[0].text) && /Missing: Nobody named a network\./.test(cards[0].text), cards[0]?.text);
 ok('a thread that already has your reply inside is dropped, not sent', !cards.some((c) => /which cloaking services/.test(c.text)) && !!bags.local.radar.replied['10'] && !bags.local.radar.queue['10']);
@@ -215,7 +215,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   const txt = cards.map((c) => c.text).join('\n');
   ok('Hire a Freelancer and sales rows are left out, a thread 400 days old is left out', !/casino ads expert/.test(txt) && !/Casino backlinks \$5/.test(txt) && !/affiliate journey/.test(txt));
   ok('a thread found by two terms appears once', (txt.match(/Casino ads on TikTok/g) || []).length === 1, txt);
-  ok('each cluster: name, why, best thread with asked / covers, more links; buttons per cluster; count and keyword ideas at the end', /Several asked this week/.test(cards[0].text) && /Asked: /.test(cards[0].text) && /A good reply covers: /.test(cards[0].text) && /Public replies today/.test(cards[0].text) && /Try: next /.test(cards[0].text) && !/next casino ·/.test(cards[0].text.split('\n').pop()) && cards[0].reply_markup.inline_keyboard.length === 4, cards[0].text);
+  ok('each cluster: name, why, best thread with asked / covers, more links; buttons per cluster; count and keyword ideas at the end', /Several asked this week/.test(cards[0].text) && /Asked: /.test(cards[0].text) && /A good reply covers: /.test(cards[0].text) && /Public replies today/.test(cards[0].text) && /Try: next /.test(cards[0].text) && !/next casino ·/.test(cards[0].text.split('\n').slice(-2)[0]) && /^Send: next/.test(cards[0].text.split('\n').pop()) && cards[0].reply_markup.inline_keyboard.length === 4, cards[0].text);
   const sentIds = Object.keys(bags.local.radar.sent || {});
   ok('every thread shown is remembered as sent', sentIds.includes('3001') && sentIds.includes('3002') && sentIds.includes('3006'), sentIds);
   tg = []; out = await say('next casino');

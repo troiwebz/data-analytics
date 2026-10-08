@@ -553,7 +553,8 @@ export function keywordIdeas(items, { families = {}, exclude = '' } = {}) {
   for (const [k, hint] of [['casino', 'casino'], ['cloak', 'cloaker'], ['crypto', 'crypto'], ['restricted', 'nutra'], ['setup', 'agency account'], ['trouble', 'suspended']]) if (rx[k] && rx[k].test(titles)) ideas.push(hint);
   for (const k of [...Object.keys(families || {}), ...Object.keys(KNOWN_FAMILIES)]) ideas.push(k);
   const out = [...new Set(ideas)].filter((k) => k !== String(exclude).toLowerCase()).slice(0, 4);
-  return out.length ? `Try: ${out.map((k) => `next ${k}`).join(' · ')} · radar help` : 'Try: next casino · radar help';
+  const cmds = 'Send: next &lt;word&gt; · next &lt;word&gt; 5 · mute &lt;word&gt; · radar · radar help';
+  return `${out.length ? `Try: ${out.map((k) => `next ${k}`).join(' · ')}` : 'Try: next casino'}\n${cmds}`;
 }
 
 const doneLine = (done, id) => (done?.[id] === 'replied' ? ' ✅ replied' : done?.[id] === 'hidden' ? ' ⏭ hidden' : '');
