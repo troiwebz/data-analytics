@@ -77,7 +77,7 @@ const pages = [
     R(10, 'Google DISPLAY Ads campaign - TrustCloaker', { start: 38, last: 2.8, rep: 3 }), R(11, 'keywords to use while cloaking', { start: 900, last: 288, rep: 7 })] },
   { section: { id: 76, name: 'Hire a Freelancer', url: 'https://www.blackhatworld.com/forums/hire-a-freelancer.76/', ad: true }, rows: [R(99, 'Looking for casino ads expert', { start: 1, last: 1, rep: 2 })] }
 ];
-let st = foldSweep(emptyState(), pages, rx, { now });
+let st = foldSweep(emptyState(), pages, rx, { now, general: true });
 ok('niche, account and general threads are queued with their tier', st.queue[1]?.tier === 'C' && st.queue[2]?.tier === 'A' && st.queue[2]?.match === 'wide' && st.queue[3]?.tier === 'G' && st.queue[9]?.tier === 'B' && st.queue[6]?.tier === 'C', st.queue);
 ok('sticky and locked threads never enter', !st.queue[4] && !st.queue[5]);
 ok('a thread you already replied in is left out and remembered', !st.queue[8] && !!st.replied[8]);
@@ -85,7 +85,8 @@ ok('a thread quiet for more than 7 days is left out', !st.queue[11]);
 ok('a Hire a Freelancer page handed in by mistake is ignored whole', !st.queue[99] && !st.unmatched.some((u) => /casino ads expert/.test(u.title)));
 ok('unmatched titles are kept for the "Not matched" list', st.unmatched.some((u) => /high cpc/.test(u.title)) && !st.unmatched.some((u) => /gambling/.test(u.title)), st.unmatched);
 ok('an old reply of yours found on the first sweep is not counted as today\'s', countToday(st, now) === 0, st.counted);
-ok('with the general line off, general questions are not queued', !foldSweep(emptyState(), pages, rx, { now, general: false }).queue[3]);
+ok('with the general line off (the default now), general questions are not queued', !foldSweep(emptyState(), pages, rx, { now, general: false }).queue[3] && DEFAULT_RADAR_CFG.general === false);
+ok('a muted word keeps a thread out of the queue at sweep time', !foldSweep(emptyState(), pages, rx, { now, muted: ['onlyfans'] }).queue[6]);
 
 // --- the batch -------------------------------------------------------------------------------
 let batch = pickBatch(st, { n: 3, now });
@@ -96,25 +97,25 @@ const second = pickBatch(st, { n: 3, now });
 ok('the next batch brings only threads not sent yet', second.length > 0 && second.every((b) => b.shown === 0), second.map((b) => `${b.threadId}:${b.shown}`));
 const only = (state, id, patch = {}) => ({ ...state, queue: { [id]: { ...state.queue[id], ...patch } } });
 const b0 = batch[0].threadId;
-ok('a sent thread is not sent again the next hour', pickBatch(only(st, b0), { n: 3, now: now + 3600000 }).length === 0);
-ok('it comes back when it gets a new reply', pickBatch(only(st, b0, { lastActivityAt: new Date(now + 60000).toISOString() }), { n: 3, now: now + 120000 }).length === 1);
-ok('or once more after six quiet hours, then never again unprompted', pickBatch(only(st, b0), { n: 3, now: now + 7 * 3600000 }).length === 1
-  && pickBatch(only(markShown(st, [b0], now + 7 * 3600000), b0), { n: 3, now: now + 30 * 3600000 }).length === 0);
+ok('a sent thread is never sent again - not next hour, not after a new reply, not days later (1.14)', pickBatch(only(st, b0), { n: 3, now: now + 3600000 }).length === 0
+  && pickBatch(only(st, b0, { lastActivityAt: new Date(now + 60000).toISOString() }), { n: 3, now: now + 120000 }).length === 0 && pickBatch(only(st, b0), { n: 3, now: now + 30 * 3600000 }).length === 0);
+ok('a thread that reached you through "next" is not sent by the hour either', pickBatch({ ...only(st, '9'), queue: { 9: { ...st.queue[9], shown: 0 } }, sent: { 9: now } }, { n: 3, now }).length === 0);
+ok('a muted word keeps a thread out of the batch', pickBatch({ ...st, queue: { 9: { ...st.queue[9], shown: 0 } } }, { n: 3, now, muted: ['trafficguardian'] }).length === 0);
 ok('a skipped thread stays in the queue for a later batch', batch.every((b) => st.queue[b.threadId] && st.queue[b.threadId].shown === 1));
 
 // --- replied, hidden, the count --------------------------------------------------------------
 st = markReplied(st, batch[0].threadId, now);
 ok('"radar done 1": out of the queue and counted today', !st.queue[batch[0].threadId] && countToday(st, now) === 1);
-ok('it never comes back on a later sweep', !foldSweep(st, pages, rx, { now: now + 3600000 }).queue[batch[0].threadId]);
+ok('it never comes back on a later sweep', !foldSweep(st, pages, rx, { now: now + 3600000, general: true }).queue[batch[0].threadId]);
 st = markHidden(st, '6', now);
-ok('"radar skip": hidden for good, not counted', !st.queue[6] && !foldSweep(st, pages, rx, { now: now + 3600000 }).queue[6] && countToday(st, now) === 1);
+ok('"radar skip": hidden for good, not counted', !st.queue[6] && !foldSweep(st, pages, rx, { now: now + 3600000, general: true }).queue[6] && countToday(st, now) === 1);
 // a reply made without Radar: the thread was on the page last sweep without you, now it carries you
 const later = JSON.parse(JSON.stringify(pages)); later[1].rows[1].mine = true; later[1].rows[1].lastMine = true; later[1].rows[1].lastActivityAt = new Date(now + 1800000).toISOString();
-const st2 = foldSweep(st, later, rx, { now: now + 3600000 });
+const st2 = foldSweep(st, later, rx, { now: now + 3600000, general: true });
 ok('a reply you made on your own is seen on the next sweep and counted', countToday(st2, now + 3600000) === 2 && !st2.queue[9], st2.counted);
 ok('"radar count 5" sets the day\'s number', countToday(setCount(st2, 5, now + 3600000), now + 3600000) === 5);
-ok('the count starts again the next day', countToday(foldSweep(st2, pages, rx, { now: now + 30 * 3600000 }), now + 30 * 3600000) === 0);
-ok('three replies in one section today: that section is passed over', (() => { let s = foldSweep(emptyState(), pages, rx, { now }); for (const id of ['1', '2', '7']) s = markReplied({ ...s, queue: { ...s.queue, [id]: s.queue[id] || { threadId: id, section: 'Facebook ads' } } }, id, now); return pickBatch(s, { n: 3, now }).every((b) => b.section !== 'Facebook ads'); })());
+ok('the count starts again the next day', countToday(foldSweep(st2, pages, rx, { now: now + 30 * 3600000, general: true }), now + 30 * 3600000) === 0);
+ok('three replies in one section today: that section is passed over', (() => { let s = foldSweep(emptyState(), pages, rx, { now, general: true }); for (const id of ['1', '2', '7']) s = markReplied({ ...s, queue: { ...s.queue, [id]: s.queue[id] || { threadId: id, section: 'Facebook ads' } } }, id, now); return pickBatch(s, { n: 3, now }).every((b) => b.section !== 'Facebook ads'); })());
 
 // --- briefs ----------------------------------------------------------------------------------
 const th = { threadId: '1849411', title: 'Anyone still successfully running gambling niche ads on Meta?', starter: 'poundermindi', body: 'Been having a hard time running ads like usual. ' + 'x'.repeat(2000),

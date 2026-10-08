@@ -25,7 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
-- `src/radar.js`, `src/radar/` → items 24–30
+- `src/radar.js`, `src/radar/` → items 24–34
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
 
@@ -63,6 +63,10 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 28. Radar page settings: a word added to a group and a changed daily limit survive a reload ("Saved" shows); "Put the default words back" removes the added word; HAF's own settings carry no radar keys.
 29. Radar brief: the real Claude call on three real threads returns Asked / Already said (with counts) / Missing for each and the card shows them. (root cause of the item: with a 1,500-token answer cap the first live answer was cut off and every card went out with no summary; cap is 4,000)
 30. Radar reads live BHW: the extension's own section reader returns 20+ rows per section with start date, last-reply date, replies and page-1 links, sticky and locked flagged. (the isolated test browser is often walled by Cloudflare: when it is, run the reader's exact source on the live pages in a normal browser, read-only, and say so in the report)
+31. [MECH] `TZ=UTC node test/radarrun.test.mjs` also asserts: a tap on "I replied" DURING a running sweep is kept (root cause: the run held its copy of the queue for minutes and wrote it back over the tap, so the thread came in the next batch); the test taps mid-run and must fail on the old code.
+32. [MECH] `TZ=UTC node test/radarrun.test.mjs` also asserts: "next <keyword>" searches the family terms on BHW (7-day window), drops Hire a Freelancer / sales / old rows, dedupes, sends cluster cards with the three buttons, remembers every shown thread (nothing twice), builds an unknown family with one Claude call, "family/add/drop/mute/unmute" work, HAF's "next 5" and "next reset" are untouched, 11th search in an hour refused, signed-out falls back to the sweep.
+33. [MECH] `TZ=UTC node test/radar.test.mjs` also asserts: a sent thread is never sent again (not after a new reply, not days later); muted words keep threads out at sweep and at pick; general ads questions are off by default.
+34. Radar page settings: Muted words and Search families boxes save and survive a reload; the help list is sent on Telegram before the first cards of the day and on "radar help" (help part is [MECH] in radarrun).
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format

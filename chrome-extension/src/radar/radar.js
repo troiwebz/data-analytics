@@ -27,7 +27,7 @@ function render() {
   $('today').textContent = `${today} of ${cfg.dailyTarget}`;
   $('t-today').classList.toggle('warn', today >= cfg.dailyTarget);
   $('waiting').textContent = q.length;
-  $('waiting-s').textContent = q.length ? `${q.filter((x) => x.tier !== 'G').length} in your niche` : 'nothing yet - press Check BHW now';
+  $('waiting-s').textContent = q.length ? `${q.filter((x) => x.tier !== 'G').length} in your niche · ${Object.keys(state.sent || {}).length} sent so far, never repeated` : 'nothing yet - press Check BHW now';
   $('last').textContent = clock(state.lastBatch?.at);
   $('last-s').textContent = state.lastBatch?.at ? `${state.lastBatch.ids.length} card(s) to Telegram` : 'no batch sent yet';
   $('next').textContent = !cfg.on ? 'Off' : wallUntil ? 'Paused' : state.lastBatch?.at ? clock(nextAt) : 'Within a minute';
@@ -58,6 +58,8 @@ function fillSettings() {
   const { cfg } = S;
   $('s-every').value = cfg.everyMinutes; $('s-per').value = cfg.perBatch; $('s-target').value = cfg.dailyTarget;
   $('s-briefs').checked = cfg.briefs !== false; $('s-general').checked = cfg.general !== false;
+  $('s-muted').value = (cfg.muted || []).join(', ');
+  $('s-families').value = Object.entries(cfg.families || {}).map(([k, v]) => `${k}: ${v.join(', ')}`).join('\n');
   $('words').innerHTML = Object.keys(GROUP_LABELS).map((k) => `<label class="f">${esc(GROUP_LABELS[k])}<textarea data-group="${k}">${esc((cfg.words[k] || []).join(', '))}</textarea></label>`).join('');
 }
 
@@ -106,8 +108,11 @@ $('send').addEventListener('click', () => run($('send'), true));
 $('save').addEventListener('click', async () => {
   const words = {};
   for (const t of document.querySelectorAll('#words textarea')) words[t.dataset.group] = t.value.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
+  const muted = $('s-muted').value.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
+  const families = {};
+  for (const line of $('s-families').value.split('\n')) { const m = line.match(/^\s*([a-z0-9 .+-]+?)\s*:\s*(.+)$/i); if (m) families[m[1].toLowerCase().trim()] = m[2].split(',').map((w) => w.trim()).filter(Boolean); }
   S = await send({ cmd: 'radar-save', patch: { everyMinutes: Number($('s-every').value), perBatch: Number($('s-per').value), dailyTarget: Number($('s-target').value),
-    briefs: $('s-briefs').checked, general: $('s-general').checked, words } });
+    briefs: $('s-briefs').checked, general: $('s-general').checked, words, muted, families } });
   render(); fillSettings();
   $('saved').hidden = false; setTimeout(() => { $('saved').hidden = true; }, 2500);
 });

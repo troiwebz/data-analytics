@@ -48,7 +48,7 @@ export const GROUP_LABELS = {
   restricted: 'Restricted niches', setup: 'Account setup (ad sections only)', trouble: 'Account trouble (ad sections only)'
 };
 
-export const DEFAULT_RADAR_CFG = { on: true, everyMinutes: 60, perBatch: 3, dailyTarget: 10, briefs: true, general: true, words: DEFAULT_WORDS };
+export const DEFAULT_RADAR_CFG = { on: true, everyMinutes: 60, perBatch: 3, dailyTarget: 10, briefs: true, general: false, words: DEFAULT_WORDS, muted: [], families: {} };
 
 const AD_WORD = /\b(ads?|advertis\w*|campaigns?|traffic|media buy\w*|ppc|promot\w*|marketing)\b/i;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -173,7 +173,7 @@ const dayKey = (now) => { const d = new Date(now); return `${d.getFullYear()}-${
  * counted too, and an old reply of yours is not). Returns the new state - the
  * old one is not touched.
  */
-export function foldSweep(state, pages, rx, { now = Date.now(), general = true } = {}) {
+export function foldSweep(state, pages, rx, { now = Date.now(), general = true, muted = [] } = {}) {
   const s = { ...emptyState(), ...state, queue: { ...(state?.queue || {}) }, replied: { ...(state?.replied || {}) }, counted: { ...(state?.counted || {}) } };
   const today = dayKey(now);
   const unmatched = [];
@@ -194,7 +194,7 @@ export function foldSweep(state, pages, rx, { now = Date.now(), general = true }
         continue;
       }
       if (s.replied[id] || s.hidden?.[id]) { delete s.queue[id]; continue; }
-      const match = classify(r.title, section, rx);
+      const match = isMuted(r.title, muted) ? null : classify(r.title, section, rx);
       const tier = tierOf({ ...r, adSection: section.ad && section.name !== 'Cloaking' }, match, now);
       if (!tier || (tier === 'G' && !general)) {
         delete s.queue[id];
@@ -225,17 +225,16 @@ const TIER_RANK = { A: 0, B: 1, C: 2, G: 3 };
  * niche words before account words, most
  * recently active first. A section you have already replied in three times
  * today is passed over, so the day's replies stay spread out. An hour with
- * nothing new sends nothing.
+ * nothing new sends nothing; "next <keyword>" searches the whole forum instead.
  */
-export function pickBatch(state, { n = 3, now = Date.now(), skip = null } = {}) {
+export function pickBatch(state, { n = 3, now = Date.now(), skip = null, muted = [] } = {}) {
   const today = dayKey(now);
   const perSection = {};
   for (const [id, d] of Object.entries(state.counted || {})) if (d === today) { const sec = state.replied?.[id]?.section; if (sec) perSection[sec] = (perSection[sec] || 0) + 1; }
-  // A thread already sent comes back only when it has a new reply since, or once
-  // more after six quiet hours. After that it stays on the Radar page: the same
-  // card every hour is noise.
-  const again = (q) => !q.shown || ms(q.lastActivityAt) > (q.shownAt || 0) || (q.shown < 2 && now - (q.shownAt || 0) >= 6 * HOUR);
-  const pool = Object.values(state.queue || {}).filter((q) => (perSection[q.section] || 0) < 3 && again(q) && !(skip && skip.has(String(q.threadId))));
+  // A thread sent once is never sent again (1.14): the hourly batch and "next"
+  // share one memory of what reached you. Skipped threads stay on the Radar page.
+  const again = (q) => !q.shown && !(state.sent || {})[String(q.threadId)];
+  const pool = Object.values(state.queue || {}).filter((q) => (perSection[q.section] || 0) < 3 && again(q) && !(skip && skip.has(String(q.threadId))) && !isMuted(q.title, muted));
   pool.sort((a, b) => ((a.tier === 'G') - (b.tier === 'G')) || (a.shown - b.shown) || (TIER_RANK[a.tier] - TIER_RANK[b.tier]) || ((a.match === 'strict' ? 0 : a.match === 'wide' ? 1 : 2) - (b.match === 'strict' ? 0 : b.match === 'wide' ? 1 : 2))
     || (ms(b.lastActivityAt) - ms(a.lastActivityAt)));
   const out = [], used = {};
@@ -375,3 +374,170 @@ export function settledCard(q, what, { count = 0, target = 10 } = {}) {
   return [`📡 <b>Reply radar</b>`, '', `<b>${h(q.title || 'Thread')}</b>`, q.url ? h(q.url) : '', '',
     what === 'replied' ? `✅ Marked as replied · public replies today: <b>${count} of ${target}</b>${count >= target ? ' (limit reached)' : ''}` : '⏭ Not relevant - it will not be shown again'].filter((l) => l !== null).join('\n');
 }
+
+// ------------------------------------------------- 1.14: "next <keyword>", families, mute
+
+/** Families Radar already knows; any other keyword is expanded by Claude once and saved. */
+export const KNOWN_FAMILIES = {
+  casino: ['casino', 'gambling', 'igaming', 'betting', 'sportsbook', 'slots', 'gambling offers', 'casino seo', 'casino backlinks', 'poker'],
+  crypto: ['crypto', 'crypto ads', 'web3 marketing', 'token launch', 'presale', 'memecoin', 'forex', 'crypto seo', 'defi', 'airdrop'],
+  cloaker: ['cloaker', 'cloaking', 'white page', 'safe page', 'money page', 'bot filter', 'trafficguardian', 'justcloakit', 'cloaking house', 'trustcloaker'],
+  pbn: ['pbn', 'private blog network', 'expired domain', 'aged domain', 'auction domain', 'dropped domain', 'deindexed', 'footprint', 'niche edit', 'tier 2 links', 'pbn hosting']
+};
+
+export const FAMILY_SYSTEM = [
+  'You expand one keyword into the words BlackHatWorld members actually use for that topic, for searching the forum.',
+  'Return 8-12 short search terms (1-3 words each), most common first: synonyms, the tools and services named in that space,',
+  'the problems people post about. Plain words only, lowercase, no explanations.',
+  'Return ONLY JSON: {"terms":["...","..."]}'
+].join('\n');
+export const familyPrompt = (keyword) => `KEYWORD: ${String(keyword).slice(0, 60)}`;
+export function parseFamily(text, keyword) {
+  const o = looseJson(text);
+  const terms = (o && Array.isArray(o.terms) ? o.terms : []).map((t) => String(t || '').toLowerCase().replace(/[^a-z0-9 .+-]/g, ' ').replace(/\s+/g, ' ').trim()).filter((t) => t.length >= 2 && t.length <= 40);
+  const k = String(keyword || '').toLowerCase().trim();
+  const out = [...new Set([k, ...terms].filter(Boolean))].slice(0, 12);
+  return out.length >= 2 ? out : null;
+}
+
+/** The family for a keyword: saved, known, or null (ask Claude). */
+export function familyFor(keyword, saved) {
+  const k = String(keyword || '').toLowerCase().trim().replace(/s$/, '');
+  return (saved && (saved[k] || saved[k + 's'])) || KNOWN_FAMILIES[k] || KNOWN_FAMILIES[k + 's'] || null;
+}
+
+/** BHW's signed-in search: posts and threads, newest first, since `days` ago. */
+export function searchUrl(term, { days = 7, now = Date.now() } = {}) {
+  const since = new Date(now - days * 86400000).toISOString().slice(0, 10);
+  return `https://www.blackhatworld.com/search/search?keywords=${encodeURIComponent(term)}&c[newer_than]=${since}&o=date`;
+}
+
+/**
+ * A BHW search results page, thread AND post rows (a post row is the thread it
+ * sits in). Runs inside the page: no closure, data only.
+ */
+export function extractRadarSearch() {
+  const t = String(document.title || '');
+  const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
+      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+    return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
+  }
+  const rows = [];
+  for (const c of document.querySelectorAll('.contentRow')) {
+    const a = c.querySelector('.contentRow-title a');
+    const minor = c.querySelector('.contentRow-minor');
+    if (!a || !minor) continue;
+    const txt = [...minor.querySelectorAll('li')].map((l) => String(l.textContent || '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ');
+    const kind = /\bThread\b/.test(txt) ? 'thread' : /\bPost\b/.test(txt) ? 'post' : '';
+    if (!kind) continue;
+    const tm = minor.querySelector('time[data-timestamp]');
+    const ms = tm ? parseInt(tm.getAttribute('data-timestamp'), 10) * 1000 : NaN;
+    const href = new URL(a.getAttribute('href'), location.href).href;
+    const m = href.match(/^(https?:\/\/[^?#]*?\.(\d+))(?=\/|$|[?#])/);
+    if (!m) continue;
+    rows.push({ threadId: m[2], url: `${m[1]}/`, kind, title: (a.textContent || '').trim().replace(/^Re:\s*/i, ''),
+      author: ((minor.querySelector('.username') || {}).textContent || '').trim(),
+      at: isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null,
+      replyCount: parseInt(String((txt.match(/Replies:\s*([\d,]+)/) || [])[1] || '').replace(/,/g, ''), 10) || 0,
+      forum: String((txt.match(/Forum:\s*(.+?)\s*$/) || [])[1] || '').trim(),
+      snippet: String((c.querySelector('.contentRow-snippet') || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400) });
+  }
+  return { rows, loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true', next: !!document.querySelector('a.pageNav-jump--next'), title: t, url: location.href };
+}
+
+/** Boards whose threads are never a public-reply target (buyers' boards, sales boards, housekeeping). */
+export const FORUM_DENY = /hire a freelancer|want to buy|marketplace|for sale|selling|renting|link building|seo - |packages|\bmisc\b|hosting|proxies|content \/|copywriting|ebooks|web design|programming|panels|freebies|giveaways|introductions|dispute|suggestions|news|lounge|journey/i;
+/** Titles that are sales, not discussion. */
+export const SALES_TITLE = /\b(wts|for sale|selling|cheap|discount|% off|buy now|services?|lifetime deal|group buy|hiring|hire|dm me|pm me)\b|\$\s?\d|⭐|✅|⚡|❌|⏩/i;
+
+export const isMuted = (title, muted) => { const rx = wordRegex(muted || []); return !!(rx && rx.test(String(title || ''))); };
+
+/**
+ * Search rows -> candidate threads: discussion boards only, alive in the last
+ * `days`, not sales, not muted, not replied / hidden / sent before. One entry
+ * per thread, keeping the newest post date and the longest snippet.
+ */
+export function filterSearch(rows, state, { now = Date.now(), days = 7, muted = [] } = {}) {
+  const by = {};
+  for (const r of rows || []) {
+    if (!r || !r.threadId || !r.title) continue;
+    if (FORUM_DENY.test(r.forum || '') || SALES_TITLE.test(r.title) || isMuted(r.title, muted)) continue;
+    if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId] || state?.sent?.[r.threadId]) continue;
+    const at = ms(r.at);
+    if (!at || now - at > days * 86400000) continue;
+    const cur = by[r.threadId];
+    if (!cur) by[r.threadId] = { threadId: r.threadId, url: r.url, title: r.title, forum: r.forum, replyCount: r.replyCount || 0, lastActivityAt: r.at, author: r.kind === 'thread' ? r.author : '', snippet: r.snippet || '', hits: 1 };
+    else { cur.hits++; if (at > ms(cur.lastActivityAt)) cur.lastActivityAt = r.at; if ((r.snippet || '').length > cur.snippet.length) cur.snippet = r.snippet; if (r.kind === 'thread') cur.author = r.author; cur.replyCount = Math.max(cur.replyCount, r.replyCount || 0); }
+  }
+  return Object.values(by).sort((a, b) => ms(b.lastActivityAt) - ms(a.lastActivityAt));
+}
+
+export const CLUSTER_SYSTEM = [
+  'You sort BlackHatWorld discussion threads found for one keyword into topic clusters, for a member who will write public',
+  'replies. Each thread has a title, board, replies, date and a snippet. Make 2-5 clusters by what people are actually asking',
+  'about. In each cluster put the best thread to answer FIRST: an open question, few replies, recent, not a sales pitch.',
+  'For each cluster give a 2-6 word name and one short line on why it is live now. For the first thread of each cluster say',
+  'in one sentence what the starter asked (from the snippet) and in one sentence what a good reply would need to cover',
+  '(no advice on getting around platform review). Plain English, no hype, no em dashes.',
+  'Return ONLY JSON: {"clusters":[{"name":"...","why":"...","ids":["threadId",...],"asked":"...","need":"..."}]}'
+].join('\n');
+export function clusterPrompt(keyword, rows) {
+  return [`KEYWORD: ${keyword}`, '', ...rows.slice(0, 40).map((r) => `${r.threadId} | ${String(r.title).slice(0, 110)} | ${r.forum} | ${r.replyCount} replies | ${String(r.lastActivityAt || '').slice(0, 10)} | ${String(r.snippet || '').slice(0, 220)}`)].join('\n');
+}
+/** Claude's clusters, with ids checked against the rows. A broken answer gives one cluster per board instead. */
+export function parseClusters(text, rows) {
+  const have = new Map(rows.map((r) => [String(r.threadId), r]));
+  const o = looseJson(text);
+  const out = [];
+  for (const c of (o && Array.isArray(o.clusters) ? o.clusters : [])) {
+    const ids = [...new Set((Array.isArray(c?.ids) ? c.ids : []).map(String).filter((id) => have.has(id)))];
+    if (!ids.length) continue;
+    out.push({ name: tidy(c.name, 60) || 'Threads', why: tidy(c.why, 160), asked: tidy(c.asked, 220), need: tidy(c.need, 220), ids });
+  }
+  if (out.length) return out;
+  const byForum = {};
+  for (const r of rows) (byForum[r.forum || 'Other'] ||= []).push(String(r.threadId));
+  return Object.entries(byForum).map(([name, ids]) => ({ name, why: '', asked: '', need: '', ids }));
+}
+
+/** One cluster as a Telegram card: the best thread with its buttons, two more as links. */
+export function formatClusterCard(cluster, rows, { now = Date.now(), i = 1, of = 1, keyword = '', count = 0, target = 10 } = {}) {
+  const by = new Map(rows.map((r) => [String(r.threadId), r]));
+  const best = by.get(cluster.ids[0]);
+  const more = cluster.ids.slice(1, 3).map((id) => by.get(id)).filter(Boolean);
+  const rep = Number(best.replyCount) || 0;
+  const lines = [`🔎 <b>${h(keyword)}</b> · cluster ${i} of ${of}: <b>${h(cluster.name)}</b> · ${cluster.ids.length} thread${cluster.ids.length === 1 ? '' : 's'}`];
+  if (cluster.why) lines.push(h(cluster.why));
+  lines.push('', `<b>${h(best.title)}</b>`, `${h(best.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · last ${last(best.lastActivityAt, now)}`);
+  if (cluster.asked) lines.push(`<b>Asked:</b> ${h(cluster.asked)}`);
+  if (cluster.need) lines.push(`<b>A good reply covers:</b> ${h(cluster.need)}`);
+  lines.push(h(best.url));
+  if (more.length) { lines.push('', 'Also in this cluster:'); for (const m of more) lines.push(`• ${h(m.title)} (${m.replyCount || 0}) ${h(m.url)}`); }
+  lines.push('', `Public replies today: <b>${count} of ${target}</b>`);
+  return lines.join('\n');
+}
+
+/** Everything sent to you is remembered, so no thread comes twice. */
+export function markSent(state, ids, now = Date.now()) {
+  const sent = { ...(state.sent || {}) };
+  for (const id of ids) sent[String(id)] = now;
+  const keep = Object.entries(sent).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+  return { ...state, sent: Object.fromEntries(keep) };
+}
+
+/** The Telegram help, shown with the first batch of the day and on "radar help". */
+export const RADAR_HELP = [
+  '📡 <b>Reply radar - what you can send</b>',
+  '',
+  '<b>next casino</b> - live search of the whole forum for that keyword and its family, grouped into topic clusters, best thread per cluster. Never repeats a thread.',
+  '<b>next casino 5</b> - up to 5 clusters',
+  '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
+  '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
+  '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
+  '<b>radar count 4</b> - correct today\'s number of public replies',
+  '<b>radar help</b> - this list',
+  '',
+  'On every card: 🔗 Open thread · ✅ I replied (counted, never shown again) · ⏭ Not relevant (hidden for good).',
+  'Hourly cards and search results both skip anything sent before, anything you replied to, and anything older than 7 days.'
+].join('\n');

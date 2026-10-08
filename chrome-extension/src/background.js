@@ -36,7 +36,8 @@ import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
-  countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard } from './radar.js';
+  countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
+  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP } from './radar.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -1738,10 +1739,26 @@ const RADAR_CFG = 'radarCfg';
 
 export async function getRadarCfg() {
   const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
-  return { ...DEFAULT_RADAR_CFG, ...c, words: { ...RADAR_WORDS, ...(c.words || {}) } };
+  return { ...DEFAULT_RADAR_CFG, ...c, words: { ...RADAR_WORDS, ...(c.words || {}) }, muted: Array.isArray(c.muted) ? c.muted : [], families: c.families && typeof c.families === 'object' ? c.families : {} };
 }
 async function getRadar() { const { [RADAR_KEY]: st } = await chrome.storage.local.get(RADAR_KEY); return { ...radarEmpty(), ...(st || {}) }; }
 const setRadar = (st) => chrome.storage.local.set({ [RADAR_KEY]: st });
+/**
+ * Save the state a run has been holding in memory WITHOUT losing what you did
+ * meanwhile. A sweep holds its copy for two or three minutes while it reads
+ * BHW; a tap on "I replied" in those minutes wrote to storage, and writing the
+ * stale copy back brought the thread into the next batch. So: re-read, and
+ * let the saved replied / hidden / counted / manual win over the in-memory ones.
+ */
+async function saveRadar(mem) {
+  const { [RADAR_KEY]: saved } = await chrome.storage.local.get(RADAR_KEY);
+  const cur = { ...radarEmpty(), ...(saved || {}) };
+  const st = { ...mem, replied: { ...(mem.replied || {}), ...(cur.replied || {}) }, hidden: { ...(mem.hidden || {}), ...(cur.hidden || {}) },
+    counted: { ...(mem.counted || {}), ...(cur.counted || {}) }, manual: cur.manual || mem.manual, queue: { ...(mem.queue || {}) } };
+  for (const id of Object.keys(st.queue)) if (st.replied[id] || st.hidden[id]) delete st.queue[id];
+  await setRadar(st);
+  return st;
+}
 
 /** For the Radar page: settings, the queue and today's number. */
 async function radarStatus() {
@@ -1785,13 +1802,12 @@ export async function runRadar({ send = true, fast = false } = {}) {
       read += (page.rows || []).length;
       await gap();
     }
-    st = { ...foldSweep(st, pages, rx, { general: rc.general !== false }), running: st.running, lastTryAt: st.lastTryAt };
-    await setRadar(st);
+    st = await saveRadar({ ...foldSweep(st, pages, rx, { general: rc.general === true, muted: rc.muted }), running: st.running, lastTryAt: st.lastTryAt });
     if (!send) return { ok: true, read, queued: Object.keys(st.queue).length };
 
     // 2. The batch, and what is already in each of its threads.
     const want = Math.min(5, Math.max(1, Number(rc.perBatch) || 3));
-    let batch = pickBatch(st, { n: want });
+    let batch = pickBatch(st, { n: want, muted: rc.muted });
     const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
     const me = String(cfg.bhwUsername || bhwMe || cfg.boundAccount || '').toLowerCase();
     const texts = [];
@@ -1815,7 +1831,7 @@ export async function runRadar({ send = true, fast = false } = {}) {
         }
         const kept = batch.filter((q) => st.queue[q.threadId]);
         if (kept.length === batch.length) break;
-        batch = pickBatch(st, { n: want });
+        batch = pickBatch(st, { n: want, muted: rc.muted });
       }
       batch = batch.filter((q) => st.queue[q.threadId]);
       if (texts.length) {
@@ -1830,19 +1846,24 @@ export async function runRadar({ send = true, fast = false } = {}) {
         } catch (e) { note = ` (no briefs: ${e.message})`; }
       }
     }
-    if (!batch.length) { await setRadar({ ...st, running: 0 }); await log(`Reply Radar: ${read} threads read, nothing new to send`); return { ok: true, read, sent: 0 }; }
+    if (!batch.length) { await saveRadar({ ...st, running: 0 }); await log(`Reply Radar: ${read} threads read, nothing new to send`); return { ok: true, read, sent: 0 }; }
 
     // 3. Three cards, like HAF's: one per thread, each with its own buttons.
-    if (!cfg.telegramChatId || !(await telegram.hasToken())) { await setRadar({ ...st, running: 0 }); await log('Reply Radar: batch ready on the Radar page - Telegram is not set up, so no cards were sent', 'error'); return { ok: true, read, sent: 0 }; }
+    if (!cfg.telegramChatId || !(await telegram.hasToken())) { await saveRadar({ ...st, running: 0 }); await log('Reply Radar: batch ready on the Radar page - Telegram is not set up, so no cards were sent', 'error'); return { ok: true, read, sent: 0 }; }
+    st = await saveRadar(st);                             // your taps during the reads win: a replied thread is not sent
+    batch = batch.filter((q) => st.queue[q.threadId]);
+    if (!batch.length) { await saveRadar({ ...st, running: 0 }); return { ok: true, read, sent: 0 }; }
     const count = countToday(st), cards = { ...(st.cards || {}) };
     let sent = 0;
+    // The first cards of the day come after the list of words you can send.
+    const today = new Date().toLocaleDateString('en-CA');
+    if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
     for (let i = 0; i < batch.length; i++) {
       const id = await telegram.sendCard(cfg.telegramChatId, formatCard(batch[i], { i: i + 1, of: batch.length, count, target: rc.dailyTarget }), radarKeyboard(batch[i]));
       if (id) cards[batch[i].threadId] = id;
       sent++;
     }
-    st = { ...markShown(st, batch.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).slice(-200)), running: 0 };
-    await setRadar(st);
+    st = await saveRadar({ ...markSent(markShown(st, batch.map((q) => q.threadId)), batch.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).slice(-200)), running: 0 });
     await log(`Reply Radar: ${read} threads read, ${Object.keys(st.queue).length} in the queue, ${sent} card(s) sent${cost ? ` ($${Number(cost).toFixed(3)})` : ''}${note}`);
     return { ok: true, read, sent, cost };
   } catch (e) {
@@ -1873,12 +1894,111 @@ async function radarTap(ev, cfg) {
   return 'Hidden - it will not be shown again.';
 }
 
-/** "radar", "radar on", "radar off", "radar now", "radar count 4". True when the message was for Radar. */
+const setRadarCfg = async (patch) => { const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG); await chrome.storage.local.set({ [RADAR_CFG]: { ...c, ...patch } }); };
+
+/**
+ * "next casino" - the whole forum, live, for one keyword and its family, grouped
+ * into clusters, best thread per cluster, never a thread you have seen before.
+ * HAF's own "next" / "next 5" (a number or nothing) is untouched: only a word
+ * after "next" comes here.
+ */
+async function radarSearch(keyword, n, cfg) {
+  const rc = await getRadarCfg();
+  const chat = cfg.telegramChatId;
+  let st = await getRadar();
+  // Ten live searches an hour at most: a burst of search pages is what draws a wall.
+  const hour = (st.searchLog || []).filter((t) => Date.now() - t < 3600000);
+  if (hour.length >= 10) { await telegram.say(chat, '🔎 Ten live searches already this hour. Wait a few minutes and send it again.'); return; }
+  const until = await walled();
+  if (until) { await telegram.say(chat, `🔎 BHW showed a wall recently; searching again from ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`); return; }
+  const kw = keyword.toLowerCase().trim();
+  let family = familyFor(kw, rc.families);
+  let cost = 0;
+  if (!family) {
+    try {
+      const a = await askClaude(FAMILY_SYSTEM, familyPrompt(kw), { maxTokens: 600, timeoutMs: 60000 });
+      cost += a.cost || 0;
+      family = parseFamily(a.text, kw);
+    } catch { /* fall through to the bare keyword */ }
+    family = family || [kw];
+    await setRadarCfg({ families: { ...rc.families, [kw]: family } });
+    await telegram.say(chat, `🔎 Searching <b>${kw}</b> as: ${family.join(', ')}\nChange it with "add ${kw} &lt;word&gt;" or "drop ${kw} &lt;word&gt;".`, { html: true });
+  }
+  await setRadar({ ...st, searchLog: [...hour, Date.now()] });
+  await jobStart(`Reply Radar search: ${kw}`);
+  try {
+    const gap = () => new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
+    let rows = [], loggedIn = true;
+    for (const term of family.slice(0, 5)) {
+      const page = await readInTab(searchUrl(term), extractRadarSearch);
+      if (!page.loggedIn) { loggedIn = false; break; }
+      rows.push(...(page.rows || []).map((r) => ({ ...r, term })));
+      await gap();
+    }
+    st = await getRadar();
+    let found;
+    if (!loggedIn) {
+      // Signed out of BHW in this Chrome: the search page is a form and nothing else. Fall back to what the hourly sweep already holds.
+      const rx = new RegExp(`\\b(${family.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]?')).join('|')})`, 'i');
+      found = Object.values(st.queue).filter((q) => rx.test(q.title) && !st.sent?.[q.threadId]).map((q) => ({ ...q, forum: q.section, snippet: '' }));
+      await telegram.say(chat, '🔎 This Chrome is not signed in to BHW, so the live search is unavailable. Showing matches from the hourly sweep instead.');
+    } else found = filterSearch(rows, st, { muted: rc.muted });
+    if (!found.length) { await telegram.say(chat, `🔎 Nothing new for <b>${kw}</b> in the last 7 days that you have not already been sent. Try another word, or "family ${kw}" to widen it.`, { html: true }); return; }
+    let clusters;
+    try {
+      const a = await askClaude(CLUSTER_SYSTEM, clusterPrompt(kw, found), { maxTokens: 2500, timeoutMs: 90000 });
+      cost += a.cost || 0;
+      clusters = parseClusters(a.text, found);
+    } catch (e) { clusters = parseClusters('', found); await log(`Reply Radar search: clusters without Claude (${e.message})`); }
+    clusters = clusters.slice(0, Math.min(5, Math.max(1, n || rc.perBatch || 3)));
+    const count = countToday(st), cards = { ...(st.cards || {}) }, shown = [];
+    for (let i = 0; i < clusters.length; i++) {
+      const best = found.find((r) => String(r.threadId) === clusters[i].ids[0]);
+      const id = await telegram.sendCard(chat, formatClusterCard(clusters[i], found, { i: i + 1, of: clusters.length, keyword: kw, count, target: rc.dailyTarget }), radarKeyboard(best));
+      if (id) cards[best.threadId] = id;
+      shown.push(...clusters[i].ids.slice(0, 3));
+      // The best thread also joins the queue, so "I replied" and the Radar page know it.
+      if (!st.queue[best.threadId]) st.queue[best.threadId] = { threadId: best.threadId, url: best.url, title: best.title, section: best.forum, author: best.author || '', startedAt: null, lastActivityAt: best.lastActivityAt, replyCount: best.replyCount, views: null, match: 'search', tier: 'S', shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() };
+    }
+    await saveRadar({ ...markSent(st, shown), cards: Object.fromEntries(Object.entries(cards).slice(-200)) });
+    await log(`Reply Radar search "${kw}": ${rows.length} results, ${found.length} new threads, ${clusters.length} card(s)${cost ? ` ($${cost.toFixed(3)})` : ''}`);
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message);
+    await log(`Reply Radar search: ${e.message}`, 'error');
+    await telegram.say(chat, `🔎 Search failed: ${e.message}`);
+  } finally { await jobEnd(); }
+}
+
+/** "radar", "radar on|off|now|help", "radar count 4", "next <word>", "family", "add", "drop", "mute", "unmute". True when the message was for Radar. */
 async function radarCommand(body, cfg) {
-  const m = String(body || '').trim().match(/^\/?radar\b\s*(on|off|now|count)?\s*(\d{1,3})?\s*[.!]?$/i);
+  const text = String(body || '').trim();
+  let x;
+  if ((x = text.match(/^\/?next\s+([a-z][a-z0-9 .+-]{1,40}?)\s*(\d{1,2})?\s*[.!]?$/i)) && !/^(reset|all|more)$/i.test(x[1].trim())) { await radarSearch(x[1].trim(), x[2] ? Number(x[2]) : 0, cfg); return true; }
+  if ((x = text.match(/^\/?family\s+([a-z][a-z0-9 .+-]{1,40})\s*$/i))) {
+    const rc = await getRadarCfg(); const kw = x[1].toLowerCase().trim(); const f = familyFor(kw, rc.families);
+    await telegram.say(cfg.telegramChatId, f ? `🔎 <b>${kw}</b> searches as: ${f.join(', ')}` : `🔎 No family for <b>${kw}</b> yet - "next ${kw}" builds one.`, { html: true });
+    return true;
+  }
+  if ((x = text.match(/^\/?(add|drop)\s+([a-z][a-z0-9.+-]{1,30})\s+(.{2,40})$/i))) {
+    const rc = await getRadarCfg(); const kw = x[2].toLowerCase().trim(); const w = x[3].toLowerCase().trim();
+    const cur = familyFor(kw, rc.families) || [kw];
+    const next = x[1].toLowerCase() === 'add' ? [...new Set([...cur, w])] : cur.filter((t) => t !== w);
+    await setRadarCfg({ families: { ...rc.families, [kw]: next } });
+    await telegram.say(cfg.telegramChatId, `🔎 <b>${kw}</b> now searches as: ${next.join(', ')}`, { html: true });
+    return true;
+  }
+  if ((x = text.match(/^\/?(mute|unmute)\s+(.{2,40})$/i))) {
+    const rc = await getRadarCfg(); const w = x[2].toLowerCase().trim();
+    const muted = x[1].toLowerCase() === 'mute' ? [...new Set([...rc.muted, w])] : rc.muted.filter((t) => t !== w);
+    await setRadarCfg({ muted });
+    await telegram.say(cfg.telegramChatId, muted.length ? `🔇 Muted words: ${muted.join(', ')}` : '🔇 No muted words.');
+    return true;
+  }
+  const m = text.match(/^\/?radar\b\s*(on|off|now|count|help)?\s*(\d{1,3})?\s*[.!]?$/i);
   if (!m) return false;
   const rc = await getRadarCfg();
   const verb = (m[1] || '').toLowerCase();
+  if (verb === 'help') { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); return true; }
   if (verb === 'on' || verb === 'off') {
     const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
     await chrome.storage.local.set({ [RADAR_CFG]: { ...c, on: verb === 'on' } });
@@ -1897,7 +2017,8 @@ async function radarCommand(body, cfg) {
     return true;
   }
   const st = await getRadar();
-  await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting.\nCommands: radar on · radar off · radar now · radar count 4`);
+  const until = await walled();
+  await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting${until ? ` · BHW reading paused until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Cloudflare wall)` : ''}.\nSend "radar help" for everything you can type.`);
   return true;
 }
 
@@ -2368,6 +2489,7 @@ const HELP = [
   '<b>others off</b> / <b>others on</b> - mute or unmute the other forums on Telegram (off = Hire a Freelancer only)',
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
   '<b>pm cap 30</b> / <b>pm cap off</b> - the daily limit on private messages ("pm cap" shows it)',
+  '<b>radar help</b> - Reply Radar: public-reply threads by the hour, and <b>next casino</b> for a live search',
   '',
   '<b>Search</b>',
   '<b>casino</b> (any word) - every thread in the 7-day index that mentions it',
@@ -4735,6 +4857,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (p.perBatch != null) next.perBatch = Math.min(5, Math.max(1, Number(p.perBatch) || 3));
         if (p.dailyTarget != null) next.dailyTarget = Math.min(50, Math.max(1, Number(p.dailyTarget) || 10));
         if (p.words && typeof p.words === 'object') next.words = Object.fromEntries(Object.keys(RADAR_WORDS).filter((k) => Array.isArray(p.words[k])).map((k) => [k, p.words[k].map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 80)]));
+        if (Array.isArray(p.muted)) next.muted = p.muted.map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 200);
+        if (p.families && typeof p.families === 'object') next.families = Object.fromEntries(Object.entries(p.families).filter(([k, v]) => k && Array.isArray(v)).map(([k, v]) => [String(k).toLowerCase().trim(), v.map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 20)]));
         if (p.resetWords) delete next.words;
         await chrome.storage.local.set({ [RADAR_CFG]: next });
         sendResponse(await radarStatus());

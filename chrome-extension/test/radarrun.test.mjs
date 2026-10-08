@@ -38,7 +38,25 @@ globalThis.chrome = {
   scripting: { executeScript: async ({ target, func }) => {
     const url = tabUrl[target.tabId];
     if (blockAt && url.includes(blockAt)) return [{ result: { blocked: 'BHW blocked the page: Just a moment...' } }];
+    if (func.name === 'extractRadarSearch') {
+      const term = decodeURIComponent((url.match(/keywords=([^&]+)/) || [])[1] || '');
+      const d = (h) => new Date(now - h * 3600000).toISOString();
+      const all = {
+        casino: [{ threadId: '3001', url: 'https://www.blackhatworld.com/seo/casino-ads-on-tiktok.3001/', kind: 'thread', title: 'Casino ads on TikTok - anyone?', author: 'q1', at: d(5), replyCount: 2, forum: 'TikTok', snippet: 'Trying to run casino offers on TikTok, accounts keep dying' },
+          { threadId: '3002', url: 'https://www.blackhatworld.com/seo/casino-seo-2026.3002/', kind: 'post', title: 'Casino SEO in 2026', author: 'p9', at: d(30), replyCount: 14, forum: 'Black Hat SEO', snippet: 'what works for casino keywords now' },
+          { threadId: '3003', url: 'https://www.blackhatworld.com/seo/casino-links.3003/', kind: 'thread', title: '⭐ Casino backlinks $5 ⭐', author: 's', at: d(1), replyCount: 0, forum: 'SEO - Link building', snippet: 'buy now' },
+          { threadId: '3004', url: 'https://www.blackhatworld.com/seo/need-casino-ads-guy.3004/', kind: 'thread', title: 'Need casino ads expert', author: 'b', at: d(1), replyCount: 9, forum: 'Hire a Freelancer', snippet: 'hiring' },
+          { threadId: '1849411', url: 'https://www.blackhatworld.com/seo/x.1849411/', kind: 'post', title: 'Anyone still successfully running gambling niche ads on Meta?', author: 'z', at: d(50), replyCount: 11, forum: 'FaceBook', snippet: 'scan to clear' },
+          { threadId: '3005', url: 'https://www.blackhatworld.com/seo/old-casino.3005/', kind: 'thread', title: 'Casino affiliate journey', author: 'o', at: d(400), replyCount: 3, forum: 'Making Money', snippet: 'old' }],
+        gambling: [{ threadId: '3001', url: 'https://www.blackhatworld.com/seo/casino-ads-on-tiktok.3001/', kind: 'post', title: 'Casino ads on TikTok - anyone?', author: 'r', at: d(3), replyCount: 2, forum: 'TikTok', snippet: 'gambling creatives get flagged' },
+          { threadId: '3006', url: 'https://www.blackhatworld.com/seo/gambling-push.3006/', kind: 'thread', title: 'Gambling offers on push traffic', author: 'g', at: d(20), replyCount: 4, forum: 'Media Buying', snippet: 'which push networks allow gambling' }],
+        pbn: [{ threadId: '4001', url: 'https://www.blackhatworld.com/seo/pbn-2026.4001/', kind: 'thread', title: 'Is PBN still working in 2026?', author: 'n', at: d(8), replyCount: 6, forum: 'Black Hat SEO', snippet: 'deindexed twice' }],
+        'expired domain': [{ threadId: '4002', url: 'https://www.blackhatworld.com/seo/expired.4002/', kind: 'thread', title: 'Where do you buy expired domains now?', author: 'e', at: d(12), replyCount: 3, forum: 'Black Hat SEO', snippet: 'auctions' }]
+      };
+      return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
+    }
     if (func.name === 'extractRadarListing') { const id = (url.match(/forums\/(\d+)\//) || [])[1]; return [{ result: { rows: listings[id] || [], me: 'bargainbed', loggedIn: true } }]; }
+    if (globalThis.__onThreadRead) { const f = globalThis.__onThreadRead; globalThis.__onThreadRead = null; await f(url); }
     const id = (url.match(/\.(\d+)\//) || [])[1]; const page = (url.match(/page-(\d+)/) || [])[1];
     const posts = threadPosts[id] || [{ author: 'm1', text: 'Check the network allows gambling in your GEO.' }];
     return [{ result: { page: Number(page) || 1, starter: 'starter', firstAuthor: page ? 'late' : 'starter', title: 't', body: page ? 'a late reply on the last page' : 'The opening question of the thread.', replies: posts } }];
@@ -59,7 +77,19 @@ globalThis.fetch = async (url, opts) => {
   if (/anthropic/.test(u)) {
     claude.push(b);
     if (claudeFail) return { ok: false, status: 401, json: async () => ({ error: { message: 'invalid x-api-key' } }) };
-    const ids = [...String(b.messages[0].content).matchAll(/THREAD (\d+):/g)].map((m) => m[1]);
+    const content = String(b.messages[0].content);
+    if (/^KEYWORD: /.test(content) && /expand one keyword/.test(b.system)) {
+      const text = JSON.stringify({ terms: ['pbn', 'private blog network', 'expired domain', 'aged domain', 'deindexed'] });
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 100, output_tokens: 40 }, stop_reason: 'end_turn' }) };
+    }
+    if (/^KEYWORD: /.test(content)) {
+      const ids = content.split('\n').slice(2).map((l) => l.split(' | ')[0].trim()).filter(Boolean);
+      const half = Math.ceil(ids.length / 2);
+      const text = JSON.stringify({ clusters: [{ name: 'Ads and accounts', why: 'Several asked this week', ids: ids.slice(0, half), asked: 'Starter asks about ad accounts dying.', need: 'What to check first and how to read the signals.' },
+        ...(ids.length > half ? [{ name: 'SEO side', why: 'Quieter', ids: ids.slice(half), asked: 'What works for casino keywords.', need: 'Specifics, not generic tips.' }] : [])] });
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 600, output_tokens: 200 }, stop_reason: 'end_turn' }) };
+    }
+    const ids = [...content.matchAll(/THREAD (\d+):/g)].map((m) => m[1]);
     const text = JSON.stringify({ threads: ids.map((id) => ({ id, asked: `What thread ${id} asked.`, said: [{ point: 'check the GEO is allowed', n: 3 }], back: '', gap: 'Nobody named a network.' })) });
     return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 900, output_tokens: 200 }, stop_reason: 'end_turn' }) };
   }
@@ -77,7 +107,8 @@ const leadsBefore = JSON.stringify(bags.local.recentLeads || null);
 
 // --- one run: 8 sections, 3 cards -------------------------------------------------------------
 let r = await bg.runRadar({ fast: true });
-const cards = tg.filter((m) => m.method === 'sendMessage');
+const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
+ok('the first cards of the day come after the list of words you can send', tg.filter((m) => m.method === 'sendMessage')[0]?.text.includes('what you can send') && tg.filter((m) => m.method === 'sendMessage' && /what you can send/.test(m.text)).length === 1, tg[0]?.text?.slice(0, 80));
 ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 8, { r, n: opened.length });
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
 ok('each card is its own message with Open / I replied / Not relevant', cards.length === r.sent && cards.every((c) => c.reply_markup?.inline_keyboard?.[0]?.[0]?.url && /^rr:\d+$/.test(c.reply_markup.inline_keyboard[1][0].callback_data) && /^rx:\d+$/.test(c.reply_markup.inline_keyboard[1][1].callback_data)), cards.map((c) => c.reply_markup));
@@ -92,7 +123,8 @@ ok('the batch is remembered: shown once, time kept, not running any more', bags.
 const before = { opened: opened.length, claude: claude.length };
 tg = [];
 r = await bg.runRadar({ fast: true });
-const cards2 = tg.filter((m) => m.method === 'sendMessage');
+const cards2 = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
+ok('the help is not repeated on the same day', !tg.some((m) => /what you can send/.test(m.text || '')));
 ok('the second hour sends only what was not sent before - no card twice in a row', cards2.length === 1 && !cards.some((x) => x.text.split('\n')[2] === cards2[0].text.split('\n')[2]) && opened.length - before.opened === 8 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: cards2.map((c) => c.text.split('\n')[2]), n: opened.length - before.opened });
 tg = []; r = await bg.runRadar({ fast: true });
 ok('a third hour with nothing new sends nothing at all', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'), r);
@@ -124,10 +156,31 @@ ok('"radar count 4" corrects the day\'s number', /set to 4 of 10/.test(out), out
 out = await say('casino');
 ok('HAF\'s own words still work: a plain word is still a search, not Radar', !/Reply radar/.test(out), out.slice(0, 120));
 
+// --- 1.14 GROW: a tap during a running sweep was lost ------------------------------------------
+// The run held its copy of the queue for minutes; "I replied" wrote to storage in between; the
+// run then wrote the stale copy back and the thread came in the next batch.
+{
+  delete bags.local.radar; tg = []; threadPosts = { 10: [{ author: 'BargainBed', text: 'mine' }] };
+  let tapped = '';
+  globalThis.__onThreadRead = async () => {                 // while the run is reading its first thread page...
+    const st0 = bags.local.radar; const pick = Object.values(st0.queue).find((q) => q.threadId === '20') ? '20' : Object.keys(st0.queue)[0];
+    tapped = pick;
+    updates = [{ update_id: 77, callback_query: { id: 'cb77', data: `rr:${pick}`, from: { id: 1 }, message: { message_id: 500, chat: { id: 999 }, text: 'x' } } }];
+    await bg.pollTaps();                                      // ...you tap "I replied" on one of the queued threads
+  };
+  r = await bg.runRadar({ fast: true });
+  const sentTitles = tg.filter((m) => m.method === 'sendMessage').map((m) => m.text.split('\n')[2]);
+  ok('a thread marked replied during the sweep is not sent in that batch', tapped && !sentTitles.some((t) => t.includes(bags.local.radar.replied[tapped]?.title || '@@')), { tapped, sentTitles, replied: Object.keys(bags.local.radar.replied) });
+  ok('and it stays replied and counted after the run has written its state', !!bags.local.radar.replied[tapped] && !bags.local.radar.queue[tapped] && Object.keys(bags.local.radar.counted).includes(tapped), bags.local.radar.counted);
+  tg = []; r = await bg.runRadar({ fast: true });
+  ok('the next sweep does not bring it back either', !bags.local.radar.queue[tapped] && !tg.some((m) => m.method === 'sendMessage' && m.text.includes(bags.local.radar.replied[tapped].title)));
+  threadPosts = {};
+}
+
 // --- Claude down: the cards still go, without the summary ------------------------------------------
 bags.local.radar = undefined; delete bags.local.radar; claudeFail = true; tg = []; threadPosts = {};
 r = await bg.runRadar({ fast: true });
-const plain = tg.filter((m) => m.method === 'sendMessage');
+const plain = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
 ok('with Claude unavailable the cards are still sent, just without the summary', r.sent >= 2 && plain.length === r.sent && !plain.some((c) => /Asked:/.test(c.text)) && plain.every((c) => /Public replies today/.test(c.text)), { r, t: plain[0]?.text });
 claudeFail = false;
 
@@ -135,7 +188,7 @@ claudeFail = false;
 delete bags.local.radar; tg = []; blockAt = '/forums/175/';
 const openedBefore = opened.length;
 r = await bg.runRadar({ fast: true });
-ok('a Cloudflare wall stops the sweep at that page and sends no cards', /blocked/i.test(r.error || '') && !tg.some((m) => m.method === 'sendMessage' && /Reply radar/.test(m.text || '')) && opened.length - openedBefore === 3, { r, n: opened.length - openedBefore });
+ok('a Cloudflare wall stops the sweep at that page and sends no cards', /blocked/i.test(r.error || '') && !tg.some((m) => m.method === 'sendMessage' && m.reply_markup) && opened.length - openedBefore === 3, { r, n: opened.length - openedBefore });
 ok('and the 30-minute pause HAF uses is set, so nothing keeps knocking', Number(bags.local.sourcesBackoffUntil) > Date.now() + 20 * 60000);
 r = await bg.runRadar({ fast: true });
 ok('while the pause holds, Radar opens nothing', r.skipped === 'wall' && opened.length - openedBefore === 3);
@@ -145,6 +198,50 @@ blockAt = null; delete bags.local.sourcesBackoffUntil;
 delete bags.local.radar; tg = [];
 r = await bg.runRadar({ send: false, fast: true });
 ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.some((m) => m.method === 'sendMessage') && !bags.local.radar.lastBatch, r);
+
+// --- 1.14: "next casino" - live search, clusters, never twice -------------------------------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; claude = []; opened.length = 0;
+  let out = await say('next casino');
+  const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
+  ok('"next casino" searches the family terms on BHW and sends cluster cards', cards.length === 2 && cards.every((c) => /🔎 <b>casino<\/b> · cluster \d of 2/.test(c.text)), { n: cards.length, first: cards[0]?.text });
+  ok('the known casino family is used without a Claude call for it', !claude.some((c) => /expand one keyword/.test(c.system)) && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 5, opened.filter((u) => /keywords=/.test(u)).map((u) => decodeURIComponent(u.match(/keywords=([^&]+)/)[1])));
+  ok('search is limited to the last 7 days', opened.every((u) => !/keywords=/.test(u) || /c\[newer_than\]=\d{4}-\d{2}-\d{2}/.test(u)));
+  const txt = cards.map((c) => c.text).join('\n');
+  ok('Hire a Freelancer and sales rows are left out, a thread 400 days old is left out', !/casino ads expert/.test(txt) && !/Casino backlinks \$5/.test(txt) && !/affiliate journey/.test(txt));
+  ok('a thread found by two terms appears once', (txt.match(/Casino ads on TikTok/g) || []).length === 1, txt);
+  ok('each card: cluster name, why, best thread with asked / covers, two more links, the count, and the three buttons', /cluster 1 of 2: <b>Ads and accounts<\/b>/.test(cards[0].text) && /<b>Asked:<\/b>/.test(cards[0].text) && /<b>A good reply covers:<\/b>/.test(cards[0].text) && /Public replies today/.test(cards[0].text) && cards[0].reply_markup.inline_keyboard.flat().length === 3, cards[0].text);
+  const sentIds = Object.keys(bags.local.radar.sent || {});
+  ok('every thread shown is remembered as sent', sentIds.includes('3001') && sentIds.includes('3002') && sentIds.includes('3006'), sentIds);
+  tg = []; out = await say('next casino');
+  ok('"next casino" again never repeats: nothing new is left, and it says so', !tg.some((m) => m.reply_markup) && /Nothing new for <b>casino<\/b>/.test(out), out.slice(0, 160));
+  tg = []; claude = []; out = await say('next linkwheel 2');
+  ok('an unknown keyword gets a family from Claude once, shown to you, then searched', claude.some((c) => /expand one keyword/.test(c.system)) && /Searching <b>linkwheel<\/b> as: linkwheel, pbn, private blog network, expired domain/.test(out) && bags.local.radarCfg.families.linkwheel.includes('aged domain'), out.slice(0, 200));
+  ok('and the PBN cards come', tg.filter((m) => m.reply_markup).length >= 1 && tg.some((m) => /Is PBN still working/.test(m.text)));
+  out = await say('family linkwheel');
+  ok('"family linkwheel" shows the saved family', /<b>linkwheel<\/b> searches as: linkwheel, pbn, private blog network/.test(out), out);
+  out = await say('add linkwheel domain authority');
+  ok('"add" extends it', bags.local.radarCfg.families.linkwheel.includes('domain authority') && /domain authority/.test(out));
+  out = await say('drop linkwheel deindexed');
+  ok('"drop" removes a term', !bags.local.radarCfg.families.linkwheel.includes('deindexed'));
+  out = await say('mute affiliate journey');
+  ok('"mute" saves the word', bags.local.radarCfg.muted.includes('affiliate journey') && /Muted words: affiliate journey/.test(out));
+  out = await say('unmute affiliate journey');
+  ok('"unmute" removes it', !bags.local.radarCfg.muted.length);
+  tg = []; out = await say('next 5');
+  ok('"next 5" is still HAF\'s own command, not a Radar search', !/🔎/.test(out) && !tg.some((m) => m.reply_markup && /cluster/.test(m.text)), out.slice(0, 100));
+  tg = []; out = await say('next reset');
+  ok('"next reset" is still HAF\'s too', !/🔎/.test(out));
+  out = await say('radar help');
+  ok('"radar help" lists every word you can send', /next casino/.test(out) && /mute/.test(out) && /radar count/.test(out) && /I replied/.test(out));
+  for (let i = 0; i < 9; i++) bags.local.radar.searchLog = [...(bags.local.radar.searchLog || []), Date.now()];
+  out = await say('next crypto');
+  ok('the 11th live search in an hour is refused', /Ten live searches already this hour/.test(out), out.slice(0, 100));
+  bags.local.radar.searchLog = []; globalThis.__signedOut = true; tg = [];
+  out = await say('next casino');
+  ok('signed out of BHW: says so and falls back to the hourly sweep\'s matches instead of failing', /not signed in to BHW/.test(out), out.slice(0, 200));
+  globalThis.__signedOut = false;
+}
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -55,7 +55,7 @@
   <button id="back">← HAF dashboard</button>
 </header>
 <div class="w">
-  <div class="how">Every hour Radar reads 8 ad sections on BHW and sends you the <b>3 best threads to reply to</b> on Telegram. You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
+  <div class="how">Every hour Radar reads 8 ad sections on BHW and sends you the <b>3 best threads to reply to</b> on Telegram. Send <b>next casino</b> (any keyword) on Telegram for a live search of the whole forum, grouped into clusters. Nothing is ever sent twice. You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
   <div id="msg" class="errmsg" hidden></div>
   <div class="tiles">
     <div class="tile" id="t-today"><div class="k">Public replies today</div><div class="v" id="today">–</div><div class="s"><button class="mini" id="minus">−</button> <button class="mini" id="plus">+</button> correct the number</div></div>
@@ -84,6 +84,12 @@
       <h3 style="margin:18px 0 4px;font-size:14px">Words Radar looks for in thread titles</h3>
       <div class="sub">Separate with commas. Add * for any ending: gambl* finds gambling and gamblers.</div>
       <div id="words" class="grid" style="margin-top:10px"></div>
+      <h3 style="margin:18px 0 4px;font-size:14px">Muted words</h3>
+      <div class="sub">Threads whose title has any of these are never shown. Same as "mute …" on Telegram.</div>
+      <textarea id="s-muted" style="margin-top:8px"></textarea>
+      <h3 style="margin:18px 0 4px;font-size:14px">Search families ("next keyword" on Telegram)</h3>
+      <div class="sub">One line per keyword: <b>keyword: term, term, term</b>. A keyword without a line here is expanded by Claude the first time you search it.</div>
+      <textarea id="s-families" style="margin-top:8px;min-height:90px"></textarea>
       <div class="row"><button class="pri" id="save">Save</button><button id="reset">Put the default words back</button><span id="saved" class="okmsg" hidden>Saved</span></div>
     </div>
   </div>
