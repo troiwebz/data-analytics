@@ -846,6 +846,7 @@ $('insights').addEventListener('click', () => {
 $('lab').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/lab/lab.html'); });
 $('studio').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/studio/studio.html'); });
 $('radar').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/radar/radar.html'); });
+$('pulse').addEventListener('click', () => { location.href = chrome.runtime.getURL('src/pulse/pulse.html'); });
 $('services').addEventListener('click', () => {
   location.href = chrome.runtime.getURL('src/services/services.html');
 });

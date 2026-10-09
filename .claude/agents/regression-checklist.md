@@ -26,6 +26,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
 - `src/radar.js`, `src/radar/` → items 24–36
+- `src/pulse.js`, `src/pulse/` → items 37–40
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
 
@@ -69,6 +70,10 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 34. Radar page settings: Muted words and Search families boxes save and survive a reload; the help list is sent on Telegram before the first cards of the day and on "radar help" (help part is [MECH] in radarrun).
 35. [MECH] `TZ=UTC node test/radarrun.test.mjs` also asserts (1.14.1): the hourly batch is ONE Telegram message (threads numbered, buttons per thread, keyword ideas at the end) and a search is ONE message; a tap redraws that message in place with the thread marked replied / hidden and its buttons removed, the other threads untouched (root cause: separate cards per thread read as bulk messages; a hidden thread vanished from the redraw).
 36. [MECH] `TZ=UTC node test/radar.test.mjs` also asserts (1.14.1): a thread that slipped off page 1 of its section leaves the queue on the next sweep; search-found threads stay until they age out.
+37. [MECH] `TZ=UTC node test/pulse.test.mjs` - BHW Traffic: the online-page reader (both wordings, wall never stored), one reading per half hour kept 90 days, High / Medium / Low against the last 28 days (cut points move with traffic), daily 48 bars / weekly 7 / monthly per-day with gaps as empty bars, the average of the bars on screen, the week grid and best hours, the daily / weekly / "online" messages, CSV.
+38. [MECH] `TZ=UTC node test/pulserun.test.mjs` - a reading opens only /online/ in a tab, writes only its own key (no leads, no radar, no old bump samples), not twice inside 30 minutes, a wall sets the shared pause; "online" / "online on|off|now"; the morning report once a day after 09:00 and the Sunday grid, nothing when off; "traffic" alone is still HAF's own report (root cause of the item: 1.15.0 first took "traffic" and broke services-flow).
+39. [SMOKE] The violet "Traffic" button on the HAF dashboard opens the Traffic page; tiles (On BHW now, Today so far, High means, Readings kept); Daily / Weekly / Monthly bars with the dashed average that changes with the view and the ◀ ▶ Latest navigation; Patterns tab (typical day, hour-of-week grid, best / quietest / per-day lists); ON/OFF toggle; Export CSV; no console errors.
+40. Traffic daily chart: guests drawn on their own scale behind the member bars (root cause: guests are 5-10× members and squashed the member bars to the floor).
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format

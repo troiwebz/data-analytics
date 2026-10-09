@@ -7,3 +7,4 @@ date	mode	build	pass	failing
 2026-10-08	pre (L3: background.js, radar module)	1.14.0	49 mech pass (taps alone) + items 31-34; settings walked in isolated browser; live BHW search not walkable here (signed-in only)	lost-tap bug -> fixed (item 31)
 2026-10-08	pre (L3: background.js, radar module)	1.14.1	49 mech pass + taps alone; items 35-36	-
 2026-10-08	pre (text only: radar.js footer)	1.14.2	49 mech pass (taps passed alone on 1.14.1, footer text unchanged there)	-
+2026-10-09	pre (L3: background.js, dashboard, new pulse module)	1.15.0	50 mech pass + taps alone; services-flow fixed (traffic command collision); items 37-40 walked	38 (command collision) -> fixed; 40 (guest scale) -> fixed

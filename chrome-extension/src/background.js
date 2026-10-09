@@ -38,6 +38,8 @@ import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, 
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
   familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage } from './radar.js';
+import * as pulse from './pulse.js';
+import { zoneOf } from './timefmt.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -507,6 +509,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
       await radarTick().catch((e) => log(`Reply Radar: ${e.message}`, 'error'));
+      await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
     // One-off repairs also run here: when Chrome itself loads a new version
@@ -1727,6 +1730,86 @@ async function startStudio(opts) {
   return { started: true };
 }
 
+// --------------------------------------------------------------- BHW Traffic
+//
+// Separate from everything else: its own keys (pulseSamples, pulseCfg,
+// pulseMeta), its own page, its own Telegram messages. Every 30 minutes, on the
+// main system only, it opens BHW's "members online" page in a background tab
+// and keeps the three counts. Nothing else is read, written or sent.
+const PULSE_KEY = 'pulseSamples';
+const PULSE_CFG = 'pulseCfg';
+const PULSE_META = 'pulseMeta';
+
+async function getPulse() {
+  const o = await chrome.storage.local.get([PULSE_KEY, PULSE_CFG, PULSE_META]);
+  return { samples: o[PULSE_KEY] || [], cfg: { on: true, dailyAt: 9, ...(o[PULSE_CFG] || {}) }, meta: o[PULSE_META] || {} };
+}
+const setPulseMeta = async (patch) => { const { meta } = await getPulse(); await chrome.storage.local.set({ [PULSE_META]: { ...meta, ...patch } }); };
+
+/** One reading of BHW's online page, in a tab. Never throws into the tick. */
+export async function pulseRead({ force = false } = {}) {
+  const { samples, meta } = await getPulse();
+  const now = Date.now();
+  if (!force && meta.lastReadAt && now - meta.lastReadAt < pulse.EVERY_MS) return { skipped: 'not due' };
+  if (meta.reading && now - meta.reading < 3 * 60000) return { skipped: 'busy' };
+  if (await walled()) return { skipped: 'wall' };
+  await setPulseMeta({ reading: now });
+  try {
+    const r = await readInTab(pulse.ONLINE_URL, pulse.extractOnline);
+    if (r.missing) { await setPulseMeta({ reading: 0, lastReadAt: now, lastError: `the online page had no counts (${String(r.sample || '').slice(0, 80)})` }); return { error: 'no counts' }; }
+    const next = pulse.addSample(samples, r, now);
+    await chrome.storage.local.set({ [PULSE_KEY]: next, [PULSE_META]: { ...(await getPulse()).meta, reading: 0, lastReadAt: now, lastError: '', last: { ts: now, ...r } } });
+    return { ok: true, ...r };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message);
+    await setPulseMeta({ reading: 0, lastReadAt: now, lastError: e.message });
+    await log(`BHW traffic: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+}
+
+/** The minute tick: a reading when due, the morning message, the Sunday grid. */
+async function pulseTick() {
+  const { cfg: pc } = await getPulse();
+  if (!pc.on) return;
+  await pulseRead();
+  const cfg = await getConfig();
+  if (!cfg.telegramChatId || !(await telegram.hasToken())) return;
+  const tz = zoneOf(cfg);
+  const { samples, meta } = await getPulse();
+  const p = pulse.partsOf(Date.now(), tz);
+  if (p.hour >= (Number(pc.dailyAt) || 9) && meta.dailySent !== p.date && samples.length) {
+    const thr = pulse.thresholds(samples);
+    await telegram.say(cfg.telegramChatId, pulse.dailyReport(samples, pulse.shiftDate(p.date, -1), tz, thr), { html: true });
+    await setPulseMeta({ dailySent: p.date });
+    if (p.dow === 6 && meta.weeklySent !== pulse.weekStart(p.date)) {
+      await telegram.say(cfg.telegramChatId, pulse.weeklyReport(samples, tz, thr), { html: true });
+      await setPulseMeta({ weeklySent: pulse.weekStart(p.date) });
+    }
+  }
+}
+
+/** Tests only: the tick, without the rest of the minute's work. */
+export const __pulseTickForTest = () => pulseTick();
+
+/** "online", "online on" / "online off" / "online now". True when the message was for Traffic. */
+async function pulseCommand(body, cfg) {
+  // "traffic" alone stays HAF's own bump-timing report; this one answers to "online".
+  const m = String(body || '').trim().match(/^\/?online\b\s*(on|off|now)?\s*[.!]?$/i);
+  if (!m) return false;
+  const verb = (m[1] || '').toLowerCase();
+  if (verb === 'on' || verb === 'off') {
+    const { cfg: pc } = await getPulse();
+    await chrome.storage.local.set({ [PULSE_CFG]: { ...pc, on: verb === 'on' } });
+    await telegram.say(cfg.telegramChatId, verb === 'on' ? '📈 BHW traffic is ON: a reading every 30 minutes, the day\'s report every morning, the week\'s grid on Sunday.' : '📈 BHW traffic is OFF. Send "online on" to start it again.');
+    return true;
+  }
+  if (verb === 'now') await pulseRead({ force: true });
+  const { samples } = await getPulse();
+  await telegram.say(cfg.telegramChatId, pulse.todayReport(samples, zoneOf(cfg), pulse.thresholds(samples)), { html: true });
+  return true;
+}
+
 // --------------------------------------------------------------- Reply Radar
 //
 // Separate from HAF entirely: its own keys (radar, radarCfg), nothing written
@@ -2499,6 +2582,7 @@ const HELP = [
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
   '<b>pm cap 30</b> / <b>pm cap off</b> - the daily limit on private messages ("pm cap" shows it)',
   '<b>radar help</b> - Reply Radar: public-reply threads by the hour, and <b>next casino</b> for a live search',
+  '<b>online</b> - how many are on BHW right now and today so far · <b>online on</b> / <b>online off</b> · <b>online now</b> - read it this minute',
   '',
   '<b>Search</b>',
   '<b>casino</b> (any word) - every thread in the 7-day index that mentions it',
@@ -3423,6 +3507,7 @@ export async function pollTaps() {
       continue;
     }
     if (ev.kind === 'reply' && await radarCommand(ev.body, cfg).catch(() => false)) { done++; continue; }
+    if (ev.kind === 'reply' && await pulseCommand(ev.body, cfg).catch(() => false)) { done++; continue; }
 
     // Typed commands, answered before anything treats the message as a rewrite.
     if (ev.kind === 'reply' && /^\/?status\b/i.test(String(ev.body || '').trim())) {
@@ -4855,6 +4940,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'lab-run':       sendResponse(await startLab(msg.opts || {})); break;
       case 'studio-run':    sendResponse(await startStudio(msg.opts || {})); break;
       case 'radar-status':  sendResponse(await radarStatus()); break;
+      case 'pulse-status': {                         // the Traffic page
+        const { samples, cfg: pc, meta } = await getPulse();
+        sendResponse({ samples, cfg: pc, meta, tz: zoneOf(await getConfig()) || Intl.DateTimeFormat().resolvedOptions().timeZone, thr: pulse.thresholds(samples), wallUntil: await walled() });
+        break;
+      }
+      case 'pulse-read':    sendResponse(await pulseRead({ force: true })); break;
+      case 'pulse-save': {
+        const { cfg: pc } = await getPulse();
+        await chrome.storage.local.set({ [PULSE_CFG]: { ...pc, ...(typeof msg.on === 'boolean' ? { on: msg.on } : {}), ...(msg.dailyAt != null ? { dailyAt: Math.min(23, Math.max(0, Number(msg.dailyAt) || 9)) } : {}) } });
+        sendResponse({ ok: true });
+        break;
+      }
       case 'radar-run':     alive(() => runRadar({ send: !!msg.send })).catch(() => {}); sendResponse({ started: true }); break;
       case 'radar-save': {                           // the Radar page's settings: its own key, HAF settings untouched
         const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);

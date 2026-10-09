@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — BHW Traffic</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626;--violet:#7c3aed;--hi:#16a34a;--md:#f59e0b;--lo:#94a3b8}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0} header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)} button:disabled{opacity:.55;cursor:default}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  button.pri{background:var(--violet);border-color:var(--violet);color:#fff}
+  button.on{background:var(--green);border-color:var(--green);color:#fff}
+  button.off{background:#475569;border-color:#475569;color:#fff}
+  .w{max-width:1180px;margin:0 auto;padding:20px}
+  .how{background:#f5f3ff;border:1px solid #ddd6fe;color:#4c1d95;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .tile .k{font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  .tile .v{font:700 22px system-ui;margin-top:2px}
+  .tile .s{font-size:12px;color:var(--mute)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .nav{display:flex;gap:8px;align-items:center;margin:4px 0 10px}
+  .nav .title{font:700 15px system-ui;min-width:220px}
+  .stat{font-size:13px;color:#334155;margin:6px 0 10px}
+  .stat b{color:var(--ink)}
+  .chart{width:100%;height:auto;display:block}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--mute);margin-top:6px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:center;padding:4px 3px;border-bottom:1px solid #f1f5f9}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  td.d{text-align:left;font-weight:600}
+  td.H{background:#dcfce7;color:#14532d}td.M{background:#fef3c7;color:#78350f}td.L{background:#f1f5f9;color:#475569}td.n{color:#cbd5e1}
+  .lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .lists h3{margin:0 0 6px;font-size:13.5px}
+  .lists ol{margin:0;padding-left:18px;font-size:13px}
+  .sub{color:var(--mute);font-size:12.5px}
+  .err{color:var(--red);font-weight:600}
+  .empty{padding:18px;text-align:center;color:var(--mute)}
+</style>
+<header>
+  <h1>📈 BHW Traffic</h1>
+  <span class="sp"></span>
+  <button id="toggle" class="off">Traffic is OFF</button>
+  <button id="read" class="pri" title="Read BHW's online page now">Read now</button>
+  <button id="csv">Export CSV</button>
+  <button id="back">← HAF dashboard</button>
+</header>
+<div class="w">
+  <div class="how">Every 30 minutes the extension reads BHW's own "members online" page and keeps the count. Bars are coloured <b>High / Medium / Low</b> against the last 28 days, so "High" always means high for BHW as it is now. The dashed line is the average of the bars on screen and moves with the view. Readings are kept for 90 days.</div>
+  <div id="msg" class="err" hidden></div>
+  <div class="tiles">
+    <div class="tile"><div class="k">On BHW now</div><div class="v" id="now">–</div><div class="s" id="now-s"></div></div>
+    <div class="tile"><div class="k">Today so far</div><div class="v" id="today">–</div><div class="s" id="today-s"></div></div>
+    <div class="tile"><div class="k">High means</div><div class="v" id="hi">–</div><div class="s" id="hi-s"></div></div>
+    <div class="tile"><div class="k">Readings kept</div><div class="v" id="n">–</div><div class="s" id="n-s"></div></div>
+  </div>
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="day" aria-selected="true">Daily</button>
+      <button role="tab" data-tab="week" aria-selected="false">Weekly</button>
+      <button role="tab" data-tab="month" aria-selected="false">Monthly</button>
+      <button role="tab" data-tab="patterns" aria-selected="false">Patterns</button>
+    </div>
+    <div id="p-chart">
+      <div class="nav"><button class="mini" id="prev">◀</button><span class="title" id="title"></span><button class="mini" id="next">▶</button><button class="mini" id="latest">Latest</button></div>
+      <div class="stat" id="stat"></div>
+      <div id="chart"></div>
+      <div class="legend"><span><i style="background:var(--hi)"></i>High</span><span><i style="background:var(--md)"></i>Medium</span><span><i style="background:var(--lo)"></i>Low</span><span><i style="background:#cbd5e1"></i>No label yet</span><span><i style="background:#efe6ff"></i>Guests, own scale (daily view)</span><span>— — average of the bars shown</span></div>
+    </div>
+    <div id="p-patterns" hidden>
+      <h3 style="margin:0 0 4px;font-size:14px">A typical day (average by hour, last 28 days)</h3>
+      <div id="shape"></div>
+      <h3 style="margin:16px 0 4px;font-size:14px">Hour of the week</h3>
+      <div class="sub" style="margin-bottom:6px">Average members online for each hour, last 28 days. Hover a cell for the number.</div>
+      <div id="grid"></div>
+      <div class="lists" style="margin-top:16px">
+        <div><h3>Best hours to post</h3><ol id="best"></ol></div>
+        <div><h3>Quietest hours</h3><ol id="worst"></ol></div>
+        <div><h3>Best hour each day</h3><ol id="perday"></ol></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module" src="pulse.js"></script>
