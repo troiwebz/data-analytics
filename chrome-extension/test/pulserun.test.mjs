@@ -38,6 +38,23 @@ bags.local.config = { ...DEFAULT_CONFIG, configVersion: CONFIG_VERSION, enabled:
 const say = async (text) => { tg = []; updates = [{ update_id: Math.floor(Math.random() * 1e9), message: { message_id: 5, text, chat: { id: 999 }, from: { id: 1 } } }]; await bg.pollTaps(); return tg.filter((m) => m.method === 'sendMessage').map((m) => m.text).join(' ||| '); };
 
 // --- a reading, in a tab, stored on its own key ---------------------------------------------
+// --- the half-hour message, after every reading ------------------------------------------------
+const { partsOf: P, weekStart: WS } = await import('../src/pulse.js');
+const todayK = P(Date.now(), 'Asia/Kolkata').date;
+tg = []; bags.local.pulseCfg = { on: true }; bags.local.pulseMeta = { dailySent: todayK, weeklySent: WS(todayK) };   // the morning report is tested further down
+await bg.__pulseTickForTest();
+ok('the minute tick takes a reading and sends the cumulative traffic message right after it', opened.length === 1 && tg.filter((m) => m.method === 'sendMessage').length === 1 && /BHW traffic<\/b> · \d\d:\d\d\nNow: <b>312<\/b> members · 2,140 guests/.test(tg[0].text) && /Today so far: average 312/.test(tg[0].text), tg[0]?.text);
+tg = []; await bg.__pulseTickForTest();
+ok('no reading is due a minute later, so no second message', opened.length === 1 && !tg.length);
+bags.local.pulseMeta = { ...bags.local.pulseMeta, lastReadAt: Date.now() - 31 * 60000, dailySent: todayK, weeklySent: WS(todayK) }; tg = []; await bg.__pulseTickForTest();
+ok('30 minutes later: the next reading and the next message', opened.length === 2 && tg.filter((m) => m.method === 'sendMessage').length === 1);
+let out0 = await say('online quiet');
+bags.local.pulseMeta = { ...bags.local.pulseMeta, lastReadAt: Date.now() - 31 * 60000, dailySent: todayK, weeklySent: WS(todayK) }; tg = []; await bg.__pulseTickForTest();
+ok('"online quiet": readings continue, the half-hour message stops', /Half-hour traffic messages are off/.test(out0) && opened.length === 3 && !tg.length);
+out0 = await say('online every');
+ok('"online every" turns it back on', /after every half-hour reading/.test(out0) && bags.local.pulseCfg.halfHour === true);
+delete bags.local.pulseSamples; delete bags.local.pulseMeta; opened.length = 0; tg = [];
+
 let r = await bg.pulseRead({ force: true });
 ok('the online page is opened in a tab and the three counts are stored', r.ok && opened[0] === 'https://www.blackhatworld.com/online/' && bags.local.pulseSamples.length === 1 && bags.local.pulseSamples[0].members === 312 && bags.local.pulseSamples[0].guests === 2140, { r, s: bags.local.pulseSamples });
 ok('nothing of HAF, Radar or the old bump samples is written', !bags.local.recentLeads && !bags.local.radar && !bags.local.trafficSamples);
@@ -56,6 +73,7 @@ out = await say('online on');
 ok('"online on" switches it on', bags.local.pulseCfg.on === true && /is ON/.test(out));
 out = await say('online now');
 ok('"online now" takes a reading and answers', opened.length === 3 && /BHW now/.test(out), { n: opened.length });
+bags.local.pulseCfg = { ...bags.local.pulseCfg, halfHour: false };
 
 // --- the morning report and the Sunday grid, through the minute tick --------------------------
 // 28 days of readings, then a tick at 09:05 on a Sunday (IST).
@@ -79,6 +97,7 @@ Date.now = realNow;
 bags.local.pulseCfg = { on: false }; tg = []; bags.local.pulseMeta = {};
 await bg.__pulseTickForTest();
 ok('switched off: no reading and no message', !tg.length && opened.length === 3);
+bags.local.pulseCfg = { on: true, halfHour: false };
 out = await say('traffic');
 ok('"traffic" alone is still HAF\'s own bump-timing report, not this', !/BHW now|BHW traffic is/.test(out), out.slice(0, 80));
 

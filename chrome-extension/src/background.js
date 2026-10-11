@@ -1742,7 +1742,7 @@ const PULSE_META = 'pulseMeta';
 
 async function getPulse() {
   const o = await chrome.storage.local.get([PULSE_KEY, PULSE_CFG, PULSE_META]);
-  return { samples: o[PULSE_KEY] || [], cfg: { on: true, dailyAt: 9, ...(o[PULSE_CFG] || {}) }, meta: o[PULSE_META] || {} };
+  return { samples: o[PULSE_KEY] || [], cfg: { on: true, dailyAt: 9, halfHour: true, ...(o[PULSE_CFG] || {}) }, meta: o[PULSE_META] || {} };
 }
 const setPulseMeta = async (patch) => { const { meta } = await getPulse(); await chrome.storage.local.set({ [PULSE_META]: { ...meta, ...patch } }); };
 
@@ -1772,12 +1772,14 @@ export async function pulseRead({ force = false } = {}) {
 async function pulseTick() {
   const { cfg: pc } = await getPulse();
   if (!pc.on) return;
-  await pulseRead();
+  const read = await pulseRead();
   const cfg = await getConfig();
   if (!cfg.telegramChatId || !(await telegram.hasToken())) return;
   const tz = zoneOf(cfg);
   const { samples, meta } = await getPulse();
   const p = pulse.partsOf(Date.now(), tz);
+  // After every reading: the count now and the whole day so far (1.15.1). "online quiet" turns this off.
+  if (read.ok && pc.halfHour !== false) await telegram.say(cfg.telegramChatId, pulse.halfHourReport(samples, tz, pulse.thresholds(samples)), { html: true });
   if (p.hour >= (Number(pc.dailyAt) || 9) && meta.dailySent !== p.date && samples.length) {
     const thr = pulse.thresholds(samples);
     await telegram.say(cfg.telegramChatId, pulse.dailyReport(samples, pulse.shiftDate(p.date, -1), tz, thr), { html: true });
@@ -1795,13 +1797,19 @@ export const __pulseTickForTest = () => pulseTick();
 /** "online", "online on" / "online off" / "online now". True when the message was for Traffic. */
 async function pulseCommand(body, cfg) {
   // "traffic" alone stays HAF's own bump-timing report; this one answers to "online".
-  const m = String(body || '').trim().match(/^\/?online\b\s*(on|off|now)?\s*[.!]?$/i);
+  const m = String(body || '').trim().match(/^\/?online\b\s*(on|off|now|quiet|every)?\s*[.!]?$/i);
   if (!m) return false;
   const verb = (m[1] || '').toLowerCase();
   if (verb === 'on' || verb === 'off') {
     const { cfg: pc } = await getPulse();
     await chrome.storage.local.set({ [PULSE_CFG]: { ...pc, on: verb === 'on' } });
     await telegram.say(cfg.telegramChatId, verb === 'on' ? '📈 BHW traffic is ON: a reading every 30 minutes, the day\'s report every morning, the week\'s grid on Sunday.' : '📈 BHW traffic is OFF. Send "online on" to start it again.');
+    return true;
+  }
+  if (verb === 'quiet' || verb === 'every') {
+    const { cfg: pc } = await getPulse();
+    await chrome.storage.local.set({ [PULSE_CFG]: { ...pc, halfHour: verb === 'every' } });
+    await telegram.say(cfg.telegramChatId, verb === 'every' ? '📈 The traffic message now comes after every half-hour reading.' : '📈 Half-hour traffic messages are off. Readings continue; the morning report and the Sunday grid still come. Send "online every" to turn them back on.');
     return true;
   }
   if (verb === 'now') await pulseRead({ force: true });
@@ -2582,7 +2590,7 @@ const HELP = [
   '<b>push on</b> / <b>push off</b> - also send the swept backlog as cards, or keep it for next',
   '<b>pm cap 30</b> / <b>pm cap off</b> - the daily limit on private messages ("pm cap" shows it)',
   '<b>radar help</b> - Reply Radar: public-reply threads by the hour, and <b>next casino</b> for a live search',
-  '<b>online</b> - how many are on BHW right now and today so far · <b>online on</b> / <b>online off</b> · <b>online now</b> - read it this minute',
+  '<b>online</b> - how many are on BHW right now and today so far · <b>online now</b> - read it this minute · <b>online quiet</b> / <b>online every</b> - the half-hour message off / on · <b>online on</b> / <b>online off</b>',
   '',
   '<b>Search</b>',
   '<b>casino</b> (any word) - every thread in the 7-day index that mentions it',

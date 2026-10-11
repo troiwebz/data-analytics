@@ -26,7 +26,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
 - `src/radar.js`, `src/radar/` → items 24–36
-- `src/pulse.js`, `src/pulse/` → items 37–40
+- `src/pulse.js`, `src/pulse/` → items 37–41
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
 
@@ -74,6 +74,7 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 38. [MECH] `TZ=UTC node test/pulserun.test.mjs` - a reading opens only /online/ in a tab, writes only its own key (no leads, no radar, no old bump samples), not twice inside 30 minutes, a wall sets the shared pause; "online" / "online on|off|now"; the morning report once a day after 09:00 and the Sunday grid, nothing when off; "traffic" alone is still HAF's own report (root cause of the item: 1.15.0 first took "traffic" and broke services-flow).
 39. [SMOKE] The violet "Traffic" button on the HAF dashboard opens the Traffic page; tiles (On BHW now, Today so far, High means, Readings kept); Daily / Weekly / Monthly bars with the dashed average that changes with the view and the ◀ ▶ Latest navigation; Patterns tab (typical day, hour-of-week grid, best / quietest / per-day lists); ON/OFF toggle; Export CSV; no console errors.
 40. Traffic daily chart: guests drawn on their own scale behind the member bars (root cause: guests are 5-10× members and squashed the member bars to the floor).
+41. [MECH] `TZ=UTC node test/pulse.test.mjs` + `pulserun.test.mjs` also assert (1.15.1): after every half-hour reading one cumulative Telegram message goes out (now + level, today's average / peak / low / readings, the H/M/L hour strip, same time yesterday); none a minute later; "online quiet" stops it while readings continue, "online every" resumes (root cause of the item: 1.15.0 read every 30 minutes but sent nothing until the next morning, which read as "no traffic messages").
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format

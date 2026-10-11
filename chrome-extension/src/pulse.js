@@ -187,3 +187,39 @@ export function csv(samples, tz) {
   for (const s of samples || []) { const p = partsOf(s.ts, tz); lines.push(`${new Date(s.ts).toISOString()},${p.date},${slotLabel(slotOf(s.ts, tz))},${DOW[p.dow]},${s.members ?? ''},${s.guests ?? ''},${s.total ?? ''}`); }
   return lines.join('\n');
 }
+
+// ---------------------------------------------- 1.15.1: the half-hour message, cumulative
+
+/** The letter strip for today so far: one letter per hour, from midnight to now. */
+export function todayStrip(samples, tz, thr, now = Date.now()) {
+  const date = dateKey(now, tz); const hourNow = partsOf(now, tz).hour;
+  const bars = dayBars(samples, date, tz);
+  const letters = [];
+  for (let h = 0; h <= hourNow; h++) {
+    const v = avg(bars.slice(h * 2, h * 2 + 2).map((b) => b.members).filter((x) => x != null));
+    letters.push(v == null ? '·' : ({ High: 'H', Medium: 'M', Low: 'L' })[labelOf(v, thr)] || '·');
+  }
+  return letters.join('');
+}
+
+/**
+ * Sent after every half-hour reading: the count now, its level, and the whole
+ * day so far - average, peak, low, the hour strip, and the same time yesterday.
+ */
+export function halfHourReport(samples, tz, thr, now = Date.now()) {
+  const list = (samples || []).filter((s) => s.members != null);
+  const latest = list[list.length - 1];
+  if (!latest) return '📈 BHW traffic: no reading yet.';
+  const date = dateKey(now, tz); const p = partsOf(now, tz);
+  const st = statsOf(dayBars(samples, date, tz), 'members');
+  const l = labelOf(latest.members, thr);
+  const lines = [`📈 <b>BHW traffic</b> · ${hh(p.hour).slice(0, 2)}:${String(p.minute).padStart(2, '0')}`,
+    `Now: <b>${fmtN(latest.members)}</b> members · ${fmtN(latest.guests)} guests${l ? ` · <b>${l}</b>` : ''}`];
+  if (st.n) lines.push(`Today so far: average ${fmtN(st.avg)}${thr?.ready ? ` (${labelOf(st.avg, thr)})` : ''} · peak ${fmtN(st.max.members)} at ${st.max.label} · low ${fmtN(st.min.members)} at ${st.min.label} · ${st.n} readings`);
+  if (thr?.ready) lines.push(`By hour: <code>${todayStrip(samples, tz, thr, now)}</code>`);
+  // The same half hour yesterday, for the direction.
+  const ySlot = slotOf(now, tz); const yBars = dayBars(samples, shiftDate(date, -1), tz); const y = yBars[ySlot]?.members ?? yBars[ySlot - 1]?.members;
+  if (y != null) { const d = Math.round(((latest.members - y) / y) * 100); lines.push(`Same time yesterday: ${fmtN(y)} (${d >= 0 ? '+' : ''}${d}%)`); }
+  if (!thr?.ready) lines.push(`High / Medium / Low start after a day of readings: ${thr?.n || 0} so far.`);
+  return lines.join('\n');
+}

@@ -1,7 +1,7 @@
 // BHW Traffic (1.15.0): the online-page reader, the half-hour samples, labels
 // against the last 28 days, the bars per day / week / month, the averages that
 // follow the bars on screen, and the Telegram messages.
-import { extractOnline, addSample, thresholds, labelOf, dayBars, weekBars, monthBars, statsOf, weekGrid, bestHours, hourShape, nowLine, dailyReport, weeklyReport, todayReport, csv, partsOf, weekStart, shiftDate, KEEP_DAYS } from '../src/pulse.js';
+import { halfHourReport, todayStrip, extractOnline, addSample, thresholds, labelOf, dayBars, weekBars, monthBars, statsOf, weekGrid, bestHours, hourShape, nowLine, dailyReport, weeklyReport, todayReport, csv, partsOf, weekStart, shiftDate, KEEP_DAYS } from '../src/pulse.js';
 
 let fails = 0;
 const ok = (n, c, e) => { if (!c) fails++; console.log(`${c ? '  ok' : 'FAIL'}  ${n}${c || e === undefined ? '' : `  -> ${JSON.stringify(e).slice(0, 300)}`}`); };
@@ -74,6 +74,11 @@ const wr = weeklyReport(samples, TZ, thr, now);
 ok('the weekly grid: 7 rows of 24 letters and the best hours', (wr.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)  [HML·]{24}$/gm) || []).length === 7 && /Best hours to post: /.test(wr) && /Quietest: /.test(wr), wr);
 ok('before a week of data the messages say labels are coming', /Labels start after a week/.test(weeklyReport(samples.slice(0, 20), TZ, thresholds(samples.slice(0, 20), now), now)) && /Labels start after a week/.test(dailyReport(samples.slice(0, 20), '2026-10-01', TZ, thresholds(samples.slice(0, 20), now))));
 ok('"online": the live line, today so far, and what High means', /BHW now: /.test(todayReport(samples, TZ, thr, samples[samples.length - 1].ts + 60000)) && /Today so far: average/.test(todayReport(samples, TZ, thr, samples[samples.length - 1].ts + 60000)) && /High is [\d,]+\+ members/.test(todayReport(samples, TZ, thr, now)));
+const atNoon = Date.parse('2026-10-07T06:30:00Z');   // 12:00 IST
+const hr = halfHourReport(samples, TZ, thr, atNoon);
+ok('the half-hour message: now + level, today so far with average / peak / low, the hour strip, yesterday', /^📈 <b>BHW traffic<\/b> · 12:00\nNow: <b>[\d,]+<\/b> members · [\d,]+ guests · <b>(High|Medium|Low)<\/b>/.test(hr) && /Today so far: average [\d,]+ \((High|Medium|Low)\) · peak [\d,]+ at \d\d:\d\d · low [\d,]+ at \d\d:\d\d · \d+ readings/.test(hr) && /By hour: <code>[HML·]{13}<\/code>/.test(hr) && /Same time yesterday: [\d,]+ \([+-]?\d+%\)/.test(hr), hr);
+ok('the strip covers midnight to the current hour only', todayStrip(samples, TZ, thr, atNoon).length === 13 && /^L+M*H*$|^[LMH·]+$/.test(todayStrip(samples, TZ, thr, atNoon)));
+ok('before a day of readings the message still comes, without labels', /High \/ Medium \/ Low start after a day/.test(halfHourReport(samples.slice(0, 10), TZ, thresholds(samples.slice(0, 10), now), samples[9].ts)) && !/By hour/.test(halfHourReport(samples.slice(0, 10), TZ, thresholds(samples.slice(0, 10), now), samples[9].ts)));
 const c = csv(samples.slice(0, 3), TZ).split('\n');
 ok('CSV: a header and one line per reading with date, slot, weekday and the three counts', c.length === 4 && c[0] === 'time,date,slot,weekday,members,guests,total' && /^2026-10-01T00:00:00.000Z,2026-10-01,05:30,Thu,\d+,\d+,\d+$/.test(c[1]), c[1]);
 ok('week helpers: Monday of the week, date shifting', weekStart('2026-10-07') === '2026-10-05' && shiftDate('2026-10-31', 1) === '2026-11-01');
