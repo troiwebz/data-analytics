@@ -570,7 +570,7 @@ export function formatBatchMessage(items, { now = Date.now(), count = 0, target 
   const lines = [`📡 <b>Reply radar</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} thread${items.length === 1 ? '' : 's'}`, ''];
   items.forEach((q, i) => {
     const rep = Number(q.replyCount) || 0;
-    lines.push(`<b>${i + 1}. ${h(q.title)}</b>${i === 0 ? ' ⭐' : ''}${doneLine(done, String(q.threadId))}`);
+    lines.push(`<b>${i + 1}. <a href="${h(q.url)}">${h(q.title)}</a></b>${i === 0 ? ' ⭐' : ''}${doneLine(done, String(q.threadId))}`);
     lines.push(`${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep ? ` · last ${last(q.lastActivityAt, now)}` : ''}`);
     const b = q.brief;
     if (b && !done?.[String(q.threadId)]) {
@@ -580,7 +580,7 @@ export function formatBatchMessage(items, { now = Date.now(), count = 0, target 
       if (b.back) lines.push(`Starter asked again: ${h(b.back)}`);
       if (b.gap) lines.push(`Missing: ${h(b.gap)}`);
     }
-    lines.push(h(q.url), '');
+    lines.push('');
   });
   lines.push(`Public replies today: <b>${count} of ${target}</b>${count >= target ? ' (limit reached)' : ''}`, keywordIdeas(items, { families }));
   return lines.join('\n').slice(0, 3900);
@@ -606,11 +606,10 @@ export function formatClusterMessage(clusters, rows, { now = Date.now(), keyword
     const more = c.ids.slice(1, 3).map((id) => by.get(id)).filter(Boolean);
     const rep = Number(best.replyCount) || 0;
     lines.push(`<b>${i + 1}. ${h(c.name)}</b> · ${c.ids.length} thread${c.ids.length === 1 ? '' : 's'}${c.why ? ` · ${h(c.why)}` : ''}`);
-    lines.push(`${h(best.title)}${doneLine(done, String(best.threadId))}`, `${h(best.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · last ${last(best.lastActivityAt, now)}`);
+    lines.push(`<a href="${h(best.url)}">${h(best.title)}</a>${doneLine(done, String(best.threadId))}`, `${h(best.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · last ${last(best.lastActivityAt, now)}`);
     if (c.asked && !done?.[String(best.threadId)]) lines.push(`Asked: ${h(c.asked)}`);
     if (c.need && !done?.[String(best.threadId)]) lines.push(`A good reply covers: ${h(c.need)}`);
-    lines.push(h(best.url));
-    for (const m of more) lines.push(`• ${h(m.title)} (${m.replyCount || 0}) ${h(m.url)}`);
+    for (const m of more) lines.push(`• <a href="${h(m.url)}">${h(m.title)}</a> (${m.replyCount || 0})`);
     lines.push('');
   });
   lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(rows, { families, exclude: keyword }));
@@ -619,7 +618,7 @@ export function formatClusterMessage(clusters, rows, { now = Date.now(), keyword
 
 // ------------------------------------------------- 1.16: new threads, every 15 minutes
 
-export const NEW_THREADS_URLS = ['https://www.blackhatworld.com/whats-new/threads/', 'https://www.blackhatworld.com/whats-new/'];
+export const NEW_THREADS_URLS = ['https://www.blackhatworld.com/whats-new/'];   // What's new only, as asked
 export const NEW_EVERY_MS = 15 * 60000;
 
 /**
@@ -655,7 +654,7 @@ export function formatNewThreads(items, { now = Date.now(), count = 0, target = 
   const lines = [`🆕 <b>New threads</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} new`, ''];
   items.forEach((q, i) => {
     const rep = Number(q.replyCount) || 0;
-    lines.push(`<b>${i + 1}. ${h(q.title)}</b>`, `${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, h(q.url), '');
+    lines.push(`<b>${i + 1}. <a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
   });
   lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(items, { families }));
   return lines.join('\n').slice(0, 3900);

@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -134,6 +134,8 @@ ok('a broken answer gives no briefs, never an error', Object.keys(parseBriefs('s
 const item = { ...R(1849411, 'Anyone <b>still</b> running gambling ads on Meta?', { start: 326, last: 51, rep: 11 }), section: 'Facebook ads', tier: 'C', match: 'strict', brief: briefs['1849411'] };
 const msg = formatCard(item, { now, i: 1, of: 3, count: 4, target: 10 });
 ok('the card names the thread, when it started, replies and last reply', /Reply radar<\/b> · 1 of 3 · ⭐ best pick/.test(msg) && /started 22 Sep, 14 days ago/.test(msg) && /11 replies · last 2 days ago/.test(msg), msg);
+const bm = formatBatchMessage([item], { now, count: 1 });
+ok('1.16.1: the title is the link and no raw URL line is shown', /<b>1\. <a href="https:\/\/www\.blackhatworld\.com\/seo\/t\.1849411\/">Anyone/.test(bm) && !/^https:\/\//m.test(bm), bm);
 ok('the brief lines are there: asked, already said with counts, starter asked again, missing', /<b>Asked:<\/b> /.test(msg) && /Already said:<\/b> Fix offer and geo compliance first \(3\)/.test(msg) && /Starter asked again:<\/b> /.test(msg) && /Missing:<\/b> /.test(msg));
 const msg0 = formatCard({ ...R(2, 'Best virtual credit cards (VCC) for Facebook Ads?', { start: 9, last: 9, rep: 0 }), section: 'Facebook ads', tier: 'A', match: 'wide', brief: { asked: 'Which VCC works?', said: [], back: '', gap: 'First reply is open.' } }, { now, i: 2, of: 3 });
 ok('a thread with no replies says so, and only the first card is the pick', /0 replies\n\n<b>Asked:<\/b> Which VCC works\?\n<b>Already said:<\/b> nothing yet/.test(msg0) && !/best pick/.test(msg0), msg0);
@@ -195,7 +197,7 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   ok('a thread seen on the page before is not offered again even if it was never sent', pickNewThreads(rows, {}, rx, { now, seen: { 1: 1 } }).every((g) => g.threadId !== '1'));
   ok('a muted word keeps it out', !pickNewThreads(rows, {}, rx, { now, muted: ['cpc'] }).some((g) => g.threadId === '1'));
   const msg = formatNewThreads(got, { now, count: 2, target: 10 });
-  ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /seo\/t\.2\//.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
+  ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. <a href="[^"]+">How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/t\.2\/">Casino SEO/.test(msg) && !/^https:\/\//m.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

@@ -10,3 +10,4 @@ date	mode	build	pass	failing
 2026-10-09	pre (L3: background.js, dashboard, new pulse module)	1.15.0	50 mech pass + taps alone; services-flow fixed (traffic command collision); items 37-40 walked	38 (command collision) -> fixed; 40 (guest scale) -> fixed
 2026-10-11	pre (L3: background.js, pulse module)	1.15.1	50 mech pass; taps + staged alone pass (timed out under load in the full run); item 41	-
 2026-10-11	pre (L3: background.js, radar module)	1.16.0	51 mech pass; taps + staged alone pass; item 42; all 5 pages load with no console errors	-
+2026-10-11	pre (L3: radar module)	1.16.1	51 mech pass; taps + staged alone pass; item 43; 5 pages load clean	-

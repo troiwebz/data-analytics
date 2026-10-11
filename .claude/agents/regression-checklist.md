@@ -25,7 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
-- `src/radar.js`, `src/radar/` → items 24–36, 42
+- `src/radar.js`, `src/radar/` → items 24–36, 42–43
 - `src/pulse.js`, `src/pulse/` → items 37–41
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
@@ -76,6 +76,7 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 40. Traffic daily chart: guests drawn on their own scale behind the member bars (root cause: guests are 5-10× members and squashed the member bars to the floor).
 41. [MECH] `TZ=UTC node test/pulse.test.mjs` + `pulserun.test.mjs` also assert (1.15.1): after every half-hour reading one cumulative Telegram message goes out (now + level, today's average / peak / low / readings, the H/M/L hour strip, same time yesterday); none a minute later; "online quiet" stops it while readings continue, "online every" resumes (root cause of the item: 1.15.0 read every 30 minutes but sent nothing until the next morning, which read as "no traffic messages").
 42. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.16.0): every 15 minutes BHW's new-threads page (threads-only page first, the summary page if BHW has none) is read once and ONE message goes out with only threads never shown before - in a Radar section (any title) or a niche word elsewhere, started within 6 hours, 5 replies or fewer, never HAF / sales / sticky / journeys / yours / muted; everything on the page becomes "seen"; shared sent-memory with the hourly batch; "new threads" / "new threads on|off". (root cause of the item: the hourly batch and "next" missed brand-new threads between checks)
+43. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.16.1): every thread title in a Telegram message is a tap-to-open link and no raw URL line is shown (hourly batch, "next" clusters, new threads); the new-thread watch reads only blackhatworld.com/whats-new/.
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format
