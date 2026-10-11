@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -198,6 +198,46 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   ok('a muted word keeps it out', !pickNewThreads(rows, {}, rx, { now, muted: ['cpc'] }).some((g) => g.threadId === '1'));
   const msg = formatNewThreads(got, { now, count: 2, target: 10 });
   ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. <a href="[^"]+">How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/t\.2\/">Casino SEO/.test(msg) && !/^https:\/\//m.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
+}
+
+// --- 1.17: blocks ------------------------------------------------------------------------------------
+{
+  ok('two default blocks: Ads at :00 with 10 boards, SEO at :30 with 5; HAF and Marketplace in neither', DEFAULT_BLOCKS.length === 2 && DEFAULT_BLOCKS[0].minute === 0 && DEFAULT_BLOCKS[0].boards.length === 10 && DEFAULT_BLOCKS[1].minute === 30 && DEFAULT_BLOCKS[1].boards.length === 5
+    && !DEFAULT_BLOCKS.flatMap((b) => b.boards).some((x) => String(x.id) === '76' || /hire|market|for-sale|seo-link/.test(String(x.slug || ''))));
+  const list = [{ slug: 'white-hat-seo', id: '29', name: 'White Hat SEO' }, { slug: 'link-building', id: '48', name: 'Link Building' }, { slug: 'seo-link-building', id: '301', name: 'SEO - Link building' }, { slug: 'hire-a-freelancer', id: '76', name: 'Hire a Freelancer' }];
+  const seo = resolveBoards(DEFAULT_BLOCKS[1].boards, list);
+  ok('slugs are resolved to ids from the forum list, exact slug only (link-building, never seo-link-building)', seo.find((b) => b.slug === 'white-hat-seo').id === '29' && seo.find((b) => b.slug === 'link-building').id === '48' && seo.find((b) => b.slug === 'local-seo').id === null);
+  ok('a board that could not be resolved is skipped; Hire a Freelancer and sales boards are refused even if typed in', !boardAllowed({ slug: 'local-seo', id: null }) && !boardAllowed({ id: 76, name: 'Hire a Freelancer' }) && !boardAllowed({ id: 301, name: 'SEO - Link building' }) && boardAllowed({ id: 28, name: 'Black Hat SEO' }));
+  const B = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/b.${id}/`, title, author: 'starter', lastPoster: o.lastPoster || 'other', startedAt: hAgo(o.start ?? 30), lastActivityAt: hAgo(o.last ?? 3), replyCount: o.rep ?? 3, views: 100, sticky: !!o.sticky, locked: !!o.locked, mine: !!o.mine, lastMine: !!o.lastMine });
+  const fb = { id: 219, name: 'Facebook (PPC)' }, ga = { id: 83, name: 'Google Ads' }, tk = { id: 279, name: 'TikTok', filter: 'adwords' }, cr = { id: 218, name: 'CryptoCurrency', filter: 'niche' };
+  const pages = [
+    { board: fb, rows: [B(1, 'VCC for Facebook ads?', { rep: 0, start: 2, last: 2 }), B(2, 'Anyone still running gambling ads on Meta?', { rep: 11, last: 1 }), B(3, 'Scaling creatives in 2026', { rep: 2, start: 10, last: 5 }), B(4, 'Section rules', { sticky: true }), B(5, 'My own thread', { mine: true }), B(6, '⭐ BM accounts for sale $50', { rep: 0 }), B(7, 'Agency account went dark', { rep: 4, last: 8 })] },
+    { board: ga, rows: [B(8, 'Google Ads suspended again', { rep: 30, start: 500, last: 2 }), B(9, 'Best whitepage hosting?', { rep: 1, start: 20, last: 6 }), B(10, 'I replied here earlier', { rep: 6, last: 1, lastPoster: 'buyer' })] },
+    { board: tk, rows: [B(11, 'TikTok ads account banned for crypto', { rep: 0, start: 3, last: 3 }), B(12, 'Best TikTok dance trend?', { rep: 0, start: 1, last: 1 })] },
+    { board: cr, rows: [B(13, 'How to market a token launch with ads?', { rep: 2, last: 4 }), B(14, 'SOL is going crazy', { rep: 15, last: 1 })] }
+  ];
+  const state = { sent: { 7: now - 86400000, 8: now - 86400000 }, seenActivity: { 7: now - 7 * 3600000, 8: now - 86400000 }, replied: { 10: { at: now - 5 * 3600000, title: 'I replied here earlier' } }, hidden: {} };
+  const { items, back } = pickBlock(pages, state, rx, { now, muted: [] });
+  const ids = items.map((q) => q.threadId);
+  ok('new threads come in, HOT (0 replies) first; sticky, yours, sales, off-filter titles never', ids[0] === '1' && ids.includes('11') && !ids.includes('4') && !ids.includes('5') && !ids.includes('6') && !ids.includes('12') && !ids.includes('14'), ids);
+  ok('a thread sent before returns only with a new reply since it was shown (8 yes, 7 no)', ids.includes('8') && items.find((q) => q.threadId === '8').newReply === true && !ids.includes('7'), ids);
+  ok('a 30-reply old thread without a new reply is only a top-up, never ahead of new ones', ids.indexOf('8') > ids.indexOf('2'));
+  ok('tags: HOT on 0 replies, early on 1-2', items.find((q) => q.threadId === '1').hot && items.find((q) => q.threadId === '9').early && !items.find((q) => q.threadId === '2').hot);
+  ok('the TikTok filter takes ad titles only; the CryptoCurrency filter takes niche titles with an ads angle', ids.includes('11') && !ids.includes('12') && ids.includes('13') && !ids.includes('14'));
+  ok('they answered you: a thread you replied in with a new post by someone else since', back.length === 1 && back[0].threadId === '10' && back[0].lastPoster === 'buyer', back);
+  ok('no more than 8 in a block', items.length <= 8);
+  const few = pickBlock([{ board: fb, rows: [B(21, 'Quiet one', { rep: 9, start: 100, last: 40 }), B(22, 'Quieter', { rep: 7, start: 90, last: 30 }), B(23, 'New Q', { rep: 0, start: 1, last: 1 })] }], { sent: {} }, rx, { now });
+  ok('with fewer than 5 new, quiet page-1 threads top the block up (fewest replies first)', few.items.length === 3 && few.items[0].threadId === '23' && few.items[1].threadId === '22', few.items.map((q) => q.threadId));
+  const names = [fb.name, ga.name, tk.name, cr.name];
+  const msg = formatBlock('Ads block', items, names, { now, count: 2, traffic: '📈 BHW now: 1,820 members · High · today avg 1,210 · peak 2,015 at 13:30' });
+  ok('the block message: header, boards as groups, HOT and early tags, new-reply wording, links as titles, traffic line, code words with brief', /📋 <b>Ads block<\/b> · \d\d:\d\d · 4 boards · \d threads/.test(msg) && /<b>Facebook \(PPC\)<\/b>\n1\. 🔥 HOT · <a href="[^"]+">VCC for Facebook ads\?<\/a>\n   0 replies · first reply open/.test(msg) && /⚡ early · /.test(msg) && /new reply \d+h ago/.test(msg) && !/^https:\/\//m.test(msg) && /📈 BHW now: 1,820/.test(msg) && /brief 3/.test(msg.split('\n').pop()), msg);
+  ok('numbering in the message matches blockOrder, so button N is thread N', blockOrder(items, names).map((q) => q.threadId)[0] === '1' && blockOrder(items, names).length === items.length);
+  ok('a board with nothing is listed on one line', /: nothing new/.test(formatBlock('Ads block', items.filter((q) => q.section !== 'Google Ads'), names, { now })));
+  ok('the answered-you message names who posted and when', /📬 <b>They answered you<\/b>\n\n1\. <a href="[^"]+">I replied here earlier<\/a>\n   buyer posted \d+h ago · 6 replies · Google Ads/.test(formatAnswered(back, { now })), formatAnswered(back, { now }));
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM('<html data-logged-in="true"><body><a href="/forums/white-hat-seo.29/">White Hat SEO</a><a href="/forums/seo-link-building.301/">SEO - Link building</a><a href="/forums/link-building.48/">Link Building</a><a href="/forums/">All</a></body></html>', { url: 'https://www.blackhatworld.com/forums/' });
+  globalThis.document = dom.window.document; const fl = extractForumList(); delete globalThis.document;
+  ok('the forum list reader returns slug, id and name for every board link', fl.boards.length === 3 && fl.boards.find((b) => b.slug === 'link-building').id === '48');
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

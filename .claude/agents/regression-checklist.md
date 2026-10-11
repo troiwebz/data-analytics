@@ -25,7 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
-- `src/radar.js`, `src/radar/` → items 24–36, 42–43
+- `src/radar.js`, `src/radar/` → items 24–36, 42–46
 - `src/pulse.js`, `src/pulse/` → items 37–41
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
@@ -77,6 +77,9 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 41. [MECH] `TZ=UTC node test/pulse.test.mjs` + `pulserun.test.mjs` also assert (1.15.1): after every half-hour reading one cumulative Telegram message goes out (now + level, today's average / peak / low / readings, the H/M/L hour strip, same time yesterday); none a minute later; "online quiet" stops it while readings continue, "online every" resumes (root cause of the item: 1.15.0 read every 30 minutes but sent nothing until the next morning, which read as "no traffic messages").
 42. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.16.0): every 15 minutes BHW's new-threads page (threads-only page first, the summary page if BHW has none) is read once and ONE message goes out with only threads never shown before - in a Radar section (any title) or a niche word elsewhere, started within 6 hours, 5 replies or fewer, never HAF / sales / sticky / journeys / yours / muted; everything on the page becomes "seen"; shared sent-memory with the hourly batch; "new threads" / "new threads on|off". (root cause of the item: the hourly batch and "next" missed brand-new threads between checks)
 43. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.16.1): every thread title in a Telegram message is a tap-to-open link and no raw URL line is shown (hourly batch, "next" clusters, new threads); the new-thread watch reads only blackhatworld.com/whats-new/.
+44. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.17.0): blocks - Ads (10 boards, :00) and SEO (5 boards, :30) read page 1 once an hour from their minute, one message split by board, HOT (0 replies) first and "early" on 1-2, top-ups to at least 5, cap 8, nothing twice, a shown thread back only with a new reply ("new reply"), board filters (TikTok ad words, CryptoCurrency niche), slugs resolved once from BHW's forum list (exact slug: link-building, never seo-link-building), HAF / sales boards refused however typed; "block ads|seo", "radar now" = Ads block; the old hourly batch no longer scheduled. (root causes found while building: the sales-board filter also refused the Link Building discussion board; the scheduler used new Date() instead of Date.now())
+45. [MECH] also (1.17.0): "They answered you" - a thread you replied in with a new post by someone else, one message, once per new post; "brief N" reads thread N of the last message and answers with asked / already said / missing (one Claude call); the traffic line closes every Radar message and the separate half-hour traffic message is off by default.
+46. Radar page Blocks tab: both default blocks listed with ids and minutes, unresolved SEO slugs say "id not found yet", edits save and survive a reload, a typed-in Hire a Freelancer board shows "refused", "Put the default blocks back" restores them; no console errors.
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format

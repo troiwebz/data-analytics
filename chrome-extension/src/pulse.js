@@ -223,3 +223,11 @@ export function halfHourReport(samples, tz, thr, now = Date.now()) {
   if (!thr?.ready) lines.push(`High / Medium / Low start after a day of readings: ${thr?.n || 0} so far.`);
   return lines.join('\n');
 }
+
+/** One line for the end of other messages (1.17): count now, level, today so far. */
+export function trafficLine(samples, tz, thr, now = Date.now()) {
+  const list = (samples || []).filter((s) => s.members != null); const latest = list[list.length - 1];
+  if (!latest) return '';
+  const st = statsOf(dayBars(samples, dateKey(now, tz), tz), 'members'); const l = labelOf(latest.members, thr);
+  return `📈 BHW now: ${fmtN(latest.members)} members${l ? ` · ${l}` : ''}${st.n ? ` · today avg ${fmtN(st.avg)} · peak ${fmtN(st.max.members)} at ${st.max.label}` : ''}`;
+}

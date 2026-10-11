@@ -63,6 +63,25 @@ function fillSettings() {
   $('words').innerHTML = Object.keys(GROUP_LABELS).map((k) => `<label class="f">${esc(GROUP_LABELS[k])}<textarea data-group="${k}">${esc((cfg.words[k] || []).join(', '))}</textarea></label>`).join('');
 }
 
+function fillBlocks() {
+  const blocks = S.blocks || [];
+  $('blocks').innerHTML = blocks.map((b, i) => `<div class="card" data-i="${i}" style="margin-bottom:10px">
+    <div class="grid"><label class="f">Block id<input type="text" class="b-id" value="${esc(b.id)}"></label><label class="f">Name<input type="text" class="b-name" value="${esc(b.name)}"></label>
+    <label class="f">Runs at minute (every hour)<input type="number" class="b-min" min="0" max="59" value="${Number(b.minute) || 0}"></label><label class="chk" style="margin-top:22px"><input type="checkbox" class="b-on" ${b.on !== false ? 'checked' : ''}> On</label></div>
+    <label class="f" style="margin-top:8px">Boards<textarea class="b-boards" style="min-height:90px">${esc(b.boards.map((x) => `${x.id || x.slug}: ${x.name}${x.filter ? ` [${x.filter}]` : ''}`).join('\n'))}</textarea></label>
+    <div class="sub" style="margin-top:4px">${b.boards.map((x) => `${esc(x.name)}: ${x.id ? (x.allowed ? `id ${x.id}` : 'refused') : 'id not found yet (read from BHW on the next run)'}`).join(' · ')}${b.lastRun ? ` · last run ${new Date(b.lastRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</div>
+    <div class="row"><button class="mini" data-run="${esc(b.id)}">Run now</button><button class="mini" data-del="${i}">Remove</button></div></div>`).join('') || '<div class="empty">No blocks.</div>';
+}
+function readBlocks() {
+  return [...document.querySelectorAll('#blocks .card')].map((c) => ({ id: c.querySelector('.b-id').value.trim(), name: c.querySelector('.b-name').value.trim(), minute: Number(c.querySelector('.b-min').value), on: c.querySelector('.b-on').checked,
+    boards: c.querySelector('.b-boards').value.split('\n').map((l) => l.match(/^\s*([a-z0-9-]+)\s*:\s*([^\[]+?)\s*(?:\[(niche|adwords|all)\])?\s*$/i)).filter(Boolean).map((m) => ({ ...(/^\d+$/.test(m[1]) ? { id: Number(m[1]) } : { slug: m[1].toLowerCase() }), name: m[2].trim(), ...(m[3] && m[3].toLowerCase() !== 'all' ? { filter: m[3].toLowerCase() } : {}) })) }));
+}
+document.addEventListener('click', async (e) => {
+  const run = e.target.closest('button[data-run]'); const del = e.target.closest('button[data-del]');
+  if (run) { run.disabled = true; run.textContent = 'Running…'; await send({ cmd: 'radar-run', send: true, block: run.dataset.run }); setTimeout(async () => { await load(); fillBlocks(); }, 90000); }
+  if (del) { const blocks = readBlocks(); blocks.splice(Number(del.dataset.del), 1); S.blocks = blocks; fillBlocks(); }
+});
+
 async function load({ settings = false } = {}) {
   const got = await send({ cmd: 'radar-status' }).catch(() => null);
   if (!got || !got.cfg) { $('msg').hidden = false; $('msg').textContent = 'Could not reach the extension. Reload this page.'; return; }
@@ -74,7 +93,8 @@ async function load({ settings = false } = {}) {
 for (const b of document.querySelectorAll('[role=tab]')) b.addEventListener('click', () => {
   tab = b.dataset.tab;
   for (const x of document.querySelectorAll('[role=tab]')) x.setAttribute('aria-selected', String(x === b));
-  for (const p of ['queue', 'replied', 'unmatched', 'settings']) $(`p-${p}`).hidden = p !== tab;
+  for (const p of ['queue', 'replied', 'unmatched', 'blocks', 'settings']) $(`p-${p}`).hidden = p !== tab;
+  if (tab === 'blocks') fillBlocks();
 });
 
 document.addEventListener('click', async (e) => {
@@ -117,6 +137,9 @@ $('save').addEventListener('click', async () => {
   $('saved').hidden = false; setTimeout(() => { $('saved').hidden = true; }, 2500);
 });
 $('reset').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { resetWords: true } }); render(); fillSettings(); });
+$('save-blocks').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { blocks: readBlocks() } }); fillBlocks(); $('saved-blocks').hidden = false; setTimeout(() => { $('saved-blocks').hidden = true; }, 2500); });
+$('add-block').addEventListener('click', () => { S.blocks = [...readBlocks(), { id: 'new', name: 'New block', minute: 45, on: false, boards: [] }]; fillBlocks(); });
+$('reset-blocks').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { resetBlocks: true } }); fillBlocks(); });
 
 load({ settings: true });
 setInterval(() => { if (tab !== 'settings') load(); }, 30000);

@@ -452,7 +452,7 @@ export function extractRadarSearch() {
 }
 
 /** Boards whose threads are never a public-reply target (buyers' boards, sales boards, housekeeping). */
-export const FORUM_DENY = /hire a freelancer|want to buy|marketplace|for sale|selling|renting|link building|seo - |packages|\bmisc\b|hosting|proxies|content \/|copywriting|ebooks|web design|programming|panels|freebies|giveaways|introductions|dispute|suggestions|news|lounge|journey/i;
+export const FORUM_DENY = /hire a freelancer|want to buy|marketplace|for sale|selling|renting|seo - |packages|\bmisc\b|hosting|proxies|content \/|copywriting|ebooks|web design|programming|panels|freebies|giveaways|introductions|dispute|suggestions|news|lounge|journey/i;
 /** Titles that are sales, not discussion. */
 export const SALES_TITLE = /\b(wts|for sale|selling|cheap|discount|% off|buy now|services?|lifetime deal|group buy|hiring|hire|dm me|pm me)\b|\$\s?\d|⭐|✅|⚡|❌|⏩/i;
 
@@ -539,6 +539,8 @@ export const RADAR_HELP = [
   '<b>next casino 5</b> - up to 5 clusters',
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
+  '<b>brief 3</b> - Claude\'s asked / already said / missing for thread 3 of the last message (about a cent)',
+  '<b>block ads</b> / <b>block seo</b> - run a block right now (they run on their own every hour: Ads at :00, SEO at :30)',
   '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 15 minutes on its own) · <b>new threads off</b> / <b>on</b>',
   '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
   '<b>radar count 4</b> - correct today\'s number of public replies',
@@ -657,5 +659,112 @@ export function formatNewThreads(items, { now = Date.now(), count = 0, target = 
     lines.push(`<b>${i + 1}. <a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
   });
   lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(items, { families }));
+  return lines.join('\n').slice(0, 3900);
+}
+
+// ------------------------------------------------- 1.17: blocks (page 1 of a set of boards, on a schedule)
+
+/** Boards by id where known; by slug where the id is read once from BHW's forum list. */
+export const DEFAULT_BLOCKS = [
+  { id: 'ads', name: 'Ads block', minute: 0, on: true, boards: [
+    { id: 219, name: 'Facebook (PPC)' }, { id: 83, name: 'Google Ads' }, { id: 125, name: 'General PPC' }, { id: 85, name: 'Other PPC' },
+    { id: 175, name: 'Media Buying' }, { id: 2, name: 'Cloaking' }, { id: 50, name: 'CPA' }, { id: 193, name: 'CPA networks' },
+    { id: 279, name: 'TikTok', filter: 'adwords' }, { id: 218, name: 'CryptoCurrency', filter: 'niche' }] },
+  { id: 'seo', name: 'SEO block', minute: 30, on: true, boards: [
+    { id: 28, name: 'Black Hat SEO' }, { slug: 'white-hat-seo', name: 'White Hat SEO' }, { slug: 'link-building', name: 'Link Building' },
+    { slug: 'local-seo', name: 'Local SEO' }, { slug: 'blogging', name: 'Blogging' }] }
+];
+export const BLOCK_MIN = 5, BLOCK_MAX = 8;
+const AD_WORDS = /\b(ads?|advertis\w*|campaigns?|ppc|spark|pixel|ad ?accounts?|agency|cpc|cpm|roas)\b/i;
+
+/** BHW's forum list: every board name with its id. Runs inside the page: no closure, data only. */
+export function extractForumList() {
+  const out = [];
+  for (const a of document.querySelectorAll('a[href*="/forums/"]')) {
+    const m = String(a.getAttribute('href') || '').match(/\/forums\/([a-z0-9-]+)\.(\d+)\/?$/i);
+    if (m) out.push({ slug: m[1], id: m[2], name: (a.textContent || '').trim() });
+  }
+  return { boards: out, loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true' };
+}
+
+/** A block's boards with ids filled in from the forum list; a slug not found stays unresolved (and is skipped). */
+export function resolveBoards(boards, list) {
+  const bySlug = new Map((list || []).map((b) => [b.slug, b]));
+  return (boards || []).map((b) => (b.id ? b : { ...b, id: bySlug.get(b.slug)?.id || null, name: b.name || bySlug.get(b.slug)?.name || b.slug }));
+}
+export const boardUrl = (b) => `https://www.blackhatworld.com/forums/${b.id}/`;
+/** Never a board Radar may read, however a block is edited. */
+const SLUG_DENY = /^(hire-a-freelancer|want-to-buy|marketplace.*|seo-link-building|seo-packages|.*-for-sale|.*selling.*|.*renting.*|introductions|.*lounge.*|.*journey.*|dispute-resolution)$/i;
+export const boardAllowed = (b) => !!b.id && String(b.id) !== '76' && !SLUG_DENY.test(String(b.slug || '')) && !FORUM_DENY.test(String(b.name || ''));
+
+/**
+ * One block's reading -> what goes in its message. `pages` = [{ board, rows }].
+ * New (never sent) first, then threads sent before that have a new reply since,
+ * then quiet top-ups until at least BLOCK_MIN. HOT = 0 replies. Never a thread
+ * replied, hidden, sticky, locked, yours, sales, muted, or off page 1.
+ */
+export function pickBlock(pages, state, rx, { now = Date.now(), muted = [], min = BLOCK_MIN, max = BLOCK_MAX } = {}) {
+  const fresh = [], again = [], spare = [], back = [];
+  const seenAct = state.seenActivity || {};
+  for (const p of pages || []) {
+    const board = p.board;
+    for (const r of p.rows || []) {
+      if (!r || !r.threadId || !r.title || r.sticky || r.locked) continue;
+      const id = String(r.threadId);
+      if (SALES_TITLE.test(r.title) || isMuted(r.title, muted)) continue;
+      if (state.replied?.[id]) {
+        // Your thread got a new post by someone else since you replied: that is a "they answered you".
+        if (!r.lastMine && ms(r.lastActivityAt) > (state.replied[id].at || 0) && ms(r.lastActivityAt) > (state.backSent?.[id] || 0)) back.push({ threadId: id, url: r.url, title: r.title, section: board.name, lastPoster: r.lastPoster, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0 });
+        continue;
+      }
+      if (r.mine || state.hidden?.[id]) continue;
+      const filter = board.filter || 'all';
+      const nicheHit = classify(r.title, { ad: false }, rx) === 'strict' || (!!rx.cryptoLoose && rx.cryptoLoose.test(r.title) && AD_WORDS.test(r.title));
+      if (filter === 'niche' && !nicheHit) continue;
+      if (filter === 'adwords' && !AD_WORDS.test(r.title) && !nicheHit) continue;
+      const rep = Number(r.replyCount) || 0;
+      const item = { threadId: id, url: r.url, title: r.title, section: board.name, author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: rep, hot: rep === 0, early: rep > 0 && rep <= 2, match: classify(r.title, { ad: true }, rx) || 'board', tier: 'P' };
+      if (!state.sent?.[id]) { if (rep <= 5 || ms(r.startedAt) > now - 48 * 3600000) fresh.push(item); else spare.push(item); }
+      else if (ms(r.lastActivityAt) > (seenAct[id] || state.sent[id] || 0) && !r.lastMine) again.push({ ...item, newReply: true });
+    }
+  }
+  const byNew = (a, b) => (a.hot === b.hot ? ms(b.lastActivityAt) - ms(a.lastActivityAt) : a.hot ? -1 : 1);
+  fresh.sort(byNew); again.sort((a, b) => ms(b.lastActivityAt) - ms(a.lastActivityAt)); spare.sort((a, b) => a.replyCount - b.replyCount || ms(b.lastActivityAt) - ms(a.lastActivityAt));
+  let items = [...fresh, ...again];
+  if (items.length < min) items = [...items, ...spare.slice(0, min - items.length)];
+  return { items: items.slice(0, max), back };
+}
+
+/** The block message: HOT first inside each board, boards with nothing on one line. */
+export function formatBlock(name, items, boardNames, { now = Date.now(), count = 0, target = 10, traffic = '', families = {} } = {}) {
+  const d = new Date(now);
+  const lines = [`📋 <b>${h(name)}</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${boardNames.length} boards · ${items.length} thread${items.length === 1 ? '' : 's'}`, ''];
+  let n = 0; const quiet = [];
+  for (const board of boardNames) {
+    const here = items.filter((q) => q.section === board);
+    if (!here.length) { quiet.push(board); continue; }
+    lines.push(`<b>${h(board)}</b>`);
+    for (const q of here) {
+      n++;
+      const rep = Number(q.replyCount) || 0;
+      const tag = q.hot ? '🔥 HOT · ' : q.early ? '⚡ early · ' : '';
+      const when = q.hot ? 'first reply open' : q.newReply ? `new reply ${last(q.lastActivityAt, now)}` : `last reply ${last(q.lastActivityAt, now)}`;
+      lines.push(`${n}. ${tag}<a href="${h(q.url)}">${h(q.title)}</a>`, `   ${rep} repl${rep === 1 ? 'y' : 'ies'} · ${when} · started ${ago(q.startedAt, now)}`);
+    }
+    lines.push('');
+  }
+  if (quiet.length) lines.push(`${quiet.map(h).join(' · ')}: nothing new`, '');
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`);
+  if (traffic) lines.push(traffic);
+  lines.push(keywordIdeas(items, { families }).split('\n').pop().replace('new threads · ', 'brief 3 · new threads · '));
+  return lines.join('\n').slice(0, 3900);
+}
+/** Items in message order (the same order formatBlock numbers them). */
+export const blockOrder = (items, boardNames) => boardNames.flatMap((b) => items.filter((q) => q.section === b));
+
+/** "They answered you": one message, one line per thread. */
+export function formatAnswered(back, { now = Date.now() } = {}) {
+  const lines = ['📬 <b>They answered you</b>', ''];
+  back.forEach((b, i) => lines.push(`${i + 1}. <a href="${h(b.url)}">${h(b.title)}</a>`, `   ${h(b.lastPoster || 'someone')} posted ${last(b.lastActivityAt, now)} · ${b.replyCount} replies · ${h(b.section)}`));
   return lines.join('\n').slice(0, 3900);
 }

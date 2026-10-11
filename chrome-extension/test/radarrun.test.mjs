@@ -55,6 +55,7 @@ globalThis.chrome = {
       };
       return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
     }
+    if (func.name === 'extractForumList') return [{ result: { boards: [{ slug: 'white-hat-seo', id: '29', name: 'White Hat SEO' }, { slug: 'link-building', id: '48', name: 'Link Building' }, { slug: 'seo-link-building', id: '301', name: 'SEO - Link building' }, { slug: 'local-seo', id: '52', name: 'Local SEO' }, { slug: 'blogging', id: '16', name: 'Blogging' }], loggedIn: true } }];
     if (func.name === 'extractRadarListing' && /whats-new/.test(url)) {
       if (/whats-new\/threads/.test(url) && globalThis.__noThreadsPage) return [{ result: { rows: [], me: 'bargainbed', loggedIn: true } }];
       return [{ result: { rows: globalThis.__newRows || [], me: 'bargainbed', loggedIn: true } }];
@@ -285,6 +286,60 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   ok('"new threads on" switches it back', bags.local.radarCfg.newWatch === true);
   out = await say('new threads');
   ok('"new threads" alone checks right now and says when there is nothing new', /Nothing new since the last check/.test(out), out);
+}
+
+// --- 1.17: blocks, they answered you, brief N, the traffic line ----------------------------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; claude = []; opened.length = 0;
+  bags.local.pulseSamples = [{ ts: Date.now() - 60000, members: 1820, guests: 9100, total: 10920 }];
+  listings[28] = [R(8001, 'Is PBN still working in 2026?', { start: 5, last: 1, rep: 0 }), R(8002, 'Expired domain checklist', { start: 300, last: 2, rep: 4 })];
+  listings[29] = [R(8003, 'Core update recovery stories', { start: 30, last: 3, rep: 12 })];
+  listings[219] = [...listings[219], { ...R(8004, 'I replied here and the buyer came back', { start: 50, last: 0.5, rep: 7 }), lastPoster: 'buyerx' }];
+  bags.local.radar = { replied: { 8004: { at: Date.now() - 3 * 3600000, title: 'I replied here and the buyer came back', url: 'https://www.blackhatworld.com/seo/t.8004/', section: 'Facebook (PPC)' } }, counted: { 8004: new Date().toLocaleDateString('en-CA') } };
+  let r = await bg.runBlock('ads', { force: true, fast: true });
+  let msgs = tg.filter((m) => m.method === 'sendMessage');
+  const blockMsg = msgs.find((m) => /📋 <b>Ads block<\/b>/.test(m.text));
+  ok('the Ads block reads page 1 of its boards and sends one message split by board', r.ok && r.sent >= 3 && blockMsg && /10 boards/.test(blockMsg.text) && /<b>Facebook \(PPC\)<\/b>/.test(blockMsg.text) && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 10, { r, t: blockMsg?.text?.slice(0, 300) });
+  ok('HOT tag on the 0-reply thread, titles are links, no raw URL', /🔥 HOT · <a href="[^"]+">Best virtual credit cards/.test(blockMsg.text) && !/^https:\/\//m.test(blockMsg.text), blockMsg.text);
+  ok('the traffic line closes the message, and brief is in the code words', /📈 BHW now: 1,820 members/.test(blockMsg.text) && /brief 3/.test(blockMsg.text.split('\n').pop()), blockMsg.text.split('\n').slice(-3));
+  ok('a thread you replied in that got a new post comes as a separate "They answered you" message', r.back >= 1 && msgs.some((m) => /📬 <b>They answered you<\/b>/.test(m.text) && /buyerx posted/.test(m.text)), msgs.map((m) => m.text.slice(0, 40)));
+  ok('buttons per thread in message order', blockMsg.reply_markup.inline_keyboard.length === r.sent * 2);
+  const ids1 = bags.local.radar.cards[String(bags.local.radar.lastMessageId)].ids;
+  tg = []; r = await bg.runBlock('ads', { force: true, fast: true });
+  ok('run again with the same pages: nothing repeats, no message', r.sent === 0 && !tg.some((m) => /📋/.test(m.text || '')), r);
+  listings[219][1] = { ...listings[219][1], lastActivityAt: new Date().toISOString(), lastPoster: 'someone', replyCount: 1 };
+  tg = []; r = await bg.runBlock('ads', { force: true, fast: true });
+  ok('a shown thread with a new reply since comes back once, marked "new reply"', r.sent === 1 && /new reply/.test(tg.find((m) => /📋/.test(m.text)).text), tg[0]?.text);
+  tg = []; opened.length = 0; r = await bg.runBlock('seo', { force: true, fast: true });
+  const seoMsg = tg.find((m) => /📋 <b>SEO block<\/b>/.test(m.text || ''));
+  ok('the SEO block resolves its slugs from BHW\'s forum list once, then reads those boards', r.ok && opened[0] === 'https://www.blackhatworld.com/forums/' && opened.includes('https://www.blackhatworld.com/forums/29/') && opened.includes('https://www.blackhatworld.com/forums/48/') && !opened.includes('https://www.blackhatworld.com/forums/301/') && bags.local.radarCfg.forumList.length === 5 && opened.includes('https://www.blackhatworld.com/forums/16/'), opened);
+  ok('and sends its own message with the PBN thread HOT', seoMsg && /🔥 HOT · <a href="[^"]+">Is PBN still working/.test(seoMsg.text) && /5 boards/.test(seoMsg.text), seoMsg?.text?.slice(0, 200));
+  tg = []; opened.length = 0; r = await bg.runBlock('seo', { force: true, fast: true });
+  ok('the forum list is not read again', !opened.includes('https://www.blackhatworld.com/forums/'));
+  // brief N on the last message
+  const lastIds = bags.local.radar.cards[String(bags.local.radar.lastMessageId)]?.ids || ids1;
+  tg = []; claude = [];
+  let out = await say('brief 1');
+  ok('"brief 1" reads that thread, asks Claude once and answers with asked / already said / missing and an Open button', claude.length === 1 && /📝 <b>/.test(out) && /Asked: /.test(out) && /Already said: /.test(out) && tg.some((m) => m.reply_markup && m.reply_markup.inline_keyboard[0][0].url), out.slice(0, 200));
+  out = await say('brief 9');
+  ok('a number past the message says so', /No thread 9 in the last message/.test(out));
+  // the schedule: blocks run once an hour from their minute; the old hourly batch is no longer scheduled
+  bags.local.radar.blockRuns = {}; tg = []; opened.length = 0;
+  const realNow = Date.now; const at = (min) => { const d = new Date(); d.setMinutes(min, 0, 0); return d.getTime(); };
+  Date.now = () => at(2);
+  await bg.__blocksTickForTest(); await new Promise((r) => setTimeout(r, 300));
+  ok('at :02 the Ads block starts (its minute is :00) and the SEO block waits for :30', (bags.local.radar.blockRuns || {}).ads && !(bags.local.radar.blockRuns || {}).seo);
+  await bg.__blocksTickForTest(); await new Promise((r) => setTimeout(r, 200));
+  ok('a second tick in the same hour does not run it again', Math.floor(((bags.local.radar.blockRuns || {}).ads || 0) / 3600000) === Math.floor(Date.now() / 3600000) && !(bags.local.radar.blockRuns || {}).seo && opened.filter((u) => /forums\/219\//.test(u)).length === 1, opened.length);
+  Date.now = () => at(31);
+  await bg.__blocksTickForTest(); await new Promise((r) => setTimeout(r, 300));
+  ok('at :31 the SEO block runs', !!(bags.local.radar.blockRuns || {}).seo);
+  Date.now = realNow;
+  out = await say('block ads');
+  ok('"block ads" runs it now (or says nothing new)', /Nothing new in that block|📋/.test(out) || tg.some((m) => /📋/.test(m.text || '')), out.slice(0, 80));
+  out = await say('radar now');
+  ok('"radar now" runs the Ads block, not the old batch', /Ads block/.test(out) || tg.some((m) => /📋 <b>Ads block/.test(m.text || '')), out.slice(0, 80));
+  delete listings[28]; delete listings[29]; listings[219].pop();
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

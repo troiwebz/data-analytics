@@ -37,7 +37,8 @@ import { ownership, takeOver, describe as describeOwner, loginProblem } from './
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
-  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads } from './radar.js';
+  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads,
+  DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered } from './radar.js';
 import * as pulse from './pulse.js';
 import { zoneOf } from './timefmt.js';
 
@@ -508,7 +509,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
-      await radarTick().catch((e) => log(`Reply Radar: ${e.message}`, 'error'));
+      await blocksTick().catch((e) => log(`Reply Radar blocks: ${e.message}`, 'error'));
       await radarNewTick().catch((e) => log(`Reply Radar new threads: ${e.message}`, 'error'));
       await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
     }
@@ -1743,7 +1744,11 @@ const PULSE_META = 'pulseMeta';
 
 async function getPulse() {
   const o = await chrome.storage.local.get([PULSE_KEY, PULSE_CFG, PULSE_META]);
-  return { samples: o[PULSE_KEY] || [], cfg: { on: true, dailyAt: 9, halfHour: true, ...(o[PULSE_CFG] || {}) }, meta: o[PULSE_META] || {} };
+  return { samples: o[PULSE_KEY] || [], cfg: { on: true, dailyAt: 9, halfHour: false, ...(o[PULSE_CFG] || {}) }, meta: o[PULSE_META] || {} };
+}
+/** The line that closes Radar's messages (1.17): the latest reading and today so far. */
+async function trafficLineNow() {
+  try { const { samples } = await getPulse(); const cfg = await getConfig(); return pulse.trafficLine(samples, zoneOf(cfg), pulse.thresholds(samples)); } catch { return ''; }
 }
 const setPulseMeta = async (patch) => { const { meta } = await getPulse(); await chrome.storage.local.set({ [PULSE_META]: { ...meta, ...patch } }); };
 
@@ -1779,8 +1784,8 @@ async function pulseTick() {
   const tz = zoneOf(cfg);
   const { samples, meta } = await getPulse();
   const p = pulse.partsOf(Date.now(), tz);
-  // After every reading: the count now and the whole day so far (1.15.1). "online quiet" turns this off.
-  if (read.ok && pc.halfHour !== false) await telegram.say(cfg.telegramChatId, pulse.halfHourReport(samples, tz, pulse.thresholds(samples)), { html: true });
+  // The count now and the whole day so far after every reading - off by default since 1.17 (it rides on Radar's messages instead); "online every" turns it on.
+  if (read.ok && pc.halfHour === true) await telegram.say(cfg.telegramChatId, pulse.halfHourReport(samples, tz, pulse.thresholds(samples)), { html: true });
   if (p.hour >= (Number(pc.dailyAt) || 9) && meta.dailySent !== p.date && samples.length) {
     const thr = pulse.thresholds(samples);
     await telegram.say(cfg.telegramChatId, pulse.dailyReport(samples, pulse.shiftDate(p.date, -1), tz, thr), { html: true });
@@ -1855,7 +1860,8 @@ async function saveRadar(mem) {
 /** For the Radar page: settings, the queue and today's number. */
 async function radarStatus() {
   const [cfg, st] = [await getRadarCfg(), await getRadar()];
-  return { cfg, state: st, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS }, sections: RADAR_SECTIONS.map((x) => x.name),
+  const blocks = (Array.isArray(cfg.blocks) && cfg.blocks.length ? cfg.blocks : DEFAULT_BLOCKS).map((b) => ({ ...b, boards: resolveBoards(b.boards, cfg.forumList || []).map((x) => ({ ...x, allowed: boardAllowed(x) })), lastRun: (st.blockRuns || {})[b.id] || 0 }));
+  return { cfg, state: st, blocks, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS, blocks: DEFAULT_BLOCKS }, sections: RADAR_SECTIONS.map((x) => x.name),
     nextAt: st.lastBatch?.at ? st.lastBatch.at + cfg.everyMinutes * 60000 : 0, wallUntil: await walled() };
 }
 
@@ -1902,6 +1908,127 @@ export async function radarNewTick({ force = false } = {}) {
     return { error: e.message };
   }
 }
+
+// ------------------------------------------------- 1.17: blocks on a schedule, "brief N"
+async function blocksCfg() {
+  const rc = await getRadarCfg();
+  const blocks = Array.isArray(rc.blocks) && rc.blocks.length ? rc.blocks : DEFAULT_BLOCKS;
+  return { rc, blocks };
+}
+
+/** Board ids for slugs, read once from BHW's forum list and kept. */
+async function resolvedBoards(block, rc) {
+  let boards = resolveBoards(block.boards, rc.forumList || []);
+  if (boards.some((b) => !b.id)) {
+    try {
+      const got = await readInTab('https://www.blackhatworld.com/forums/', extractForumList);
+      if (got.boards && got.boards.length) { await setRadarCfg({ forumList: got.boards.slice(0, 400) }); boards = resolveBoards(block.boards, got.boards); }
+    } catch (e) { if (/blocked/i.test(e.message)) throw e; }
+  }
+  return boards.filter(boardAllowed);
+}
+
+/** One block: page 1 of each of its boards, one message, plus "they answered you" when it applies. */
+export async function runBlock(blockId, { force = false, fast = false } = {}) {
+  const { rc, blocks } = await blocksCfg();
+  const block = blocks.find((b) => b.id === blockId);
+  if (!block) return { error: `no block "${blockId}"` };
+  if (!block.on && !force) return { skipped: 'off' };
+  let st = await getRadar();
+  if (st.blockRunning && Date.now() - st.blockRunning < 10 * 60000) return { skipped: 'busy' };
+  if (await walled()) return { skipped: 'wall' };
+  await setRadar({ ...st, blockRunning: Date.now() });
+  const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
+  const tabOpts = fast ? { settleMs: 0 } : {};
+  try {
+    const boards = await resolvedBoards(block, rc);
+    const pages = [];
+    for (const board of boards) {
+      const page = await readInTab(boardUrl(board), extractRadarListing, tabOpts);
+      if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+      pages.push({ board, rows: page.rows || [] });
+      await gap();
+    }
+    st = await getRadar();
+    const { items, back } = pickBlock(pages, st, compileWords(rc.words), { muted: rc.muted });
+    const cfg = await getConfig();
+    const canSend = cfg.telegramChatId && (await telegram.hasToken());
+    const names = boards.map((b) => b.name);
+    const ordered = blockOrder(items, names);
+    let sent = 0;
+    if (ordered.length && canSend) {
+      const mid = await telegram.sendCard(cfg.telegramChatId, formatBlock(block.name, items, names, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), families: rc.families }), batchKeyboard(ordered));
+      const cards = { ...(st.cards || {}) };
+      if (mid) cards[String(mid)] = { kind: 'batch', ids: ordered.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(ordered.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
+      const queue = { ...st.queue }; const seenActivity = { ...(st.seenActivity || {}) };
+      for (const q of ordered) { if (!queue[q.threadId]) queue[q.threadId] = { ...q, views: null, shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() }; seenActivity[q.threadId] = ms(q.lastActivityAt); }
+      st = { ...markSent({ ...st, queue, seenActivity: Object.fromEntries(Object.entries(seenActivity).slice(-2000)), lastMessageId: mid }, ordered.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) };
+      sent = ordered.length;
+    }
+    if (back.length && canSend) {
+      await telegram.sendCard(cfg.telegramChatId, formatAnswered(back), batchKeyboard(back.map((b) => ({ threadId: b.threadId, url: b.url })), Object.fromEntries(back.map((b) => [b.threadId, 'replied']))));
+      const backSent = { ...(st.backSent || {}) }; for (const b of back) backSent[b.threadId] = ms(b.lastActivityAt);
+      st = { ...st, backSent };
+    }
+    await saveRadar({ ...st, blockRunning: 0, blockRuns: { ...(st.blockRuns || {}), [block.id]: Date.now() } });
+    await log(`Reply Radar ${block.name}: ${boards.length} boards, ${pages.reduce((n, p) => n + p.rows.length, 0)} threads on page 1, ${sent} in the message${back.length ? `, ${back.length} answered you` : ''}`);
+    return { ok: true, sent, back: back.length, boards: boards.length };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message);
+    await log(`Reply Radar ${block.name}: ${e.message}`, 'error');
+    return { error: e.message };
+  } finally { const cur = await getRadar(); if (cur.blockRunning) await setRadar({ ...cur, blockRunning: 0 }); }
+}
+const ms = (iso) => { const n = new Date(iso || 0).getTime(); return isFinite(n) ? n : 0; };
+
+/** Tests only. */
+let fastRuns = false;
+export const __blocksTickForTest = (fast = true) => { fastRuns = fast; return blocksTick(); };
+
+/** The minute tick: each block runs once an hour, from its minute on. */
+async function blocksTick() {
+  const { rc, blocks } = await blocksCfg();
+  if (!rc.on) return;
+  const st = await getRadar();
+  const now = new Date(Date.now()); const hourKey = Math.floor(now.getTime() / 3600000);
+  for (const b of blocks) {
+    if (!b.on) continue;
+    if (now.getMinutes() < (Number(b.minute) || 0)) continue;
+    const lastRun = (st.blockRuns || {})[b.id] || 0;
+    if (Math.floor(lastRun / 3600000) === hourKey) continue;
+    await setRadar({ ...st, blockRuns: { ...(st.blockRuns || {}), [b.id]: Date.now() } });   // claimed for this hour before the read starts
+    alive(() => runBlock(b.id, { fast: fastRuns })).catch(() => {});
+    return;                                              // one block per tick; the next one gets the next minute
+  }
+}
+
+/** "brief 3": Claude's asked / already said / missing for thread 3 of the last message. */
+async function briefCommand(n, cfg) {
+  const st = await getRadar(); const rc = await getRadarCfg();
+  const card = st.cards?.[String(st.lastMessageId)];
+  const id = card?.ids?.[n - 1];
+  if (!id) { await telegram.say(cfg.telegramChatId, `No thread ${n} in the last message.`); return; }
+  const q = card.items?.[id] || st.queue[id] || { threadId: id, url: st.replied[id]?.url, title: st.replied[id]?.title || '' };
+  if (!q.url) { await telegram.say(cfg.telegramChatId, `Thread ${n} has no link saved.`); return; }
+  if (await walled()) { await telegram.say(cfg.telegramChatId, 'BHW showed a wall recently; try again in a while.'); return; }
+  try {
+    const first = await readInTab(q.url, extractThread);
+    let replies = first.replies || [];
+    const pagesIn = Math.ceil(((Number(q.replyCount) || 0) + 1) / 20);
+    if (pagesIn > 1) { const lastPage = await readInTab(`${q.url}page-${pagesIn}`, extractThread); replies = [...replies.slice(0, 4), { author: lastPage.firstAuthor, text: lastPage.body }, ...(lastPage.replies || [])]; }
+    const a = await askClaude(BRIEF_SYSTEM, briefPrompt([{ threadId: id, title: q.title, starter: first.starter || first.firstAuthor, author: q.author, body: first.body, replies }]), { maxTokens: 4000, timeoutMs: 90000 });
+    const b = parseBriefs(a.text)[String(id)];
+    if (!b) { await telegram.say(cfg.telegramChatId, 'Claude did not return a summary for it. Try once more.'); return; }
+    const lines = [`📝 <b>${h(q.title)}</b>`, ''];
+    if (b.asked) lines.push(`Asked: ${h(b.asked)}`);
+    if (b.said && b.said.length) lines.push(`Already said: ${b.said.map((x) => `${h(x.point)} (${x.n})`).join('; ')}`); else lines.push('Already said: nothing yet');
+    if (b.back) lines.push(`Starter asked again: ${h(b.back)}`);
+    if (b.gap) lines.push(`Missing: ${h(b.gap)}`);
+    await telegram.sendCard(cfg.telegramChatId, lines.join('\n'), batchKeyboard([{ threadId: id, url: q.url }]));
+    await log(`Reply Radar brief for "${q.title}" ($${Number(a.cost || 0).toFixed(3)})`);
+  } catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); await telegram.say(cfg.telegramChatId, `Could not make the brief: ${e.message}`); }
+}
+const h = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** The minute tick: is a batch due? Never blocks the tick - the run is its own job. */
 async function radarTick() {
@@ -2139,6 +2266,8 @@ async function radarCommand(body, cfg) {
     await telegram.say(cfg.telegramChatId, muted.length ? `🔇 Muted words: ${muted.join(', ')}` : '🔇 No muted words.');
     return true;
   }
+  if ((x = text.match(/^\/?brief\s+(\d{1,2})\s*[.!]?$/i))) { await briefCommand(Number(x[1]), cfg); return true; }
+  if ((x = text.match(/^\/?block\s+([a-z0-9-]+)\s*[.!]?$/i))) { const r = await runBlock(x[1].toLowerCase(), { force: true }); if (!r.sent) await telegram.say(cfg.telegramChatId, r.error ? `📋 ${r.error}` : r.skipped === 'wall' ? '📋 BHW showed a wall recently; reading is paused for a while.' : r.skipped === 'busy' ? '📋 A block is already running.' : '📋 Nothing new in that block right now.'); return true; }
   if ((x = text.match(/^\/?new\s*threads?\s*(on|off|now)?\s*[.!]?$/i))) {
     const verb = (x[1] || 'now').toLowerCase();
     if (verb === 'on' || verb === 'off') { await setRadarCfg({ newWatch: verb === 'on' }); await telegram.say(cfg.telegramChatId, verb === 'on' ? '🆕 New-thread watch is ON: every 15 minutes, only threads never shown before.' : '🆕 New-thread watch is OFF. Send "new threads on" to start it again.'); return true; }
@@ -2164,8 +2293,8 @@ async function radarCommand(body, cfg) {
     return true;
   }
   if (verb === 'now') {
-    const r = await runRadar();
-    if (r.skipped || r.error || !r.sent) await telegram.say(cfg.telegramChatId, `📡 ${r.error ? `Could not run: ${r.error}` : r.skipped === 'busy' ? 'A sweep is already running.' : r.skipped === 'wall' ? 'BHW showed a wall recently; reading is paused for a while.' : 'Nothing new to send right now.'}`);
+    const r = await runBlock('ads', { force: true });
+    if (r.skipped || r.error || !r.sent) await telegram.say(cfg.telegramChatId, `📡 ${r.error ? `Could not run: ${r.error}` : r.skipped === 'busy' ? 'A block is already running.' : r.skipped === 'wall' ? 'BHW showed a wall recently; reading is paused for a while.' : 'Nothing new in the Ads block right now.'}`);
     return true;
   }
   const st = await getRadar();
@@ -5012,7 +5141,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
-      case 'radar-run':     alive(() => runRadar({ send: !!msg.send })).catch(() => {}); sendResponse({ started: true }); break;
+      case 'radar-run':     alive(() => (msg.send ? runBlock(msg.block || 'ads', { force: true }) : runRadar({ send: false }))).catch(() => {}); sendResponse({ started: true }); break;
       case 'radar-save': {                           // the Radar page's settings: its own key, HAF settings untouched
         const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
         const p = msg.patch || {}, next = { ...c };
@@ -5027,6 +5156,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (p.words && typeof p.words === 'object') next.words = Object.fromEntries(Object.keys(RADAR_WORDS).filter((k) => Array.isArray(p.words[k])).map((k) => [k, p.words[k].map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 80)]));
         if (Array.isArray(p.muted)) next.muted = p.muted.map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 200);
         if (p.families && typeof p.families === 'object') next.families = Object.fromEntries(Object.entries(p.families).filter(([k, v]) => k && Array.isArray(v)).map(([k, v]) => [String(k).toLowerCase().trim(), v.map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 20)]));
+        if (Array.isArray(p.blocks)) next.blocks = p.blocks.filter((b) => b && b.id && Array.isArray(b.boards)).map((b) => ({ id: String(b.id).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20), name: String(b.name || b.id).slice(0, 40), minute: Math.min(59, Math.max(0, Number(b.minute) || 0)), on: b.on !== false, boards: b.boards.filter((x) => x && (x.id || x.slug)).map((x) => ({ ...(x.id ? { id: Number(x.id) } : { slug: String(x.slug).toLowerCase() }), name: String(x.name || x.slug || x.id).slice(0, 40), ...(x.filter ? { filter: String(x.filter) } : {}) })).slice(0, 15) })).slice(0, 8);
+        if (p.resetBlocks) delete next.blocks;
         if (p.resetWords) delete next.words;
         await chrome.storage.local.set({ [RADAR_CFG]: next });
         sendResponse(await radarStatus());

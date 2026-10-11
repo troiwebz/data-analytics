@@ -39,7 +39,7 @@
   .empty{padding:18px;text-align:center;color:var(--mute)}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
   label.f{display:grid;gap:5px;font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
-  input[type=number],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;background:#fff;color:var(--ink)}
+  input[type=text],input[type=number],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;background:#fff;color:var(--ink)}
   textarea{min-height:58px;resize:vertical}
   .chk{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:10px}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
@@ -50,12 +50,12 @@
   <h1>📡 Reply Radar</h1>
   <span class="sp"></span>
   <button id="toggle" class="off">Radar is OFF</button>
-  <button id="send" class="pri" title="Read the sections now and send the next 3 cards to Telegram">Send a batch now</button>
+  <button id="send" class="pri" title="Run the Ads block now: page 1 of its boards, one message to Telegram">Run Ads block now</button>
   <button id="refresh" title="Read the sections now and update this page. Nothing is sent to Telegram.">Check BHW now</button>
   <button id="back">← HAF dashboard</button>
 </header>
 <div class="w">
-  <div class="how">Every hour Radar reads 8 ad sections on BHW and sends you the <b>3 best threads to reply to</b> on Telegram. Send <b>next casino</b> (any keyword) on Telegram for a live search of the whole forum, grouped into clusters. Nothing is ever sent twice. You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
+  <div class="how">Every hour each <b>block</b> reads page 1 of its boards (Ads at :00, SEO at :30) and sends one Telegram message: new threads (🔥 HOT when nobody has replied), threads with a new reply, and quiet top-ups to at least 5. Every 15 minutes the What's new page is checked for brand-new threads. Nothing is ever sent twice. Send <b>brief 3</b> for Claude's summary of a thread, <b>next casino</b> for a live search. You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
   <div id="msg" class="errmsg" hidden></div>
   <div class="tiles">
     <div class="tile" id="t-today"><div class="k">Public replies today</div><div class="v" id="today">–</div><div class="s"><button class="mini" id="minus">−</button> <button class="mini" id="plus">+</button> correct the number</div></div>
@@ -68,11 +68,17 @@
       <button role="tab" data-tab="queue" aria-selected="true">Waiting</button>
       <button role="tab" data-tab="replied" aria-selected="false">Replied</button>
       <button role="tab" data-tab="unmatched" aria-selected="false">Not matched</button>
+      <button role="tab" data-tab="blocks" aria-selected="false">Blocks</button>
       <button role="tab" data-tab="settings" aria-selected="false">Settings and words</button>
     </div>
     <div id="p-queue"></div>
     <div id="p-replied" hidden></div>
     <div id="p-unmatched" hidden></div>
+    <div id="p-blocks" hidden>
+      <div class="sub" style="margin-bottom:8px">A block reads page 1 of its boards once an hour, from its minute on, and sends one Telegram message with what is new. One line per board: <b>id or slug: name [filter]</b>. Filters: <b>niche</b> (niche words only), <b>adwords</b> (ad words only). Hire a Freelancer and Marketplace boards are refused.</div>
+      <div id="blocks"></div>
+      <div class="row"><button class="pri" id="save-blocks">Save blocks</button><button id="add-block">Add a block</button><button id="reset-blocks">Put the default blocks back</button><span id="saved-blocks" class="okmsg" hidden>Saved</span></div>
+    </div>
     <div id="p-settings" hidden>
       <div class="grid">
         <label class="f">Minutes between batches<input type="number" id="s-every" min="30" max="720"></label>
