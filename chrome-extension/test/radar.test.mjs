@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -170,6 +170,32 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   globalThis.document = wall.window.document; globalThis.location = wall.window.location;
   ok('a Cloudflare wall is reported, not read as an empty section', /blocked/.test(extractRadarListing().blocked || ''));
   delete globalThis.document; delete globalThis.location;
+}
+
+// --- 1.16: new threads from BHW's "what's new" page ------------------------------------------------
+{
+  const N = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/t.${id}/`, title, author: 'starter', lastPoster: 'starter', forum: o.forum || 'Google Ads', forumNode: String(o.node ?? 83),
+    startedAt: hAgo(o.start ?? 1), lastActivityAt: hAgo(o.last ?? 1), replyCount: o.rep ?? 0, views: 10, sticky: !!o.sticky, locked: false, mine: !!o.mine, lastMine: false });
+  const rows = [
+    N(1, 'How to lower high CPC on Google Ads?'),                                              // in a Radar section, no niche word: new, 0 replies -> yes
+    N(2, 'Casino SEO in 2026, what works?', { forum: 'Black Hat SEO', node: 28 }),           // outside the sections, niche word -> yes
+    N(3, 'My first week on BHW', { forum: 'Introductions', node: 24 }),                       // outside, no niche word -> no
+    N(4, 'Need casino ads expert', { forum: 'Hire a Freelancer', node: 76 }),                 // HAF -> never
+    N(5, '⭐ Casino backlinks $5 ⭐', { forum: 'SEO - Link building', node: 50 }),            // sales -> no
+    N(6, 'Facebook ads performance dropped', { forum: 'Facebook', node: 219, start: 9 }),      // 9h old -> no (6h window)
+    N(7, 'Which cloaker for Google Display?', { forum: 'Cloaking', node: 2, rep: 7 }),          // 7 replies already -> no
+    N(8, 'Agency accounts for crypto', { forum: 'Facebook', node: 219, start: 0.5 }),           // yes
+    N(9, 'Section rules', { sticky: true }),                                                   // no
+    N(10, 'Anyone running gambling on TikTok?', { forum: 'TikTok', node: 279, mine: true }),    // yours -> no
+    N(11, 'Casino affiliate journey', { forum: 'My Journey Discussions', node: 60 })            // journey board -> no
+  ];
+  const got = pickNewThreads(rows, { sent: { 8: 1 } }, rx, { now, muted: [], seen: {} });
+  ok('new threads: in a Radar section (any title) or a niche word elsewhere; never HAF, sales, old, crowded, sticky, yours, journeys, or already sent', got.map((g) => g.threadId).sort().join() === '1,2', got.map((g) => `${g.threadId}:${g.title}`));
+  ok('newest first, and the board name travels with it', pickNewThreads(rows, {}, rx, { now }).map((g) => g.threadId).join() === '8,1,2' && got.find((g) => g.threadId === '2').section === 'Black Hat SEO');
+  ok('a thread seen on the page before is not offered again even if it was never sent', pickNewThreads(rows, {}, rx, { now, seen: { 1: 1 } }).every((g) => g.threadId !== '1'));
+  ok('a muted word keeps it out', !pickNewThreads(rows, {}, rx, { now, muted: ['cpc'] }).some((g) => g.threadId === '1'));
+  const msg = formatNewThreads(got, { now, count: 2, target: 10 });
+  ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /seo\/t\.2\//.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

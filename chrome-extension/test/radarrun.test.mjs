@@ -55,6 +55,10 @@ globalThis.chrome = {
       };
       return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
     }
+    if (func.name === 'extractRadarListing' && /whats-new/.test(url)) {
+      if (/whats-new\/threads/.test(url) && globalThis.__noThreadsPage) return [{ result: { rows: [], me: 'bargainbed', loggedIn: true } }];
+      return [{ result: { rows: globalThis.__newRows || [], me: 'bargainbed', loggedIn: true } }];
+    }
     if (func.name === 'extractRadarListing') { const id = (url.match(/forums\/(\d+)\//) || [])[1]; return [{ result: { rows: listings[id] || [], me: 'bargainbed', loggedIn: true } }]; }
     if (globalThis.__onThreadRead) { const f = globalThis.__onThreadRead; globalThis.__onThreadRead = null; await f(url); }
     const id = (url.match(/\.(\d+)\//) || [])[1]; const page = (url.match(/page-(\d+)/) || [])[1];
@@ -113,7 +117,7 @@ ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 &
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
 const kb = cards[0]?.reply_markup?.inline_keyboard || [];
 ok('the batch is ONE message (1.14.1) with Open / I replied / Not relevant per thread', cards.length === 1 && r.sent === 3 && kb.length === 6 && kb[0][0].url && /^rr:\d+$/.test(kb[1][0].callback_data) && /^rx:\d+$/.test(kb[1][1].callback_data) && /I replied 3/.test(kb[5][0].text), kb);
-ok('keyword ideas and the fixed code words close every message', /Try: next \w+ · next \w+/.test(cards[0].text) && cards[0].text.split('\n').pop() === 'Send: next &lt;word&gt; · next &lt;word&gt; 5 · mute &lt;word&gt; · radar · radar help', cards[0].text.split('\n').slice(-2));
+ok('keyword ideas and the fixed code words close every message', /Try: next \w+ · next \w+/.test(cards[0].text) && cards[0].text.split('\n').pop() === 'Send: next &lt;word&gt; · new threads · mute &lt;word&gt; · radar · radar help', cards[0].text.split('\n').slice(-2));
 ok('threads are numbered, the first is starred, and the day\'s count is on the message', /<b>1\. .+<\/b> ⭐/.test(cards[0].text) && /<b>3\. /.test(cards[0].text) && /Public replies today: <b>0 of 10<\/b>/.test(cards[0].text), cards[0]?.text);
 ok('Claude was asked once for the whole batch, and its summary is in the message', claude.length === 1 && /Asked: What thread \d+ asked\./.test(cards[0].text) && /Already said: check the GEO is allowed \(3\)/.test(cards[0].text) && /Missing: Nobody named a network\./.test(cards[0].text), cards[0]?.text);
 ok('a thread that already has your reply inside is dropped, not sent', !cards.some((c) => /which cloaking services/.test(c.text)) && !!bags.local.radar.replied['10'] && !bags.local.radar.queue['10']);
@@ -246,6 +250,42 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   out = await say('next casino');
   ok('signed out of BHW: says so and falls back to the hourly sweep\'s matches instead of failing', /not signed in to BHW/.test(out), out.slice(0, 200));
   globalThis.__signedOut = false;
+}
+
+// --- 1.16: the 15-minute new-thread watch --------------------------------------------------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0;
+  const NR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/n.${id}/`, title, author: 's', lastPoster: 's', forum: o.forum || 'Google Ads', forumNode: String(o.node ?? 83), startedAt: hAgo(o.start ?? 0.3), lastActivityAt: hAgo(o.start ?? 0.3), replyCount: o.rep ?? 0, views: 5, sticky: false, locked: false, mine: false, lastMine: false });
+  globalThis.__newRows = [NR(7001, 'Google Ads account got limited after 3 days'), NR(7002, 'Casino traffic from push, who does it?', { forum: 'Media Buying', node: 175 }), NR(7003, 'Hello from Brazil', { forum: 'Introductions', node: 24 }), NR(7004, 'Need a casino ads guy', { forum: 'Hire a Freelancer', node: 76 })];
+  let r = await bg.radarNewTick({ force: true });
+  let msgs = tg.filter((m) => m.method === 'sendMessage');
+  ok('the new-threads page is read and one message goes out with only the threads that are yours', r.sent === 2 && msgs.length === 1 && /🆕 <b>New threads<\/b>/.test(msgs[0].text) && /account got limited/.test(msgs[0].text) && /Casino traffic from push/.test(msgs[0].text) && !/Hello from Brazil|casino ads guy/.test(msgs[0].text), msgs[0]?.text);
+  ok('the first URL tried is the threads-only page', /whats-new\/threads\/$/.test(opened[0]), opened);
+  ok('buttons per thread, and both are remembered as sent', msgs[0].reply_markup.inline_keyboard.length === 4 && !!bags.local.radar.sent['7001'] && !!bags.local.radar.sent['7002']);
+  tg = []; r = await bg.radarNewTick({ force: true });
+  ok('the next check with the same page sends nothing: only new ones ever', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'));
+  globalThis.__newRows = [...globalThis.__newRows, NR(7005, 'Fresh: cloaker for Bing ads?', { forum: 'Cloaking', node: 2 })];
+  tg = []; r = await bg.radarNewTick({ force: true });
+  ok('a thread that appears later comes through, alone', r.sent === 1 && /cloaker for Bing/.test(tg[0].text) && !/account got limited/.test(tg[0].text));
+  r = await bg.radarNewTick();
+  ok('not due again inside 15 minutes', r.skipped === 'not due');
+  bags.local.radar.newAt = Date.now() - 16 * 60000; r = await bg.radarNewTick();
+  ok('due again after 15 minutes', r.ok === true);
+  tg = []; r = await bg.runRadar({ fast: true });
+  const hourly = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup).map((m) => m.text).join('\n');
+  ok('the hourly batch never repeats what the new-thread watch already sent', !/account got limited|Casino traffic from push|cloaker for Bing/.test(hourly));
+  globalThis.__noThreadsPage = true; globalThis.__newRows = [NR(7006, 'VCC for Google Ads in 2026?')]; tg = []; opened.length = 0;
+  r = await bg.radarNewTick({ force: true });
+  ok('if BHW has no threads-only page, the summary page is read instead', r.sent === 1 && opened.length === 2 && /whats-new\/$/.test(opened[1]));
+  globalThis.__noThreadsPage = false;
+  let out = await say('new threads off');
+  ok('"new threads off" switches the watch off', bags.local.radarCfg.newWatch === false && /is OFF/.test(out));
+  r = await bg.radarNewTick();
+  ok('and the tick then does nothing', r.skipped === 'off');
+  out = await say('new threads on');
+  ok('"new threads on" switches it back', bags.local.radarCfg.newWatch === true);
+  out = await say('new threads');
+  ok('"new threads" alone checks right now and says when there is nothing new', /Nothing new since the last check/.test(out), out);
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

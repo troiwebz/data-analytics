@@ -146,8 +146,12 @@ export function extractRadarListing() {
     const lastEl = el.querySelector('.structItem-cell--latest .username');
     const lastPoster = lastEl ? (lastEl.textContent || '').trim() : '';
     const author = el.getAttribute('data-author') || '';
+    let forumA = null;
+    for (const x of el.querySelectorAll('.structItem-cell--main a[href*="/forums/"]')) { if (/\/forums\/[a-z0-9-]+\.\d+\/?$/i.test(x.getAttribute('href') || '')) { forumA = x; break; } }
+    const forumHref = forumA ? forumA.getAttribute('href') || '' : '';
     rows.push({
       threadId: id, url: c ? `${c[1]}/` : href, title: (a.textContent || '').trim(), author, lastPoster,
+      forum: forumA ? (forumA.textContent || '').trim() : '', forumNode: (forumHref.match(/\.(\d+)\/?$/) || [])[1] || '',
       startedAt: iso(el.querySelector('.structItem-startDate time')),
       lastActivityAt: iso(el.querySelector('.structItem-latestDate time') || el.querySelector('.structItem-cell--latest time')),
       replyCount: replies, views,
@@ -535,6 +539,7 @@ export const RADAR_HELP = [
   '<b>next casino 5</b> - up to 5 clusters',
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
+  '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 15 minutes on its own) · <b>new threads off</b> / <b>on</b>',
   '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
   '<b>radar count 4</b> - correct today\'s number of public replies',
   '<b>radar help</b> - this list',
@@ -553,7 +558,7 @@ export function keywordIdeas(items, { families = {}, exclude = '' } = {}) {
   for (const [k, hint] of [['casino', 'casino'], ['cloak', 'cloaker'], ['crypto', 'crypto'], ['restricted', 'nutra'], ['setup', 'agency account'], ['trouble', 'suspended']]) if (rx[k] && rx[k].test(titles)) ideas.push(hint);
   for (const k of [...Object.keys(families || {}), ...Object.keys(KNOWN_FAMILIES)]) ideas.push(k);
   const out = [...new Set(ideas)].filter((k) => k !== String(exclude).toLowerCase()).slice(0, 4);
-  const cmds = 'Send: next &lt;word&gt; · next &lt;word&gt; 5 · mute &lt;word&gt; · radar · radar help';
+  const cmds = 'Send: next &lt;word&gt; · new threads · mute &lt;word&gt; · radar · radar help';
   return `${out.length ? `Try: ${out.map((k) => `next ${k}`).join(' · ')}` : 'Try: next casino'}\n${cmds}`;
 }
 
@@ -609,5 +614,49 @@ export function formatClusterMessage(clusters, rows, { now = Date.now(), keyword
     lines.push('');
   });
   lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(rows, { families, exclude: keyword }));
+  return lines.join('\n').slice(0, 3900);
+}
+
+// ------------------------------------------------- 1.16: new threads, every 15 minutes
+
+export const NEW_THREADS_URLS = ['https://www.blackhatworld.com/whats-new/threads/', 'https://www.blackhatworld.com/whats-new/'];
+export const NEW_EVERY_MS = 15 * 60000;
+
+/**
+ * Which of the rows on a "what's new" page are new threads for you: started in
+ * the last `hours`, in one of the 8 ad sections (by board id) or carrying a
+ * niche word anywhere else that is not a buyers' or sales board, not sticky,
+ * not muted, and never shown before (the shared "sent" memory and the watch's own).
+ */
+export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, muted = [], seen = {} } = {}) {
+  const ids = new Set(RADAR_SECTIONS.map((x) => String(x.id)));
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || !r.threadId || !r.title || r.sticky || r.locked) continue;
+    const id = String(r.threadId);
+    if (seen[id] || state?.sent?.[id] || state?.replied?.[id] || state?.hidden?.[id]) continue;
+    if (r.mine) continue;
+    const started = ms(r.startedAt); if (!started || now - started > hours * 3600000) continue;
+    if ((Number(r.replyCount) || 0) > 5) continue;                          // a new thread already crowded is not a first-reply chance
+    if (FORUM_DENY.test(r.forum || '') || NEVER.test(`/forums/${r.forumNode}/`)) continue;
+    if (SALES_TITLE.test(r.title) || isMuted(r.title, muted)) continue;
+    const inSection = ids.has(String(r.forumNode));
+    const section = RADAR_SECTIONS.find((x) => String(x.id) === String(r.forumNode));
+    const match = classify(r.title, section || { ad: false }, rx);
+    if (!inSection && match !== 'strict') continue;
+    out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || section?.name || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: match || 'section', tier: 'N' });
+  }
+  return out.sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+}
+
+/** The 15-minute message: only threads never shown before, newest first, with links. */
+export function formatNewThreads(items, { now = Date.now(), count = 0, target = 10, families = {} } = {}) {
+  const d = new Date(now);
+  const lines = [`🆕 <b>New threads</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} new`, ''];
+  items.forEach((q, i) => {
+    const rep = Number(q.replyCount) || 0;
+    lines.push(`<b>${i + 1}. ${h(q.title)}</b>`, `${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, h(q.url), '');
+  });
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(items, { families }));
   return lines.join('\n').slice(0, 3900);
 }
