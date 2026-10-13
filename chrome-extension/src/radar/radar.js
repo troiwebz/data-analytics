@@ -63,6 +63,37 @@ function fillSettings() {
   $('words').innerHTML = Object.keys(GROUP_LABELS).map((k) => `<label class="f">${esc(GROUP_LABELS[k])}<textarea data-group="${k}">${esc((cfg.words[k] || []).join(', '))}</textarea></label>`).join('');
 }
 
+function fillFams() {
+  const { cfg } = S; const fams = S.fams || [];
+  $('s-famevery').value = cfg.familyEvery || 20; $('s-famon').checked = cfg.familiesOn !== false; $('s-gate').checked = cfg.gate !== false;
+  $('fams').innerHTML = fams.map((f, i) => `<div class="card fam" data-i="${i}" style="margin-bottom:10px">
+    <div class="grid"><label class="f">Id<input type="text" class="f-id" value="${esc(f.id)}"></label><label class="f">Name<input type="text" class="f-name" value="${esc(f.name || f.id)}"></label><label class="f">Emoji<input type="text" class="f-emoji" value="${esc(f.emoji || '🔎')}"></label>
+    <label class="chk" style="margin-top:22px"><input type="checkbox" class="f-pin" ${f.pinned ? 'checked' : ''}> Pinned (at least hourly)</label></div>
+    <label class="f" style="margin-top:8px">Meaning (for the Claude gate)<input type="text" class="f-meaning" value="${esc(f.meaning || '')}"></label>
+    <label class="f" style="margin-top:8px">Terms (${(f.terms || []).length})<textarea class="f-terms" style="min-height:64px">${esc((f.terms || []).join(', '))}</textarea></label>
+    <label class="f" style="margin-top:8px">Home boards<textarea class="f-boards" style="min-height:48px">${esc((f.boards || []).map((b) => `${b.id}: ${b.name}${b.filter ? ' [family]' : ''}`).join('\n'))}</textarea></label>
+    <div class="sub" style="margin-top:4px">${f.lastRun ? `last run ${new Date(f.lastRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ` : 'not run yet · '}${f.held || 0} held</div>
+    <div class="row"><button class="mini" data-runfam="${esc(f.id)}">Run now</button><button class="mini" data-delfam="${i}">Remove</button></div></div>`).join('') || '<div class="empty">No families.</div>';
+}
+function readFams() {
+  return [...document.querySelectorAll('#fams .fam')].map((c) => ({ id: c.querySelector('.f-id').value.trim(), name: c.querySelector('.f-name').value.trim(), emoji: c.querySelector('.f-emoji').value.trim(), pinned: c.querySelector('.f-pin').checked, meaning: c.querySelector('.f-meaning').value.trim(),
+    terms: c.querySelector('.f-terms').value.split(/[,\n]/).map((t) => t.trim()).filter(Boolean),
+    boards: c.querySelector('.f-boards').value.split('\n').map((l) => l.match(/^\s*(\d+)\s*:\s*([^\[]+?)\s*(?:\[(family)\])?\s*$/i)).filter(Boolean).map((m) => ({ id: Number(m[1]), name: m[2].trim(), ...(m[3] ? { filter: 'family' } : {}) })) }));
+}
+function fillHeld() {
+  const held = S.state.held || {}; const fams = Object.fromEntries((S.fams || []).map((f) => [f.id, f]));
+  const rows = Object.entries(held).flatMap(([fid, list]) => (list || []).map((c) => ({ ...c, fam: fams[fid] })));
+  $('held').innerHTML = rows.length ? `<table><thead><tr><th>Family</th><th>Thread</th><th>Board</th><th>Replies</th><th>Last reply</th><th>Fit</th><th></th></tr></thead><tbody>${rows.map((c) => `
+    <tr><td>${esc(c.fam ? `${c.fam.emoji || ''} ${c.fam.name}` : '')}</td><td><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td>${esc(c.section)}</td><td class="n">${c.replyCount ?? ''}</td><td class="n">${esc(lastAgo(c.lastActivityAt))}</td><td class="n">${c.score != null ? `${c.score}/10` : ''}</td>
+    <td class="n"><button class="mini" data-sendheld="${esc(c.threadId)}">Send to Telegram</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nothing held. Every run’s extras appear here.</div>';
+}
+document.addEventListener('click', async (e) => {
+  const rf = e.target.closest('button[data-runfam]'); const df = e.target.closest('button[data-delfam]'); const sh = e.target.closest('button[data-sendheld]');
+  if (rf) { rf.disabled = true; rf.textContent = 'Running…'; await send({ cmd: 'radar-run', family: rf.dataset.runfam }); setTimeout(async () => { await load(); fillFams(); }, 90000); }
+  if (df) { const fams = readFams(); fams.splice(Number(df.dataset.delfam), 1); S.fams = fams; fillFams(); }
+  if (sh) { sh.disabled = true; S = await send({ cmd: 'radar-send-held', threadId: sh.dataset.sendheld }); fillHeld(); }
+});
+
 function fillBlocks() {
   const blocks = S.blocks || [];
   $('blocks').innerHTML = blocks.map((b, i) => `<div class="card" data-i="${i}" style="margin-bottom:10px">
@@ -93,8 +124,10 @@ async function load({ settings = false } = {}) {
 for (const b of document.querySelectorAll('[role=tab]')) b.addEventListener('click', () => {
   tab = b.dataset.tab;
   for (const x of document.querySelectorAll('[role=tab]')) x.setAttribute('aria-selected', String(x === b));
-  for (const p of ['queue', 'replied', 'unmatched', 'blocks', 'settings']) $(`p-${p}`).hidden = p !== tab;
+  for (const p of ['queue', 'replied', 'unmatched', 'families', 'held', 'blocks', 'settings']) $(`p-${p}`).hidden = p !== tab;
   if (tab === 'blocks') fillBlocks();
+  if (tab === 'families') fillFams();
+  if (tab === 'held') fillHeld();
 });
 
 document.addEventListener('click', async (e) => {
@@ -137,6 +170,9 @@ $('save').addEventListener('click', async () => {
   $('saved').hidden = false; setTimeout(() => { $('saved').hidden = true; }, 2500);
 });
 $('reset').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { resetWords: true } }); render(); fillSettings(); });
+$('save-fams').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { fams: readFams(), familyEvery: Number($('s-famevery').value), familiesOn: $('s-famon').checked, gate: $('s-gate').checked } }); fillFams(); $('saved-fams').hidden = false; setTimeout(() => { $('saved-fams').hidden = true; }, 2500); });
+$('add-fam').addEventListener('click', () => { S.fams = [...readFams(), { id: 'new', name: 'New family', emoji: '🔎', terms: [], boards: [], meaning: '' }]; fillFams(); });
+$('reset-fams').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { resetFams: true } }); fillFams(); });
 $('save-blocks').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { blocks: readBlocks() } }); fillBlocks(); $('saved-blocks').hidden = false; setTimeout(() => { $('saved-blocks').hidden = true; }, 2500); });
 $('add-block').addEventListener('click', () => { S.blocks = [...readBlocks(), { id: 'new', name: 'New block', minute: 45, on: false, boards: [] }]; fillBlocks(); });
 $('reset-blocks').addEventListener('click', async () => { S = await send({ cmd: 'radar-save', patch: { resetBlocks: true } }); fillBlocks(); });

@@ -68,12 +68,24 @@
       <button role="tab" data-tab="queue" aria-selected="true">Waiting</button>
       <button role="tab" data-tab="replied" aria-selected="false">Replied</button>
       <button role="tab" data-tab="unmatched" aria-selected="false">Not matched</button>
+      <button role="tab" data-tab="families" aria-selected="false">Families</button>
+      <button role="tab" data-tab="held" aria-selected="false">Held</button>
       <button role="tab" data-tab="blocks" aria-selected="false">Blocks</button>
       <button role="tab" data-tab="settings" aria-selected="false">Settings and words</button>
     </div>
     <div id="p-queue"></div>
     <div id="p-replied" hidden></div>
     <div id="p-unmatched" hidden></div>
+    <div id="p-families" hidden>
+      <div class="sub" style="margin-bottom:8px">One family runs every 20 minutes (pinned ones at least hourly): 3 of its terms through BHW search, rotating, plus page 1 of its home boards. Terms: comma separated. Boards: one per line, <b>id: name</b>, add <b>[family]</b> to keep only titles with family words. The meaning line is what Claude judges against when a run finds more than 8 threads.</div>
+      <div class="row" style="margin:0 0 10px"><label class="f">Minutes between family runs<input type="number" id="s-famevery" min="10" max="120" style="width:120px"></label><label class="chk" style="margin:22px 0 0"><input type="checkbox" id="s-famon"> Families on</label><label class="chk" style="margin:22px 0 0"><input type="checkbox" id="s-gate"> Claude gate when more than 8 found</label></div>
+      <div id="fams"></div>
+      <div class="row"><button class="pri" id="save-fams">Save families</button><button id="add-fam">Add a family</button><button id="reset-fams">Put the built-in families back</button><span id="saved-fams" class="okmsg" hidden>Saved</span></div>
+    </div>
+    <div id="p-held" hidden>
+      <div class="sub" style="margin-bottom:8px">Threads a family run found but did not send (over the 8 per message, or under the Claude gate). Send any of them to Telegram now.</div>
+      <div id="held"></div>
+    </div>
     <div id="p-blocks" hidden>
       <div class="sub" style="margin-bottom:8px">A block reads page 1 of its boards once an hour, from its minute on, and sends one Telegram message with what is new. One line per board: <b>id or slug: name [filter]</b>. Filters: <b>niche</b> (niche words only), <b>adwords</b> (ad words only). Hire a Freelancer and Marketplace boards are refused.</div>
       <div id="blocks"></div>

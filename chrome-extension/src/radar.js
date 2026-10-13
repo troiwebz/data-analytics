@@ -540,7 +540,9 @@ export const RADAR_HELP = [
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
   '<b>brief 3</b> - Claude\'s asked / already said / missing for thread 3 of the last message (about a cent)',
-  '<b>block ads</b> / <b>block seo</b> - run a block right now (they run on their own every hour: Ads at :00, SEO at :30)',
+  '<b>families</b> - the niches Radar runs (one every 20 minutes) · <b>run cloaker</b> - run one now · <b>more cloaker</b> - the next layer · <b>pin casino</b> - at least hourly',
+  '<b>add cloaker &lt;word&gt;</b> / <b>drop cloaker &lt;word&gt;</b> - edit a family\'s words',
+  '<b>block ads</b> / <b>block seo</b> - run a board block right now (off by default since the families took over)',
   '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 15 minutes on its own) · <b>new threads off</b> / <b>on</b>',
   '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
   '<b>radar count 4</b> - correct today\'s number of public replies',
@@ -766,5 +768,141 @@ export const blockOrder = (items, boardNames) => boardNames.flatMap((b) => items
 export function formatAnswered(back, { now = Date.now() } = {}) {
   const lines = ['📬 <b>They answered you</b>', ''];
   back.forEach((b, i) => lines.push(`${i + 1}. <a href="${h(b.url)}">${h(b.title)}</a>`, `   ${h(b.lastPoster || 'someone')} posted ${last(b.lastActivityAt, now)} · ${b.replyCount} replies · ${h(b.section)}`));
+  return lines.join('\n').slice(0, 3900);
+}
+
+// ------------------------------------------------- 1.18: families - the hourly engine
+
+/**
+ * A family: the words people use for one niche, the boards where it lives, and
+ * one line that says what fits (for the Claude gate). Every 20 minutes one
+ * family runs: 3 of its terms through BHW search (rotating through the list),
+ * page 1 of its home boards, merged, gated, sent as one message. Pinned
+ * families never wait more than an hour.
+ */
+export const FAMILIES = [
+  { id: 'cloaker', name: 'Cloaker', emoji: '🛡', pinned: true, meaning: 'Choosing, setting up or running a cloaker, white page, safe page or bot filter for paid ads or payment processors',
+    terms: ['cloaker', 'cloaking', 'white page', 'safe page', 'money page', 'bot filter', 'trafficguardian', 'jci', 'cloaking house', 'trustcloaker', 'adspect', 'keitaro', 'trafficshield', 'hoax tech', 'payment processor cloaking'],
+    boards: [{ id: 2, name: 'Cloaking' }] },
+  { id: 'circumvent', name: 'Circumvent', emoji: '🚫', pinned: true, meaning: 'Keeping ad accounts alive: bans, suspensions, restrictions, policy violations, BM reviews and appeals, agency accounts, payment cards, warm-up',
+    terms: ['circumventing systems', 'account suspended', 'ad account banned', 'account disabled', 'account restricted', 'flagged for review', 'policy violation', 'bm review', 'bm appeal', 'agency account', 'bm5', 'vcc', 'virtual card', 'warm up', 'spending limit', 'identity verification'],
+    boards: [{ id: 83, name: 'Google Ads' }, { id: 219, name: 'Facebook (PPC)' }] },
+  { id: 'casino', name: 'Casino', emoji: '🎰', pinned: true, meaning: 'Running or buying ads or traffic for casino, gambling, betting or iGaming offers',
+    terms: ['casino', 'gambling', 'igaming', 'betting', 'sportsbook', 'slots', 'poker', 'lottery', 'bookmaker', 'aviator', 'gambling ads', 'casino ads'],
+    boards: [{ id: 219, name: 'Facebook (PPC)', filter: 'family' }, { id: 85, name: 'Other PPC', filter: 'family' }] },
+  { id: 'crypto', name: 'Crypto', emoji: '🪙', meaning: 'Advertising or getting traffic for crypto, token, forex or trading offers',
+    terms: ['crypto', 'crypto ads', 'web3', 'token launch', 'presale', 'memecoin', 'defi', 'airdrop', 'forex', 'forex ads', 'prop firm', 'trading signals'],
+    boards: [{ id: 218, name: 'CryptoCurrency', filter: 'family' }] },
+  { id: 'pharma', name: 'Pharma & nutra', emoji: '💊', meaning: 'Advertising pharma, peptides, supplements, weight-loss or nutra offers',
+    terms: ['pharma', 'pharmacy ads', 'peptides', 'ruo', 'nootropics', 'trt', 'weight loss ads', 'ozempic', 'nutra', 'supplements', 'keto', 'skincare offers'],
+    boards: [{ id: 219, name: 'Facebook (PPC)', filter: 'family' }] },
+  { id: 'adult', name: 'Adult & dating', emoji: '🔞', meaning: 'Advertising or traffic for adult, dating, OnlyFans or cam offers',
+    terms: ['adult ads', 'dating ads', 'onlyfans', 'ofm', 'cam traffic', 'nsfw ads', 'adult traffic', 'adult payment processor'],
+    boards: [{ id: 219, name: 'Facebook (PPC)', filter: 'family' }] },
+  { id: 'greyecom', name: 'Grey ecom', emoji: '📦', meaning: 'Advertising grey-area ecommerce: dropshipping, CBD, vape, replica-style products',
+    terms: ['dropshipping ads', 'replica', 'cbd ads', 'vape ads', 'kratom', 'grey niche', 'ecom ads banned'], boards: [] },
+  { id: 'finance', name: 'Finance offers', emoji: '💳', meaning: 'Advertising loans, credit repair, debt relief, insurance or similar finance offers',
+    terms: ['loans ads', 'credit repair', 'debt relief', 'insurance leads', 'payday', 'bnpl'], boards: [] },
+  { id: 'traffic', name: 'Traffic sources', emoji: '🚚', meaning: 'Buying traffic from push, pop, native and alternative ad networks for restricted offers',
+    terms: ['push traffic', 'pop traffic', 'native ads', 'taboola', 'outbrain', 'mgid', 'propellerads', 'adsterra', 'exoclick', 'tiktok ads', 'snapchat ads', 'bing ads'],
+    boards: [{ id: 175, name: 'Media Buying' }, { id: 85, name: 'Other PPC' }] },
+  { id: 'accounts', name: 'Ad accounts', emoji: '🧾', meaning: 'Getting, ageing, renting or recovering ad accounts and business managers',
+    terms: ['aged accounts', 'facebook accounts', 'google ads accounts', 'tiktok agency', 'account farming', 'reinstated', 'bm for sale', 'agency ad account'],
+    boards: [{ id: 219, name: 'Facebook (PPC)', filter: 'family' }, { id: 83, name: 'Google Ads', filter: 'family' }] }
+];
+export const FAMILY_EVERY_MIN = 20;       // one family run every 20 minutes
+export const PINNED_MAX_WAIT_MS = 60 * 60000;
+export const FAMILY_WINDOW_DAYS = 14;
+export const FAMILY_MIN = 3, FAMILY_MAX = 8, GATE_ABOVE = 8;
+
+/** Saved families (edits, additions) over the built-in list. */
+export function mergeFamilies(saved) {
+  const by = new Map(FAMILIES.map((f) => [f.id, { ...f }]));
+  for (const s of saved || []) { if (!s || !s.id) continue; const cur = by.get(s.id) || { id: s.id, name: s.name || s.id, emoji: '🔎', terms: [], boards: [], meaning: '' }; by.set(s.id, { ...cur, ...s, boards: Array.isArray(s.boards) ? s.boards : cur.boards, terms: Array.isArray(s.terms) ? s.terms : cur.terms }); }
+  return [...by.values()].filter((f) => f.on !== false);
+}
+export const familyRegex = (f) => wordRegex(f.terms || []);
+
+/** Which family runs now: a pinned one that has waited an hour, else the one that waited longest. */
+export function pickNextFamily(families, runs = {}, now = Date.now()) {
+  const list = families.filter((f) => f.on !== false);
+  if (!list.length) return null;
+  const waited = (f) => now - (runs[f.id] || 0);
+  const pinnedDue = list.filter((f) => f.pinned && waited(f) >= PINNED_MAX_WAIT_MS).sort((a, b) => waited(b) - waited(a));
+  if (pinnedDue.length) return pinnedDue[0];
+  return list.sort((a, b) => waited(b) - waited(a))[0];
+}
+
+/** The next 3 terms of a family, rotating so every term is searched over the day. */
+export function nextTerms(f, idx = 0, n = 3) {
+  const t = f.terms || []; if (!t.length) return { terms: [], idx: 0 };
+  const out = []; for (let i = 0; i < Math.min(n, t.length); i++) out.push(t[(idx + i) % t.length]);
+  return { terms: out, idx: (idx + n) % t.length };
+}
+
+/** Sales titles, narrowed (1.18): prices, WTS, "for sale", or an emoji-stacked title. Not "service" on its own. */
+export const SALES_NARROW = /\$\s?\d|\b(wts|for sale|selling|lifetime deal|group buy)\b|[⭐✅⚡❌⏩♐☑️⚪️❤️]{2,}/i;
+
+/**
+ * One family's candidates from its search rows and board pages: in the window,
+ * not sales, muted, sticky, locked, yours, replied or hidden. Each carries
+ * where it came from. Threads sent before are returned separately as the
+ * "seen before" layer (still alive, not replied), for topping up.
+ */
+export function familyCandidates(f, { searchRows = [], pages = [] }, state, { now = Date.now(), muted = [], windowDays = FAMILY_WINDOW_DAYS } = {}) {
+  const rx = familyRegex(f); const by = {}; const old = {};
+  const take = (c) => { if (state?.sent?.[c.threadId]) { if (!old[c.threadId] || ms(c.lastActivityAt) > ms(old[c.threadId].lastActivityAt)) old[c.threadId] = c; } else if (!by[c.threadId] || ms(c.lastActivityAt) > ms(by[c.threadId].lastActivityAt)) by[c.threadId] = { ...by[c.threadId], ...c }; };
+  for (const r of searchRows) {
+    if (!r || !r.threadId || !r.title) continue;
+    if (FORUM_DENY.test(r.forum || '') || SALES_NARROW.test(r.title) || isMuted(r.title, muted)) continue;
+    if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId]) continue;
+    const at = ms(r.at); if (!at || now - at > windowDays * 86400000) continue;
+    take({ threadId: String(r.threadId), url: r.url, title: r.title, section: r.forum || '', author: r.kind === 'thread' ? r.author : '', startedAt: null, lastActivityAt: r.at, replyCount: r.replyCount || 0, snippet: r.snippet || '', via: 'search' });
+  }
+  for (const p of pages) {
+    for (const r of p.rows || []) {
+      if (!r || !r.threadId || !r.title || r.sticky || r.locked || r.mine) continue;
+      if (SALES_NARROW.test(r.title) || isMuted(r.title, muted)) continue;
+      if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId]) continue;
+      if (p.board.filter === 'family' && !(rx && rx.test(r.title))) continue;
+      const at = ms(r.lastActivityAt); if (!at || now - at > windowDays * 86400000) continue;
+      take({ threadId: String(r.threadId), url: r.url, title: r.title, section: p.board.name, author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, snippet: '', via: 'board' });
+    }
+  }
+  const tag = (c) => ({ ...c, hot: (Number(c.replyCount) || 0) === 0, early: (Number(c.replyCount) || 0) > 0 && (Number(c.replyCount) || 0) <= 2, tier: 'F', match: f.id });
+  const byHot = (a, b) => (a.hot === b.hot ? ms(b.lastActivityAt) - ms(a.lastActivityAt) : a.hot ? -1 : 1);
+  return { fresh: Object.values(by).map(tag).sort(byHot), seenBefore: Object.values(old).map(tag).sort((a, b) => ms(b.lastActivityAt) - ms(a.lastActivityAt)) };
+}
+
+export const GATE_SYSTEM = [
+  'You judge whether BlackHatWorld threads fit one niche, for a member who will write public replies there. You get the',
+  'niche in one line and a list of threads (id, title, board, snippet). Score each thread 0-10 for fit: 10 = exactly this',
+  'niche, a real question or discussion; 5 = related; 0 = unrelated or a sales post. Judge the topic only.',
+  'Return ONLY JSON: {"scores":{"<id>":n,...}}'
+].join('\n');
+export const gatePrompt = (f, items) => [`NICHE: ${f.meaning || f.name}`, '', ...items.slice(0, 40).map((c) => `${c.threadId} | ${String(c.title).slice(0, 120)} | ${c.section} | ${String(c.snippet || '').slice(0, 160)}`)].join('\n');
+export function parseGate(text) { const o = looseJson(text); const out = {}; for (const [id, v] of Object.entries(o && o.scores && typeof o.scores === 'object' ? o.scores : {})) { const n = Number(v); if (isFinite(n)) out[String(id)] = Math.max(0, Math.min(10, n)); } return out; }
+
+/** The message: fresh first (HOT at the top), then seen-before to reach 3, at most 8; the funnel line at the end. */
+export function chooseFamilyItems(fresh, seenBefore, { min = FAMILY_MIN, max = FAMILY_MAX } = {}) {
+  let items = fresh.slice(0, max);
+  if (items.length < min) items = [...items, ...seenBefore.slice(0, min - items.length).map((c) => ({ ...c, seenBefore: true }))];
+  return items;
+}
+export function formatFamily(f, items, { now = Date.now(), count = 0, target = 10, traffic = '', funnel = '', families = {} } = {}) {
+  const d = new Date(now);
+  const lines = [`${f.emoji || '🔎'} <b>${h(f.name)}</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} thread${items.length === 1 ? '' : 's'}`, ''];
+  items.forEach((q, i) => {
+    const rep = Number(q.replyCount) || 0;
+    const tag = q.hot ? '🔥 HOT · ' : q.early ? '⚡ early · ' : '';
+    const when = q.hot ? 'first reply open' : `last reply ${last(q.lastActivityAt, now)}`;
+    lines.push(`${i + 1}. ${tag}<a href="${h(q.url)}">${h(q.title)}</a>${q.seenBefore ? ' · seen before' : ''}${q.score != null ? ` · fit ${q.score}/10` : ''}`,
+      `   ${h(q.section)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · ${when}${q.startedAt ? ` · started ${ago(q.startedAt, now)}` : ''}`);
+  });
+  lines.push('');
+  if (funnel) lines.push(funnel);
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`);
+  if (traffic) lines.push(traffic);
+  lines.push(keywordIdeas(items, { families }).split('\n').pop().replace('new threads · ', 'brief 3 · more cloaker · '));
   return lines.join('\n').slice(0, 3900);
 }

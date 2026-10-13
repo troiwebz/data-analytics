@@ -51,7 +51,10 @@ globalThis.chrome = {
         gambling: [{ threadId: '3001', url: 'https://www.blackhatworld.com/seo/casino-ads-on-tiktok.3001/', kind: 'post', title: 'Casino ads on TikTok - anyone?', author: 'r', at: d(3), replyCount: 2, forum: 'TikTok', snippet: 'gambling creatives get flagged' },
           { threadId: '3006', url: 'https://www.blackhatworld.com/seo/gambling-push.3006/', kind: 'thread', title: 'Gambling offers on push traffic', author: 'g', at: d(20), replyCount: 4, forum: 'Media Buying', snippet: 'which push networks allow gambling' }],
         pbn: [{ threadId: '4001', url: 'https://www.blackhatworld.com/seo/pbn-2026.4001/', kind: 'thread', title: 'Is PBN still working in 2026?', author: 'n', at: d(8), replyCount: 6, forum: 'Black Hat SEO', snippet: 'deindexed twice' }],
-        'expired domain': [{ threadId: '4002', url: 'https://www.blackhatworld.com/seo/expired.4002/', kind: 'thread', title: 'Where do you buy expired domains now?', author: 'e', at: d(12), replyCount: 3, forum: 'Black Hat SEO', snippet: 'auctions' }]
+        'expired domain': [{ threadId: '4002', url: 'https://www.blackhatworld.com/seo/expired.4002/', kind: 'thread', title: 'Where do you buy expired domains now?', author: 'e', at: d(12), replyCount: 3, forum: 'Black Hat SEO', snippet: 'auctions' }],
+        cloaker: Array.from({ length: 10 }, (_, i) => ({ threadId: String(9100 + i), url: `https://www.blackhatworld.com/seo/c.${9100 + i}/`, kind: 'thread', title: i === 9 ? 'Cloaking my Instagram bio link?' : `Cloaker question ${i}: which one for ${['Meta', 'Google', 'TikTok', 'Bing', 'native', 'push', 'Snapchat', 'Taboola', 'Outbrain'][i]}?`, author: 'u', at: d(2 + i), replyCount: i === 0 ? 0 : i, forum: 'Cloaking', snippet: 'which cloaker' })),
+        cloaking: [{ threadId: '9200', url: 'https://www.blackhatworld.com/seo/c.9200/', kind: 'post', title: 'Cloaking for Finance ads', author: 'q', at: d(1), replyCount: 6, forum: 'Cloaking', snippet: 'finance' }],
+        'white page': []
       };
       return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
     }
@@ -83,6 +86,11 @@ globalThis.fetch = async (url, opts) => {
     claude.push(b);
     if (claudeFail) return { ok: false, status: 401, json: async () => ({ error: { message: 'invalid x-api-key' } }) };
     const content = String(b.messages[0].content);
+    if (/^NICHE: /.test(content)) {
+      const ids = content.split('\n').slice(2).map((l) => l.split(' | ')[0].trim()).filter(Boolean);
+      const scores = Object.fromEntries(ids.map((id) => [id, id === '9109' ? 2 : 9]));      // the Instagram bio-link one is off-niche
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify({ scores }) }], usage: { input_tokens: 500, output_tokens: 80 }, stop_reason: 'end_turn' }) };
+    }
     if (/^KEYWORD: /.test(content) && /expand one keyword/.test(b.system)) {
       const text = JSON.stringify({ terms: ['pbn', 'private blog network', 'expired domain', 'aged domain', 'deindexed'] });
       return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 100, output_tokens: 40 }, stop_reason: 'end_turn' }) };
@@ -325,6 +333,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   ok('a number past the message says so', /No thread 9 in the last message/.test(out));
   // the schedule: blocks run once an hour from their minute; the old hourly batch is no longer scheduled
   bags.local.radar.blockRuns = {}; tg = []; opened.length = 0;
+  bags.local.radarCfg = { ...bags.local.radarCfg, blocks: [{ id: 'ads', name: 'Ads block', minute: 0, on: true, boards: [{ id: 219, name: 'Facebook (PPC)' }] }, { id: 'seo', name: 'SEO block', minute: 30, on: true, boards: [{ id: 28, name: 'Black Hat SEO' }] }] };   // opt-in since 1.18
   const realNow = Date.now; const at = (min) => { const d = new Date(); d.setMinutes(min, 0, 0); return d.getTime(); };
   Date.now = () => at(2);
   await bg.__blocksTickForTest(); await new Promise((r) => setTimeout(r, 300));
@@ -335,11 +344,68 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   await bg.__blocksTickForTest(); await new Promise((r) => setTimeout(r, 300));
   ok('at :31 the SEO block runs', !!(bags.local.radar.blockRuns || {}).seo);
   Date.now = realNow;
+  delete bags.local.radarCfg.blocks;
   out = await say('block ads');
   ok('"block ads" runs it now (or says nothing new)', /Nothing new in that block|📋/.test(out) || tg.some((m) => /📋/.test(m.text || '')), out.slice(0, 80));
   out = await say('radar now');
   ok('"radar now" runs the Ads block, not the old batch', /Ads block/.test(out) || tg.some((m) => /📋 <b>Ads block/.test(m.text || '')), out.slice(0, 80));
   delete listings[28]; delete listings[29]; listings[219].pop();
+}
+
+// --- 1.18: families ---------------------------------------------------------------------------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; claude = []; opened.length = 0;
+  listings[2] = [R(9301, 'Whats the longest payment processor cloaking worked for you?', { start: 100, last: 100, rep: 0 }), R(9302, 'Stripe cloaking for peps', { start: 52, last: 50, rep: 2 })];
+  let r = await bg.runFamily('cloaker', { force: true, fast: true });
+  let msgs = tg.filter((m) => m.method === 'sendMessage');
+  const fm = msgs.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('a family run: 3 rotating terms searched, the home board read, one message', r.ok && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 3 && opened.includes('https://www.blackhatworld.com/forums/2/') && !!fm, { r, opened });
+  ok('the terms were the first three of the family and the window is 14 days', r.terms.join() === 'cloaker,cloaking,white page' && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)) && bags.local.radar.termIdx.cloaker === 3);
+  ok('more than 8 found, so Claude gated them once: the off-niche Instagram thread is out, scores are shown', claude.length === 1 && r.found >= 10 && r.gated === 1 && !/Instagram bio/.test(fm.text) && /fit 9\/10/.test(fm.text), { r, t: fm.text.slice(0, 200) });
+  ok('HOT first (the 0-reply board thread or the 0-reply search thread), at most 8, the rest held', /1\. 🔥 HOT · /.test(fm.text) && r.sent === 8 && r.held >= 2 && (bags.local.radar.held.cloaker || []).length === r.held, { sent: r.sent, held: r.held });
+  ok('the funnel line, the count, the traffic line and the code words close it', /Found \d+ · gated 1 · sent 8 · held \d+/.test(fm.text) && /Public replies today/.test(fm.text) && /more cloaker/.test(fm.text.split('\n').pop()), fm.text.split('\n').slice(-4));
+  ok('buttons per thread', fm.reply_markup.inline_keyboard.length === 16);
+  const heldSnapshot = (bags.local.radar.held.cloaker || [])[0];
+  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
+  const fm2 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('the next run rotates to the next three terms; fresh threads first, and a thread sent before only as a marked seen-before top-up', r.terms.join() === 'safe page,money page,bot filter' && r.ok && fm2 && /1\. .*Stripe cloaking for peps/.test(fm2.text) && /payment processor cloaking worked.*· seen before/.test(fm2.text), { r, t: fm2?.text?.slice(0, 260) });
+  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
+  const fm3 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('when fresh threads run out, seen-before threads top the message up to 3, marked', r.sent >= 1 && (r.sent >= 3 ? /seen before/.test(fm3.text) : true), { r, t: fm3?.text?.slice(0, 200) });
+  // the schedule: one family per 20 minutes, pinned first when an hour has passed
+  bags.local.radar.famAt = 0; bags.local.radar.famRuns = { cloaker: Date.now() - 61 * 60000, circumvent: Date.now() - 10 * 60000, casino: Date.now() - 30 * 60000 }; tg = [];
+  await bg.__familiesTickForTest(); await new Promise((rs) => setTimeout(rs, 500));
+  ok('the tick runs the pinned family that waited an hour', (bags.local.radar.famRuns || {}).cloaker > Date.now() - 60000);
+  await bg.__familiesTickForTest();
+  ok('and not another one inside 20 minutes', bags.local.radar.famAt > Date.now() - 60000 && Object.values(bags.local.radar.famRuns).filter((t) => t > Date.now() - 60000).length === 1);
+  // commands
+  let out = await say('families');
+  ok('"families" lists the ten with terms, boards and pins', /🔎 <b>Families<\/b>/.test(out) && /<b>cloaker<\/b> 📌/.test(out) && /<b>pharma<\/b>/.test(out), out.slice(0, 200));
+  out = await say('add cloaker mycloaker');
+  ok('"add cloaker <word>" edits the engine family, not the search-only family', /<b>cloaker<\/b> now has 16 terms/.test(out) && bags.local.radarCfg.fams.find((f) => f.id === 'cloaker').terms.includes('mycloaker'), out.slice(0, 120));
+  out = await say('drop cloaker mycloaker');
+  ok('"drop" removes it', !bags.local.radarCfg.fams.find((f) => f.id === 'cloaker').terms.includes('mycloaker'));
+  out = await say('pin pharma');
+  ok('"pin pharma" makes it hourly', bags.local.radarCfg.fams.find((f) => f.id === 'pharma').pinned === true && /at least every hour/.test(out));
+  out = await say('unpin pharma');
+  ok('"unpin" undoes it', bags.local.radarCfg.fams.find((f) => f.id === 'pharma').pinned === false);
+  tg = []; out = await say('run greyecom');
+  ok('"run <family>" with nothing found says so with the count', /Nothing new for greyecom right now \(found 0\)/.test(out), out.slice(0, 120));
+  out = await say('run nosuch');
+  ok('an unknown family is refused', /No family "nosuch"/.test(out));
+  // held -> send from the page
+  bags.local.radar.held = { ...(bags.local.radar.held || {}), cloaker: heldSnapshot ? [heldSnapshot] : [] }; delete bags.local.radar.sent[heldSnapshot?.threadId];
+  const heldOne = heldSnapshot;
+  if (heldOne) {
+    tg = [];
+    const res = await new Promise((resolve) => globalThis.__onMessage({ cmd: 'radar-send-held', threadId: heldOne.threadId }, {}, resolve));
+    ok('a held thread can be sent from the Radar page and is then remembered as sent', tg.some((m) => /Held thread, sent by you/.test(m.text || '') && m.reply_markup) && !!bags.local.radar.sent[heldOne.threadId] && !(bags.local.radar.held.cloaker || []).some((c) => c.threadId === heldOne.threadId), res && Object.keys(res));
+  } else ok('held list has entries to test with', false, bags.local.radar.held);
+  // blocks are opt-in now
+  bags.local.radar.blockRuns = {}; opened.length = 0;
+  await bg.__blocksTickForTest(); await new Promise((rs) => setTimeout(rs, 300));
+  ok('the board blocks no longer run on their own (opt-in since the families took over)', !opened.length && !(bags.local.radar.blockRuns || {}).ads);
+  delete listings[2];
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

@@ -38,7 +38,8 @@ import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, 
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
   familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads,
-  DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered } from './radar.js';
+  DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
+  FAMILIES, FAMILY_EVERY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
 import * as pulse from './pulse.js';
 import { zoneOf } from './timefmt.js';
 
@@ -509,6 +510,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
+      await familiesTick().catch((e) => log(`Reply Radar families: ${e.message}`, 'error'));
       await blocksTick().catch((e) => log(`Reply Radar blocks: ${e.message}`, 'error'));
       await radarNewTick().catch((e) => log(`Reply Radar new threads: ${e.message}`, 'error'));
       await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
@@ -1861,7 +1863,8 @@ async function saveRadar(mem) {
 async function radarStatus() {
   const [cfg, st] = [await getRadarCfg(), await getRadar()];
   const blocks = (Array.isArray(cfg.blocks) && cfg.blocks.length ? cfg.blocks : DEFAULT_BLOCKS).map((b) => ({ ...b, boards: resolveBoards(b.boards, cfg.forumList || []).map((x) => ({ ...x, allowed: boardAllowed(x) })), lastRun: (st.blockRuns || {})[b.id] || 0 }));
-  return { cfg, state: st, blocks, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS, blocks: DEFAULT_BLOCKS }, sections: RADAR_SECTIONS.map((x) => x.name),
+  const fams = mergeFamilies(cfg.fams).map((f) => ({ ...f, lastRun: (st.famRuns || {})[f.id] || 0, held: ((st.held || {})[f.id] || []).length }));
+  return { cfg, state: st, blocks, fams, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS, blocks: DEFAULT_BLOCKS }, sections: RADAR_SECTIONS.map((x) => x.name),
     nextAt: st.lastBatch?.at ? st.lastBatch.at + cfg.everyMinutes * 60000 : 0, wallUntil: await walled() };
 }
 
@@ -1912,7 +1915,7 @@ export async function radarNewTick({ force = false } = {}) {
 // ------------------------------------------------- 1.17: blocks on a schedule, "brief N"
 async function blocksCfg() {
   const rc = await getRadarCfg();
-  const blocks = Array.isArray(rc.blocks) && rc.blocks.length ? rc.blocks : DEFAULT_BLOCKS;
+  const blocks = Array.isArray(rc.blocks) && rc.blocks.length ? rc.blocks : DEFAULT_BLOCKS.map((b) => ({ ...b, on: false }));   // families are the engine since 1.18; blocks are opt-in
   return { rc, blocks };
 }
 
@@ -1984,6 +1987,98 @@ const ms = (iso) => { const n = new Date(iso || 0).getTime(); return isFinite(n)
 /** Tests only. */
 let fastRuns = false;
 export const __blocksTickForTest = (fast = true) => { fastRuns = fast; return blocksTick(); };
+export const __familiesTickForTest = (fast = true) => { fastRuns = fast; return familiesTick(); };
+
+// ------------------------------------------------- 1.18: families, every 20 minutes
+async function familiesCfg() { const rc = await getRadarCfg(); return { rc, families: mergeFamilies(rc.fams) }; }
+
+/**
+ * One family run: 3 rotating terms through BHW search (signed in), page 1 of
+ * its home boards, merged, gated by Claude only when there is a surplus, one
+ * message with HOT first and at least 3 (seen-before threads top it up). The
+ * rest of the candidates wait on the Radar page as the held list.
+ */
+export async function runFamily(famId, { force = false, fast = false, more = false } = {}) {
+  const { rc, families } = await familiesCfg();
+  const f = families.find((x) => x.id === famId);
+  if (!f) return { error: `no family "${famId}"` };
+  let st = await getRadar();
+  if (st.famRunning && Date.now() - st.famRunning < 10 * 60000) return { skipped: 'busy' };
+  if (await walled()) return { skipped: 'wall' };
+  await setRadar({ ...st, famRunning: Date.now() });
+  const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
+  const tabOpts = fast ? { settleMs: 0 } : {};
+  let cost = 0;
+  try {
+    const cfg = await getConfig();
+    // 1. search, rotating terms
+    const idx = (st.termIdx || {})[f.id] || 0;
+    const { terms, idx: nextIdx } = nextTerms(f, idx, 3);
+    let searchRows = [], loggedIn = true;
+    for (const term of terms) {
+      const page = await readInTab(searchUrl(term, { days: 14 }), extractRadarSearch, tabOpts);
+      if (!page.loggedIn) { loggedIn = false; break; }
+      searchRows.push(...(page.rows || []));
+      await gap();
+    }
+    // 2. home boards
+    const pages = [];
+    for (const board of (f.boards || []).filter(boardAllowed)) {
+      const page = await readInTab(boardUrl(board), extractRadarListing, tabOpts);
+      if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+      pages.push({ board, rows: page.rows || [] });
+      await gap();
+    }
+    st = await getRadar();
+    let { fresh, seenBefore } = familyCandidates(f, { searchRows, pages }, st, { muted: rc.muted });
+    const found = fresh.length;
+    // 3. the Claude gate, only when there is more than a message's worth
+    let gated = 0;
+    if (fresh.length > GATE_ABOVE && rc.gate !== false) {
+      try {
+        const a = await askClaude(GATE_SYSTEM, gatePrompt(f, fresh), { maxTokens: 1500, timeoutMs: 60000 });
+        cost += a.cost || 0;
+        const scores = parseGate(a.text);
+        if (Object.keys(scores).length) { fresh = fresh.map((c) => ({ ...c, score: scores[c.threadId] ?? null })); const keep = fresh.filter((c) => c.score == null || c.score >= 7); gated = fresh.length - keep.length; fresh = keep.sort((a, b) => (a.hot === b.hot ? (b.score || 0) - (a.score || 0) : a.hot ? -1 : 1)); }
+      } catch (e) { await log(`Reply Radar ${f.name}: gate skipped (${e.message})`); }
+    }
+    const items = chooseFamilyItems(fresh, more ? seenBefore : seenBefore);
+    const held = fresh.filter((c) => !items.some((q) => q.threadId === c.threadId));
+    const canSend = cfg.telegramChatId && (await telegram.hasToken());
+    let sent = 0;
+    if (items.length && canSend) {
+      const funnel = `Found ${found}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
+      const mid = await telegram.sendCard(cfg.telegramChatId, formatFamily(f, items, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), funnel, families: rc.families }), batchKeyboard(items));
+      const cards = { ...(st.cards || {}) };
+      if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
+      const queue = { ...st.queue }; const seenActivity = { ...(st.seenActivity || {}) };
+      for (const q of items) { if (!queue[q.threadId]) queue[q.threadId] = { ...q, views: null, shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() }; seenActivity[q.threadId] = ms(q.lastActivityAt); }
+      st = { ...markSent({ ...st, queue, seenActivity: Object.fromEntries(Object.entries(seenActivity).slice(-2000)), lastMessageId: mid }, items.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) };
+      sent = items.length;
+    }
+    await saveRadar({ ...st, famRunning: 0, famRuns: { ...(st.famRuns || {}), [f.id]: Date.now() }, termIdx: { ...(st.termIdx || {}), [f.id]: nextIdx },
+      held: { ...(st.held || {}), [f.id]: held.slice(0, 40).map((c) => ({ ...c, at: Date.now() })) } });
+    await log(`Reply Radar ${f.name}: terms ${terms.join(', ')} · ${searchRows.length} search rows, ${pages.reduce((n, p) => n + p.rows.length, 0)} board rows · found ${found}, gated ${gated}, sent ${sent}, held ${held.length}${cost ? ` ($${cost.toFixed(3)})` : ''}${loggedIn ? '' : ' · signed out, boards only'}`);
+    return { ok: true, sent, found, gated, held: held.length, loggedIn, terms };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await wall(e.message);
+    await log(`Reply Radar ${f.name}: ${e.message}`, 'error');
+    return { error: e.message };
+  } finally { const cur = await getRadar(); if (cur.famRunning) await setRadar({ ...cur, famRunning: 0 }); }
+}
+
+/** The minute tick: one family every 20 minutes - a pinned one that waited an hour first, else the longest-waiting. */
+async function familiesTick() {
+  const { rc, families } = await familiesCfg();
+  if (!rc.on || rc.familiesOn === false) return;
+  const st = await getRadar();
+  const every = Math.max(10, Number(rc.familyEvery) || FAMILY_EVERY_MIN) * 60000;
+  if (st.famAt && Date.now() - st.famAt < every) return;
+  const f = pickNextFamily(families, st.famRuns || {}, Date.now());
+  if (!f) return;
+  await setRadar({ ...st, famAt: Date.now() });
+  alive(() => runFamily(f.id, { fast: fastRuns })).catch(() => {});
+}
 
 /** The minute tick: each block runs once an hour, from its minute on. */
 async function blocksTick() {
@@ -2253,6 +2348,14 @@ async function radarCommand(body, cfg) {
   }
   if ((x = text.match(/^\/?(add|drop)\s+([a-z][a-z0-9.+-]{1,30})\s+(.{2,40})$/i))) {
     const rc = await getRadarCfg(); const kw = x[2].toLowerCase().trim(); const w = x[3].toLowerCase().trim();
+    const fam = mergeFamilies(rc.fams).find((y) => y.id === kw);
+    if (fam) {                                            // one of the engine's families: edit its term list
+      const terms = x[1].toLowerCase() === 'add' ? [...new Set([...fam.terms, w])] : fam.terms.filter((t) => t !== w);
+      const fams = (rc.fams || []).filter((y) => y.id !== kw); fams.push({ ...((rc.fams || []).find((y) => y.id === kw) || {}), id: kw, terms });
+      await setRadarCfg({ fams });
+      await telegram.say(cfg.telegramChatId, `${fam.emoji || '🔎'} <b>${kw}</b> now has ${terms.length} terms: ${terms.join(', ')}`, { html: true });
+      return true;
+    }
     const cur = familyFor(kw, rc.families) || [kw];
     const next = x[1].toLowerCase() === 'add' ? [...new Set([...cur, w])] : cur.filter((t) => t !== w);
     await setRadarCfg({ families: { ...rc.families, [kw]: next } });
@@ -2267,6 +2370,25 @@ async function radarCommand(body, cfg) {
     return true;
   }
   if ((x = text.match(/^\/?brief\s+(\d{1,2})\s*[.!]?$/i))) { await briefCommand(Number(x[1]), cfg); return true; }
+  if ((x = text.match(/^\/?(?:run|more)\s+([a-z][a-z0-9-]{1,20})\s*[.!]?$/i))) {
+    const { families } = await familiesCfg(); const id = x[1].toLowerCase();
+    if (!families.some((f) => f.id === id)) { await telegram.say(cfg.telegramChatId, `No family "${id}". Send "families" for the list.`); return true; }
+    const r = await runFamily(id, { force: true, more: /^\/?more/i.test(text) });
+    if (!r.sent) await telegram.say(cfg.telegramChatId, r.error ? `Could not run ${id}: ${r.error}` : r.skipped === 'wall' ? 'BHW showed a wall recently; reading is paused for a while.' : r.skipped === 'busy' ? 'A family is already running.' : `Nothing new for ${id} right now (found ${r.found || 0}).`);
+    return true;
+  }
+  if (/^\/?families\s*[.!]?$/i.test(text)) {
+    const { families } = await familiesCfg(); const st = await getRadar();
+    await telegram.say(cfg.telegramChatId, ['🔎 <b>Families</b> (one runs every 20 minutes; pinned ones at least hourly)', '', ...families.map((f) => `${f.emoji || '🔎'} <b>${f.id}</b>${f.pinned ? ' 📌' : ''} · ${f.terms.length} terms · ${(f.boards || []).length} boards${(st.famRuns || {})[f.id] ? ` · last ${new Date(st.famRuns[f.id]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`), '', 'run cloaker · more cloaker · pin casino / unpin casino · add cloaker &lt;word&gt; · drop cloaker &lt;word&gt;'].join('\n'), { html: true });
+    return true;
+  }
+  if ((x = text.match(/^\/?(pin|unpin)\s+([a-z][a-z0-9-]{1,20})\s*$/i))) {
+    const { rc, families } = await familiesCfg(); const id = x[2].toLowerCase(); const f = families.find((y) => y.id === id);
+    if (!f) { await telegram.say(cfg.telegramChatId, `No family "${id}".`); return true; }
+    const fams = (rc.fams || []).filter((y) => y.id !== id); fams.push({ ...(rc.fams || []).find((y) => y.id === id), id, pinned: x[1].toLowerCase() === 'pin' });
+    await setRadarCfg({ fams }); await telegram.say(cfg.telegramChatId, x[1].toLowerCase() === 'pin' ? `📌 ${id} runs at least every hour now.` : `${id} runs in its turn now.`);
+    return true;
+  }
   if ((x = text.match(/^\/?block\s+([a-z0-9-]+)\s*[.!]?$/i))) { const r = await runBlock(x[1].toLowerCase(), { force: true }); if (!r.sent) await telegram.say(cfg.telegramChatId, r.error ? `📋 ${r.error}` : r.skipped === 'wall' ? '📋 BHW showed a wall recently; reading is paused for a while.' : r.skipped === 'busy' ? '📋 A block is already running.' : '📋 Nothing new in that block right now.'); return true; }
   if ((x = text.match(/^\/?new\s*threads?\s*(on|off|now)?\s*[.!]?$/i))) {
     const verb = (x[1] || 'now').toLowerCase();
@@ -5119,7 +5241,7 @@ async function openDashboard() {
 chrome.notifications.onClicked.addListener((id) => { chrome.notifications.clear(id); openDashboard(); });
 chrome.notifications.onButtonClicked.addListener((id) => { chrome.notifications.clear(id); openDashboard(); });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+const onExtMessage = (msg, _sender, sendResponse) => {
   if (!msg?.cmd) return;
   (async () => {
     switch (msg.cmd) {
@@ -5141,7 +5263,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
-      case 'radar-run':     alive(() => (msg.send ? runBlock(msg.block || 'ads', { force: true }) : runRadar({ send: false }))).catch(() => {}); sendResponse({ started: true }); break;
+      case 'radar-run':     alive(() => (msg.family ? runFamily(msg.family, { force: true }) : msg.send ? runBlock(msg.block || 'ads', { force: true }) : runRadar({ send: false }))).catch(() => {}); sendResponse({ started: true }); break;
+      case 'radar-send-held': {                      // the Radar page: send one held thread now
+        const st = await getRadar(); const cfg = await getConfig(); const rc = await getRadarCfg();
+        const c = Object.values(st.held || {}).flat().find((x) => String(x.threadId) === String(msg.threadId));
+        if (!c || !cfg.telegramChatId) { sendResponse({ error: 'not found' }); break; }
+        const mid = await telegram.sendCard(cfg.telegramChatId, `🔎 <b>Held thread, sent by you</b>\n\n1. <a href="${h(c.url)}">${h(c.title)}</a>\n   ${h(c.section)} · ${c.replyCount || 0} replies`, batchKeyboard([c]));
+        const held = Object.fromEntries(Object.entries(st.held || {}).map(([k, v]) => [k, v.filter((x) => String(x.threadId) !== String(msg.threadId))]));
+        await saveRadar({ ...markSent({ ...st, held, lastMessageId: mid, cards: { ...(st.cards || {}), ...(mid ? { [String(mid)]: { kind: 'batch', ids: [c.threadId], at: Date.now(), items: { [c.threadId]: c } } } : {}) } }, [c.threadId]) });
+        sendResponse(await radarStatus());
+        break;
+      }
       case 'radar-save': {                           // the Radar page's settings: its own key, HAF settings untouched
         const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
         const p = msg.patch || {}, next = { ...c };
@@ -5158,6 +5290,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (p.families && typeof p.families === 'object') next.families = Object.fromEntries(Object.entries(p.families).filter(([k, v]) => k && Array.isArray(v)).map(([k, v]) => [String(k).toLowerCase().trim(), v.map((w) => String(w).trim().toLowerCase()).filter(Boolean).slice(0, 20)]));
         if (Array.isArray(p.blocks)) next.blocks = p.blocks.filter((b) => b && b.id && Array.isArray(b.boards)).map((b) => ({ id: String(b.id).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20), name: String(b.name || b.id).slice(0, 40), minute: Math.min(59, Math.max(0, Number(b.minute) || 0)), on: b.on !== false, boards: b.boards.filter((x) => x && (x.id || x.slug)).map((x) => ({ ...(x.id ? { id: Number(x.id) } : { slug: String(x.slug).toLowerCase() }), name: String(x.name || x.slug || x.id).slice(0, 40), ...(x.filter ? { filter: String(x.filter) } : {}) })).slice(0, 15) })).slice(0, 8);
         if (p.resetBlocks) delete next.blocks;
+        if (Array.isArray(p.fams)) next.fams = p.fams.filter((f) => f && f.id).map((f) => ({ id: String(f.id).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20), ...(f.name ? { name: String(f.name).slice(0, 40) } : {}), ...(f.emoji ? { emoji: String(f.emoji).slice(0, 4) } : {}), ...(f.meaning != null ? { meaning: String(f.meaning).slice(0, 200) } : {}), ...(Array.isArray(f.terms) ? { terms: f.terms.map((t) => String(t).trim().toLowerCase()).filter(Boolean).slice(0, 60) } : {}), ...(Array.isArray(f.boards) ? { boards: f.boards.filter((b) => b && b.id).map((b) => ({ id: Number(b.id), name: String(b.name || b.id).slice(0, 40), ...(b.filter ? { filter: 'family' } : {}) })).slice(0, 6) } : {}), pinned: !!f.pinned, on: f.on !== false })).slice(0, 30);
+        if (p.resetFams) delete next.fams;
+        if (p.familyEvery != null) next.familyEvery = Math.min(120, Math.max(10, Number(p.familyEvery) || 20));
+        if (typeof p.familiesOn === 'boolean') next.familiesOn = p.familiesOn;
+        if (typeof p.gate === 'boolean') next.gate = p.gate;
         if (p.resetWords) delete next.words;
         await chrome.storage.local.set({ [RADAR_CFG]: next });
         sendResponse(await radarStatus());
@@ -5609,4 +5746,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
   })();
   return true;
-});
+};
+chrome.runtime.onMessage.addListener(onExtMessage);
+globalThis.__onMessage = onExtMessage;

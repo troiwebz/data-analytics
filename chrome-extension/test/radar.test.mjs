@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { FAMILIES, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, chooseFamilyItems, formatFamily, parseGate, gatePrompt, SALES_NARROW, DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -238,6 +238,41 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   const dom = new JSDOM('<html data-logged-in="true"><body><a href="/forums/white-hat-seo.29/">White Hat SEO</a><a href="/forums/seo-link-building.301/">SEO - Link building</a><a href="/forums/link-building.48/">Link Building</a><a href="/forums/">All</a></body></html>', { url: 'https://www.blackhatworld.com/forums/' });
   globalThis.document = dom.window.document; const fl = extractForumList(); delete globalThis.document;
   ok('the forum list reader returns slug, id and name for every board link', fl.boards.length === 3 && fl.boards.find((b) => b.slug === 'link-building').id === '48');
+}
+
+// --- 1.18: families ---------------------------------------------------------------------------------
+{
+  ok('ten families, about 100 terms, three pinned, every term lowercase and short', FAMILIES.length === 10 && FAMILIES.flatMap((f) => f.terms).length >= 100 && FAMILIES.filter((f) => f.pinned).length === 3 && FAMILIES.flatMap((f) => f.terms).every((t) => t === t.toLowerCase() && t.length <= 30));
+  ok('no family board is Hire a Freelancer or a sales board', !FAMILIES.flatMap((f) => f.boards).some((b) => b.id === 76 || /sale|market|hire/i.test(b.name)));
+  const merged = mergeFamilies([{ id: 'cloaker', terms: ['cloaker', 'cloaking', 'mycloak'], pinned: false }, { id: 'solar', name: 'Solar', terms: ['solar leads'], boards: [] }, { id: 'adult', on: false }]);
+  ok('saved edits override a built-in family, a new family is added, a switched-off one is gone', merged.find((f) => f.id === 'cloaker').terms.length === 3 && merged.find((f) => f.id === 'cloaker').pinned === false && merged.find((f) => f.id === 'cloaker').boards.length === 1 && !!merged.find((f) => f.id === 'solar') && !merged.some((f) => f.id === 'adult'));
+  const runs = { cloaker: now - 70 * 60000, circumvent: now - 30 * 60000, casino: now - 50 * 60000, crypto: now - 5 * 3600000 };
+  ok('a pinned family that waited an hour runs before the longest-waiting unpinned one', pickNextFamily(FAMILIES, runs, now).id === 'cloaker');
+  ok('with no pinned family overdue, the longest-waiting runs (never run = infinite wait)', pickNextFamily(FAMILIES, { ...runs, cloaker: now - 10 * 60000 }, now).id !== 'cloaker' && !['circumvent', 'casino'].includes(pickNextFamily(FAMILIES, { ...runs, cloaker: now - 10 * 60000 }, now).id));
+  const f = FAMILIES[0]; const t1 = nextTerms(f, 0, 3); const t2 = nextTerms(f, t1.idx, 3);
+  ok('terms rotate three at a time through the whole list and wrap around', t1.terms.join() === f.terms.slice(0, 3).join() && t2.terms.join() === f.terms.slice(3, 6).join() && nextTerms(f, f.terms.length - 1, 3).terms.length === 3 && nextTerms(f, f.terms.length - 1, 3).terms[1] === f.terms[0]);
+  ok('the narrowed sales filter keeps "Which cloaking service?" and drops prices, WTS and emoji stacks', !SALES_NARROW.test('which cloaking services would you reccomend?') && SALES_NARROW.test('⭐ Casino backlinks $5 ⭐') && SALES_NARROW.test('[WTS] aged BM accounts') && SALES_NARROW.test('⏩⭐ MEGA AUTHORITY links'));
+  const SR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/s.${id}/`, kind: o.kind || 'thread', title, author: 'a', at: hAgo(o.h ?? 24), replyCount: o.rep ?? 3, forum: o.forum || 'Facebook', snippet: o.snippet || '' });
+  const BR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/b.${id}/`, title, author: 'a', lastPoster: 'z', startedAt: hAgo(o.start ?? 48), lastActivityAt: hAgo(o.h ?? 10), replyCount: o.rep ?? 3, sticky: !!o.sticky, locked: false, mine: !!o.mine, lastMine: false });
+  const cl = FAMILIES.find((x) => x.id === 'cloaker');
+  const inp = { searchRows: [SR(1, 'Which cloaking service would you recommend?', { h: 5, rep: 3 }), SR(2, 'TrustCloaker or Cloaking House?', { h: 400, rep: 20 }), SR(3, '⭐ Cloaker for sale $20 ⭐', { h: 2, rep: 0 }), SR(4, 'Need a cloaker guy', { forum: 'Hire a Freelancer', h: 1, rep: 0 }), SR(5, 'Already sent one', { h: 3, rep: 4 }), SR(6, 'Replied one', { h: 3 }), SR(1, 'Which cloaking service would you recommend?', { h: 2, kind: 'post', rep: 4, snippet: 'JCI works' })],
+    pages: [{ board: { id: 2, name: 'Cloaking' }, rows: [BR(7, 'Whats the longest payment processor cloaking worked for you?', { rep: 0, h: 100 }), BR(8, 'Section rules', { sticky: true }), BR(9, 'Mine', { mine: true }), BR(10, 'Stripe cloaking for peps', { rep: 2, h: 50 })] },
+      { board: { id: 219, name: 'Facebook (PPC)', filter: 'family' }, rows: [BR(11, 'Best cloaker for replica products on Meta?', { rep: 26, h: 110 }), BR(12, 'How to lower CPC', { rep: 1, h: 2 })] }] };
+  const state = { sent: { 5: now - 86400000 }, replied: { 6: { at: now } }, hidden: {} };
+  const { fresh, seenBefore } = familyCandidates(cl, inp, state, { now, muted: [] });
+  const ids = fresh.map((c) => c.threadId);
+  ok('candidates: search + boards merged, one per thread, HOT first; window 14 days; no sales, HAF, replied, sticky, yours; family filter on the PPC board', ids[0] === '7' && ids.includes('1') && ids.includes('10') && ids.includes('11') && !ids.includes('2') && !ids.includes('3') && !ids.includes('4') && !ids.includes('6') && !ids.includes('8') && !ids.includes('9') && !ids.includes('12'), ids);
+  ok('a thread found twice keeps the newest date and the snippet; the via tag says where it came from', fresh.find((c) => c.threadId === '1').snippet === 'JCI works' && fresh.find((c) => c.threadId === '1').via === 'search' && fresh.find((c) => c.threadId === '7').via === 'board');
+  ok('no reply cap any more: the 26-reply thread is in', ids.includes('11'));
+  ok('a thread sent before is the seen-before layer, not fresh', seenBefore.length === 1 && seenBefore[0].threadId === '5');
+  const chosen = chooseFamilyItems(fresh.slice(0, 1), seenBefore);
+  ok('fewer than 3 fresh: seen-before tops up, marked', chosen.length === 2 && chosen[1].seenBefore === true);
+  ok('never more than 8', chooseFamilyItems(Array.from({ length: 12 }, (_, i) => ({ threadId: String(i) })), []).length === 8);
+  const gp = gatePrompt(cl, fresh);
+  ok('the gate prompt carries the niche meaning and each id with title, board and snippet', /^NICHE: Choosing, setting up/.test(gp) && /^1 \| Which cloaking service/m.test(gp) && /JCI works/.test(gp));
+  ok('gate scores are read by id, clamped 0-10; a broken answer gives none', parseGate('{"scores":{"1":9,"7":"11","10":-2}}')['7'] === 10 && parseGate('{"scores":{"10":-2}}')['10'] === 0 && Object.keys(parseGate('nope')).length === 0);
+  const msg = formatFamily(cl, chosen.map((c, i) => ({ ...c, score: i === 0 ? 9 : undefined })), { now, count: 1, traffic: '📈 BHW now: 900 members · Low', funnel: 'Found 4 · gated 0 · sent 2 · held 2' });
+  ok('the family message: emoji + name, HOT, fit score, seen-before mark, funnel, count, traffic, code words with "more"', /^🛡 <b>Cloaker<\/b> · \d\d:\d\d · 2 threads/.test(msg) && /1\. 🔥 HOT · <a href="[^"]+">Whats the longest payment processor/.test(msg) && /fit 9\/10/.test(msg) && /seen before/.test(msg) && /Found 4 · gated 0 · sent 2 · held 2/.test(msg) && /📈 BHW now/.test(msg) && /more cloaker/.test(msg.split('\n').pop()), msg);
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

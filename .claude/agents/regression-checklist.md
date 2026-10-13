@@ -25,7 +25,7 @@ Modules (a fix confined here runs only its items + [SMOKE]):
 - `src/owner.js` → item 7
 - `src/keysfile.js`, `tools/set-keys.sh`, `updater/set-keys.ps1` → items 15, 16
 - `src/templates.js` → item 8
-- `src/radar.js`, `src/radar/` → items 24–36, 42–46
+- `src/radar.js`, `src/radar/` → items 24–36, 42–49
 - `src/pulse.js`, `src/pulse/` → items 37–41
 SHARED — any edit here (or any file not in this map) = FULL run + twin-path check, always:
 - `src/background.js`, `src/browse.js`, `src/config.js`, `src/store.js`, `src/messages.js`, `src/vault.js`, `src/dashboard/*`, `manifest.json`, `tools/update.sh`
@@ -80,6 +80,9 @@ SHARED — any edit here (or any file not in this map) = FULL run + twin-path ch
 44. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.17.0): blocks - Ads (10 boards, :00) and SEO (5 boards, :30) read page 1 once an hour from their minute, one message split by board, HOT (0 replies) first and "early" on 1-2, top-ups to at least 5, cap 8, nothing twice, a shown thread back only with a new reply ("new reply"), board filters (TikTok ad words, CryptoCurrency niche), slugs resolved once from BHW's forum list (exact slug: link-building, never seo-link-building), HAF / sales boards refused however typed; "block ads|seo", "radar now" = Ads block; the old hourly batch no longer scheduled. (root causes found while building: the sales-board filter also refused the Link Building discussion board; the scheduler used new Date() instead of Date.now())
 45. [MECH] also (1.17.0): "They answered you" - a thread you replied in with a new post by someone else, one message, once per new post; "brief N" reads thread N of the last message and answers with asked / already said / missing (one Claude call); the traffic line closes every Radar message and the separate half-hour traffic message is off by default.
 46. Radar page Blocks tab: both default blocks listed with ids and minutes, unresolved SEO slugs say "id not found yet", edits save and survive a reload, a typed-in Hire a Freelancer board shows "refused", "Put the default blocks back" restores them; no console errors.
+47. [MECH] `TZ=UTC node test/radar.test.mjs` + `radarrun.test.mjs` also assert (1.18.0): families - ten built-in niches (~108 terms, three pinned), saved edits merge over them; one family every 20 minutes (a pinned one that waited an hour first); 3 terms per run rotating through the list (14-day search window); home boards page 1 with an optional family-words filter; candidates merged across search and boards, no reply cap, 14-day window, narrowed sales filter (prices / WTS / emoji stacks only), never HAF / replied / hidden / sticky / yours / muted; Claude gate only when more than 8 found (scores shown, under 7 held); HOT first, at least 3 with marked seen-before top-ups, at most 8; the rest on the held list; funnel line on the message. (root cause of the item: board-only blocks and the 7-day / 5-reply gates hid most niche threads)
+48. [MECH] also (1.18.0): "families", "run <family>", "more <family>", "pin / unpin", "add / drop <family> <word>" edit the engine's families; a held thread can be sent from the Radar page and is then remembered as sent; the board blocks are opt-in (off unless switched on).
+49. Radar page Families tab: ten families with terms, boards, meaning, pinned; edit, save, reload, reset; Held tab lists held threads with a Send button; no console errors.
 - Note for Step 0: poll.test.mjs takes ~110 s alone; under load it can exceed the runner's 120 s. Run it alone before calling it a failure.
 
 ## Report format
