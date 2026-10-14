@@ -533,7 +533,7 @@ export function markSent(state, ids, now = Date.now()) {
 
 /** The Telegram help, shown with the first batch of the day and on "radar help". */
 export const RADAR_HELP = [
-  '📡 <b>Reply radar - what you can send</b>',
+  '📡 <b>Reply radar - the commands you can send</b> (this list comes once a day; "radar help" shows it any time)',
   '',
   '<b>next casino</b> - live search of the whole forum for that keyword and its family, grouped into topic clusters, best thread per cluster. Never repeats a thread.',
   '<b>next casino 5</b> - up to 5 clusters',

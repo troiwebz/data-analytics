@@ -2047,6 +2047,9 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
     const canSend = cfg.telegramChatId && (await telegram.hasToken());
     let sent = 0;
     if (items.length && canSend) {
+      // The full command list once a day, before the day's first family message, so the words are never far away.
+      const today = new Date().toLocaleDateString('en-CA');
+      if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
       const funnel = `Found ${found}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
       const mid = await telegram.sendCard(cfg.telegramChatId, formatFamily(f, items, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), funnel, families: rc.families }), batchKeyboard(items));
       const cards = { ...(st.cards || {}) };

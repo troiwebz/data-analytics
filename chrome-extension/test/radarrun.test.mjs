@@ -121,7 +121,7 @@ const leadsBefore = JSON.stringify(bags.local.recentLeads || null);
 // --- one run: 8 sections, 3 cards -------------------------------------------------------------
 let r = await bg.runRadar({ fast: true });
 const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
-ok('the first cards of the day come after the list of words you can send', tg.filter((m) => m.method === 'sendMessage')[0]?.text.includes('what you can send') && tg.filter((m) => m.method === 'sendMessage' && /what you can send/.test(m.text)).length === 1, tg[0]?.text?.slice(0, 80));
+ok('the first cards of the day come after the list of words you can send', tg.filter((m) => m.method === 'sendMessage')[0]?.text.includes('the commands you can send') && tg.filter((m) => m.method === 'sendMessage' && /the commands you can send/.test(m.text)).length === 1, tg[0]?.text?.slice(0, 80));
 ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 8, { r, n: opened.length });
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
 const kb = cards[0]?.reply_markup?.inline_keyboard || [];
@@ -141,7 +141,7 @@ const before = { opened: opened.length, claude: claude.length };
 tg = [];
 r = await bg.runRadar({ fast: true });
 const cards2 = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
-ok('the help is not repeated on the same day', !tg.some((m) => /what you can send/.test(m.text || '')));
+ok('the help is not repeated on the same day', !tg.some((m) => /the commands you can send/.test(m.text || '')));
 const titleOf = (t) => (t.match(/<b>1\. (?:<a href="[^"]+">)?(.+?)(?:<\/a>)?<\/b>/) || [])[1];
 ok('the second hour sends only what was not sent before - no thread twice', cards2.length === 1 && /1 thread\b/.test(cards2[0].text) && !cards[0].text.includes(titleOf(cards2[0].text)) && opened.length - before.opened === 8 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: titleOf(cards2[0].text), n: opened.length - before.opened });
 tg = []; r = await bg.runRadar({ fast: true });
@@ -359,6 +359,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   let r = await bg.runFamily('cloaker', { force: true, fast: true });
   let msgs = tg.filter((m) => m.method === 'sendMessage');
   const fm = msgs.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('the day\'s first family message is preceded by the command list, once', msgs.findIndex((m) => /the commands you can send/.test(m.text)) === 0 && msgs.filter((m) => /the commands you can send/.test(m.text)).length === 1 && bags.local.radar.helpDay === new Date().toLocaleDateString('en-CA'), msgs.map((m) => m.text.slice(0, 40)));
   ok('a family run: 3 rotating terms searched, the home board read, one message', r.ok && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 3 && opened.includes('https://www.blackhatworld.com/forums/2/') && !!fm, { r, opened });
   ok('the terms were the first three of the family and the window is 14 days', r.terms.join() === 'cloaker,cloaking,white page' && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)) && bags.local.radar.termIdx.cloaker === 3);
   ok('more than 8 found, so Claude gated them once: the off-niche Instagram thread is out, scores are shown', claude.length === 1 && r.found >= 10 && r.gated === 1 && !/Instagram bio/.test(fm.text) && /fit 9\/10/.test(fm.text), { r, t: fm.text.slice(0, 200) });
@@ -368,6 +369,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   const heldSnapshot = (bags.local.radar.held.cloaker || [])[0];
   tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
   const fm2 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('the command list is not repeated the same day', !tg.some((m) => /the commands you can send/.test(m.text || '')));
   ok('the next run rotates to the next three terms; fresh threads first, and a thread sent before only as a marked seen-before top-up', r.terms.join() === 'safe page,money page,bot filter' && r.ok && fm2 && /1\. .*Stripe cloaking for peps/.test(fm2.text) && /payment processor cloaking worked.*· seen before/.test(fm2.text), { r, t: fm2?.text?.slice(0, 260) });
   tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
   const fm3 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
