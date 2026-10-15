@@ -387,7 +387,14 @@ export const KNOWN_FAMILIES = {
   casino: ['casino', 'gambling', 'igaming', 'betting', 'sportsbook', 'slots', 'gambling offers', 'casino seo', 'casino backlinks', 'poker'],
   crypto: ['crypto', 'crypto ads', 'web3 marketing', 'token launch', 'presale', 'memecoin', 'forex', 'crypto seo', 'defi', 'airdrop'],
   cloaker: ['cloaker', 'cloaking', 'white page', 'safe page', 'money page', 'bot filter', 'trafficguardian', 'justcloakit', 'cloaking house', 'trustcloaker'],
-  pbn: ['pbn', 'private blog network', 'expired domain', 'aged domain', 'auction domain', 'dropped domain', 'deindexed', 'footprint', 'niche edit', 'tier 2 links', 'pbn hosting']
+  // 'expired domain' / 'aged domain' / 'auction domain' / 'dropped domain' used
+  // to be in here and were dropped (1.19.2): those are exactly how PBN domain
+  // SELLERS title their listings, not how anyone asks a question, so "next
+  // pbn" was mostly finding marketplace posts the sales filter's word list
+  // (wts, for sale, $, services...) was never written to catch. The technique
+  // words below don't have that problem - nobody titles a sales listing
+  // "footprint" or "tier 2 links".
+  pbn: ['pbn', 'private blog network', 'deindexed', 'footprint', 'niche edit', 'tier 2 links', 'pbn hosting']
 };
 
 export const FAMILY_SYSTEM = [
