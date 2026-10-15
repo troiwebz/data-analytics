@@ -1562,13 +1562,24 @@ function sourceLabelOf(cfg, key) {
  * bump where you asked for bump alerts. Sales threads never do.
  */
 const WALL_KEY = 'sourcesBackoffUntil';
+const WALL_STRIKES_KEY = 'sourcesBackoffStrikes';
+const WALL_BASE_MS = 30 * 60000;
+// A fixed 30-minute pause, forever, is asking a rate limiter that is already
+// annoyed with you to be annoyed with you again every half hour, indefinitely
+// - the opposite of what a backoff is for. Each wall hit while the last one
+// never actually cleared doubles the pause, up to 4 hours; one clean read
+// resets it to 30 minutes for next time (see clearWallNotice).
+const WALL_MAX_MS = 4 * 3600000;
 /** Is BHW currently refusing us? Both readers sit out while it is. */
 async function walled() {
   const { [WALL_KEY]: until = 0 } = await chrome.storage.local.get(WALL_KEY);
   return Date.now() < until ? until : 0;
 }
 /** Your IP changed, or you just want to try: forget the wall. */
-async function clearWall() { await chrome.storage.local.remove(WALL_KEY); await log('BHW pause cleared by hand - reading again'); }
+async function clearWall() {
+  await chrome.storage.local.remove([WALL_KEY, WALL_STRIKES_KEY]);
+  await log('BHW pause cleared by hand - reading again');
+}
 
 /**
  * A problem that starts, may keep going, and eventually clears - told once
@@ -1600,16 +1611,23 @@ async function watch(cfg, key, isBad, badMsg, goodMsg) {
   return false;
 }
 
-/** BHW showed a wall (429 / Cloudflare). Stop asking for half an hour; asking again is what makes it longer. */
+/** BHW showed a wall (429 / Cloudflare). Back off, longer each time it recurs
+ * without a clean read in between; asking again at full strength is what
+ * makes a rate limiter stay angry longer. */
 async function wall(why) {
-  const until = Date.now() + 30 * 60000;
-  await chrome.storage.local.set({ [WALL_KEY]: until });
-  await log(`${why} - pausing every BHW read for 30 minutes, then trying again quietly`, 'error');
+  const { [WALL_STRIKES_KEY]: strikes = 0 } = await chrome.storage.local.get(WALL_STRIKES_KEY);
+  const ms = Math.min(WALL_MAX_MS, WALL_BASE_MS * 2 ** strikes);
+  const mins = Math.round(ms / 60000);
+  await chrome.storage.local.set({ [WALL_KEY]: Date.now() + ms, [WALL_STRIKES_KEY]: strikes + 1 });
+  await log(`${why} - pausing every BHW read for ${mins} minutes, then trying again quietly`, 'error');
   await watch(await getConfig(), 'bhwWall', true,
-    `BlackHatWorld is blocking reads (${why}). Pausing every check for 30 minutes at a time and retrying automatically.`, '');
+    `BlackHatWorld is blocking reads (${why}). Pausing every check for ${mins} minutes`
+    + (strikes ? ` (backing off longer - strike ${strikes + 1})` : '') + ', and retrying automatically.', '');
 }
-/** A read just succeeded - if a wall was announced, say it's over. */
+/** A read just succeeded - the backoff resets to its shortest length for next
+ * time, and if a wall was announced, say it's over. */
 async function clearWallNotice(cfg) {
+  await chrome.storage.local.remove(WALL_STRIKES_KEY);
   await watch(cfg, 'bhwWall', false, '', 'BlackHatWorld reads are back to normal.');
 }
 
