@@ -1569,11 +1569,48 @@ async function walled() {
 }
 /** Your IP changed, or you just want to try: forget the wall. */
 async function clearWall() { await chrome.storage.local.remove(WALL_KEY); await log('BHW pause cleared by hand - reading again'); }
+
+/**
+ * A problem that starts, may keep going, and eventually clears - told once
+ * on Telegram when it starts, repeated no more than hourly while it
+ * continues, and confirmed once when it stops. Three different ways HAF used
+ * to go silent for days with nothing but a local log line nobody was
+ * reading - a BHW wall, Claude failing to draft, the feed poll itself not
+ * running - all follow this exact shape, so they share one implementation.
+ */
+async function watch(cfg, key, isBad, badMsg, goodMsg) {
+  const noteKey = `watch_${key}`;
+  const { [noteKey]: startedAt } = await chrome.storage.local.get(noteKey);
+  if (isBad) {
+    if (!startedAt) {
+      await chrome.storage.local.set({ [noteKey]: Date.now() });
+      await log(badMsg, 'error');
+      if (cfg.telegramChatId) await telegram.say(cfg.telegramChatId, `⚠️ ${badMsg}`);
+    } else if (Date.now() - startedAt > 3600000) {
+      await chrome.storage.local.set({ [noteKey]: Date.now() });
+      if (cfg.telegramChatId) await telegram.say(cfg.telegramChatId,
+        `⚠️ Still going, since ${new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${badMsg}`);
+    }
+    return true;
+  }
+  if (startedAt) {
+    await chrome.storage.local.remove(noteKey);
+    if (cfg.telegramChatId) await telegram.say(cfg.telegramChatId, `✅ ${goodMsg}`);
+  }
+  return false;
+}
+
 /** BHW showed a wall (429 / Cloudflare). Stop asking for half an hour; asking again is what makes it longer. */
 async function wall(why) {
   const until = Date.now() + 30 * 60000;
   await chrome.storage.local.set({ [WALL_KEY]: until });
   await log(`${why} - pausing every BHW read for 30 minutes, then trying again quietly`, 'error');
+  await watch(await getConfig(), 'bhwWall', true,
+    `BlackHatWorld is blocking reads (${why}). Pausing every check for 30 minutes at a time and retrying automatically.`, '');
+}
+/** A read just succeeded - if a wall was announced, say it's over. */
+async function clearWallNotice(cfg) {
+  await watch(cfg, 'bhwWall', false, '', 'BlackHatWorld reads are back to normal.');
 }
 
 const SWEEP_KEY = 'sourcesSweep';
@@ -3420,6 +3457,7 @@ export async function pollFeed() {
     let page;
     try { page = await readListingTab(forumUrlFromFeed(cfg.feedUrl)); }
     catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); throw e; }
+    await clearWallNotice(cfg);   // this read just succeeded - say so if a wall was announced
     if (!page.loggedIn) await logOnce('bhwLogin', 'BlackHatWorld shows you as logged OUT in this Chrome profile - open blackhatworld.com and sign in, or threads cannot be read or posted', 'error');
     else await clearLogOnce('bhwLogin');
     items = page.rows.filter((r) => !r.sticky).map((r) => ({
@@ -3484,6 +3522,16 @@ export async function pollFeed() {
   // One batched request for the whole poll, so the instructions are paid for
   // once rather than once per lead. Falls back to the built-in rules.
   const { specifics: ai, note: aiNote } = await specificsFor(full, cfg);
+  // Claude failing never blocks a thread from reaching you (below, every lead
+  // still gets a generic draft) - which is exactly why it used to go unnoticed
+  // for days: nothing looked broken on the phone. Say so the first time it
+  // happens in a poll, not only when someone reads a card closely enough to
+  // notice the drafts have gone generic.
+  if (cfg.aiSpecifics && full.length) {
+    await watch(cfg, 'claudeDrafts', !!aiNote,
+      `Claude isn't writing drafts right now (${aiNote}) - threads are still being found, just with generic drafts until this clears.`,
+      'Claude is writing drafts normally again.');
+  }
   const leads = full.map((m) => {
     const got = ai[m.threadId];
     // Claude was asked for this batch and this lead did not get an answer -
@@ -3763,6 +3811,21 @@ async function conflictMinutes() {
 export async function pollTaps() {
   const cfg = await getConfig();
 
+  // Watch the FEED poll too, piggybacking on this alarm because it is the one
+  // that has already proven itself to actually keep running every ~30s - the
+  // feed poll itself cannot report on its own absence. A wall already says
+  // why nothing NEW is being found; this catches the other way HAF goes
+  // quiet, which a wall says nothing about: the poll not running at all
+  // (Chrome asleep, closed, the VPS session logged off - see docs/ALWAYS_ON.md).
+  if (cfg.enabled) {
+    const { lastPollAt = 0 } = await chrome.storage.local.get('lastPollAt');
+    const expectMs = Math.max(60000, (Number(cfg.pollMinutes) || 10) * 60000);
+    await watch(cfg, 'feedStale', lastPollAt > 0 && Date.now() - lastPollAt > expectMs * 4,
+      `HAF hasn't completed a check in over ${Math.round((Date.now() - lastPollAt) / 60000)} minutes `
+      + `(it should run every ${cfg.pollMinutes || 10}). Chrome may be asleep, closed, or the VPS session logged off.`,
+      'HAF is checking BlackHatWorld again.');
+  }
+
   // The three ways this can be dead on arrival - all of which used to return
   // in silence. A fresh install on a new machine has an empty vault, so the
   // buttons on your phone go to a Chrome that is not listening: Telegram shows
@@ -3847,6 +3910,33 @@ export async function pollTaps() {
       const pm = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?(?:pending|todo|missed)\b\s*(\d+)?/i);
       if (pm) {
         await sendPending(cfg, pm[1] ? Number(pm[1]) : 24);
+        done++;
+        continue;
+      }
+    }
+
+    // "catch up" / "catch up 3" - from your phone, no dashboard needed: walk
+    // BHW's own listing pages for the last N days (2 default) for anything
+    // never recorded, then resurface it the same way "pending" does. For
+    // recovering from a stretch where reading was blocked or Chrome was not
+    // running - see the "watch" alerts above (bhwWall / feedStale).
+    {
+      const cum = ev.kind === 'reply' && String(ev.body || '').trim().match(/^\/?catch[\s-]?up\b\s*(\d+)?/i);
+      if (cum) {
+        const days = cum[1] ? Math.max(1, Number(cum[1])) : 2;
+        const until = await walled();
+        if (until) {
+          await telegram.say(cfg.telegramChatId, `BlackHatWorld is currently blocking reads - it retries automatically, next by `
+            + `${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Send "catch up ${days}" again after that.`);
+        } else {
+          await telegram.say(cfg.telegramChatId, `🔎 Reading the last ${days} day(s) of Hire a Freelancer for anything missed - this can take a minute…`);
+          const r = await fillDays(days).catch((e) => ({ error: e.message }));
+          if (r.error) await telegram.say(cfg.telegramChatId, `❌ Could not catch up: ${r.error}`);
+          else {
+            await telegram.say(cfg.telegramChatId, `✓ Read back ${r.days} day(s) over ${r.pages} page(s), ${r.backfilled} thread(s) recorded. Sending anything not yet actioned…`);
+            await sendPending(cfg, days * 24);
+          }
+        }
         done++;
         continue;
       }
