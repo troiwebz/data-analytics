@@ -86,5 +86,14 @@ bags.local.holdNotices = {}; sent = [];
 q = await bg.runAutoQueue();
 ok('wrong BHW login: nothing sent, and Telegram is told to sign in to the right account', !bags.local.recentLeads.some((l) => l.pmSent) && sent.some((t) => /HAF auto mode is holding 2 PM\(s\):.*Sign in to the right BHW account/.test(t)), { q, sent });
 
+// c. a send-time refusal that used to be dashboard-log only
+bags.local.config = { ...bags.local.config, boundAccount: '' }; bags.local.bhwMe = 'bargainbed';
+bags.local.recentLeads = [{ ...lead(701), dmLint: { ok: false, errors: ['contains a link'] } }];
+bags.local.holdNotices = {}; sent = [];
+await bg.runAutoQueue();
+ok('1.19.5: a PM refused at send time (compliance check) is told on Telegram with the reason, once', sent.filter((t) => /did NOT send the PM to buyer701.*compliance check failed/.test(t)).length === 1, sent);
+sent = []; bags.local.recentLeads = [{ ...bags.local.recentLeads[0], autoSendAt: Date.now() - 1000 }]; await bg.runAutoQueue();
+ok('and not again in the same hour', !sent.some((t) => /did NOT send the PM to buyer701/.test(t)), sent);
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

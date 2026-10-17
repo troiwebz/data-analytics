@@ -4957,12 +4957,14 @@ export async function runAutoQueue() {
     if (why) {
       await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: why });
       await log(`auto mode: not sending the PM for "${lead.title}" - ${why}`);
+      await holdNotice(cfg, `lead-${lead.threadId}`, `⏸ Auto mode did NOT send the PM to ${lead.author} ("${lead.title}"): ${why}. It is waiting for you.`);
       continue;
     }
 
     const gate = await checkDmLimit(cfg);
     if (!gate.ok) {
       await log(`auto mode: holding the PM for "${lead.title}" - ${gate.reason}`);
+      if (!/daily PM cap/.test(gate.reason)) await holdNotice(cfg, `gate-${lead.threadId}`, `⏳ Auto mode is holding the PM to ${lead.author} ("${lead.title}"): ${gate.reason}. It goes out when that clears.`);
       // A PM held by the daily cap looked sent on Telegram (the card said "sending in 1-3 min")
       // and was only explained in the dashboard log. Say it on Telegram, once a day.
       if (/daily PM cap/.test(gate.reason) && cfg.telegramChatId) {
@@ -5002,6 +5004,7 @@ export async function runAutoQueue() {
       const w = dup.sent ? 'your message list already has a PM to them' : `might be a duplicate: ${dup.why || 'a conversation exists'}`;
       await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: w });
       await log(`auto mode: not sending the PM for "${lead.title}" - ${w}`);
+      await holdNotice(cfg, `dup-${lead.threadId}`, `⏸ Auto mode did NOT send the PM to ${lead.author} ("${lead.title}"): ${w}${dup.url ? `\n${dup.url}` : ''}\nIf that is wrong, tap "Send DM Now" on its card.`);
       continue;
     }
 
