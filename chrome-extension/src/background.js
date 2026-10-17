@@ -39,7 +39,7 @@ import { ownership, takeOver, describe as describeOwner, loginProblem } from './
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
-  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads,
+  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
   DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
   FAMILIES, FAMILY_EVERY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
 import * as pulse from './pulse.js';
@@ -1939,8 +1939,9 @@ async function saveRadar(mem) {
   const { [RADAR_KEY]: saved } = await chrome.storage.local.get(RADAR_KEY);
   const cur = { ...radarEmpty(), ...(saved || {}) };
   const st = { ...mem, replied: { ...(mem.replied || {}), ...(cur.replied || {}) }, hidden: { ...(mem.hidden || {}), ...(cur.hidden || {}) },
-    counted: { ...(mem.counted || {}), ...(cur.counted || {}) }, manual: cur.manual || mem.manual, queue: { ...(mem.queue || {}) } };
-  for (const id of Object.keys(st.queue)) if (st.replied[id] || st.hidden[id]) delete st.queue[id];
+    counted: { ...(mem.counted || {}), ...(cur.counted || {}) }, manual: cur.manual || mem.manual, queue: { ...(mem.queue || {}) },
+    participated: { ...(mem.participated || {}), ...(cur.participated || {}) }, partAt: Math.max(Number(mem.partAt) || 0, Number(cur.partAt) || 0), partOk: mem.partOk ?? cur.partOk };
+  for (const id of Object.keys(st.queue)) if (st.replied[id] || st.hidden[id] || st.participated[id]) delete st.queue[id];
   await setRadar(st);
   return st;
 }
@@ -1952,6 +1953,34 @@ async function radarStatus() {
   const fams = mergeFamilies(cfg.fams).map((f) => ({ ...f, lastRun: (st.famRuns || {})[f.id] || 0, held: ((st.held || {})[f.id] || []).length }));
   return { cfg, state: st, blocks, fams, today: countToday(st), defaults: { ...DEFAULT_RADAR_CFG, words: RADAR_WORDS, blocks: DEFAULT_BLOCKS }, sections: RADAR_SECTIONS.map((x) => x.name),
     nextAt: st.lastBatch?.at ? st.lastBatch.at + cfg.everyMinutes * 60000 : 0, wallUntil: await walled() };
+}
+
+
+/**
+ * The threads you have posted in, read from BHW's own list (signed in): page 1
+ * and 2, at most every 15 minutes, remembered for good (1.20). Radar's own taps
+ * only knew what you told it; this also knows every reply you made by hand,
+ * with someone else's reply after yours, or before Radar existed.
+ */
+export async function refreshParticipated({ fast = false } = {}) {
+  const st0 = await getRadar();
+  if (st0.partAt && Date.now() - st0.partAt < PARTICIPATED_EVERY_MS) return { cached: true, n: Object.keys(st0.participated || {}).length };
+  const found = {}; let loggedIn = true;
+  try {
+    for (const pg of [1, 2]) {
+      const page = await readInTab(pg === 1 ? PARTICIPATED_URL : `${PARTICIPATED_URL}?page=2`, extractRadarListing, fast ? { settleMs: 0 } : {});
+      if (!page.loggedIn) { loggedIn = false; break; }
+      if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+      for (const r of page.rows || []) if (r && r.threadId) found[String(r.threadId)] = Date.now();
+      if (!(page.rows || []).length) break;
+      if (!fast) await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
+    }
+  } catch (e) { if (/blocked/i.test(e.message)) throw e; /* an odd page: the old list stands */ }
+  const cur = await getRadar();
+  const merged = { ...(cur.participated || {}), ...found };
+  const keep = Object.entries(merged).sort((a, b) => b[1] - a[1]).slice(0, 3000);
+  await setRadar({ ...cur, participated: Object.fromEntries(keep), partAt: Date.now(), partOk: loggedIn && (Object.keys(found).length > 0 || cur.partOk === true) });
+  return { n: keep.length, found: Object.keys(found).length, loggedIn };
 }
 
 /**
@@ -1977,6 +2006,7 @@ export async function radarNewTick({ force = false } = {}) {
       if (page.rows && page.rows.length) { rows = page.rows; break; }
       await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
     }
+    await refreshParticipated();
     st = await getRadar();
     const seen = Object.fromEntries(Object.entries(st.newSeen || {}).filter(([, t]) => Date.now() - t < 7 * 86400000));
     const items = pickNewThreads(rows, st, compileWords(rc.words), { muted: rc.muted, seen });
@@ -2040,6 +2070,7 @@ export async function runBlock(blockId, { force = false, fast = false } = {}) {
       pages.push({ board, rows: page.rows || [] });
       await gap();
     }
+    await refreshParticipated({ fast });
     st = await getRadar();
     const { items, back } = pickBlock(pages, st, compileWords(rc.words), { muted: rc.muted });
     const cfg = await getConfig();
@@ -2118,6 +2149,7 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
       pages.push({ board, rows: page.rows || [] });
       await gap();
     }
+    await refreshParticipated({ fast });
     st = await getRadar();
     let { fresh, seenBefore } = familyCandidates(f, { searchRows, pages }, st, { muted: rc.muted });
     const found = fresh.length;
@@ -2140,7 +2172,7 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
       // The full command list once a day, before the day's first family message, so the words are never far away.
       const today = new Date().toLocaleDateString('en-CA');
       if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
-      const funnel = `Found ${found}${claudeOk.ok ? '' : ' · gate off (Claude kept for HAF)'}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
+      const funnel = `Found ${found}${claudeOk.ok ? '' : ' · gate off (Claude kept for HAF)'}${st.partOk ? ` · ${Object.keys(st.participated || {}).length} threads you replied in left out` : ' · could not read your replied list'}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
       const mid = await telegram.sendCard(cfg.telegramChatId, formatFamily(f, items, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), funnel, families: rc.families }), batchKeyboard(items));
       const cards = { ...(st.cards || {}) };
       if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
@@ -2396,6 +2428,7 @@ async function radarSearch(keyword, n, cfg) {
       rows.push(...(page.rows || []).map((r) => ({ ...r, term })));
       await gap();
     }
+    await refreshParticipated();
     st = await getRadar();
     let found;
     if (!loggedIn) {

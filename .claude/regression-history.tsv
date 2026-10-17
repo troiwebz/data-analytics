@@ -17,3 +17,4 @@ date	mode	build	pass	failing
 2026-10-17	pre (L3: background.js; HAF sendDm/runInThread wrapped, auto backlog notice)	1.19.3	51 mech pass; taps, staged, auto, pmcap, backlog alone pass; items 53-54; 5 pages clean	-
 2026-10-18	pre (L3: messages.js, browse.js, background.js auto holds)	1.19.4	52 mech pass; taps, radarrun alone pass; items 55-56; 5 pages clean; taps caught an empty-inbox regression, fixed	-
 2026-10-18	pre (L3: background.js auto send-time notices)	1.19.5	52 mech pass; taps, radarrun, watchdog, auto alone pass; item 57	-
+2026-10-18	pre (L3: radar module + background.js)	1.20.0	52 mech pass; taps, radarrun, watchdog, auto, hafhold alone pass; item 58; BHW contributed-list page NOT verified live (signed out here)	-

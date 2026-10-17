@@ -475,7 +475,7 @@ export function filterSearch(rows, state, { now = Date.now(), days = 7, muted = 
   for (const r of rows || []) {
     if (!r || !r.threadId || !r.title) continue;
     if (FORUM_DENY.test(r.forum || '') || SALES_TITLE.test(r.title) || isMuted(r.title, muted)) continue;
-    if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId] || state?.sent?.[r.threadId]) continue;
+    if (iPosted(state, r.threadId) || state?.hidden?.[r.threadId] || state?.sent?.[r.threadId]) continue;
     const at = ms(r.at);
     if (!at || now - at > days * 86400000) continue;
     const cur = by[r.threadId];
@@ -644,7 +644,7 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
   for (const r of rows || []) {
     if (!r || !r.threadId || !r.title || r.sticky || r.locked) continue;
     const id = String(r.threadId);
-    if (seen[id] || state?.sent?.[id] || state?.replied?.[id] || state?.hidden?.[id]) continue;
+    if (seen[id] || state?.sent?.[id] || iPosted(state, id) || state?.hidden?.[id]) continue;
     if (r.mine) continue;
     const started = ms(r.startedAt); if (!started || now - started > hours * 3600000) continue;
     if ((Number(r.replyCount) || 0) > 5) continue;                          // a new thread already crowded is not a first-reply chance
@@ -726,7 +726,7 @@ export function pickBlock(pages, state, rx, { now = Date.now(), muted = [], min 
         if (!r.lastMine && ms(r.lastActivityAt) > (state.replied[id].at || 0) && ms(r.lastActivityAt) > (state.backSent?.[id] || 0)) back.push({ threadId: id, url: r.url, title: r.title, section: board.name, lastPoster: r.lastPoster, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0 });
         continue;
       }
-      if (r.mine || state.hidden?.[id]) continue;
+      if (r.mine || state.hidden?.[id] || state.participated?.[id]) continue;
       const filter = board.filter || 'all';
       const nicheHit = classify(r.title, { ad: false }, rx) === 'strict' || (!!rx.cryptoLoose && rx.cryptoLoose.test(r.title) && AD_WORDS.test(r.title));
       if (filter === 'niche' && !nicheHit) continue;
@@ -862,7 +862,7 @@ export function familyCandidates(f, { searchRows = [], pages = [] }, state, { no
   for (const r of searchRows) {
     if (!r || !r.threadId || !r.title) continue;
     if (FORUM_DENY.test(r.forum || '') || SALES_NARROW.test(r.title) || isMuted(r.title, muted)) continue;
-    if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId]) continue;
+    if (iPosted(state, r.threadId) || state?.hidden?.[r.threadId]) continue;
     const at = ms(r.at); if (!at || now - at > windowDays * 86400000) continue;
     take({ threadId: String(r.threadId), url: r.url, title: r.title, section: r.forum || '', author: r.kind === 'thread' ? r.author : '', startedAt: null, lastActivityAt: r.at, replyCount: r.replyCount || 0, snippet: r.snippet || '', via: 'search' });
   }
@@ -870,7 +870,7 @@ export function familyCandidates(f, { searchRows = [], pages = [] }, state, { no
     for (const r of p.rows || []) {
       if (!r || !r.threadId || !r.title || r.sticky || r.locked || r.mine) continue;
       if (SALES_NARROW.test(r.title) || isMuted(r.title, muted)) continue;
-      if (state?.replied?.[r.threadId] || state?.hidden?.[r.threadId]) continue;
+      if (iPosted(state, r.threadId) || state?.hidden?.[r.threadId]) continue;
       if (p.board.filter === 'family' && !(rx && rx.test(r.title))) continue;
       const at = ms(r.lastActivityAt); if (!at || now - at > windowDays * 86400000) continue;
       take({ threadId: String(r.threadId), url: r.url, title: r.title, section: p.board.name, author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, snippet: '', via: 'board' });
@@ -913,3 +913,12 @@ export function formatFamily(f, items, { now = Date.now(), count = 0, target = 1
   lines.push(keywordIdeas(items, { families }).split('\n').pop().replace('new threads · ', 'brief 3 · more cloaker · '));
   return lines.join('\n').slice(0, 3900);
 }
+
+
+// ------------------------------------------------- 1.20: threads you have already posted in
+
+/** BHW's own list of threads you have contributed to, newest activity first (XenForo "find threads"). */
+export const PARTICIPATED_URL = 'https://www.blackhatworld.com/find-threads/contributed';
+export const PARTICIPATED_EVERY_MS = 15 * 60000;
+/** Posted in, by your own tap OR by BHW's list. Never suggested again; an answer from someone else still comes back as "They answered you". */
+export const iPosted = (state, id) => !!(state?.replied?.[id] || state?.participated?.[id]);

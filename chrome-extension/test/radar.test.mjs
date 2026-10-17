@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { FAMILIES, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, chooseFamilyItems, formatFamily, parseGate, gatePrompt, SALES_NARROW, DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { filterSearch, iPosted, FAMILIES, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, chooseFamilyItems, formatFamily, parseGate, gatePrompt, SALES_NARROW, DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -273,6 +273,23 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   ok('gate scores are read by id, clamped 0-10; a broken answer gives none', parseGate('{"scores":{"1":9,"7":"11","10":-2}}')['7'] === 10 && parseGate('{"scores":{"10":-2}}')['10'] === 0 && Object.keys(parseGate('nope')).length === 0);
   const msg = formatFamily(cl, chosen.map((c, i) => ({ ...c, score: i === 0 ? 9 : undefined })), { now, count: 1, traffic: '📈 BHW now: 900 members · Low', funnel: 'Found 4 · gated 0 · sent 2 · held 2' });
   ok('the family message: emoji + name, HOT, fit score, seen-before mark, funnel, count, traffic, code words with "more"', /^🛡 <b>Cloaker<\/b> · \d\d:\d\d · 2 threads/.test(msg) && /1\. 🔥 HOT · <a href="[^"]+">Whats the longest payment processor/.test(msg) && /fit 9\/10/.test(msg) && /seen before/.test(msg) && /Found 4 · gated 0 · sent 2 · held 2/.test(msg) && /📈 BHW now/.test(msg) && /more cloaker/.test(msg.split('\n').pop()), msg);
+}
+
+// --- 1.20: threads you already posted in (BHW's own list) --------------------------------------------
+{
+  const part = { participated: { 7: now, 11: now, 2001: now, 3001: now, 9: now } };
+  ok('iPosted: your tap OR BHW\'s list', iPosted({ replied: { 1: {} } }, '1') && iPosted(part, '7') && !iPosted(part, '8') && !iPosted({}, '1'));
+  const SRc = (id, title) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/p.${id}/`, kind: 'thread', title, author: 'a', at: hAgo(5), replyCount: 3, forum: 'Cloaking', snippet: '' });
+  const BRc = (id, title) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/p.${id}/`, title, author: 'a', lastPoster: 'z', startedAt: hAgo(40), lastActivityAt: hAgo(3), replyCount: 3, sticky: false, locked: false, mine: false, lastMine: false });
+  const cl = FAMILIES.find((x) => x.id === 'cloaker');
+  const fc = familyCandidates(cl, { searchRows: [SRc(2001, 'Cloaker I replied to, someone answered after me'), SRc(2002, 'Cloaker nobody has answered')], pages: [{ board: { id: 2, name: 'Cloaking' }, rows: [BRc(7, 'Cloaking thread I answered by hand'), BRc(8, 'Cloaking thread I did not answer')] }] }, part, { now });
+  ok('families: a thread you posted in is never suggested, wherever it came from (search or board), even if someone replied after you', fc.fresh.map((c) => c.threadId).sort().join() === '2002,8', fc.fresh.map((c) => c.threadId));
+  const bl = pickBlock([{ board: { id: 219, name: 'Facebook (PPC)' }, rows: [BRc(9, 'Block thread I answered'), BRc(12, 'Block thread new to me')] }], part, rx, { now });
+  ok('blocks: the same', bl.items.map((q) => q.threadId).join() === '12', bl.items.map((q) => q.threadId));
+  const nt = pickNewThreads([{ ...BRc(11, 'New thread I already posted in'), forum: 'Facebook', forumNode: '219', startedAt: hAgo(1), replyCount: 0 }, { ...BRc(13, 'New thread, mine to take'), forum: 'Facebook', forumNode: '219', startedAt: hAgo(1), replyCount: 0 }], part, rx, { now });
+  ok('new threads: the same', nt.map((q) => q.threadId).join() === '13', nt.map((q) => q.threadId));
+  const fs = filterSearch([SRc(3001, 'Search hit I replied to'), SRc(3002, 'Search hit new to me')], part, { now });
+  ok('next <word> search: the same', fs.map((q) => q.threadId).join() === '3002', fs.map((q) => q.threadId));
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

@@ -59,6 +59,12 @@ globalThis.chrome = {
       return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
     }
     if (func.name === 'extractForumList') return [{ result: { boards: [{ slug: 'white-hat-seo', id: '29', name: 'White Hat SEO' }, { slug: 'link-building', id: '48', name: 'Link Building' }, { slug: 'seo-link-building', id: '301', name: 'SEO - Link building' }, { slug: 'local-seo', id: '52', name: 'Local SEO' }, { slug: 'blogging', id: '16', name: 'Blogging' }], loggedIn: true } }];
+    if (func.name === 'extractRadarListing' && /find-threads\/contributed/.test(url)) {
+      globalThis.__partReads = (globalThis.__partReads || 0) + 1;
+      if (globalThis.__partFail) return [{ result: { rows: [], me: 'bargainbed', loggedIn: false } }];
+      const pg = /page=2/.test(url);
+      return [{ result: { rows: pg ? [] : (globalThis.__contributed || []), me: 'bargainbed', loggedIn: true } }];
+    }
     if (func.name === 'extractRadarListing' && /whats-new/.test(url)) {
       if (/whats-new\/threads/.test(url) && globalThis.__noThreadsPage) return [{ result: { rows: [], me: 'bargainbed', loggedIn: true } }];
       return [{ result: { rows: globalThis.__newRows || [], me: 'bargainbed', loggedIn: true } }];
@@ -269,7 +275,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   let r = await bg.radarNewTick({ force: true });
   let msgs = tg.filter((m) => m.method === 'sendMessage');
   ok('the new-threads page is read and one message goes out with only the threads that are yours', r.sent === 2 && msgs.length === 1 && /🆕 <b>New threads<\/b>/.test(msgs[0].text) && /account got limited/.test(msgs[0].text) && /Casino traffic from push/.test(msgs[0].text) && !/Hello from Brazil|casino ads guy/.test(msgs[0].text), msgs[0]?.text);
-  ok('only the What\'s new page is read, nothing else', opened.length === 1 && /whats-new\/$/.test(opened[0]), opened);
+  ok('only the What\'s new page is read among BHW listings (plus your replied list since 1.20), nothing else', opened.filter((u) => !/find-threads\/contributed/.test(u)).length === 1 && /whats-new\/$/.test(opened.find((u) => /whats-new/.test(u))), opened);
   ok('buttons per thread, and both are remembered as sent', msgs[0].reply_markup.inline_keyboard.length === 4 && !!bags.local.radar.sent['7001'] && !!bags.local.radar.sent['7002']);
   tg = []; r = await bg.radarNewTick({ force: true });
   ok('the next check with the same page sends nothing: only new ones ever', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'));
@@ -364,7 +370,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   ok('the terms were the first three of the family and the window is 14 days', r.terms.join() === 'cloaker,cloaking,white page' && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)) && bags.local.radar.termIdx.cloaker === 3);
   ok('more than 8 found, so Claude gated them once: the off-niche Instagram thread is out, scores are shown', claude.length === 1 && r.found >= 10 && r.gated === 1 && !/Instagram bio/.test(fm.text) && /fit 9\/10/.test(fm.text), { r, t: fm.text.slice(0, 200) });
   ok('HOT first (the 0-reply board thread or the 0-reply search thread), at most 8, the rest held', /1\. 🔥 HOT · /.test(fm.text) && r.sent === 8 && r.held >= 2 && (bags.local.radar.held.cloaker || []).length === r.held, { sent: r.sent, held: r.held });
-  ok('the funnel line, the count, the traffic line and the code words close it', /Found \d+ · gated 1 · sent 8 · held \d+/.test(fm.text) && /Public replies today/.test(fm.text) && /more cloaker/.test(fm.text.split('\n').pop()), fm.text.split('\n').slice(-4));
+  ok('the funnel line, the count, the traffic line and the code words close it', /Found \d+ ·.* · gated 1 · sent 8 · held \d+/.test(fm.text) && /Public replies today/.test(fm.text) && /more cloaker/.test(fm.text.split('\n').pop()), fm.text.split('\n').slice(-4));
   ok('buttons per thread', fm.reply_markup.inline_keyboard.length === 16);
   const heldSnapshot = (bags.local.radar.held.cloaker || [])[0];
   tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
@@ -431,6 +437,29 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   out = await say('radar');
   ok('"radar" shows Claude\'s spend and that Radar\'s Claude is paused for HAF', /Claude today: \$[\d.]+ of \$5\.00 · Radar's Claude paused, the rest is kept for HAF/.test(out), out);
   delete bags.local.ai;
+}
+
+// --- 1.20: BHW's own list of threads you posted in ---------------------------------------------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0; globalThis.__partReads = 0;
+  listings[2] = [R(9701, 'Cloaker thread I answered by hand last week', { start: 200, last: 2, rep: 6, lastPoster: 'someoneelse' }), R(9702, 'Cloaker thread nobody answered', { start: 20, last: 2, rep: 1 })];
+  globalThis.__contributed = [R(9701, 'Cloaker thread I answered by hand last week')];
+  let r = await bg.runFamily('cloaker', { force: true, fast: true });
+  const m = tg.find((x) => /🛡 <b>Cloaker<\/b>/.test(x.text || ''));
+  ok('the run reads BHW\'s "threads you contributed to" list (page 1, then page 2 when there are rows)', opened.some((u) => /find-threads\/contributed$/.test(u)) && globalThis.__partReads >= 1 && Object.keys(bags.local.radar.participated).includes('9701'), { opened: opened.filter((u) => /find-threads/.test(u)), part: bags.local.radar.participated });
+  ok('the thread you posted in is NOT in the message, the other one is', m && !/answered by hand last week/.test(m.text) && /nobody answered/.test(m.text), m?.text?.slice(0, 300));
+  ok('the funnel line says how many replied threads were left out', m && /threads you replied in left out/.test(m.text), m?.text?.split('\n').slice(-6));
+  const reads1 = globalThis.__partReads;
+  tg = []; await bg.runFamily('cloaker', { force: true, fast: true });
+  ok('the list is not re-read inside 15 minutes', globalThis.__partReads === reads1, { reads1, now: globalThis.__partReads });
+  bags.local.radar.partAt = 0; globalThis.__contributed = [];
+  await bg.refreshParticipated({ fast: true });
+  ok('a thread that drops off BHW\'s list is still remembered as replied (it is merged, never replaced)', Object.keys(bags.local.radar.participated).includes('9701'));
+  bags.local.radar.partAt = 0; globalThis.__partFail = true; delete bags.local.radar.partOk;
+  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
+  const m2 = tg.find((x) => /🛡 <b>Cloaker<\/b>/.test(x.text || ''));
+  ok('signed out or unreadable: the run still works, falls back to the row markers, and the funnel says it could not read the list', r.ok === true && (!m2 || /could not read your replied list/.test(m2.text)), { r, t: m2?.text?.split('\n').slice(-5) });
+  globalThis.__partFail = false; delete listings[2]; globalThis.__contributed = [];
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
