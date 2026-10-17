@@ -36,6 +36,16 @@ function blockedReason() {
   return '';
 }
 
+/** Is this Cloudflare's interstitial that clears by itself? Runs in the page. */
+export function isChallengePage() {
+  const t = String(document.title || '');
+  const b = String((document.body && (document.body.innerText || document.body.textContent)) || '').slice(0, 2000);
+  return /just a moment|checking your browser/i.test(t) || /performing security verification|verifies you are not a bot|checking your browser/i.test(b);
+}
+
+/** The page's HTML, for readers that parse HTML themselves (the inbox). Runs in the page. */
+export function pageHtml() { return { html: document.documentElement.outerHTML, title: document.title }; }
+
 /** Thread rows off a forum listing or the What's new page. Runs in the page. */
 export function extractListing() {
   const t = String(document.title || '');
@@ -169,6 +179,19 @@ export async function readInTab(url, func, { settleMs, args = [] } = {}) {
   try {
     await waitForTabLoad(tab.id);
     await sleep(settleMs ?? between(1500, 4000));
+    // Cloudflare's "Performing security verification" page clears itself in a
+    // real browser after a few seconds and reloads the forum page. Reading it
+    // too early called that a wall and paused everything for 30 minutes or
+    // more (1.19.4): wait up to ~30 s for it to clear first.
+    if (settleMs !== 0) {
+      for (let i = 0; i < 10; i++) {
+        let probe = null, failed = false;
+        try { [probe] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: isChallengePage }); } catch { failed = true; /* mid-navigation */ }
+        if (!failed && !(probe && probe.result === true)) break;   // only a positive "this is the check page" waits
+        await sleep(3000);
+        try { await waitForTabLoad(tab.id, 8000); } catch { /* it may not navigate */ }
+      }
+    }
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args });
     const out = r && r.result;
     if (!out) throw new Error('the page gave nothing back');

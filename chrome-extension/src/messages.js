@@ -164,15 +164,31 @@ export function titlesMatch(a, b) {
  * Returns the rows and who you are, because deciding whether a conversation
  * proves anything needs both and the username is on the same page.
  */
+/** Cloudflare's interstitial, not the forum. */
+export const CHALLENGE = /<title>\s*(just a moment|attention required|access denied)|performing security verification|checking your browser|cf-chl-|challenge-platform/i;
+
+/** Set by the background: reads a page's HTML in a real tab when a fetch meets Cloudflare. */
+let pageReader = null;
+export const setPageReader = (fn) => { pageReader = fn; };
+
 export async function fetchConversations(pages = 1, { told = '', since = 0 } = {}) {
   const all = [];
   let firstHtml = '';
   for (let p = 1; p <= pages; p++) {
     const url = p === 1 ? 'https://www.blackhatworld.com/direct-messages/'
                         : `https://www.blackhatworld.com/direct-messages/page-${p}`;
-    const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
-    if (!res.ok) throw new Error(`direct-messages page ${p} returned ${res.status}`);
-    const html = await res.text();
+    // A plain fetch first (fast). When Cloudflare answers it with a challenge
+    // or an error - the "Performing security verification" page a real browser
+    // passes in a few seconds - the same page is read in a real tab instead
+    // (1.19.4): an unreadable inbox holds every PM, so this must not give up.
+    let html = '', status = 0, okFetch = false;
+    try { const res = await fetch(url, { credentials: 'include', cache: 'no-store' }); status = res.status; okFetch = res.ok; html = res.ok ? await res.text() : ''; } catch { status = 0; }
+    // A 200 with an ordinary page (even an empty one) is the inbox as it is; only a failed fetch or the check page goes to a tab.
+    if (!okFetch || CHALLENGE.test(String(html).slice(0, 4000))) {
+      if (!pageReader) throw new Error(`direct-messages page ${p} returned ${status || 'no answer'}`);
+      html = await pageReader(url);
+      if (!html || CHALLENGE.test(html.slice(0, 4000))) throw new Error(`direct-messages page ${p} is behind a Cloudflare check that did not clear`);
+    }
     if (/\/login\b/.test(html) && !ROW_SPLIT.test(html)) {
       throw new Error('not logged in to BlackHatWorld in this Chrome profile');
     }

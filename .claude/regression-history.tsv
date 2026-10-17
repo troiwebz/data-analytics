@@ -15,3 +15,4 @@ date	mode	build	pass	failing
 2026-10-14	pre (L3: background.js, radar module + page)	1.18.0	50 mech pass; taps, staged, radarrun, pulserun alone pass; items 47-49; Families + Held tabs walked, 5 pages clean	-
 2026-10-14	pre (L3: background.js, radar.js text)	1.18.1	50 mech pass; taps, staged, pulserun, radarrun alone pass; item 50; 5 pages clean	-
 2026-10-17	pre (L3: background.js; HAF sendDm/runInThread wrapped, auto backlog notice)	1.19.3	51 mech pass; taps, staged, auto, pmcap, backlog alone pass; items 53-54; 5 pages clean	-
+2026-10-18	pre (L3: messages.js, browse.js, background.js auto holds)	1.19.4	52 mech pass; taps, radarrun alone pass; items 55-56; 5 pages clean; taps caught an empty-inbox regression, fixed	-

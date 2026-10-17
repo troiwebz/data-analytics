@@ -29,7 +29,9 @@ import { getIndex, upsertIndex, patchIndex, searchIndex, indexStats } from './th
 import { addToBank, bankMatches, bankStats } from './bank.js';
 import { materialMessages } from './material.js';
 import { runLab, runReviewLab, FILL_SYSTEM, parseFill, IDEAS_SYSTEM, ideasPrompt, parseIdeas } from './lab.js';
-import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, readSearchTab, WHATS_NEW, onPageRead, readInTab, extractThread } from './browse.js';
+import { readListingTab, readListingPages, readThreadTab, readThreadsInTabs, readSearchTab, WHATS_NEW, onPageRead, readInTab, extractThread, pageHtml } from './browse.js';
+// The inbox is fetched; when Cloudflare answers the fetch with its check page, it is read in a real tab instead.
+setPageReader(async (url) => { try { const r = await readInTab(url, pageHtml); return r && r.html; } catch { return ''; } });
 import { pushLeads, fetchApproved, reportResult, fetchRecent } from './sync.js';
 import * as telegram from './telegram.js';
 import { alive, held } from './alive.js';
@@ -58,7 +60,7 @@ import { applySeed, seedStatus, SEED_FILE } from './seed.js';
 import { loadKeysFile } from './keysfile.js';
 import { syncStatus } from './vault.js';
 import { SILENT_STATUSES, TOO_OLD, BASELINE, selectQueue, queueCounts } from './announce.js';
-import { fetchConversations, matchLead as matchConversation } from './messages.js';
+import { fetchConversations, matchLead as matchConversation, setPageReader } from './messages.js';
 import { askClaude, writeSpecifics, aiStatus, saveKey, clearKey, setBudget, setModel, setEnabled, testCall,
          revealKey, factoryReset, addCredits, resetSpend, ANGLES, checkLines, REPLY_SYSTEM, replyPrompt, composeReply } from './claude.js';
 import {
@@ -4903,6 +4905,16 @@ export function backlogWait(lead, lastDmAt, cfg, now = Date.now()) {
   return Math.max(0, lastDmAt + need - now);
 }
 
+/** A hold that stops every PM is said on Telegram, once an hour per kind (1.19.4): it used to live only in the dashboard log. */
+async function holdNotice(cfg, kind, text) {
+  if (!cfg.telegramChatId) return;
+  const key = `${kind}:${new Date().toLocaleDateString('en-CA')} ${new Date().getHours()}`;
+  const { holdNotices = {} } = await chrome.storage.local.get('holdNotices');
+  if (holdNotices[kind] === key) return;
+  await chrome.storage.local.set({ holdNotices: { ...holdNotices, [kind]: key } });
+  await telegram.say(cfg.telegramChatId, text).catch(() => {});
+}
+
 export async function runAutoQueue() {
   const cfg = await getConfig();
   // Anything from the last day that has not been judged yet - a thread found
@@ -4920,6 +4932,7 @@ export async function runAutoQueue() {
   if (!own.active || clash) {
     const why = clash ? `another program was reading this bot ${clash} min ago` : describeOwner(own);
     await logOnce('autoPaused', `auto mode: holding ${due.length} PM(s) - ${why}`, 'error', 15);
+    await holdNotice(cfg, 'owner', `⏸ HAF auto mode is holding ${due.length} PM(s): ${why}. On the machine that should send, open the dashboard and press "Keep THIS as the main system".`);
     // Held, not dropped - but a PM that would arrive half an hour late is left for you.
     for (const l of due) {
       if (Date.now() - l.autoSendAt > 30 * 60000) await updateLead(l.threadId, { autoSendAt: 0, autoTest: false, autoSendBlocked: `held too long: ${why}` });
@@ -4930,6 +4943,7 @@ export async function runAutoQueue() {
   const wrongLogin = await loginMismatch(cfg);
   if (wrongLogin) {
     await logOnce('wrongLogin', `auto mode: holding ${due.length} PM(s) - ${wrongLogin}`, 'error', 15);
+    await holdNotice(cfg, 'login', `⏸ HAF auto mode is holding ${due.length} PM(s): ${wrongLogin}. Sign in to the right BHW account in that Chrome.`);
     return { due: due.length, sent: 0, held: wrongLogin };
   }
   await clearLogOnce('wrongLogin');
@@ -4976,6 +4990,7 @@ export async function runAutoQueue() {
     }
     if (!inbox) {
       await logOnce('autoInbox', `auto mode: holding ${due.length} PM(s) - could not read your BHW message list (${inboxErr}), so a duplicate cannot be ruled out`, 'error', 15);
+      await holdNotice(cfg, 'inbox', `⏸ HAF auto mode is holding ${due.length} PM(s): your BHW message list could not be read (${inboxErr}), so a duplicate cannot be ruled out. It retries every minute.`);
       for (const l of due) {
         if (Date.now() - l.autoSendAt > 30 * 60000) await updateLead(l.threadId, { autoSendAt: 0, autoTest: false, autoSendBlocked: `held too long: could not read your BHW message list (${inboxErr})` });
       }

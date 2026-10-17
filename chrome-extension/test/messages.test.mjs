@@ -142,6 +142,43 @@ ok('no page-2 walk', !asked.some((u) => /page-/.test(u)), JSON.stringify(asked))
 ok('the rows and your username come back together',
    got.rows.length === 4 && got.me === norm(ME), JSON.stringify({ n: got.rows.length, me: got.me }));
 
+// --- 1.19.4: Cloudflare in front of the inbox ---------------------------------------------------
+// An unreadable inbox holds every auto PM (a duplicate cannot be ruled out). When
+// Cloudflare answered the plain fetch with its check page or a 403, the inbox was
+// "unreadable" for as long as the check lasted - days, on a network it challenges.
+{
+  const mod = await import('../src/messages.js');
+  const challenge = '<html><head><title>Just a moment...</title></head><body>Performing security verification</body></html>';
+  const tabbed = [];
+  mod.setPageReader(async (url) => { tabbed.push(url); return html; });
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => challenge });
+  let g = await mod.fetchConversations();
+  ok('a 403 from the fetch: the inbox is read in a real tab instead, and parsed the same', tabbed.length === 1 && g.rows.length === 4 && g.me === norm(ME), JSON.stringify({ tabbed, n: g.rows.length }));
+  tabbed.length = 0;
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => challenge });
+  g = await mod.fetchConversations();
+  ok('a 200 that is really the Cloudflare check page: also read in a tab', tabbed.length === 1 && g.rows.length === 4);
+  tabbed.length = 0;
+  globalThis.fetch = async () => { throw new Error('network'); };
+  g = await mod.fetchConversations();
+  ok('a fetch that throws: read in a tab', tabbed.length === 1 && g.rows.length === 4);
+  mod.setPageReader(async () => challenge);
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => challenge });
+  let err = ''; try { await mod.fetchConversations(); } catch (e) { err = e.message; }
+  ok('if the tab is still on the check page, it is an error that says so (never an empty inbox)', /Cloudflare check that did not clear/.test(err), err);
+  mod.setPageReader(null);
+  err = ''; try { await mod.fetchConversations(); } catch (e) { err = e.message; }
+  ok('with no tab reader set, a failed fetch is still an error, never an empty list', /returned 403/.test(err), err);
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => html });
+  tabbed.length = 0; mod.setPageReader(async (url) => { tabbed.push(url); return html; });
+  await mod.fetchConversations();
+  ok('a normal fetch never opens a tab', tabbed.length === 0);
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '' });
+  await mod.fetchConversations();
+  ok('an empty 200 page is an empty inbox, not a reason to open a tab (the taps suite caught this)', tabbed.length === 0);
+  mod.setPageReader(null);
+}
+
 // --- working out who you are ------------------------------------------------
 //
 // This is what the whole check rests on, and it was resting on two regexes
