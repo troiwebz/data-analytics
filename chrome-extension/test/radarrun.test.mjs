@@ -207,10 +207,10 @@ delete bags.local.radar; tg = []; blockAt = '/forums/175/';
 const openedBefore = opened.length;
 r = await bg.runRadar({ fast: true });
 ok('a Cloudflare wall stops the sweep at that page and sends no cards', /blocked/i.test(r.error || '') && !tg.some((m) => m.method === 'sendMessage' && m.reply_markup) && opened.length - openedBefore === 3, { r, n: opened.length - openedBefore });
-ok('and the 30-minute pause HAF uses is set, so nothing keeps knocking', Number(bags.local.sourcesBackoffUntil) > Date.now() + 20 * 60000);
+ok('1.19: the pause is Radar\'s own - HAF\'s pause is NOT set, so HAF keeps reading', Number(bags.local.radarBackoffUntil) > Date.now() + 20 * 60000 && !bags.local.sourcesBackoffUntil, { radar: bags.local.radarBackoffUntil, haf: bags.local.sourcesBackoffUntil });
 r = await bg.runRadar({ fast: true });
 ok('while the pause holds, Radar opens nothing', r.skipped === 'wall' && opened.length - openedBefore === 3);
-blockAt = null; delete bags.local.sourcesBackoffUntil;
+blockAt = null; delete bags.local.radarBackoffUntil;
 
 // --- "Check BHW now" on the page reads and queues but sends nothing ---------------------------------
 delete bags.local.radar; tg = [];
@@ -408,6 +408,29 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   await bg.__blocksTickForTest(); await new Promise((rs) => setTimeout(rs, 300));
   ok('the board blocks no longer run on their own (opt-in since the families took over)', !opened.length && !(bags.local.radar.blockRuns || {}).ads);
   delete listings[2];
+}
+
+// --- 1.19: HAF first --------------------------------------------------------------------------------
+{
+  bags.local.hafBusyUntil = Date.now() + 120000; opened.length = 0; tg = [];
+  const rs = [await bg.runFamily('cloaker', { force: true, fast: true }), await bg.radarNewTick({ force: true }), await bg.runBlock('ads', { force: true, fast: true }), await bg.pulseRead({ force: true }), await bg.runRadar({ fast: true })];
+  ok('while HAF is sending, families, new threads, blocks, traffic and the old batch all step aside and open nothing', rs.every((r) => r.skipped === 'haf') && !opened.length, rs);
+  delete bags.local.hafBusyUntil;
+  bags.local.sourcesBackoffUntil = Date.now() + 10 * 60000;
+  const r1 = await bg.runFamily('cloaker', { force: true, fast: true });
+  ok('HAF\'s own wall pauses Radar too (safe side)', r1.skipped === 'wall');
+  delete bags.local.sourcesBackoffUntil;
+  const day = new Date().toLocaleDateString('en-CA');
+  bags.local.ai = { budget: 5, usage: { day, calls: 10, leads: 10, in: 1000000, cached: 0, out: 180000 } };   // about $2 in + $1.8 out on Sonnet: under $1.50 left
+  delete bags.local.radar; claude = []; tg = []; globalThis.__newRows = [];
+  const r2 = await bg.runFamily('cloaker', { force: true, fast: true });
+  const famMsg = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('with the reserve reached, a family run with more than 8 found skips the Claude gate and says so', r2.ok && r2.found > 8 && claude.length === 0 && famMsg && /gate off \(Claude kept for HAF\)/.test(famMsg.text), { r2, n: claude.length, t: famMsg?.text?.slice(0, 200) });
+  let out = await say('brief 1');
+  ok('"brief" is refused while the reserve holds, with the reason', /kept for HAF/.test(out) && claude.length === 0, out.slice(0, 160));
+  out = await say('radar');
+  ok('"radar" shows Claude\'s spend and that Radar\'s Claude is paused for HAF', /Claude today: \$[\d.]+ of \$5\.00 · Radar's Claude paused, the rest is kept for HAF/.test(out), out);
+  delete bags.local.ai;
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

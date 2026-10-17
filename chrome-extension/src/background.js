@@ -1631,6 +1631,34 @@ async function clearWallNotice(cfg) {
   await watch(cfg, 'bhwWall', false, '', 'BlackHatWorld reads are back to normal.');
 }
 
+// --- 1.19: HAF comes first -------------------------------------------------------------
+// Radar, the new-thread watch and Traffic keep their OWN pause: a wall they
+// meet never stops HAF's reads (HAF's own wall still stops them, to be safe).
+const RADAR_WALL_KEY = 'radarBackoffUntil';
+async function radarPaused() {
+  const until = await walled(); if (until) return until;
+  const { [RADAR_WALL_KEY]: mine = 0 } = await chrome.storage.local.get(RADAR_WALL_KEY);
+  return Date.now() < mine ? mine : 0;
+}
+async function radarWall(why) {
+  await chrome.storage.local.set({ [RADAR_WALL_KEY]: Date.now() + 30 * 60000 });
+  await log(`${why} - Radar and Traffic pause for 30 minutes (HAF keeps reading)`, 'error');
+}
+// While HAF is sending a PM or posting, the side readers wait: no tab of theirs
+// opens next to HAF's content script.
+const HAF_BUSY_KEY = 'hafBusyUntil';
+const hafBusy = async () => { const { [HAF_BUSY_KEY]: until = 0 } = await chrome.storage.local.get(HAF_BUSY_KEY); return Date.now() < until; };
+const hafBusyOn = () => chrome.storage.local.set({ [HAF_BUSY_KEY]: Date.now() + 4 * 60000 });
+const hafBusyOff = () => chrome.storage.local.remove(HAF_BUSY_KEY);
+// Claude's daily budget is shared; HAF's screen must never find it empty because
+// Radar spent it. The side modules stop using Claude once the day's remaining
+// budget falls under the reserve.
+const CLAUDE_RESERVE = 1.5;
+async function radarClaudeOk() {
+  try { const a = await aiStatus(); if (!a || !(Number(a.budget) > 0)) return { ok: true }; return a.remaining > CLAUDE_RESERVE ? { ok: true, remaining: a.remaining } : { ok: false, remaining: a.remaining }; }
+  catch { return { ok: true }; }
+}
+
 const SWEEP_KEY = 'sourcesSweep';
 const FULL_SWEEP_EVERY_MS = 20 * 60000;
 
@@ -1811,11 +1839,12 @@ const setPulseMeta = async (patch) => { const { meta } = await getPulse(); await
 
 /** One reading of BHW's online page, in a tab. Never throws into the tick. */
 export async function pulseRead({ force = false } = {}) {
+  if (await hafBusy()) return { skipped: 'haf' };
   const { samples, meta } = await getPulse();
   const now = Date.now();
   if (!force && meta.lastReadAt && now - meta.lastReadAt < pulse.EVERY_MS) return { skipped: 'not due' };
   if (meta.reading && now - meta.reading < 3 * 60000) return { skipped: 'busy' };
-  if (await walled()) return { skipped: 'wall' };
+  if (await radarPaused()) return { skipped: 'wall' };
   await setPulseMeta({ reading: now });
   try {
     const r = await readInTab(pulse.ONLINE_URL, pulse.extractOnline);
@@ -1824,7 +1853,7 @@ export async function pulseRead({ force = false } = {}) {
     await chrome.storage.local.set({ [PULSE_KEY]: next, [PULSE_META]: { ...(await getPulse()).meta, reading: 0, lastReadAt: now, lastError: '', last: { ts: now, ...r } } });
     return { ok: true, ...r };
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await setPulseMeta({ reading: 0, lastReadAt: now, lastError: e.message });
     await log(`BHW traffic: ${e.message}`, 'error');
     return { error: e.message };
@@ -1929,12 +1958,13 @@ async function radarStatus() {
  * Shares the "sent" memory with the hourly batch and "next", so nothing comes twice.
  */
 export async function radarNewTick({ force = false } = {}) {
+  if (await hafBusy()) return { skipped: 'haf' };
   const rc = await getRadarCfg();
   if (rc.newWatch === false && !force) return { skipped: 'off' };
   let st = await getRadar();
   const every = Math.max(5, Number(rc.newEvery) || 15) * 60000;
   if (!force && st.newAt && Date.now() - st.newAt < every) return { skipped: 'not due' };
-  if (await walled()) return { skipped: 'wall' };
+  if (await radarPaused()) return { skipped: 'wall' };
   await setRadar({ ...st, newAt: Date.now() });
   const cfg = await getConfig();
   try {
@@ -1961,7 +1991,7 @@ export async function radarNewTick({ force = false } = {}) {
     await log(`Reply Radar new threads: ${rows.length} on the page, ${batch.length} new for you, one message`);
     return { ok: true, read: rows.length, sent: batch.length };
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar new threads: ${e.message}`, 'error');
     return { error: e.message };
   }
@@ -1988,13 +2018,14 @@ async function resolvedBoards(block, rc) {
 
 /** One block: page 1 of each of its boards, one message, plus "they answered you" when it applies. */
 export async function runBlock(blockId, { force = false, fast = false } = {}) {
+  if (await hafBusy()) return { skipped: 'haf' };
   const { rc, blocks } = await blocksCfg();
   const block = blocks.find((b) => b.id === blockId);
   if (!block) return { error: `no block "${blockId}"` };
   if (!block.on && !force) return { skipped: 'off' };
   let st = await getRadar();
   if (st.blockRunning && Date.now() - st.blockRunning < 10 * 60000) return { skipped: 'busy' };
-  if (await walled()) return { skipped: 'wall' };
+  if (await radarPaused()) return { skipped: 'wall' };
   await setRadar({ ...st, blockRunning: Date.now() });
   const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
   const tabOpts = fast ? { settleMs: 0 } : {};
@@ -2032,7 +2063,7 @@ export async function runBlock(blockId, { force = false, fast = false } = {}) {
     await log(`Reply Radar ${block.name}: ${boards.length} boards, ${pages.reduce((n, p) => n + p.rows.length, 0)} threads on page 1, ${sent} in the message${back.length ? `, ${back.length} answered you` : ''}`);
     return { ok: true, sent, back: back.length, boards: boards.length };
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar ${block.name}: ${e.message}`, 'error');
     return { error: e.message };
   } finally { const cur = await getRadar(); if (cur.blockRunning) await setRadar({ ...cur, blockRunning: 0 }); }
@@ -2054,12 +2085,13 @@ async function familiesCfg() { const rc = await getRadarCfg(); return { rc, fami
  * rest of the candidates wait on the Radar page as the held list.
  */
 export async function runFamily(famId, { force = false, fast = false, more = false } = {}) {
+  if (await hafBusy()) return { skipped: 'haf' };
   const { rc, families } = await familiesCfg();
   const f = families.find((x) => x.id === famId);
   if (!f) return { error: `no family "${famId}"` };
   let st = await getRadar();
   if (st.famRunning && Date.now() - st.famRunning < 10 * 60000) return { skipped: 'busy' };
-  if (await walled()) return { skipped: 'wall' };
+  if (await radarPaused()) return { skipped: 'wall' };
   await setRadar({ ...st, famRunning: Date.now() });
   const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
   const tabOpts = fast ? { settleMs: 0 } : {};
@@ -2089,7 +2121,8 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
     const found = fresh.length;
     // 3. the Claude gate, only when there is more than a message's worth
     let gated = 0;
-    if (fresh.length > GATE_ABOVE && rc.gate !== false) {
+    const claudeOk = await radarClaudeOk();
+    if (fresh.length > GATE_ABOVE && rc.gate !== false && claudeOk.ok) {
       try {
         const a = await askClaude(GATE_SYSTEM, gatePrompt(f, fresh), { maxTokens: 1500, timeoutMs: 60000 });
         cost += a.cost || 0;
@@ -2105,7 +2138,7 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
       // The full command list once a day, before the day's first family message, so the words are never far away.
       const today = new Date().toLocaleDateString('en-CA');
       if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
-      const funnel = `Found ${found}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
+      const funnel = `Found ${found}${claudeOk.ok ? '' : ' · gate off (Claude kept for HAF)'}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
       const mid = await telegram.sendCard(cfg.telegramChatId, formatFamily(f, items, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), funnel, families: rc.families }), batchKeyboard(items));
       const cards = { ...(st.cards || {}) };
       if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
@@ -2119,7 +2152,7 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
     await log(`Reply Radar ${f.name}: terms ${terms.join(', ')} · ${searchRows.length} search rows, ${pages.reduce((n, p) => n + p.rows.length, 0)} board rows · found ${found}, gated ${gated}, sent ${sent}, held ${held.length}${cost ? ` ($${cost.toFixed(3)})` : ''}${loggedIn ? '' : ' · signed out, boards only'}`);
     return { ok: true, sent, found, gated, held: held.length, loggedIn, terms };
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar ${f.name}: ${e.message}`, 'error');
     return { error: e.message };
   } finally { const cur = await getRadar(); if (cur.famRunning) await setRadar({ ...cur, famRunning: 0 }); }
@@ -2163,7 +2196,8 @@ async function briefCommand(n, cfg) {
   if (!id) { await telegram.say(cfg.telegramChatId, `No thread ${n} in the last message.`); return; }
   const q = card.items?.[id] || st.queue[id] || { threadId: id, url: st.replied[id]?.url, title: st.replied[id]?.title || '' };
   if (!q.url) { await telegram.say(cfg.telegramChatId, `Thread ${n} has no link saved.`); return; }
-  if (await walled()) { await telegram.say(cfg.telegramChatId, 'BHW showed a wall recently; try again in a while.'); return; }
+  if (await radarPaused()) { await telegram.say(cfg.telegramChatId, 'BHW showed a wall recently; try again in a while.'); return; }
+  { const c = await radarClaudeOk(); if (!c.ok) { await telegram.say(cfg.telegramChatId, `Claude's remaining budget today ($${Number(c.remaining || 0).toFixed(2)}) is kept for HAF's screen. Briefs come back tomorrow, or raise the limit in Settings.`); return; } }
   try {
     const first = await readInTab(q.url, extractThread);
     let replies = first.replies || [];
@@ -2179,7 +2213,7 @@ async function briefCommand(n, cfg) {
     if (b.gap) lines.push(`Missing: ${h(b.gap)}`);
     await telegram.sendCard(cfg.telegramChatId, lines.join('\n'), batchKeyboard([{ threadId: id, url: q.url }]));
     await log(`Reply Radar brief for "${q.title}" ($${Number(a.cost || 0).toFixed(3)})`);
-  } catch (e) { if (/blocked/i.test(e.message)) await wall(e.message); await telegram.say(cfg.telegramChatId, `Could not make the brief: ${e.message}`); }
+  } catch (e) { if (/blocked/i.test(e.message)) await radarWall(e.message); await telegram.say(cfg.telegramChatId, `Could not make the brief: ${e.message}`); }
 }
 const h = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -2195,11 +2229,12 @@ async function radarTick() {
 
 /** One sweep and one batch. `send: false` reads and queues only (the page's Refresh). `fast` drops the human pauses - tests only. */
 export async function runRadar({ send = true, fast = false } = {}) {
+  if (await hafBusy()) return { skipped: 'haf' };
   const cfg = await getConfig();
   const rc = await getRadarCfg();
   let st = await getRadar();
   if (st.running && Date.now() - st.running < 10 * 60000) return { skipped: 'busy' };
-  const until = await walled();
+  const until = await radarPaused();
   if (until) return { skipped: 'wall', until };
   st = { ...st, running: Date.now(), ...(send ? { lastTryAt: Date.now() } : {}) };
   await setRadar(st);
@@ -2227,7 +2262,7 @@ export async function runRadar({ send = true, fast = false } = {}) {
     const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
     const me = String(cfg.bhwUsername || bhwMe || cfg.boundAccount || '').toLowerCase();
     const texts = [];
-    if (rc.briefs !== false) {
+    if (rc.briefs !== false && (await radarClaudeOk()).ok) {
       const tried = new Set();
       // Two rounds: a pick that turns out to carry your reply already is dropped and replaced once.
       for (let round = 0; round < 2; round++) {
@@ -2283,7 +2318,7 @@ export async function runRadar({ send = true, fast = false } = {}) {
     await log(`Reply Radar: ${read} threads read, ${Object.keys(st.queue).length} in the queue, ${sent} thread(s) in one message${cost ? ` ($${Number(cost).toFixed(3)})` : ''}${note}`);
     return { ok: true, read, sent, cost };
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar: ${e.message}`, 'error');
     return { error: e.message };
   } finally {
@@ -2332,13 +2367,14 @@ async function radarSearch(keyword, n, cfg) {
   // Ten live searches an hour at most: a burst of search pages is what draws a wall.
   const hour = (st.searchLog || []).filter((t) => Date.now() - t < 3600000);
   if (hour.length >= 10) { await telegram.say(chat, '🔎 Ten live searches already this hour. Wait a few minutes and send it again.'); return; }
-  const until = await walled();
+  const until = await radarPaused();
   if (until) { await telegram.say(chat, `🔎 BHW showed a wall recently; searching again from ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`); return; }
   const kw = keyword.toLowerCase().trim();
   let family = familyFor(kw, rc.families);
   let cost = 0;
   if (!family) {
     try {
+      if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
       const a = await askClaude(FAMILY_SYSTEM, familyPrompt(kw), { maxTokens: 600, timeoutMs: 60000 });
       cost += a.cost || 0;
       family = parseFamily(a.text, kw);
@@ -2369,6 +2405,7 @@ async function radarSearch(keyword, n, cfg) {
     if (!found.length) { await telegram.say(chat, `🔎 Nothing new for <b>${kw}</b> in the last 7 days that you have not already been sent. Try another word, or "family ${kw}" to widen it.`, { html: true }); return; }
     let clusters;
     try {
+      if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
       const a = await askClaude(CLUSTER_SYSTEM, clusterPrompt(kw, found), { maxTokens: 2500, timeoutMs: 90000 });
       cost += a.cost || 0;
       clusters = parseClusters(a.text, found);
@@ -2388,7 +2425,7 @@ async function radarSearch(keyword, n, cfg) {
     await saveRadar({ ...markSent(st, shown), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) });
     await log(`Reply Radar search "${kw}": ${rows.length} results, ${found.length} new threads, ${clusters.length} cluster(s) in one message${cost ? ` ($${cost.toFixed(3)})` : ''}`);
   } catch (e) {
-    if (/blocked/i.test(e.message)) await wall(e.message);
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar search: ${e.message}`, 'error');
     await telegram.say(chat, `🔎 Search failed: ${e.message}`);
   } finally { await jobEnd(); }
@@ -2478,8 +2515,8 @@ async function radarCommand(body, cfg) {
     return true;
   }
   const st = await getRadar();
-  const until = await walled();
-  await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting${until ? ` · BHW reading paused until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Cloudflare wall)` : ''}.\nSend "radar help" for everything you can type.`);
+  const until = await radarPaused(); const ck = await radarClaudeOk(); const ai = await aiStatus().catch(() => null);
+  await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting${until ? ` · Radar reading paused until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Cloudflare wall)` : ''}${(await hafBusy()) ? ' · waiting: HAF is sending' : ''}.\nClaude today: $${Number(ai?.spentToday || 0).toFixed(2)} of $${Number(ai?.budget || 0).toFixed(2)}${ck.ok ? '' : ' · Radar\'s Claude paused, the rest is kept for HAF'}.\nSend "radar help" for everything you can type.`);
   return true;
 }
 
@@ -4806,6 +4843,16 @@ export async function armAutoBacklog(cfg, { rescreen = false, max = 8 } = {}) {
     for (const r of read) { byId.set(String(r.threadId), { ...byId.get(String(r.threadId)), ...r }); if (r.body) await updateLead(r.threadId, { body: r.body, replies: r.replies || [] }); }
     const asked = need.map((l) => byId.get(String(l.threadId)));
     const { specifics, note } = await specificsFor(asked, { ...cfg, aiSpecifics: true }, { force: true });
+    // Nothing came back for anyone: say so on Telegram once an hour, because a
+    // PM that waits for a screen that never comes looks exactly like silence.
+    if (asked.length && !Object.keys(specifics).length && cfg.telegramChatId) {
+      const key = `${new Date().toLocaleDateString('en-CA')} ${new Date().getHours()}`;
+      const { claudeHoldNotice } = await chrome.storage.local.get('claudeHoldNotice');
+      if (claudeHoldNotice !== key) {
+        await chrome.storage.local.set({ claudeHoldNotice: key });
+        await telegram.say(cfg.telegramChatId, `⚠️ Claude could not screen ${asked.length} HAF thread(s): ${note || 'no answer'}. Nothing is sent without the screen; they wait. Send "claude" to see today's spend and limit.`).catch(() => {});
+      }
+    }
     for (const l of asked) {
       const got = specifics[String(l.threadId)];
       // No fresh answer: an old verdict is never reused in its place.
@@ -5101,6 +5148,10 @@ export async function postLead(lead, cfg, { edited = false, by = '' } = {}) {
 const PM_LOCK_MS = 3 * 60000;
 
 export async function sendDm(lead, cfg, { mode = 'send' } = {}) {
+  await hafBusyOn();                                   // side readers wait while HAF sends (1.19)
+  try { return await sendDmInner(lead, cfg, { mode }); } finally { await hafBusyOff(); }
+}
+async function sendDmInner(lead, cfg, { mode = 'send' } = {}) {
   if (mode === 'send') {
     const own = await ownership({ fresh: true }).catch(() => ({ active: true, known: false }));
     if (own.known && !own.active) {
@@ -5273,6 +5324,10 @@ function waitForResult(threadId, timeoutMs = 45000) {
  *   mode 'submit' → existing tab (opts.tabId), submit, close
  */
 export async function runInThread(lead, mode, opts = {}) {
+  await hafBusyOn();                                   // side readers wait while HAF posts (1.19)
+  try { return await runInThreadInner(lead, mode, opts); } finally { await hafBusyOff(); }
+}
+async function runInThreadInner(lead, mode, opts = {}) {
   let tabId = opts.tabId;
   let opened = false;
   try {

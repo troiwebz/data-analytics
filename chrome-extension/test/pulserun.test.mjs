@@ -64,8 +64,8 @@ ok('nothing of HAF, Radar or the old bump samples is written', !bags.local.recen
 r = await bg.pulseRead();
 ok('a second reading inside 30 minutes is not taken', r.skipped === 'not due' && opened.length === 1, r);
 blocked = true; r = await bg.pulseRead({ force: true });
-ok('a Cloudflare wall is not stored as a reading, and the shared 30-minute pause is set', r.error && bags.local.pulseSamples.length === 1 && Number(bags.local.sourcesBackoffUntil) > Date.now(), r);
-blocked = false; delete bags.local.sourcesBackoffUntil;
+ok('a Cloudflare wall is not stored as a reading, and Radar\'s own 30-minute pause is set (not HAF\'s)', r.error && bags.local.pulseSamples.length === 1 && Number(bags.local.radarBackoffUntil) > Date.now() && !bags.local.sourcesBackoffUntil, r);
+blocked = false; delete bags.local.radarBackoffUntil;
 
 // --- "online", "traffic off / on" ------------------------------------------------------------
 let out = await say('online');
