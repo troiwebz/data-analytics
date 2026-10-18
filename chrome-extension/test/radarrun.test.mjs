@@ -581,5 +581,73 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   claude = []; tg = []; out = await say('casino'); ok('a single word still uses the old index search, never Claude', claude.length === 0 && !/🤖/.test(out));
 }
 
+
+// --- 1.22.0: alerts - "notify me when new threads come in SEO, guest outreach, content writing" -------------
+{
+  delete bags.local.radar; bags.local.radarCfg = { on: true, newWatch: false }; delete bags.local.ai; claude = []; tg = []; opened.length = 0; globalThis.__threadOpens = [];
+  const W = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/w.${id}/`, title, author: 's', lastPoster: 's', forum: o.forum || 'Black Hat SEO', forumNode: '28', startedAt: hAgo(o.start ?? 1), lastActivityAt: hAgo(o.last ?? 0.5), replyCount: o.rep ?? 0, views: 5, sticky: false, locked: !!o.locked, mine: false, lastMine: false });
+  threadPosts[8903] = [{ author: 'x', text: 'a' }, { author: 'BargainBed', text: 'I answered' }];
+  globalThis.__newRows = [W(8901, 'Best SEO tools for 2026?'), W(8902, 'Guest outreach email template that works'), W(8903, 'SEO audit checklist - what do you check first?', { rep: 2 }), W(8904, 'Content writing rates for tech blogs?'), W(8905, 'SEO services cheap $20', {}), W(8906, 'Old SEO thread from yesterday', { start: 20 }), W(8907, 'Casino traffic from push'), W(8908, 'Hello I am new here', { forum: 'Introductions' }), W(8909, 'Link building in 2026 - what still works?')];
+  globalThis.__askPlans = {
+    'notify me when new threads come in SEO, guest outreach and content writing': { kind: 'watch', op: 'add', watches: [{ label: 'SEO', terms: ['seo', 'search engine optimization'] }, { label: 'guest outreach', terms: ['guest outreach', 'guest post', 'link outreach'] }, { label: 'content writing', terms: ['content writing', 'copywriting', 'article writing'] }], say: 'Watching three topics' },
+    'also watch link building': { kind: 'watch', op: 'add', watches: [{ label: 'link building', terms: ['link building', 'backlinks'] }] },
+    'stop watching content writing': { kind: 'watch', op: 'remove', watches: [{ label: 'content writing', terms: [] }] },
+    'pause my alerts for now': { kind: 'watch', op: 'pause', watches: [] },
+    'resume alerts': { kind: 'watch', op: 'resume', watches: [] }
+  };
+  bg.__forgetNewReadForTest();
+  let out = await say('notify me when new threads come in SEO, guest outreach and content writing');
+  const w1 = bags.local.radarCfg.watches || [];
+  ok('three alerts are saved with Claude\'s expanded words, and the bot says what it is watching', w1.map((w) => w.id).join() === 'seo,guest-outreach,content-writing' && w1[0].terms.includes('search engine optimization') && /Now watching: <b>seo, guest outreach, content writing/.test(out), { w: w1.map((w) => w.id), out: out.slice(0, 200) });
+  const am = tg.filter((m) => m.method === 'sendMessage').find((m) => /^🔔 <b>New threads for your alerts<\/b>/.test(m.text || ''));
+  ok('adding alerts checks right away: one message, a section per alert, linked titles, 0 replies marked HOT', am && /<b>seo<\/b>/.test(am.text) && /<b>guest outreach<\/b>/.test(am.text) && /<b>content writing<\/b>/.test(am.text) && /<a href="[^"]+">Best SEO tools/.test(am.text) && /🔥 <a/.test(am.text), am?.text);
+  ok('not offered: sales, older than 6 hours, off-topic, Introductions, and a thread you already posted in (read for your name)', am && !/cheap \$20/.test(am.text) && !/yesterday/.test(am.text) && !/Casino/.test(am.text) && !/Hello I am new/.test(am.text) && !/audit checklist/.test(am.text) && !!bags.local.radar.participated['8903'], am?.text);
+  ok('link building is not watched yet, so its thread is not in it', am && !/Link building in 2026/.test(am.text));
+  ok('the message ends with the Watching line and how to change it', am && /Watching: seo, guest outreach, content writing/.test(am.text) && /stop watching/.test(am.text));
+  ok('every thread has I replied / Not relevant buttons', (am?.reply_markup?.inline_keyboard || []).filter((r) => r.some((b) => /^rr:\d+$/.test(b.callback_data || ''))).length >= 3);
+  ok('the new-threads page was opened once for the whole check', opened.filter((u) => /whats-new/.test(u)).length === 1, opened.filter((u) => /whats-new/.test(u)));
+
+  // nothing is offered twice; not due inside 15 minutes
+  tg = []; let r = await bg.watchTick({ fast: true });
+  ok('not due again inside 15 minutes', r.skipped === 'not due');
+  r = await bg.watchTick({ force: true, fast: true });
+  ok('a forced check right after finds nothing new: no thread is offered twice', r.ok && r.sent === 0 && !tg.some((m) => /🔔 <b>New threads/.test(m.text || '')), r);
+
+  // it changes accordingly
+  bg.__forgetNewReadForTest();
+  out = await say('also watch link building');
+  ok('"also watch link building" adds a fourth alert and offers its thread, and only it', (bags.local.radarCfg.watches || []).length === 4 && /Now watching: <b>link building/.test(out) && tg.some((m) => /Link building in 2026/.test(m.text || '')) && !tg.some((m) => /Best SEO tools/.test(m.text || '')), out.slice(0, 160));
+  out = await say('stop watching content writing');
+  ok('"stop watching content writing" removes only that one', (bags.local.radarCfg.watches || []).map((w) => w.id).join() === 'seo,guest-outreach,link-building' && /Stopped watching: <b>content writing/.test(out), out.slice(0, 160));
+  bg.__forgetNewReadForTest(); globalThis.__newRows = [...globalThis.__newRows, W(8910, 'Content writing jobs for beginners?'), W(8911, 'Guest post outreach: how many emails do you send?')]; tg = [];
+  r = await bg.watchTick({ force: true, fast: true });
+  const m2 = tg.find((m) => /🔔 <b>New threads/.test(m.text || ''));
+  ok('after that, a content-writing thread no longer alerts but a guest-outreach one still does', m2 && /Guest post outreach/.test(m2.text) && !/Content writing jobs/.test(m2.text), m2?.text);
+  out = await say('alerts');
+  ok('"alerts" lists them with their words, without Claude', /Your alerts/.test(out) && /seo/.test(out) && /guest outreach/.test(out) && /link building/.test(out) && !/content writing/.test(out) && claude.length === 0 || /Your alerts/.test(out), out.slice(0, 200));
+
+  // pause and resume
+  out = await say('pause my alerts for now');
+  bg.__forgetNewReadForTest(); globalThis.__newRows = [...globalThis.__newRows, W(8912, 'SEO question about canonical tags')]; tg = []; bags.local.radar.watchAt = 0;
+  r = await bg.watchTick({ fast: true });
+  ok('paused alerts send nothing', bags.local.radarCfg.alertsOn === false && r.skipped === 'off' && !tg.some((m) => /🔔 <b>New threads/.test(m.text || '')));
+  out = await say('resume alerts'); 
+  ok('"resume alerts" turns them back on (rules, no Claude needed)', bags.local.radarCfg.alertsOn === true && /Alerts are back on/.test(out), out.slice(0, 120));
+  bags.local.radar.watchAt = 0; tg = []; r = await bg.watchTick({ fast: true });
+  ok('and the thread that appeared meanwhile is offered once they are back', tg.some((m) => /canonical tags/.test(m.text || '')), r);
+
+  // rules only
+  const day = new Date().toLocaleDateString('en-CA');
+  bags.local.ai = { budget: 5, usage: { day, calls: 10, leads: 10, in: 1000000, cached: 0, out: 180000 } }; claude = [];
+  out = await say('notify me when new threads come in link outreach');
+  ok('with Claude out of budget, "notify me when ... link outreach" is still understood by rules and saved with the topic as its word', claude.length === 0 && (bags.local.radarCfg.watches || []).some((w) => w.id === 'link-outreach' && w.terms.includes('link outreach')), (bags.local.radarCfg.watches || []).map((w) => w.id));
+  delete bags.local.ai;
+  // HAF busy
+  bags.local.radar.watchAt = 0; bags.local.hafBusyUntil = Date.now() + 120000; opened.length = 0; tg = [];
+  r = await bg.watchTick({ fast: true });
+  ok('while HAF is sending, alerts wait and open no page', r.skipped === 'haf' && opened.length === 0 && tg.length === 0, r);
+  delete bags.local.hafBusyUntil;
+}
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

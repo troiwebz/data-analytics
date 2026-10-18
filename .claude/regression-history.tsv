@@ -19,3 +19,4 @@ date	mode	build	pass	failing
 2026-10-18	pre (L3: background.js auto send-time notices)	1.19.5	52 mech pass; taps, radarrun, watchdog, auto alone pass; item 57	-
 2026-10-18	pre (L3: radar module + background.js)	1.20.0	52 mech pass; taps, radarrun, watchdog, auto, hafhold alone pass; item 58; BHW contributed-list page NOT verified live (signed out here)	-
 2026-10-18	1.21.0	gate: radar ask radarrun taps watchdog auto hafhold pulse pulserun messages staged dupes twocopies all pass alone; isolated walk of 5 pages 0 errors, Families tab shows PBN, no cloaker; Ask mode NOT walked live (Telegram + BHW sign-in needed)
+2026-10-18	1.22.0	gate: 13 suites pass alone; isolated walk of 5 pages 0 errors; alerts NOT walked live (Telegram + BHW sign-in)

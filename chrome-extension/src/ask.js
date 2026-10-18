@@ -25,6 +25,7 @@ export const ASK_SYSTEM = [
   '  "search"  - the owner wants threads about a topic (PBN, guest posts, guest outreach, link building, tools, an ad network...).',
   '  "new"     - the owner wants whatever is new on the forum ("check what\'s new", "new threads"); terms may be empty or a topic filter.',
   '  "command" - the owner asks the bot to do one of: radar, radar help, families, new threads, new threads on, new threads off, online, online now. Put it in "command".',
+  '  "watch"   - the owner wants to be NOTIFIED when new threads about topics appear ("notify me when new threads come in SEO, guest outreach and content writing"), or to change that list ("also watch link building", "stop watching content writing", "what am I watching", "pause alerts"). Give "op" (add, remove, list, pause, resume) and "watches": one entry per topic, each {"label":"short name","terms":[3-6 phrases people put in a thread title for it]}. For remove only the label is needed.',
   '  "chat"    - a question or remark with no search in it ("how many replies today?", "what can you do?"). Put a short plain answer in "reply", using the STATUS given.',
   '',
   'For "search": give 2-4 "terms" that people on a forum would actually type in a thread title for that topic: the topic itself,',
@@ -35,7 +36,7 @@ export const ASK_SYSTEM = [
   '"again": true only if they ask to see threads again / including ones already sent.',
   '"zero": true if they only want threads nobody has replied to yet.',
   'If PREVIOUS is given and the request refers to it ("same but last 7 days", "only unanswered", "more"), keep what is not changed.',
-  'Return ONLY JSON: {"kind":"search|new|command|chat","terms":[],"hours":168,"limit":8,"again":false,"zero":false,"command":"","reply":"","say":"one short line saying what you will look for"}'
+  'Return ONLY JSON: {"kind":"search|new|watch|command|chat","terms":[],"hours":168,"limit":8,"again":false,"zero":false,"command":"","reply":"","op":"","watches":[],"say":"one short line saying what you will look for"}'
 ].join('\n');
 
 export function askPrompt(message, { now = Date.now(), previous = null, status = '' } = {}) {
@@ -55,7 +56,7 @@ export function parseAsk(text) {
   try { const m = String(text || '').match(/\{[\s\S]*\}/); o = JSON.parse(m ? m[0] : text); } catch { return null; }
   if (!o || typeof o !== 'object') return null;
   const kind = String(o.kind || '').toLowerCase();
-  if (!['search', 'new', 'command', 'chat'].includes(kind)) return null;
+  if (!['search', 'new', 'watch', 'command', 'chat'].includes(kind)) return null;
   const terms = [...new Set((Array.isArray(o.terms) ? o.terms : []).map(clean).filter((t) => t.length >= 2))].slice(0, ASK_MAX_TERMS);
   const plan = {
     kind, terms,
@@ -63,11 +64,18 @@ export function parseAsk(text) {
     limit: Math.min(10, Math.max(3, Math.round(Number(o.limit) || ASK_SHOW))),
     again: o.again === true, zero: o.zero === true,
     command: String(o.command || '').trim().toLowerCase(), reply: String(o.reply || '').trim().slice(0, 900),
-    say: String(o.say || '').trim().slice(0, 200)
+    say: String(o.say || '').trim().slice(0, 200),
+    op: String(o.op || '').toLowerCase(),
+    watches: (Array.isArray(o.watches) ? o.watches : []).map((w) => ({ label: clean(w && w.label), terms: [...new Set((Array.isArray(w && w.terms) ? w.terms : []).map(clean).filter((t) => t.length >= 2))].slice(0, 6) })).filter((w) => w.label).slice(0, 8)
   };
   if (kind === 'search' && !terms.length) return null;
   if (kind === 'command' && !ASK_COMMANDS.test(plan.command)) return { ...plan, kind: 'chat', command: '', reply: 'I can search BHW, show what is new, and run: radar, radar help, families, new threads on / off, online. I cannot do that one.' };
   if (kind === 'chat' && !plan.reply) return null;
+  if (kind === 'watch') {
+    if (!['add', 'remove', 'list', 'pause', 'resume'].includes(plan.op)) return null;
+    if ((plan.op === 'add' || plan.op === 'remove') && !plan.watches.length) return null;
+    if (plan.op === 'add') for (const w of plan.watches) if (!w.terms.length) w.terms = [w.label];
+  }
   return plan;
 }
 
@@ -97,6 +105,8 @@ export function ruleAsk(message) {
   const hours = hoursFrom(lower);
   const topic = clean(lower.replace(/\b\d{1,3}\s*(h|hrs?|hours?|d|days?|w|wks?|weeks?|months?)\b/g, ' ').replace(FILLER, ' ').replace(/\s+/g, ' '));
   const common = { hours: hours || ASK_DEFAULT_HOURS, limit: ASK_SHOW, again: /\b(again|including|already sent|all of them)\b/.test(lower), zero: /\b(unanswered|no replies|zero replies|0 replies|first reply|not replied)\b/.test(lower), command: '', reply: '', say: '' };
+  const wp = ruleWatch(t);
+  if (wp) return wp;
   let m;
   if ((m = lower.match(/\b(turn|switch)\s+(on|off)\b.*\bnew\s*threads?\b|\bnew\s*threads?\s+(on|off)\b/))) {
     const on = (m[2] || m[3]) === 'on';
@@ -203,8 +213,112 @@ export const ASK_HELP = [
   '• only the ones nobody replied to  (after a search: keeps the topic)',
   '• same but last 3 days',
   '• more  (the next ones from the last answer)',
+  '• notify me when new threads come in SEO, guest outreach, content writing  (alerts every 15 minutes)',
+  '• also watch link building · stop watching content writing · alerts · pause alerts',
   '',
   'I search BlackHatWorld while signed in, skip anything you already replied to, anything sent before, and sales posts.',
   'Every thread has ✅ I replied / ⏭ Not relevant buttons. I never post or message anyone.',
   'Turn it off with "ask off", on with "ask on". The older commands (next, family, brief...) still work.'
 ].join('\n');
+
+
+// ---------------------------------------------------------------- alerts ("notify me when new threads come in SEO, guest outreach...")
+
+export const slug = (label) => clean(label).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const WATCH_FILLER = /\b(please|pls|can you|could you|will you|notify|notification|notifications|alert|alerts|remind|reminder|reminders|ping|tell|let|know|me|us|my|when|whenever|if|new|newest|latest|fresh|threads?|posts?|topics?|come|comes|coming|in|on|about|for|regarding|related|any|all|also|too|as well|watch|watching|track|tracking|follow|following|add|stop|remove|drop|unwatch|cancel|delete|no more|anymore|the|a|an|to|of|section|forum|bhw|topic|is|are|there|appear|appears|show|up|keep|start|send|get|want)\b/g;
+
+/** "SEO, guest outreach and content writing" -> ["seo", "guest outreach", "content writing"]. */
+export function topicsFrom(text) {
+  return String(text || '').toLowerCase().replace(WATCH_FILLER, ',').split(/,|\band\b|\bor\b|&|\+|\//).map(clean).filter((t) => t.length >= 2 && !/^(ok|yes|no)$/.test(t)).slice(0, 8);
+}
+
+/** An alert request read by rules (no Claude): add / remove / list / pause / resume, or null when it is not about alerts. */
+export function ruleWatch(message) {
+  const t = String(message || '').toLowerCase().trim();
+  const base = { kind: 'watch', terms: [], hours: ASK_DEFAULT_HOURS, limit: ASK_SHOW, again: false, zero: false, command: '', reply: '', say: '', op: '', watches: [] };
+  if (/^(alerts?|watchlist|watching|my alerts|what am i (watching|tracking)|(list|show) (my )?(alerts|watches|watchlist|reminders))\s*[?.!]*$/.test(t)) return { ...base, op: 'list' };
+  if (/\b(pause|mute|silence|snooze)\b.*\b(alerts?|notifications?|reminders?)\b|\b(alerts?|notifications?|reminders?)\s+off\b/.test(t)) return { ...base, op: 'pause' };
+  if (/\b(resume|unmute|unpause)\b.*\b(alerts?|notifications?|reminders?)\b|\b(alerts?|notifications?|reminders?)\s+on\b/.test(t)) return { ...base, op: 'resume' };
+  const about = /\b(alerts?|notify|notification|remind\w*|ping|let me know|tell me when|watch\w*|track\w*)\b/.test(t);
+  if (!about) return null;
+  if (/\b(stop|remove|drop|unwatch|cancel|delete|no more|don'?t)\b/.test(t)) { const w = topicsFrom(t); return w.length ? { ...base, op: 'remove', watches: w.map((l) => ({ label: l, terms: [] })) } : null; }
+  if (/\b(notify|alert|remind\w*|ping|let me know|tell me when|watch\w*|track\w*|follow)\b/.test(t)) { const w = topicsFrom(t); return w.length ? { ...base, op: 'add', watches: w.map((l) => ({ label: l, terms: [l] })) } : null; }
+  return null;
+}
+
+/** Apply an alert change to the saved list. `list` entries: {id,label,terms,on,addedAt}. Returns the new list and what happened. */
+export function applyWatch(list, plan, now = Date.now()) {
+  const cur = (list || []).map((w) => ({ ...w }));
+  const done = { added: [], extended: [], removed: [], missing: [] };
+  if (plan.op === 'add') {
+    for (const w of plan.watches) {
+      const id = slug(w.label); if (!id) continue;
+      const have = cur.find((x) => x.id === id);
+      if (have) { const before = have.terms.length; have.terms = [...new Set([...have.terms, ...(w.terms.length ? w.terms : [w.label])])].slice(0, 12); have.on = true; (have.terms.length > before ? done.extended : done.added).push(have.label); }
+      else { cur.push({ id, label: w.label, terms: (w.terms.length ? w.terms : [w.label]).slice(0, 8), on: true, addedAt: now }); done.added.push(w.label); }
+    }
+  } else if (plan.op === 'remove') {
+    for (const w of plan.watches) {
+      const id = slug(w.label);
+      const i = cur.findIndex((x) => x.id === id || x.id.includes(id) || id.includes(x.id) || x.terms.includes(clean(w.label)));
+      if (i >= 0) { done.removed.push(cur[i].label); cur.splice(i, 1); } else done.missing.push(w.label);
+    }
+  }
+  return { list: cur, ...done };
+}
+
+/**
+ * New threads for each alert. `rows` = the What's-new page (threadId, url, title, forum, startedAt, replyCount...).
+ * A thread is offered once, ever (`seen`), under the first alert whose words its title carries, and only if it started
+ * inside `hours` (a new alert does not dump the backlog) with at most 5 replies. Same exclusions as every Radar message.
+ */
+export function matchWatches(rows, watches, state, { now = Date.now(), hours = 6, seen = {}, muted = [], deny = ASK_DENY, sales = null, iPosted = () => false, isMuted = () => false } = {}) {
+  const groups = new Map();
+  const taken = new Set();
+  for (const r of rows || []) {
+    if (!r || !r.threadId || !r.title || !r.url || r.sticky || r.locked || r.mine) continue;
+    const id = String(r.threadId);
+    if (seen[id] || taken.has(id) || state?.sent?.[id] || iPosted(state, id) || state?.hidden?.[id]) continue;
+    if (deny && deny.test(r.forum || '')) continue;
+    if (sales && sales.test(r.title)) continue;
+    if (isMuted(r.title, muted)) continue;
+    const started = ms(r.startedAt) || ms(r.lastActivityAt);
+    if (!started || now - started > hours * HOUR) continue;
+    if ((Number(r.replyCount) || 0) > 5) continue;
+    const w = (watches || []).find((x) => x.on !== false && titleHasTerm(r.title, x.terms) && started >= (x.addedAt || 0) - 3 * HOUR);
+    if (!w) continue;
+    taken.add(id);
+    if (!groups.has(w.id)) groups.set(w.id, { watch: w, items: [] });
+    groups.get(w.id).items.push({ ...r, threadId: id });
+  }
+  return [...groups.values()].map((g) => ({ ...g, items: g.items.sort((a, b) => (ms(b.startedAt) || ms(b.lastActivityAt)) - (ms(a.startedAt) || ms(a.lastActivityAt))) }));
+}
+
+/** One message for a tick, a section per alert. `shown` = the threads in order (for the buttons). */
+export function formatWatch(groups, { now = Date.now(), count = 0, target = 10, watches = [], max = 8 } = {}) {
+  let left = max; const shown = [];
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  const d = new Date(now);
+  const lines = [`🔔 <b>New threads for your alerts</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${Math.min(total, max)} new`, ''];
+  let n = 0;
+  for (const g of groups) {
+    const take = g.items.slice(0, Math.max(0, left)); if (!take.length) continue;
+    left -= take.length;
+    lines.push(`<b>${h(g.watch.label)}</b>`);
+    for (const q of take) {
+      n++; shown.push(q);
+      const rep = Number(q.replyCount) || 0;
+      lines.push(`${n}. ${rep === 0 ? '🔥 ' : ''}<a href="${h(q.url)}">${h(q.title)}</a>`, `   ${h(q.forum || q.section || '')} · started ${when(q.startedAt || q.lastActivityAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}`);
+    }
+    lines.push('');
+  }
+  if (total > max) lines.push(`${total - max} more waiting; they come with the next check.`);
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`);
+  lines.push(`Watching: ${watches.filter((w) => w.on !== false).map((w) => h(w.label)).join(', ') || 'nothing'} · say "also watch link building", "stop watching content writing", "alerts", "pause alerts"`);
+  return { text: lines.join('\n').slice(0, 3900), shown };
+}
+
+export function formatWatchList(watches, { paused = false } = {}) {
+  if (!watches.length) return '🔔 You are not watching anything yet. Say: "notify me when new threads come in SEO, guest outreach and content writing".';
+  return ['🔔 <b>Your alerts</b>' + (paused ? ' · PAUSED (say "resume alerts")' : ' · checked every 15 minutes'), '', ...watches.map((w) => `${w.on === false ? '⏸' : '•'} <b>${h(w.label)}</b>: ${h(w.terms.join(', '))}`), '', 'Change them in plain words: "also watch link building" · "stop watching content writing" · "pause alerts"'].join('\n');
+}

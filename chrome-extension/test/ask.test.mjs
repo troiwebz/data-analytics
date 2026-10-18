@@ -1,5 +1,5 @@
 // Ask mode (1.21.0): the pure parts. The end-to-end flow is in radarrun.test.mjs.
-import { hoursFrom, ruleAsk, parseAsk, pickAsk, titleHasTerm, parseRank, formatAsk, askPrompt, ASK_DENY, ASK_COMMANDS } from '../src/ask.js';
+import { hoursFrom, ruleAsk, parseAsk, pickAsk, titleHasTerm, parseRank, formatAsk, askPrompt, ASK_DENY, ASK_COMMANDS, ruleWatch, topicsFrom, applyWatch, matchWatches, formatWatch, formatWatchList, slug } from '../src/ask.js';
 import { SALES_TITLE, isMuted, iPosted, FAMILIES, mergeFamilies, RETIRED_FAMILIES, boardAllowed, DEFAULT_WORDS, RADAR_SECTIONS } from '../src/radar.js';
 let fails = 0;
 const ok = (n, c, e) => { if (!c) fails++; console.log(`${c ? '  ok' : 'FAIL'}  ${n}${c || e === undefined ? '' : `  -> ${JSON.stringify(e).slice(0, 300)}`}`); };
@@ -70,6 +70,44 @@ ok('message: never longer than Telegram allows', formatAsk(Array.from({ length: 
 ok('families: cloaker and circumvent are not built in; PBN and outreach are', !FAMILIES.some((f) => ['cloaker', 'circumvent'].includes(f.id)) && FAMILIES.some((f) => f.id === 'pbn') && FAMILIES.some((f) => f.id === 'outreach') && FAMILIES.length === 10);
 ok('families: an old saved copy of a retired family does not bring it back', !mergeFamilies([{ id: 'cloaker', terms: ['x'] }, { id: 'circumvent', terms: ['y'] }]).some((f) => RETIRED_FAMILIES.includes(f.id)));
 ok('the cloaking board (2) and the cloak word group are gone', !boardAllowed({ id: 2, name: 'Anything' }) && !RADAR_SECTIONS.some((s) => s.id === 2) && !('cloak' in DEFAULT_WORDS) && !JSON.stringify(DEFAULT_WORDS).includes('circumvent'));
+
+
+// --- alerts (1.22.0) -------------------------------------------------------------------------------------
+ok('topics: commas, "and", "or" split the list; filler words go', topicsFrom('notify me when new threads come in SEO, guest outreach and content writing').join('|') === 'seo|guest outreach|content writing', topicsFrom('notify me when new threads come in SEO, guest outreach and content writing'));
+p = ruleWatch('Notify me when new threads come in SEO, guest outreach, content writing');
+ok('rules: three topics become three alerts, each with its own words', p && p.kind === 'watch' && p.op === 'add' && p.watches.map((w) => w.label).join() === 'seo,guest outreach,content writing' && p.watches[1].terms[0] === 'guest outreach', p);
+ok('rules: "also watch link building" adds, "stop watching content writing" removes', ruleWatch('also watch link building').op === 'add' && ruleWatch('also watch link building').watches[0].label === 'link building' && ruleWatch('stop watching content writing').op === 'remove' && ruleWatch('stop watching content writing').watches[0].label === 'content writing');
+ok('rules: alerts / pause / resume / list', ruleWatch('alerts').op === 'list' && ruleWatch('what am i watching').op === 'list' && ruleWatch('pause alerts').op === 'pause' && ruleWatch('resume alerts').op === 'resume' && ruleWatch('alerts off').op === 'pause' && ruleWatch('alerts on').op === 'resume');
+ok('rules: a normal search is not an alert', ruleWatch('find pbn threads in the last 24 hours') === null && ruleAsk('find pbn threads in the last 24 hours').kind === 'search');
+ok('rules: an alert request reaches ruleAsk first', ruleAsk('notify me when new threads come in seo').kind === 'watch');
+p = parseAsk('{"kind":"watch","op":"add","watches":[{"label":"SEO","terms":["seo","search engine optimization"]},{"label":"Guest outreach"}]}');
+ok('plan: watch entries are cleaned; an entry with no terms uses its label', p && p.kind === 'watch' && p.watches[0].label === 'seo' && p.watches[1].terms.join() === 'guest outreach', p);
+ok('plan: add or remove with nothing named, or an unknown op, is refused', parseAsk('{"kind":"watch","op":"add","watches":[]}') === null && parseAsk('{"kind":"watch","op":"explode","watches":[{"label":"x"}]}') === null && parseAsk('{"kind":"watch","op":"list"}').op === 'list');
+let list = [];
+let r = applyWatch(list, { op: 'add', watches: [{ label: 'seo', terms: ['seo'] }, { label: 'guest outreach', terms: ['guest outreach', 'guest post'] }] }, now);
+ok('apply: add makes alerts with ids, words, on, and a time', r.list.length === 2 && r.list[1].id === 'guest-outreach' && r.list[1].terms.length === 2 && r.list[0].on === true && r.list[0].addedAt === now && r.added.join() === 'seo,guest outreach');
+list = r.list;
+r = applyWatch(list, { op: 'add', watches: [{ label: 'seo', terms: ['seo', 'technical seo'] }] }, now);
+ok('apply: adding a topic you already watch adds words instead of duplicating it', r.list.length === 2 && r.list[0].terms.includes('technical seo') && r.extended.join() === 'seo');
+r = applyWatch(list, { op: 'remove', watches: [{ label: 'guest outreach', terms: [] }, { label: 'blogging', terms: [] }] }, now);
+ok('apply: remove drops the named alert and reports one you were not watching', r.list.map((w) => w.id).join() === 'seo' && r.removed.join() === 'guest outreach' && r.missing.join() === 'blogging');
+ok('apply: slugs are stable', slug('Guest Outreach!') === 'guest-outreach');
+
+const W = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/w.${id}/`, title, forum: o.forum || 'Black Hat SEO', replyCount: o.rep ?? 0, startedAt: hAgo(o.start ?? 1), lastActivityAt: hAgo(0.5), sticky: !!o.sticky, locked: !!o.locked, mine: !!o.mine });
+const watches = [{ id: 'seo', label: 'seo', terms: ['seo'], on: true, addedAt: now - 24 * 3600000 }, { id: 'guest-outreach', label: 'guest outreach', terms: ['guest outreach', 'guest post'], on: true, addedAt: now - 24 * 3600000 }, { id: 'off', label: 'off', terms: ['casino'], on: false, addedAt: 0 }];
+const wrows = [W(1, 'Best SEO tools?'), W(2, 'Guest post outreach tips'), W(3, 'SEO and guest post combo'), W(4, 'SEO crowded thread', { rep: 9 }), W(5, 'SEO from yesterday', { start: 20 }), W(6, 'seo cheap services $5'), W(7, 'SEO in Introductions', { forum: 'Introductions' }), W(8, 'casino stuff'), W(9, 'SEO seen already'), W(10, 'SEO replied by tap'), W(11, 'SEO sent before'), W(12, 'SEO sticky', { sticky: true }), W(13, 'Newest SEO question', { start: 0.2 })];
+let g = matchWatches(wrows, watches, { replied: { 10: 1 }, sent: { 11: 1 } }, { now, seen: { 9: now }, sales: SALES_TITLE, iPosted, isMuted });
+ok('alerts: matches by words in the title, once per thread (first alert wins), newest first', g.map((x) => x.watch.id).join() === 'seo,guest-outreach' && g[0].items.map((x) => x.threadId).join() === '13,1,3' && g[1].items.map((x) => x.threadId).join() === '2', g.map((x) => x.items.map((y) => y.threadId)));
+ok('alerts: dropped - more than 5 replies, older than 6h, sales, Introductions, seen, replied, sent before, sticky, off-topic, switched-off alert', !g.flatMap((x) => x.items).some((q) => [4, 5, 6, 7, 8, 9, 10, 11, 12].includes(Number(q.threadId))));
+g = matchWatches([W(1, 'SEO new alert thread', { start: 5 })], [{ id: 'seo', label: 'seo', terms: ['seo'], on: true, addedAt: now }], {}, { now, sales: SALES_TITLE });
+ok('alerts: a thread that started more than 3 hours before the alert was made is not dumped on you', g.length === 0);
+g = matchWatches([W(1, 'SEO new alert thread', { start: 2 })], [{ id: 'seo', label: 'seo', terms: ['seo'], on: true, addedAt: now }], {}, { now, sales: SALES_TITLE });
+ok('alerts: but one from the last 3 hours is (a new alert answers straight away)', g.length === 1);
+g = matchWatches(wrows, watches, {}, { now, seen: {}, sales: SALES_TITLE, iPosted, isMuted });
+const fw = formatWatch(g, { now, count: 1, target: 10, watches, max: 3 });
+ok('message: one message, a section per alert, 3 shown of more, the rest named, count, Watching line with how to change it', /^🔔 <b>New threads for your alerts<\/b> · \d\d:\d\d · 3 new/.test(fw.text) && /<b>seo<\/b>/.test(fw.text) && fw.shown.length === 3 && /more waiting/.test(fw.text) && /Public replies today: <b>1 of 10<\/b>/.test(fw.text) && /Watching: seo, guest outreach/.test(fw.text) && /stop watching/.test(fw.text) && !/casino/.test(fw.text.split('Watching:')[1] || ''), fw.text);
+ok('message: titles are links and 0 replies are HOT', /🔥 <a href="https:\/\/www\.blackhatworld\.com\/seo\/w\.\d+\/">/.test(fw.text));
+ok('list: shows words, marks switched-off alerts, says when paused, and how to change them', /Your alerts/.test(formatWatchList(watches)) && /⏸ <b>off<\/b>/.test(formatWatchList(watches)) && /PAUSED/.test(formatWatchList(watches, { paused: true })) && /not watching anything/.test(formatWatchList([])));
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

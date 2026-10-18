@@ -42,7 +42,7 @@ import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS 
   familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
   DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
   FAMILIES, FAMILY_EVERY_MIN, FAMILY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
-import { ASK_SYSTEM, ASK_DENY, ASK_HELP, askPrompt, parseAsk, ruleAsk, pickAsk, titleHasTerm, RANK_SYSTEM, rankPrompt, parseRank, formatAsk } from './ask.js';
+import { ASK_SYSTEM, ASK_DENY, ASK_HELP, askPrompt, parseAsk, ruleAsk, pickAsk, titleHasTerm, RANK_SYSTEM, rankPrompt, parseRank, formatAsk, applyWatch, matchWatches, formatWatch, formatWatchList } from './ask.js';
 import { SALES_TITLE as RADAR_SALES, isMuted as radarIsMuted, iPosted as radarIPosted } from './radar.js';
 import * as pulse from './pulse.js';
 import { zoneOf } from './timefmt.js';
@@ -517,6 +517,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await familiesTick().catch((e) => log(`Reply Radar families: ${e.message}`, 'error'));
       await blocksTick().catch((e) => log(`Reply Radar blocks: ${e.message}`, 'error'));
       await radarNewTick().catch((e) => log(`Reply Radar new threads: ${e.message}`, 'error'));
+      await watchTick().catch((e) => log(`Reply Radar alerts: ${e.message}`, 'error'));
       await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
@@ -2036,6 +2037,8 @@ export async function refreshParticipated({ fast = false } = {}) {
  * and only threads never shown before go out - with links, as one message.
  * Shares the "sent" memory with the hourly batch and "next", so nothing comes twice.
  */
+let newRead = { at: 0, rows: [] };
+export const __forgetNewReadForTest = () => { newRead = { at: 0, rows: [] }; };   // tests only
 export async function radarNewTick({ force = false } = {}) {
   if (await hafBusy()) return { skipped: 'haf' };
   const rc = await getRadarCfg();
@@ -2054,6 +2057,7 @@ export async function radarNewTick({ force = false } = {}) {
       if (page.rows && page.rows.length) { rows = page.rows; break; }
       await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
     }
+    if (rows.length) newRead = { at: Date.now(), rows };      // alerts reuse this read instead of opening the page again
     await refreshParticipated();
     st = await getRadar();
     const seen = Object.fromEntries(Object.entries(st.newSeen || {}).filter(([, t]) => Date.now() - t < 7 * 86400000));
@@ -2625,7 +2629,8 @@ const ASK_FRIENDLY = (e) => /blocked/i.test(e.message) ? 'BHW showed a wall; rea
 /** One short line about where Radar stands, so a chat question can be answered from fact. */
 async function askStatus(rc, st) {
   const fams = mergeFamilies(rc.fams).map((f) => f.id).join(', ');
-  return `${countToday(st)} of ${rc.dailyTarget} public replies today; ${Object.keys(st.queue || {}).length} threads waiting; new-thread watch ${rc.newWatch === false ? 'off' : 'on'}; families: ${fams}`;
+  const al = (rc.watches || []).map((w) => w.label).join(', ');
+  return `${countToday(st)} of ${rc.dailyTarget} public replies today; ${Object.keys(st.queue || {}).length} threads waiting; new-thread watch ${rc.newWatch === false ? 'off' : 'on'}; alerts: ${al || 'none'}${rc.alertsOn === false ? ' (paused)' : ''}; families: ${fams}`;
 }
 
 async function askPlan(text, rc, st) {
@@ -2741,6 +2746,83 @@ async function askMore(cfg) {
   await saveRadar({ ...next, askLast: { ...last, rest, at: Date.now() } });
 }
 
+/**
+ * Alerts (1.22): "notify me when new threads come in SEO, guest outreach, content writing". Every 15 minutes the What's-new
+ * page (read once, shared with the new-thread watch when that ran a moment ago) is matched against your alerts' words;
+ * what started in the last 6 hours, has at most 5 replies, was never offered, and is not one you posted in comes as ONE message.
+ */
+export async function watchTick({ force = false, fast = fastRuns } = {}) {
+  const rc = await getRadarCfg();
+  const watches = (rc.watches || []).filter((w) => w.on !== false);
+  if (!watches.length || (rc.alertsOn === false && !force)) return { skipped: 'off' };
+  if (await hafBusy()) return { skipped: 'haf' };
+  let st = await getRadar();
+  const every = Math.max(5, Number(rc.alertEvery) || 15) * 60000;
+  if (!force && st.watchAt && Date.now() - st.watchAt < every) return { skipped: 'not due' };
+  if (await radarPaused()) return { skipped: 'wall' };
+  await setRadar({ ...st, watchAt: Date.now() });
+  const cfg = await getConfig();
+  try {
+    let rows = Date.now() - newRead.at < 5 * 60000 ? newRead.rows : [];
+    if (!rows.length) {
+      for (const url of NEW_THREADS_URLS) {
+        const page = await readInTab(url, extractRadarListing, fast ? { settleMs: 0 } : {});
+        if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+        if (page.rows && page.rows.length) { rows = page.rows; newRead = { at: Date.now(), rows }; break; }
+      }
+    }
+    await refreshParticipated({ fast });
+    st = await getRadar();
+    const seen = Object.fromEntries(Object.entries(st.watchSeen || {}).filter(([, t]) => Date.now() - t < 7 * 86400000));
+    const askRows = rows.map((r) => askRowOf({ ...r, forum: r.forum || r.section }));
+    let groups = matchWatches(askRows, watches, st, { seen, muted: rc.muted, sales: RADAR_SALES, iPosted: radarIPosted, isMuted: radarIsMuted });
+    if (!groups.length) return { ok: true, read: rows.length, sent: 0 };
+    if (!cfg.telegramChatId || !(await telegram.hasToken())) return { ok: true, read: rows.length, sent: 0 };
+    // Not in threads you already posted in (opened and checked), then at most 8 in the message.
+    const flat = groups.flatMap((g) => g.items);
+    const chk = await mineInThreads(flat.slice(0, 12), cfg, { fast, max: 10 });
+    const drop = new Set(chk.mine.map((q) => q.threadId));
+    for (const q of chk.mine) seen[q.threadId] = Date.now();
+    groups = groups.map((g) => ({ ...g, items: g.items.filter((q) => !drop.has(q.threadId)) })).filter((g) => g.items.length);
+    st = await getRadar();
+    if (!groups.length) { await saveRadar({ ...st, watchSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; }
+    const { text, shown } = formatWatch(groups, { count: countToday(st), target: rc.dailyTarget, watches });
+    const mid = await telegram.sendCard(cfg.telegramChatId, text, batchKeyboard(shown));
+    const cards = { ...(st.cards || {}) };
+    if (mid) cards[String(mid)] = { kind: 'batch', ids: shown.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(shown.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.forum, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
+    const queue = { ...st.queue };
+    for (const q of shown) { seen[q.threadId] = Date.now(); if (!queue[q.threadId]) queue[q.threadId] = { threadId: q.threadId, url: q.url, title: q.title, section: q.forum, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, match: 'alert', tier: 'N', views: null, shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() }; }
+    await saveRadar({ ...markSent({ ...st, queue, watchSeen: Object.fromEntries(Object.entries(seen).slice(-3000)) }, shown.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) });
+    await log(`Reply Radar alerts: ${rows.length} on the page, ${shown.length} new for your alerts, one message`);
+    return { ok: true, read: rows.length, sent: shown.length };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
+    await log(`Reply Radar alerts: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+}
+
+/** The alert words you typed: add / remove / list / pause / resume, answered in one short message. */
+async function watchCommand(plan, cfg) {
+  const chat = cfg.telegramChatId; const rc = await getRadarCfg(); const list = rc.watches || [];
+  if (plan.op === 'list') { await telegram.say(chat, formatWatchList(list, { paused: rc.alertsOn === false }), { html: true }); return; }
+  if (plan.op === 'pause') { await setRadarCfg({ alertsOn: false }); await telegram.say(chat, '🔕 Alerts are paused. Nothing is lost: say "resume alerts" and they start again.'); return; }
+  if (plan.op === 'resume') { await setRadarCfg({ alertsOn: true }); await telegram.say(chat, list.length ? `🔔 Alerts are back on: ${list.map((w) => w.label).join(', ')}.` : '🔔 Alerts are on, but you are not watching anything yet. Say "notify me when new threads come in SEO".'); return; }
+  const r = applyWatch(list, plan);
+  await setRadarCfg({ watches: r.list, ...(plan.op === 'add' ? { alertsOn: true } : {}) });
+  const bits = [];
+  if (r.added.length) bits.push(`Now watching: <b>${r.added.join(', ')}</b>`);
+  if (r.extended.length) bits.push(`Added more words to: <b>${r.extended.join(', ')}</b>`);
+  if (r.removed.length) bits.push(`Stopped watching: <b>${r.removed.join(', ')}</b>`);
+  if (r.missing.length) bits.push(`You were not watching: ${r.missing.join(', ')}`);
+  await telegram.say(chat, `🔔 ${bits.join('\n')}\nAll alerts: ${r.list.length ? r.list.map((w) => w.label).join(', ') : 'none'}.${plan.op === 'add' ? '\nEvery 15 minutes I check BlackHatWorld\'s new threads and send you the ones that match (started in the last 6 hours, 5 replies or fewer). Checking now…' : ''}`, { html: true });
+  if (plan.op === 'add') {
+    const t = await watchTick({ force: true }).catch((e) => ({ error: e.message }));
+    if (t && !t.sent && !t.error && !t.skipped) await telegram.say(chat, '🔔 Nothing matching has appeared in the last few hours. The next one comes to you by itself.');
+    else if (t && t.error) await telegram.say(chat, `🔔 Could not read the new-threads page just now (${t.error}). It tries again in 15 minutes.`);
+  }
+}
+
 /** Free text to the bot: Claude (or simple rules) works out what you want and answers it. True when the message was handled. */
 async function takeAsk(ev, cfg) {
   const raw = String(ev.body || '').trim();
@@ -2752,6 +2834,7 @@ async function takeAsk(ev, cfg) {
     return true;
   }
   if (/^\/?(?:ask|ai)\s*(?:help)?\s*[.!?]?$/i.test(raw)) { await telegram.say(chat, ASK_HELP, { html: true }); return true; }
+  if (/^\/?(?:alerts?|watchlist|watching|my alerts)\s*[?.!]*$/i.test(raw)) { await watchCommand({ op: 'list' }, cfg); return true; }
   const rc = await getRadarCfg();
   const forced = raw.match(/^\/?(?:ask|ai)\s+([\s\S]+)$/i);
   if (rc.ask === false && !forced) return false;
@@ -2770,6 +2853,7 @@ async function takeAsk(ev, cfg) {
   const { plan, note, cost } = await askPlan(text, rc, st);
   if (!plan) { await telegram.say(chat, '🤖 I could not tell what to look for. Try: find PBN threads in the last 24 hours, or check what\'s new. Send "ask help" for more.'); return true; }
   if (plan.kind === 'chat') { await telegram.say(chat, `🤖 ${plan.reply}`); return true; }
+  if (plan.kind === 'watch') { await watchCommand(plan, cfg); return true; }
   if (plan.kind === 'command') {
     const handled = (await radarCommand(plan.command, cfg).catch(() => false)) || (await pulseCommand(plan.command, cfg).catch(() => false));
     if (!handled) await telegram.say(chat, `🤖 I could not run "${plan.command}".`);
