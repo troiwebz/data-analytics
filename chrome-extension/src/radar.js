@@ -24,7 +24,6 @@ export const RADAR_SECTIONS = [
   { id: 175, name: 'Media Buying', ad: true },
   { id: 125, name: 'General PPC', ad: true },
   { id: 85, name: 'Other PPC', ad: true },
-  { id: 2, name: 'Cloaking', ad: true },
   { id: 218, name: 'CryptoCurrency', ad: false, needsAdWord: true },
   { id: 50, name: 'CPA', ad: false }
 ].map((s) => ({ ...s, url: `https://www.blackhatworld.com/forums/${s.id}/` }));
@@ -37,14 +36,13 @@ export const DEFAULT_WORDS = {
   casino: ['casino', 'gambl*', 'igaming', 'i-gaming', 'betting', 'bet', 'sportsbook', 'slot', 'poker', 'lottery', 'bookmaker', 'aviator'],
   crypto: ['crypto*', 'web3', 'forex', 'memecoin', 'presale', 'airdrop', 'nft', 'exchange'],
   cryptoLoose: ['token', 'trading'],
-  cloak: ['cloak*', 'whitepage', 'white page', 'safe page', 'money page', 'bot filter', 'trustcloaker', 'trafficguardian', 'cloaking house'],
   restricted: ['nutra', 'peptide', 'adult', 'onlyfans', 'blackhat offer', 'black hat offer', 'bh offer'],
   setup: ['agency account', 'bm', 'bm5', 'business manager', 'vcc', 'virtual card', 'virtual credit card', 'warmup', 'warm-up', 'rent*'],
-  trouble: ['suspend*', 'banned', 'ban', 'disabled', 'reject*', 'restrict*', 'flagged', 'disapprov*', 'circumvent*', 'blocked', 'blocking']
+  trouble: ['suspend*', 'banned', 'ban', 'disabled', 'reject*', 'restrict*', 'flagged', 'disapprov*', 'blocked', 'blocking']
 };
 
 export const GROUP_LABELS = {
-  casino: 'Casino', crypto: 'Crypto', cryptoLoose: 'Crypto, loose (CryptoCurrency section only)', cloak: 'Cloakers',
+  casino: 'Casino', crypto: 'Crypto', cryptoLoose: 'Crypto, loose (CryptoCurrency section only)',
   restricted: 'Restricted niches', setup: 'Account setup (ad sections only)', trouble: 'Account trouble (ad sections only)'
 };
 
@@ -74,14 +72,14 @@ export function compileWords(words) {
 }
 
 /**
- * Is this thread yours? 'strict' = niche words (casino, crypto, cloakers,
+ * Is this thread yours? 'strict' = niche words (casino, crypto,
  * restricted niches), 'wide' = account setup or trouble in an ad section,
  * null = neither. Titles only: the page is already loaded, nothing is opened.
  */
 export function classify(title, section, rx) {
   const t = String(title || '');
   const hit = (k) => !!(rx[k] && rx[k].test(t));
-  if (hit('casino') || hit('cloak') || hit('restricted')) return 'strict';
+  if (hit('casino') || hit('restricted')) return 'strict';
   // The CryptoCurrency section is all crypto: there the title must also be about advertising.
   if (section.needsAdWord) { if ((hit('crypto') || hit('cryptoLoose')) && AD_WORD.test(t)) return 'strict'; }
   else if (hit('crypto')) return 'strict';
@@ -199,7 +197,7 @@ export function foldSweep(state, pages, rx, { now = Date.now(), general = true, 
       }
       if (s.replied[id] || s.hidden?.[id]) { delete s.queue[id]; continue; }
       const match = isMuted(r.title, muted) ? null : classify(r.title, section, rx);
-      const tier = tierOf({ ...r, adSection: section.ad && section.name !== 'Cloaking' }, match, now);
+      const tier = tierOf({ ...r, adSection: section.ad }, match, now);
       if (!tier || (tier === 'G' && !general)) {
         delete s.queue[id];
         if (!match) unmatched.push({ title: r.title, section: section.name, url: r.url, replies: r.replyCount, lastActivityAt: r.lastActivityAt });
@@ -386,7 +384,6 @@ export function settledCard(q, what, { count = 0, target = 10 } = {}) {
 export const KNOWN_FAMILIES = {
   casino: ['casino', 'gambling', 'igaming', 'betting', 'sportsbook', 'slots', 'gambling offers', 'casino seo', 'casino backlinks', 'poker'],
   crypto: ['crypto', 'crypto ads', 'web3 marketing', 'token launch', 'presale', 'memecoin', 'forex', 'crypto seo', 'defi', 'airdrop'],
-  cloaker: ['cloaker', 'cloaking', 'white page', 'safe page', 'money page', 'bot filter', 'trafficguardian', 'justcloakit', 'cloaking house', 'trustcloaker'],
   // 'expired domain' / 'aged domain' / 'auction domain' / 'dropped domain' used
   // to be in here and were dropped (1.19.2): those are exactly how PBN domain
   // SELLERS title their listings, not how anyone asks a question, so "next
@@ -547,8 +544,8 @@ export const RADAR_HELP = [
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
   '<b>brief 3</b> - Claude\'s asked / already said / missing for thread 3 of the last message (about a cent)',
-  '<b>families</b> - the niches Radar runs (one every 20 minutes) · <b>run cloaker</b> - run one now · <b>more cloaker</b> - the next layer · <b>pin casino</b> - at least hourly',
-  '<b>add cloaker &lt;word&gt;</b> / <b>drop cloaker &lt;word&gt;</b> - edit a family\'s words',
+  '<b>families</b> - the niches Radar runs (one every 20 minutes) · <b>run casino</b> - run one now · <b>more casino</b> - the next layer · <b>pin casino</b> - at least hourly',
+  '<b>add casino &lt;word&gt;</b> / <b>drop casino &lt;word&gt;</b> - edit a family\'s words',
   '<b>block ads</b> / <b>block seo</b> - run a board block right now (off by default since the families took over)',
   '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 15 minutes on its own) · <b>new threads off</b> / <b>on</b>',
   '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
@@ -561,12 +558,12 @@ export const RADAR_HELP = [
 
 // ------------------------------------------- 1.14.1: one message per batch, keyword ideas on every message
 
-/** "next cloaker · next vcc": what to search next, drawn from the words the threads matched and the families you have. */
+/** "next casino · next vcc": what to search next, drawn from the words the threads matched and the families you have. */
 export function keywordIdeas(items, { families = {}, exclude = '' } = {}) {
   const ideas = [];
   const titles = (items || []).map((q) => String(q.title || '')).join(' ');
   const rx = compileWords(DEFAULT_WORDS);
-  for (const [k, hint] of [['casino', 'casino'], ['cloak', 'cloaker'], ['crypto', 'crypto'], ['restricted', 'nutra'], ['setup', 'agency account'], ['trouble', 'suspended']]) if (rx[k] && rx[k].test(titles)) ideas.push(hint);
+  for (const [k, hint] of [['casino', 'casino'], ['crypto', 'crypto'], ['restricted', 'nutra'], ['setup', 'agency account'], ['trouble', 'suspended']]) if (rx[k] && rx[k].test(titles)) ideas.push(hint);
   for (const k of [...Object.keys(families || {}), ...Object.keys(KNOWN_FAMILIES)]) ideas.push(k);
   const out = [...new Set(ideas)].filter((k) => k !== String(exclude).toLowerCase()).slice(0, 4);
   const cmds = 'Send: next &lt;word&gt; · new threads · mute &lt;word&gt; · radar · radar help';
@@ -677,7 +674,7 @@ export function formatNewThreads(items, { now = Date.now(), count = 0, target = 
 export const DEFAULT_BLOCKS = [
   { id: 'ads', name: 'Ads block', minute: 0, on: true, boards: [
     { id: 219, name: 'Facebook (PPC)' }, { id: 83, name: 'Google Ads' }, { id: 125, name: 'General PPC' }, { id: 85, name: 'Other PPC' },
-    { id: 175, name: 'Media Buying' }, { id: 2, name: 'Cloaking' }, { id: 50, name: 'CPA' }, { id: 193, name: 'CPA networks' },
+    { id: 175, name: 'Media Buying' }, { id: 50, name: 'CPA' }, { id: 193, name: 'CPA networks' },
     { id: 279, name: 'TikTok', filter: 'adwords' }, { id: 218, name: 'CryptoCurrency', filter: 'niche' }] },
   { id: 'seo', name: 'SEO block', minute: 30, on: true, boards: [
     { id: 28, name: 'Black Hat SEO' }, { slug: 'white-hat-seo', name: 'White Hat SEO' }, { slug: 'link-building', name: 'Link Building' },
@@ -704,7 +701,7 @@ export function resolveBoards(boards, list) {
 export const boardUrl = (b) => `https://www.blackhatworld.com/forums/${b.id}/`;
 /** Never a board Radar may read, however a block is edited. */
 const SLUG_DENY = /^(hire-a-freelancer|want-to-buy|marketplace.*|seo-link-building|seo-packages|.*-for-sale|.*selling.*|.*renting.*|introductions|.*lounge.*|.*journey.*|dispute-resolution)$/i;
-export const boardAllowed = (b) => !!b.id && String(b.id) !== '76' && !SLUG_DENY.test(String(b.slug || '')) && !FORUM_DENY.test(String(b.name || ''));
+export const boardAllowed = (b) => !!b.id && String(b.id) !== '76' && String(b.id) !== '2' && !SLUG_DENY.test(String(b.slug || '')) && !FORUM_DENY.test(String(b.name || ''));
 
 /**
  * One block's reading -> what goes in its message. `pages` = [{ board, rows }].
@@ -788,12 +785,12 @@ export function formatAnswered(back, { now = Date.now() } = {}) {
  * families never wait more than an hour.
  */
 export const FAMILIES = [
-  { id: 'cloaker', name: 'Cloaker', emoji: '🛡', pinned: true, meaning: 'Choosing, setting up or running a cloaker, white page, safe page or bot filter for paid ads or payment processors',
-    terms: ['cloaker', 'cloaking', 'white page', 'safe page', 'money page', 'bot filter', 'trafficguardian', 'jci', 'cloaking house', 'trustcloaker', 'adspect', 'keitaro', 'trafficshield', 'hoax tech', 'payment processor cloaking'],
-    boards: [{ id: 2, name: 'Cloaking' }] },
-  { id: 'circumvent', name: 'Circumvent', emoji: '🚫', pinned: true, meaning: 'Keeping ad accounts alive: bans, suspensions, restrictions, policy violations, BM reviews and appeals, agency accounts, payment cards, warm-up',
-    terms: ['circumventing systems', 'account suspended', 'ad account banned', 'account disabled', 'account restricted', 'flagged for review', 'policy violation', 'bm review', 'bm appeal', 'agency account', 'bm5', 'vcc', 'virtual card', 'warm up', 'spending limit', 'identity verification'],
-    boards: [{ id: 83, name: 'Google Ads' }, { id: 219, name: 'Facebook (PPC)' }] },
+  { id: 'pbn', name: 'PBN & links', emoji: '🔗', pinned: true, meaning: 'Building, buying or running PBNs and link networks, tiered links, parasite SEO, and what works for rankings',
+    terms: ['private blog network', 'pbn links', 'pbn footprint', 'pbn hosting', 'link wheel', 'tier 2 links', 'parasite seo', 'domain authority', 'backlink strategy', 'aged domain', 'expired domains', 'pbn'],
+    boards: [{ id: 28, name: 'Black Hat SEO' }] },
+  { id: 'outreach', name: 'Outreach & guest posts', emoji: '✉️', meaning: 'Guest posting, link outreach, niche edits, link insertions and cold outreach for links',
+    terms: ['guest post', 'guest posting', 'guest outreach', 'link outreach', 'outreach email', 'niche edit', 'link insertion', 'broken link building', 'haro', 'cold outreach', 'blogger outreach', 'digital pr'],
+    boards: [{ id: 28, name: 'Black Hat SEO' }] },
   { id: 'casino', name: 'Casino', emoji: '🎰', pinned: true, meaning: 'Running or buying ads or traffic for casino, gambling, betting or iGaming offers',
     terms: ['casino', 'gambling', 'igaming', 'betting', 'sportsbook', 'slots', 'poker', 'lottery', 'bookmaker', 'aviator', 'gambling ads', 'casino ads'],
     boards: [{ id: 219, name: 'Facebook (PPC)', filter: 'family' }, { id: 85, name: 'Other PPC', filter: 'family' }] },
@@ -823,9 +820,10 @@ export const FAMILY_WINDOW_DAYS = 14;
 export const FAMILY_MIN = 3, FAMILY_MAX = 8, GATE_ABOVE = 8;
 
 /** Saved families (edits, additions) over the built-in list. */
+export const RETIRED_FAMILIES = ['cloaker', 'circumvent'];   // removed in 1.21.0; an old saved copy must not bring them back
 export function mergeFamilies(saved) {
   const by = new Map(FAMILIES.map((f) => [f.id, { ...f }]));
-  for (const s of saved || []) { if (!s || !s.id) continue; const cur = by.get(s.id) || { id: s.id, name: s.name || s.id, emoji: '🔎', terms: [], boards: [], meaning: '' }; by.set(s.id, { ...cur, ...s, boards: Array.isArray(s.boards) ? s.boards : cur.boards, terms: Array.isArray(s.terms) ? s.terms : cur.terms }); }
+  for (const s of saved || []) { if (!s || !s.id || RETIRED_FAMILIES.includes(s.id)) continue; const cur = by.get(s.id) || { id: s.id, name: s.name || s.id, emoji: '🔎', terms: [], boards: [], meaning: '' }; by.set(s.id, { ...cur, ...s, boards: Array.isArray(s.boards) ? s.boards : cur.boards, terms: Array.isArray(s.terms) ? s.terms : cur.terms }); }
   return [...by.values()].filter((f) => f.on !== false);
 }
 export const familyRegex = (f) => wordRegex(f.terms || []);
@@ -910,7 +908,7 @@ export function formatFamily(f, items, { now = Date.now(), count = 0, target = 1
   if (funnel) lines.push(funnel);
   lines.push(`Public replies today: <b>${count} of ${target}</b>`);
   if (traffic) lines.push(traffic);
-  lines.push(keywordIdeas(items, { families }).split('\n').pop().replace('new threads · ', 'brief 3 · more cloaker · '));
+  lines.push(keywordIdeas(items, { families }).split('\n').pop().replace('new threads · ', 'brief 3 · more casino · '));
   return lines.join('\n').slice(0, 3900);
 }
 

@@ -41,7 +41,9 @@ import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS 
   countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
   familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
   DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
-  FAMILIES, FAMILY_EVERY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
+  FAMILIES, FAMILY_EVERY_MIN, FAMILY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
+import { ASK_SYSTEM, ASK_DENY, ASK_HELP, askPrompt, parseAsk, ruleAsk, pickAsk, titleHasTerm, RANK_SYSTEM, rankPrompt, parseRank, formatAsk } from './ask.js';
+import { SALES_TITLE as RADAR_SALES, isMuted as radarIsMuted, iPosted as radarIPosted } from './radar.js';
 import * as pulse from './pulse.js';
 import { zoneOf } from './timefmt.js';
 
@@ -1940,7 +1942,7 @@ async function saveRadar(mem) {
   const cur = { ...radarEmpty(), ...(saved || {}) };
   const st = { ...mem, replied: { ...(mem.replied || {}), ...(cur.replied || {}) }, hidden: { ...(mem.hidden || {}), ...(cur.hidden || {}) },
     counted: { ...(mem.counted || {}), ...(cur.counted || {}) }, manual: cur.manual || mem.manual, queue: { ...(mem.queue || {}) },
-    participated: { ...(mem.participated || {}), ...(cur.participated || {}) }, partAt: Math.max(Number(mem.partAt) || 0, Number(cur.partAt) || 0), partOk: mem.partOk ?? cur.partOk };
+    checked: { ...(mem.checked || {}), ...(cur.checked || {}) }, participated: { ...(mem.participated || {}), ...(cur.participated || {}) }, partAt: Math.max(Number(mem.partAt) || 0, Number(cur.partAt) || 0), partOk: mem.partOk ?? cur.partOk };
   for (const id of Object.keys(st.queue)) if (st.replied[id] || st.hidden[id] || st.participated[id]) delete st.queue[id];
   await setRadar(st);
   return st;
@@ -1955,6 +1957,52 @@ async function radarStatus() {
     nextAt: st.lastBatch?.at ? st.lastBatch.at + cfg.everyMinutes * 60000 : 0, wallUntil: await walled() };
 }
 
+
+/**
+ * Is your username already in the thread? (1.20.1) The messages are built from
+ * titles and board rows, which cannot tell. So the threads about to be SENT are
+ * opened: page 1 and, when the thread has more pages, the last page (a 2-page
+ * thread is read in full). Your name among the post authors = skipped, and
+ * remembered. A thread nobody has replied to cannot hold a reply of yours, so
+ * it is not opened. Each thread is checked once per change in its activity.
+ */
+async function mineInThreads(items, cfg, { fast = false, max = 12 } = {}) {
+  const { bhwMe = '' } = await chrome.storage.local.get('bhwMe');
+  const me = String(cfg.bhwUsername || bhwMe || cfg.boundAccount || '').trim().toLowerCase();
+  const out = { keep: [], mine: [], unchecked: 0, reads: 0, me };
+  if (!me) { out.keep = items.slice(); out.unchecked = items.length; return out; }
+  const st = await getRadar();
+  const checked = { ...(st.checked || {}) }; const newlyMine = {};
+  const gap = () => (fast ? Promise.resolve() : new Promise((r) => setTimeout(r, 2500 + Math.random() * 2500)));
+  for (const q of items) {
+    const id = String(q.threadId); const act = ms(q.lastActivityAt); const rep = Number(q.replyCount) || 0;
+    if (rep === 0) { out.keep.push(q); continue; }
+    if (st.participated?.[id] || st.replied?.[id]) { out.mine.push(q); continue; }
+    if (checked[id] && checked[id] >= act) { out.keep.push(q); continue; }
+    if (out.reads >= max) { out.keep.push(q); out.unchecked++; continue; }
+    try {
+      const pagesIn = Math.max(1, Math.ceil((rep + 1) / 20));
+      const urls = [q.url]; if (pagesIn > 1) urls.push(`${q.url}page-${pagesIn}`);
+      let isMine = false;
+      for (const u of urls) {
+        const got = await readInTab(u, extractThread, fast ? { settleMs: 0 } : {});
+        out.reads++;
+        const authors = [got.firstAuthor, ...(got.replies || []).map((r) => r.author)].map((a) => String(a || '').trim().toLowerCase());
+        if (authors.includes(me)) { isMine = true; break; }
+        if (urls.length > 1 && u === urls[0]) await gap();
+      }
+      if (isMine) { newlyMine[id] = Date.now(); out.mine.push(q); } else { checked[id] = Math.max(act, Date.now()); out.keep.push(q); }
+    } catch (e) {
+      if (/blocked/i.test(e.message)) throw e;
+      out.keep.push(q); out.unchecked++;                       // an odd page: not proof either way, the item stays
+    }
+    await gap();
+  }
+  const cur = await getRadar();
+  const trimmed = Object.fromEntries(Object.entries(checked).sort((a, b) => b[1] - a[1]).slice(0, 4000));
+  await setRadar({ ...cur, checked: trimmed, participated: { ...(cur.participated || {}), ...newlyMine } });
+  return out;
+}
 
 /**
  * The threads you have posted in, read from BHW's own list (signed in): page 1
@@ -2013,7 +2061,8 @@ export async function radarNewTick({ force = false } = {}) {
     for (const r of rows) if (r && r.threadId) seen[String(r.threadId)] = seen[String(r.threadId)] || Date.now();   // everything on the page is now "seen", shown or not
     if (!items.length) { await saveRadar({ ...st, newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; }
     if (!cfg.telegramChatId || !(await telegram.hasToken())) { await saveRadar({ ...st, newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; }
-    const batch = items.slice(0, 8);
+    let batch = items.slice(0, 8);
+    { const chk = await mineInThreads(batch, cfg); batch = chk.keep; if (!batch.length) { await saveRadar({ ...(await getRadar()), newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; } }
     const mid = await telegram.sendCard(cfg.telegramChatId, formatNewThreads(batch, { count: countToday(st), target: rc.dailyTarget, families: rc.families }), batchKeyboard(batch));
     const cards = { ...(st.cards || {}) };
     if (mid) cards[String(mid)] = { kind: 'batch', ids: batch.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(batch.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
@@ -2076,7 +2125,8 @@ export async function runBlock(blockId, { force = false, fast = false } = {}) {
     const cfg = await getConfig();
     const canSend = cfg.telegramChatId && (await telegram.hasToken());
     const names = boards.map((b) => b.name);
-    const ordered = blockOrder(items, names);
+    let ordered = blockOrder(items, names);
+    { const chk = await mineInThreads(ordered, cfg, { fast }); const drop = new Set(chk.mine.map((q) => q.threadId)); if (drop.size) { ordered = ordered.filter((q) => !drop.has(q.threadId)); for (let i = items.length - 1; i >= 0; i--) if (drop.has(items[i].threadId)) items.splice(i, 1); } }
     let sent = 0;
     if (ordered.length && canSend) {
       const mid = await telegram.sendCard(cfg.telegramChatId, formatBlock(block.name, items, names, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), families: rc.families }), batchKeyboard(ordered));
@@ -2164,15 +2214,29 @@ export async function runFamily(famId, { force = false, fast = false, more = fal
         if (Object.keys(scores).length) { fresh = fresh.map((c) => ({ ...c, score: scores[c.threadId] ?? null })); const keep = fresh.filter((c) => c.score == null || c.score >= 7); gated = fresh.length - keep.length; fresh = keep.sort((a, b) => (a.hot === b.hot ? (b.score || 0) - (a.score || 0) : a.hot ? -1 : 1)); }
       } catch (e) { await log(`Reply Radar ${f.name}: gate skipped (${e.message})`); }
     }
-    const items = chooseFamilyItems(fresh, more ? seenBefore : seenBefore);
-    const held = fresh.filter((c) => !items.some((q) => q.threadId === c.threadId));
+    // Your username inside the threads about to go out (page 1 and the last page): yours are dropped and replaced from the rest.
+    let items = chooseFamilyItems(fresh, seenBefore);
+    let pool = [...fresh, ...seenBefore.map((c) => ({ ...c, seenBefore: true }))].filter((c) => !items.some((q) => q.threadId === c.threadId));
+    let skippedMine = 0, unchecked = 0, readsDone = 0;
+    for (let round = 0; round < 3; round++) {
+      const chk = await mineInThreads(items, cfg, { fast });
+      readsDone += chk.reads; unchecked += chk.unchecked; skippedMine += chk.mine.length;
+      if (!chk.mine.length) { items = chk.keep; break; }
+      const need = Math.max(FAMILY_MIN, chk.keep.length + chk.mine.length) - chk.keep.length;
+      const mineIds = new Set(chk.mine.map((q) => q.threadId));
+      pool = pool.filter((c) => !mineIds.has(c.threadId));
+      items = [...chk.keep, ...pool.splice(0, need)];
+    }
+    const partNow = (await getRadar()).participated || {};
+    fresh = fresh.filter((c) => !items.some((q) => q.threadId === c.threadId) && !(c.threadId in partNow));
+    const held = fresh;
     const canSend = cfg.telegramChatId && (await telegram.hasToken());
     let sent = 0;
     if (items.length && canSend) {
       // The full command list once a day, before the day's first family message, so the words are never far away.
       const today = new Date().toLocaleDateString('en-CA');
       if (st.helpDay !== today) { await telegram.say(cfg.telegramChatId, RADAR_HELP, { html: true }); st = { ...st, helpDay: today }; }
-      const funnel = `Found ${found}${claudeOk.ok ? '' : ' · gate off (Claude kept for HAF)'}${st.partOk ? ` · ${Object.keys(st.participated || {}).length} threads you replied in left out` : ' · could not read your replied list'}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
+      const funnel = `Found ${found}${claudeOk.ok ? '' : ' · gate off (Claude kept for HAF)'}${skippedMine ? ` · ${skippedMine} you already replied to skipped` : ''}${unchecked ? ` · ${unchecked} not checked` : ''}${st.partOk ? ` · ${Object.keys(st.participated || {}).length} replied threads on file` : ' · could not read your replied list'}${!loggedIn ? ' (boards only: this Chrome is signed out of BHW, so search was skipped)' : ''} · gated ${gated} · sent ${items.length} · held ${held.length}`;
       const mid = await telegram.sendCard(cfg.telegramChatId, formatFamily(f, items, { count: countToday(st), target: rc.dailyTarget, traffic: await trafficLineNow(), funnel, families: rc.families }), batchKeyboard(items));
       const cards = { ...(st.cards || {}) };
       if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
@@ -2509,7 +2573,7 @@ async function radarCommand(body, cfg) {
   }
   if (/^\/?families\s*[.!]?$/i.test(text)) {
     const { families } = await familiesCfg(); const st = await getRadar();
-    await telegram.say(cfg.telegramChatId, ['🔎 <b>Families</b> (one runs every 20 minutes; pinned ones at least hourly)', '', ...families.map((f) => `${f.emoji || '🔎'} <b>${f.id}</b>${f.pinned ? ' 📌' : ''} · ${f.terms.length} terms · ${(f.boards || []).length} boards${(st.famRuns || {})[f.id] ? ` · last ${new Date(st.famRuns[f.id]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`), '', 'run cloaker · more cloaker · pin casino / unpin casino · add cloaker &lt;word&gt; · drop cloaker &lt;word&gt;'].join('\n'), { html: true });
+    await telegram.say(cfg.telegramChatId, ['🔎 <b>Families</b> (one runs every 20 minutes; pinned ones at least hourly)', '', ...families.map((f) => `${f.emoji || '🔎'} <b>${f.id}</b>${f.pinned ? ' 📌' : ''} · ${f.terms.length} terms · ${(f.boards || []).length} boards${(st.famRuns || {})[f.id] ? ` · last ${new Date(st.famRuns[f.id]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`), '', 'run casino · more casino · pin casino / unpin casino · add casino &lt;word&gt; · drop casino &lt;word&gt;'].join('\n'), { html: true });
     return true;
   }
   if ((x = text.match(/^\/?(pin|unpin)\s+([a-z][a-z0-9-]{1,20})\s*$/i))) {
@@ -2552,6 +2616,167 @@ async function radarCommand(body, cfg) {
   const st = await getRadar();
   const until = await radarPaused(); const ck = await radarClaudeOk(); const ai = await aiStatus().catch(() => null);
   await telegram.say(cfg.telegramChatId, `📡 Reply radar is ${rc.on ? 'ON' : 'OFF'} · public replies today: ${countToday(st)} of ${rc.dailyTarget} · ${Object.keys(st.queue).length} thread(s) waiting${until ? ` · Radar reading paused until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Cloudflare wall)` : ''}${(await hafBusy()) ? ' · waiting: HAF is sending' : ''}.\nClaude today: $${Number(ai?.spentToday || 0).toFixed(2)} of $${Number(ai?.budget || 0).toFixed(2)}${ck.ok ? '' : ' · Radar\'s Claude paused, the rest is kept for HAF'}.\nSend "radar help" for everything you can type.`);
+  return true;
+}
+
+// ------------------------------------------------- 1.21: ask mode - plain words in, matching threads out
+const ASK_FRIENDLY = (e) => /blocked/i.test(e.message) ? 'BHW showed a wall; reading is paused for a while.' : e.message;
+
+/** One short line about where Radar stands, so a chat question can be answered from fact. */
+async function askStatus(rc, st) {
+  const fams = mergeFamilies(rc.fams).map((f) => f.id).join(', ');
+  return `${countToday(st)} of ${rc.dailyTarget} public replies today; ${Object.keys(st.queue || {}).length} threads waiting; new-thread watch ${rc.newWatch === false ? 'off' : 'on'}; families: ${fams}`;
+}
+
+async function askPlan(text, rc, st) {
+  let plan = null, note = '', cost = 0;
+  try {
+    if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
+    const a = await askClaude(ASK_SYSTEM, askPrompt(text, { previous: st.askLast && Date.now() - st.askLast.at < 6 * 3600000 ? st.askLast : null, status: await askStatus(rc, st) }), { maxTokens: 700, timeoutMs: 45000 });
+    cost += a.cost || 0;
+    plan = parseAsk(a.text);
+  } catch (e) { note = `Claude was not available (${String(e.message).slice(0, 60)}), so I read your words with simple rules.`; }
+  if (!plan) { plan = ruleAsk(text); if (plan && !note) note = 'I read your words with simple rules this time.'; }
+  return { plan, note, cost };
+}
+
+/** Rows to the shape every Radar message and button uses. */
+const askRowOf = (r) => ({ threadId: String(r.threadId), url: r.url, title: r.title, forum: r.forum || '', section: r.forum || '', replyCount: Number(r.replyCount) || 0, lastActivityAt: r.lastActivityAt || r.at || null, startedAt: r.startedAt || null, snippet: r.snippet || '', author: r.author || '', sticky: !!r.sticky, locked: !!r.locked, mine: !!r.mine, hits: r.hits || 1 });
+
+async function askSend(chat, st, rc, cfg, items, plan, { request, more = 0, funnel = '', note = '' }) {
+  const mid = await telegram.sendCard(chat, formatAsk(items, plan, { request, count: countToday(st), target: rc.dailyTarget, more, funnel, note, traffic: await trafficLineNow().catch(() => '') }), batchKeyboard(items));
+  const cards = { ...(st.cards || {}) };
+  if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.forum, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
+  const queue = { ...st.queue };
+  for (const q of items) if (!queue[q.threadId]) queue[q.threadId] = { threadId: q.threadId, url: q.url, title: q.title, section: q.forum, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, match: 'ask', tier: 'S', views: null, shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() };
+  return { ...markSent({ ...st, queue, lastMessageId: mid }, items.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) };
+}
+
+async function askRun(plan, text, cfg, { note = '' } = {}) {
+  const chat = cfg.telegramChatId;
+  const rc = await getRadarCfg();
+  if (await hafBusy()) { await telegram.say(chat, '🤖 HAF is sending a message right now, so I am keeping BHW free for it. Send that again in a minute.'); return; }
+  const until = await radarPaused();
+  if (until) { await telegram.say(chat, `🤖 BHW showed a wall recently; I can read again from ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`); return; }
+  let st = await getRadar();
+  const hour = (st.searchLog || []).filter((t) => Date.now() - t < 3600000);
+  if (hour.length >= 12) { await telegram.say(chat, '🤖 Twelve searches already this hour. Wait a few minutes and ask again, so BHW never sees a burst.'); return; }
+  await setRadar({ ...st, searchLog: [...hour, Date.now()] });
+  const topic = plan.terms.join(' / ');
+  await telegram.say(chat, `🤖 ${plan.say || (plan.kind === 'new' && !topic ? 'Checking what is new' : `Looking for ${topic}`)}, last ${plan.hours >= 48 && plan.hours % 24 === 0 ? `${plan.hours / 24} days` : `${plan.hours} hours`}. One moment.`);
+  await jobStart(`Reply Radar ask: ${text.slice(0, 40)}`);
+  try {
+    const gap = () => new Promise((r) => setTimeout(r, fastRuns ? 0 : 2000 + Math.random() * 2000));
+    const tabOpts = fastRuns ? { settleMs: 0 } : {};
+    let rows = [], loggedIn = true;
+    if (plan.kind === 'new' && !plan.terms.length) {
+      for (const url of NEW_THREADS_URLS) {
+        const page = await readInTab(url, extractRadarListing, tabOpts);
+        if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+        if (page.rows && page.rows.length) { rows = page.rows.map((r) => askRowOf({ ...r, forum: r.forum || r.section })); break; }
+        await gap();
+      }
+    } else {
+      const days = Math.max(1, Math.ceil(plan.hours / 24));
+      for (const term of plan.terms.slice(0, 4)) {
+        const page = await readInTab(searchUrl(term, { days }), extractRadarSearch, tabOpts);
+        if (!page.loggedIn) { loggedIn = false; break; }
+        rows.push(...(page.rows || []).map((r) => askRowOf({ ...r, lastActivityAt: r.at })));
+        await gap();
+      }
+    }
+    if (!loggedIn) { await telegram.say(chat, '🤖 This Chrome is not signed in to BHW, so the search page is closed to me. Sign in once in Chrome and ask again.'); return; }
+    await refreshParticipated({ fast: fastRuns });
+    st = await getRadar();
+    const cands = pickAsk(rows, plan, st, { muted: rc.muted, deny: ASK_DENY, sales: RADAR_SALES, iPosted: radarIPosted, isMuted: radarIsMuted });
+    const funnel0 = `Read ${rows.length} · ${cands.length} fit`;
+    if (!cands.length) {
+      await saveRadar({ ...(await getRadar()), askLast: { text, plan, rest: [], at: Date.now() } });
+      await telegram.say(chat, `🤖 Nothing ${plan.again ? '' : 'new '}for ${topic || 'what is new'} in the last ${plan.hours} hours that you have not already been sent or replied to. ${funnel0}.\nTry a longer time ("last 7 days"), another word, or "${text} again" to include ones already sent.`);
+      return;
+    }
+    // Claude keeps only what fits the request and says why, in the order worth answering first.
+    let ranked = cands, rankNote = '';
+    try {
+      if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
+      const ask = plan.kind === 'new' && !plan.terms.length ? 'whatever is new on BlackHatWorld that an SEO / paid-ads / traffic expert could usefully answer' : `${plan.kind === 'new' ? 'new threads about' : 'threads about'} ${topic} (${text})`;
+      const a = await askClaude(RANK_SYSTEM, rankPrompt(ask, cands, plan.limit + 6), { maxTokens: 2200, timeoutMs: 60000 });
+      const kept = parseRank(a.text, cands);
+      if (kept) ranked = kept;
+    } catch (e) { rankNote = 'Not ranked by Claude (newest first).'; await log(`Reply Radar ask: ranking without Claude (${e.message})`); }
+    if (!ranked.length) {
+      await telegram.say(chat, `🤖 ${cands.length} thread(s) came up for ${topic || 'what is new'}, but none really fit what you asked. Try another word or a longer time.`);
+      return;
+    }
+    // Not in threads you already posted in: opened and checked for your username (page 1 and the last page).
+    const front = ranked.slice(0, plan.limit + 4), spare = ranked.slice(plan.limit + 4);
+    const chk = await mineInThreads(front, cfg, { fast: fastRuns, max: 14 });
+    const items = chk.keep.slice(0, plan.limit);
+    const rest = chk.keep.slice(plan.limit).concat(spare).slice(0, 30);
+    if (!items.length) { await telegram.say(chat, `🤖 Everything that fit (${front.length}) is a thread you already replied in. Nothing left to show.`); return; }
+    const funnel = `${funnel0}${chk.mine.length ? ` · ${chk.mine.length} you already replied to skipped` : ''}${chk.unchecked ? ` · ${chk.unchecked} not checked` : ''}`;
+    st = await getRadar();
+    const next = await askSend(chat, st, rc, cfg, items, plan, { request: text, more: rest.length, funnel, note: [note, rankNote].filter(Boolean).join(' ') });
+    await saveRadar({ ...next, askLast: { text, plan, rest, at: Date.now() } });
+    await log(`Reply Radar ask "${text.slice(0, 50)}": ${plan.kind}, ${rows.length} read, ${cands.length} fit, ${items.length} sent${chk.mine.length ? `, ${chk.mine.length} already replied` : ''}`);
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
+    await log(`Reply Radar ask: ${e.message}`, 'error');
+    await telegram.say(chat, `🤖 That did not work: ${ASK_FRIENDLY(e)}`);
+  } finally { await jobEnd(); }
+}
+
+/** "more": the next threads from the last answer, no new search. */
+async function askMore(cfg) {
+  const chat = cfg.telegramChatId; const rc = await getRadarCfg(); let st = await getRadar();
+  const last = st.askLast;
+  if (!last || !(last.rest || []).length) { await telegram.say(chat, '🤖 Nothing more waiting from the last answer. Ask for something new, or a longer time.'); return; }
+  const fresh = last.rest.filter((r) => !radarIPosted(st, r.threadId) && !st.hidden?.[r.threadId] && !st.sent?.[r.threadId]);
+  const chk = await mineInThreads(fresh.slice(0, last.plan.limit + 4), cfg, { fast: fastRuns, max: 14 });
+  const items = chk.keep.slice(0, last.plan.limit);
+  if (!items.length) { await saveRadar({ ...(await getRadar()), askLast: { ...last, rest: [] } }); await telegram.say(chat, '🤖 The rest were threads you already replied in. That was all of them.'); return; }
+  const rest = chk.keep.slice(items.length).concat(fresh.slice(last.plan.limit + 4));
+  st = await getRadar();
+  const next = await askSend(chat, st, rc, cfg, items, last.plan, { request: last.text, more: rest.length, funnel: chk.mine.length ? `${chk.mine.length} you already replied to skipped` : '' });
+  await saveRadar({ ...next, askLast: { ...last, rest, at: Date.now() } });
+}
+
+/** Free text to the bot: Claude (or simple rules) works out what you want and answers it. True when the message was handled. */
+async function takeAsk(ev, cfg) {
+  const raw = String(ev.body || '').trim();
+  const chat = cfg.telegramChatId;
+  let x;
+  if ((x = raw.match(/^\/?ask\s+(on|off)\s*[.!]?$/i))) {
+    await setRadarCfg({ ask: x[1].toLowerCase() === 'on' });
+    await telegram.say(chat, x[1].toLowerCase() === 'on' ? '🤖 Ask mode is ON: type what you want in plain words.' : '🤖 Ask mode is OFF. Typing a word searches the old index again. Send "ask on" to bring it back.');
+    return true;
+  }
+  if (/^\/?(?:ask|ai)\s*(?:help)?\s*[.!?]?$/i.test(raw)) { await telegram.say(chat, ASK_HELP, { html: true }); return true; }
+  const rc = await getRadarCfg();
+  const forced = raw.match(/^\/?(?:ask|ai)\s+([\s\S]+)$/i);
+  if (rc.ask === false && !forced) return false;
+  const text = (forced ? forced[1] : raw).trim();
+  if (/^more\s*[.!]?$/i.test(text)) {            // one word, so it must be checked before the length rule below
+    const { askLast } = await getRadar();
+    if (!askLast && !forced) return false;
+    await askMore(cfg); return true;
+  }
+  if (!forced) {
+    if (raw.startsWith('/')) return false;
+    const n = text.split(/\s+/).length;
+    if (n < 2 || n > 16) return false;                      // one word keeps the old index search; a long message is an answer to a card
+  }
+  let st = await getRadar();
+  const { plan, note, cost } = await askPlan(text, rc, st);
+  if (!plan) { await telegram.say(chat, '🤖 I could not tell what to look for. Try: find PBN threads in the last 24 hours, or check what\'s new. Send "ask help" for more.'); return true; }
+  if (plan.kind === 'chat') { await telegram.say(chat, `🤖 ${plan.reply}`); return true; }
+  if (plan.kind === 'command') {
+    const handled = (await radarCommand(plan.command, cfg).catch(() => false)) || (await pulseCommand(plan.command, cfg).catch(() => false));
+    if (!handled) await telegram.say(chat, `🤖 I could not run "${plan.command}".`);
+    return true;
+  }
+  if (cost) await log(`Reply Radar ask: plan cost $${cost.toFixed(4)}`);
+  await askRun(plan, text, cfg, { note });
   return true;
 }
 
@@ -4189,6 +4414,7 @@ export async function pollTaps() {
       if (await takeHuntCommand(ev, cfg)) { done++; continue; }
       if (ev.replyTo && await takeAnswerReply(ev, cfg)) { done++; continue; }
       if (await takeRewrite(ev, cfg)) { done++; continue; }
+      if (await takeAsk(ev, cfg).catch(async (e) => { await telegram.say(cfg.telegramChatId, `🤖 That did not work: ${e.message}`); return true; })) { done++; continue; }
       if (await takeSearch(ev, cfg)) done++;
       continue;
     }

@@ -12,7 +12,7 @@ const now = Date.parse('2026-10-06T02:00:00Z');
 const hAgo = (h) => new Date(now - h * 3600000).toISOString();
 
 // --- HAF and the Marketplace are never read ----------------------------------------------
-ok('eight sections, none of them Hire a Freelancer or a sales section', RADAR_SECTIONS.length === 8 && !RADAR_SECTIONS.some((s) => NEVER.test(s.url) || /hire|market|sale|want to buy/i.test(s.name)), RADAR_SECTIONS.map((s) => s.url));
+ok('seven sections, none of them Hire a Freelancer or a sales section', RADAR_SECTIONS.length === 7 && !RADAR_SECTIONS.some((s) => NEVER.test(s.url) || /hire|market|sale|want to buy/i.test(s.name)), RADAR_SECTIONS.map((s) => s.url));
 ok('the Hire a Freelancer forum (node 76) is refused by the guard', NEVER.test('https://www.blackhatworld.com/forums/hire-a-freelancer.76/') && NEVER.test('https://www.blackhatworld.com/forums/76/'));
 ok('batch every 60 minutes, 3 threads, target 10, on by default', DEFAULT_RADAR_CFG.everyMinutes === 60 && DEFAULT_RADAR_CFG.perBatch === 3 && DEFAULT_RADAR_CFG.dailyTarget === 10 && DEFAULT_RADAR_CFG.on === true);
 
@@ -25,19 +25,18 @@ ok('an empty list is no regex', wordRegex([]) === null && wordRegex(['', ' ']) =
 // --- the real titles -----------------------------------------------------------------------
 const strict = [
   ['Anyone still successfully running gambling niche ads on Meta?', 'Facebook ads'], ['Best Ad Networks for Promoting Gambling Apps?', 'Other PPC'],
-  ['TrafficGuardian For Casino Campaigns?', 'Cloaking'], ['which cloaking services would you reccomend?', 'Cloaking'],
-  ['Google DISPLAY Ads campaign - TrustCloaker', 'Cloaking'], ['Is it a good idea to run a casino using Snapchat?', 'Other PPC'],
+  ['TrafficGuardian For Casino Campaigns?', 'CPA'], ['which casino services would you reccomend?', 'CPA'],
+  ['Is it a good idea to run a casino using Snapchat?', 'Other PPC'],
   ['I want to run forex trading ads on Taboola?', 'Other PPC'], ['Is facebook ads getting harder for BH offers recently?', 'Facebook ads'],
-  ['Best Places To Get Whitepages', 'Google Ads'], ['Seriously, what\'s the truth with meta and peptide ads?', 'Facebook ads'],
-  ['Meta ads for onlyfans', 'Facebook ads'], ['HOW TO CLOAK FACEBOOK AD CREATIVES ( IMAGES & VIDEOS)', 'Facebook ads'],
-  ['Do you guys have any recommendations for low budget testing to optimize creatives then scale? crypto education niche.', 'Facebook ads'],
+  ['Seriously, what\'s the truth with meta and peptide ads?', 'Facebook ads'],
+  ['Meta ads for onlyfans', 'Facebook ads'], ['Do you guys have any recommendations for low budget testing to optimize creatives then scale? crypto education niche.', 'Facebook ads'],
   ['Anyone here successfully scaling SMS/Email traffic in gambling?', 'CPA']
 ];
 const missS = strict.filter(([t, s]) => classify(t, sec(s), rx) !== 'strict');
 ok('every niche thread from the live run is a strict match', missS.length === 0, missS);
 const wide = [
   ['Best virtual credit cards (VCC) for Facebook Ads?', 'Facebook ads'], ['Google has started massively blocking accounts', 'Google Ads'],
-  ['Frequent suspension for circumventing systems', 'Google Ads'], ['buying BM5 account vs Agency renting', 'Facebook ads'],
+  ['Frequent suspended accounts on Google Ads', 'Google Ads'], ['buying BM5 account vs Agency renting', 'Facebook ads'],
   ['Google ads account got suspended for unacceptable business practices, any solutions for creating new accounts', 'Media Buying'],
   ['SnapChat business manager and ad account verification problem solution', 'General PPC']
 ];
@@ -73,8 +72,8 @@ const pages = [
   { section: sec('Facebook ads'), rows: [R(1, 'Anyone still successfully running gambling niche ads on Meta?', { start: 326, last: 51, rep: 11 }), R(2, 'Best virtual credit cards (VCC) for Facebook Ads?', { start: 9, last: 9, rep: 0 }),
     R(3, 'Fb ads performance dropped suddenly this week', { start: 9, last: 9, rep: 0 }), R(4, 'Casino rules - read first', { sticky: true }), R(5, 'Casino ads closed thread', { locked: true }),
     R(6, 'Meta ads for onlyfans', { start: 5900, last: 97, rep: 82 }), R(7, 'How to reduce high cpc in facebook ads for USA', { start: 150, last: 10, rep: 5 })] },
-  { section: sec('Cloaking'), rows: [R(8, 'which cloaking services would you reccomend?', { start: 50, last: 7, rep: 3, mine: true }), R(9, 'TrafficGuardian For Casino Campaigns?', { start: 1020, last: 7.5, rep: 5 }),
-    R(10, 'Google DISPLAY Ads campaign - TrustCloaker', { start: 38, last: 2.8, rep: 3 }), R(11, 'keywords to use while cloaking', { start: 900, last: 288, rep: 7 })] },
+  { section: sec('CPA'), rows: [R(8, 'which casino services would you reccomend?', { start: 50, last: 7, rep: 3, mine: true }), R(9, 'TrafficGuardian For Casino Campaigns?', { start: 1020, last: 7.5, rep: 5 }),
+    R(10, 'Google DISPLAY Ads campaign - TrustPBN', { start: 38, last: 2.8, rep: 3 }), R(11, 'keywords to use while pbn', { start: 900, last: 288, rep: 7 })] },
   { section: { id: 76, name: 'Hire a Freelancer', url: 'https://www.blackhatworld.com/forums/hire-a-freelancer.76/', ad: true }, rows: [R(99, 'Looking for casino ads expert', { start: 1, last: 1, rep: 2 })] }
 ];
 let st = foldSweep(emptyState(), pages, rx, { now, general: true });
@@ -159,7 +158,7 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   const html = `<html data-logged-in="true"><body><a class="p-navgroup-link p-navgroup-link--user"><span class="p-navgroup-linkText">bargainbed</span></a>
     <div class="structItemContainer"><div class="structItemContainer-group structItemContainer-group--sticky">${item2(1, 'Section rules')}</div>
     <div class="structItemContainer-group js-threadList">${item2(1849411, 'Anyone still successfully running gambling niche ads on Meta?', { rep: 11, prefix: true })}
-    ${item2(1851904, 'which cloaking services would you reccomend?', { posted: true })}${item2(3, 'Closed one', { locked: true })}${item2(4, 'My last word', { lastPoster: 'BargainBed' })}</div></div></body></html>`;
+    ${item2(1851904, 'which casino services would you reccomend?', { posted: true })}${item2(3, 'Closed one', { locked: true })}${item2(4, 'My last word', { lastPoster: 'BargainBed' })}</div></div></body></html>`;
   const dom = new JSDOM(html, { url: 'https://www.blackhatworld.com/forums/facebook.219/' });
   globalThis.document = dom.window.document; globalThis.location = dom.window.location; globalThis.URL = dom.window.URL;
   const r = extractRadarListing();
@@ -185,7 +184,7 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
     N(4, 'Need casino ads expert', { forum: 'Hire a Freelancer', node: 76 }),                 // HAF -> never
     N(5, '⭐ Casino backlinks $5 ⭐', { forum: 'SEO - Link building', node: 50 }),            // sales -> no
     N(6, 'Facebook ads performance dropped', { forum: 'Facebook', node: 219, start: 9 }),      // 9h old -> no (6h window)
-    N(7, 'Which cloaker for Google Display?', { forum: 'Cloaking', node: 2, rep: 7 }),          // 7 replies already -> no
+    N(7, 'Which pbn for Google Display?', { forum: 'Black Hat SEO', node: 2, rep: 7 }),          // 7 replies already -> no
     N(8, 'Agency accounts for crypto', { forum: 'Facebook', node: 219, start: 0.5 }),           // yes
     N(9, 'Section rules', { sticky: true }),                                                   // no
     N(10, 'Anyone running gambling on TikTok?', { forum: 'TikTok', node: 279, mine: true }),    // yours -> no
@@ -202,7 +201,7 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
 
 // --- 1.17: blocks ------------------------------------------------------------------------------------
 {
-  ok('two default blocks: Ads at :00 with 10 boards, SEO at :30 with 5; HAF and Marketplace in neither', DEFAULT_BLOCKS.length === 2 && DEFAULT_BLOCKS[0].minute === 0 && DEFAULT_BLOCKS[0].boards.length === 10 && DEFAULT_BLOCKS[1].minute === 30 && DEFAULT_BLOCKS[1].boards.length === 5
+  ok('two default blocks: Ads at :00 with 9 boards, SEO at :30 with 5; HAF and Marketplace in neither', DEFAULT_BLOCKS.length === 2 && DEFAULT_BLOCKS[0].minute === 0 && DEFAULT_BLOCKS[0].boards.length === 9 && DEFAULT_BLOCKS[1].minute === 30 && DEFAULT_BLOCKS[1].boards.length === 5
     && !DEFAULT_BLOCKS.flatMap((b) => b.boards).some((x) => String(x.id) === '76' || /hire|market|for-sale|seo-link/.test(String(x.slug || ''))));
   const list = [{ slug: 'white-hat-seo', id: '29', name: 'White Hat SEO' }, { slug: 'link-building', id: '48', name: 'Link Building' }, { slug: 'seo-link-building', id: '301', name: 'SEO - Link building' }, { slug: 'hire-a-freelancer', id: '76', name: 'Hire a Freelancer' }];
   const seo = resolveBoards(DEFAULT_BLOCKS[1].boards, list);
@@ -242,22 +241,22 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
 
 // --- 1.18: families ---------------------------------------------------------------------------------
 {
-  ok('ten families, about 100 terms, three pinned, every term lowercase and short', FAMILIES.length === 10 && FAMILIES.flatMap((f) => f.terms).length >= 100 && FAMILIES.filter((f) => f.pinned).length === 3 && FAMILIES.flatMap((f) => f.terms).every((t) => t === t.toLowerCase() && t.length <= 30));
+  ok('ten families, about 100 terms, two pinned, every term lowercase and short', FAMILIES.length === 10 && FAMILIES.flatMap((f) => f.terms).length >= 100 && FAMILIES.filter((f) => f.pinned).length === 2 && FAMILIES.flatMap((f) => f.terms).every((t) => t === t.toLowerCase() && t.length <= 30));
   ok('no family board is Hire a Freelancer or a sales board', !FAMILIES.flatMap((f) => f.boards).some((b) => b.id === 76 || /sale|market|hire/i.test(b.name)));
-  const merged = mergeFamilies([{ id: 'cloaker', terms: ['cloaker', 'cloaking', 'mycloak'], pinned: false }, { id: 'solar', name: 'Solar', terms: ['solar leads'], boards: [] }, { id: 'adult', on: false }]);
-  ok('saved edits override a built-in family, a new family is added, a switched-off one is gone', merged.find((f) => f.id === 'cloaker').terms.length === 3 && merged.find((f) => f.id === 'cloaker').pinned === false && merged.find((f) => f.id === 'cloaker').boards.length === 1 && !!merged.find((f) => f.id === 'solar') && !merged.some((f) => f.id === 'adult'));
-  const runs = { cloaker: now - 70 * 60000, circumvent: now - 30 * 60000, casino: now - 50 * 60000, crypto: now - 5 * 3600000 };
-  ok('a pinned family that waited an hour runs before the longest-waiting unpinned one', pickNextFamily(FAMILIES, runs, now).id === 'cloaker');
-  ok('with no pinned family overdue, the longest-waiting runs (never run = infinite wait)', pickNextFamily(FAMILIES, { ...runs, cloaker: now - 10 * 60000 }, now).id !== 'cloaker' && !['circumvent', 'casino'].includes(pickNextFamily(FAMILIES, { ...runs, cloaker: now - 10 * 60000 }, now).id));
+  const merged = mergeFamilies([{ id: 'pbn', terms: ['pbn', 'pbn', 'mycloak'], pinned: false }, { id: 'solar', name: 'Solar', terms: ['solar leads'], boards: [] }, { id: 'adult', on: false }]);
+  ok('saved edits override a built-in family, a new family is added, a switched-off one is gone', merged.find((f) => f.id === 'pbn').terms.length === 3 && merged.find((f) => f.id === 'pbn').pinned === false && merged.find((f) => f.id === 'pbn').boards.length === 1 && !!merged.find((f) => f.id === 'solar') && !merged.some((f) => f.id === 'adult'));
+  const runs = { pbn: now - 70 * 60000, outreach: now - 30 * 60000, casino: now - 50 * 60000, crypto: now - 5 * 3600000 };
+  ok('a pinned family that waited an hour runs before the longest-waiting unpinned one', pickNextFamily(FAMILIES, runs, now).id === 'pbn');
+  ok('with no pinned family overdue, the longest-waiting runs (never run = infinite wait)', pickNextFamily(FAMILIES, { ...runs, pbn: now - 10 * 60000 }, now).id !== 'pbn' && !['outreach', 'casino'].includes(pickNextFamily(FAMILIES, { ...runs, pbn: now - 10 * 60000 }, now).id));
   const f = FAMILIES[0]; const t1 = nextTerms(f, 0, 3); const t2 = nextTerms(f, t1.idx, 3);
   ok('terms rotate three at a time through the whole list and wrap around', t1.terms.join() === f.terms.slice(0, 3).join() && t2.terms.join() === f.terms.slice(3, 6).join() && nextTerms(f, f.terms.length - 1, 3).terms.length === 3 && nextTerms(f, f.terms.length - 1, 3).terms[1] === f.terms[0]);
-  ok('the narrowed sales filter keeps "Which cloaking service?" and drops prices, WTS and emoji stacks', !SALES_NARROW.test('which cloaking services would you reccomend?') && SALES_NARROW.test('⭐ Casino backlinks $5 ⭐') && SALES_NARROW.test('[WTS] aged BM accounts') && SALES_NARROW.test('⏩⭐ MEGA AUTHORITY links'));
+  ok('the narrowed sales filter keeps "Which pbn service?" and drops prices, WTS and emoji stacks', !SALES_NARROW.test('which casino services would you reccomend?') && SALES_NARROW.test('⭐ Casino backlinks $5 ⭐') && SALES_NARROW.test('[WTS] aged BM accounts') && SALES_NARROW.test('⏩⭐ MEGA AUTHORITY links'));
   const SR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/s.${id}/`, kind: o.kind || 'thread', title, author: 'a', at: hAgo(o.h ?? 24), replyCount: o.rep ?? 3, forum: o.forum || 'Facebook', snippet: o.snippet || '' });
   const BR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/b.${id}/`, title, author: 'a', lastPoster: 'z', startedAt: hAgo(o.start ?? 48), lastActivityAt: hAgo(o.h ?? 10), replyCount: o.rep ?? 3, sticky: !!o.sticky, locked: false, mine: !!o.mine, lastMine: false });
-  const cl = FAMILIES.find((x) => x.id === 'cloaker');
-  const inp = { searchRows: [SR(1, 'Which cloaking service would you recommend?', { h: 5, rep: 3 }), SR(2, 'TrustCloaker or Cloaking House?', { h: 400, rep: 20 }), SR(3, '⭐ Cloaker for sale $20 ⭐', { h: 2, rep: 0 }), SR(4, 'Need a cloaker guy', { forum: 'Hire a Freelancer', h: 1, rep: 0 }), SR(5, 'Already sent one', { h: 3, rep: 4 }), SR(6, 'Replied one', { h: 3 }), SR(1, 'Which cloaking service would you recommend?', { h: 2, kind: 'post', rep: 4, snippet: 'JCI works' })],
-    pages: [{ board: { id: 2, name: 'Cloaking' }, rows: [BR(7, 'Whats the longest payment processor cloaking worked for you?', { rep: 0, h: 100 }), BR(8, 'Section rules', { sticky: true }), BR(9, 'Mine', { mine: true }), BR(10, 'Stripe cloaking for peps', { rep: 2, h: 50 })] },
-      { board: { id: 219, name: 'Facebook (PPC)', filter: 'family' }, rows: [BR(11, 'Best cloaker for replica products on Meta?', { rep: 26, h: 110 }), BR(12, 'How to lower CPC', { rep: 1, h: 2 })] }] };
+  const cl = FAMILIES.find((x) => x.id === 'pbn');
+  const inp = { searchRows: [SR(1, 'Which pbn service would you recommend?', { h: 5, rep: 3 }), SR(2, 'TrustPBN or PBN House?', { h: 400, rep: 20 }), SR(3, '⭐ PBN for sale $20 ⭐', { h: 2, rep: 0 }), SR(4, 'Need a pbn guy', { forum: 'Hire a Freelancer', h: 1, rep: 0 }), SR(5, 'Already sent one', { h: 3, rep: 4 }), SR(6, 'Replied one', { h: 3 }), SR(1, 'Which pbn service would you recommend?', { h: 2, kind: 'post', rep: 4, snippet: 'JCI works' })],
+    pages: [{ board: { id: 2, name: 'Black Hat SEO' }, rows: [BR(7, 'Whats the longest payment processor pbn worked for you?', { rep: 0, h: 100 }), BR(8, 'Section rules', { sticky: true }), BR(9, 'Mine', { mine: true }), BR(10, 'Stripe pbn for peps', { rep: 2, h: 50 })] },
+      { board: { id: 219, name: 'Facebook (PPC)', filter: 'family' }, rows: [BR(11, 'Best pbn for replica products on Meta?', { rep: 26, h: 110 }), BR(12, 'How to lower CPC', { rep: 1, h: 2 })] }] };
   const state = { sent: { 5: now - 86400000 }, replied: { 6: { at: now } }, hidden: {} };
   const { fresh, seenBefore } = familyCandidates(cl, inp, state, { now, muted: [] });
   const ids = fresh.map((c) => c.threadId);
@@ -269,20 +268,20 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   ok('fewer than 3 fresh: seen-before tops up, marked', chosen.length === 2 && chosen[1].seenBefore === true);
   ok('never more than 8', chooseFamilyItems(Array.from({ length: 12 }, (_, i) => ({ threadId: String(i) })), []).length === 8);
   const gp = gatePrompt(cl, fresh);
-  ok('the gate prompt carries the niche meaning and each id with title, board and snippet', /^NICHE: Choosing, setting up/.test(gp) && /^1 \| Which cloaking service/m.test(gp) && /JCI works/.test(gp));
+  ok('the gate prompt carries the niche meaning and each id with title, board and snippet', /^NICHE: Building, buying or running PBNs/.test(gp) && /^1 \| Which pbn service/m.test(gp) && /JCI works/.test(gp));
   ok('gate scores are read by id, clamped 0-10; a broken answer gives none', parseGate('{"scores":{"1":9,"7":"11","10":-2}}')['7'] === 10 && parseGate('{"scores":{"10":-2}}')['10'] === 0 && Object.keys(parseGate('nope')).length === 0);
   const msg = formatFamily(cl, chosen.map((c, i) => ({ ...c, score: i === 0 ? 9 : undefined })), { now, count: 1, traffic: '📈 BHW now: 900 members · Low', funnel: 'Found 4 · gated 0 · sent 2 · held 2' });
-  ok('the family message: emoji + name, HOT, fit score, seen-before mark, funnel, count, traffic, code words with "more"', /^🛡 <b>Cloaker<\/b> · \d\d:\d\d · 2 threads/.test(msg) && /1\. 🔥 HOT · <a href="[^"]+">Whats the longest payment processor/.test(msg) && /fit 9\/10/.test(msg) && /seen before/.test(msg) && /Found 4 · gated 0 · sent 2 · held 2/.test(msg) && /📈 BHW now/.test(msg) && /more cloaker/.test(msg.split('\n').pop()), msg);
+  ok('the family message: emoji + name, HOT, fit score, seen-before mark, funnel, count, traffic, code words with "more"', /^🔗 <b>PBN &amp; links<\/b> · \d\d:\d\d · 2 threads/.test(msg) && /1\. 🔥 HOT · <a href="[^"]+">Whats the longest payment processor/.test(msg) && /fit 9\/10/.test(msg) && /seen before/.test(msg) && /Found 4 · gated 0 · sent 2 · held 2/.test(msg) && /📈 BHW now/.test(msg) && /more casino/.test(msg.split('\n').pop()), msg);
 }
 
 // --- 1.20: threads you already posted in (BHW's own list) --------------------------------------------
 {
   const part = { participated: { 7: now, 11: now, 2001: now, 3001: now, 9: now } };
   ok('iPosted: your tap OR BHW\'s list', iPosted({ replied: { 1: {} } }, '1') && iPosted(part, '7') && !iPosted(part, '8') && !iPosted({}, '1'));
-  const SRc = (id, title) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/p.${id}/`, kind: 'thread', title, author: 'a', at: hAgo(5), replyCount: 3, forum: 'Cloaking', snippet: '' });
+  const SRc = (id, title) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/p.${id}/`, kind: 'thread', title, author: 'a', at: hAgo(5), replyCount: 3, forum: 'Black Hat SEO', snippet: '' });
   const BRc = (id, title) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/p.${id}/`, title, author: 'a', lastPoster: 'z', startedAt: hAgo(40), lastActivityAt: hAgo(3), replyCount: 3, sticky: false, locked: false, mine: false, lastMine: false });
-  const cl = FAMILIES.find((x) => x.id === 'cloaker');
-  const fc = familyCandidates(cl, { searchRows: [SRc(2001, 'Cloaker I replied to, someone answered after me'), SRc(2002, 'Cloaker nobody has answered')], pages: [{ board: { id: 2, name: 'Cloaking' }, rows: [BRc(7, 'Cloaking thread I answered by hand'), BRc(8, 'Cloaking thread I did not answer')] }] }, part, { now });
+  const cl = FAMILIES.find((x) => x.id === 'pbn');
+  const fc = familyCandidates(cl, { searchRows: [SRc(2001, 'PBN I replied to, someone answered after me'), SRc(2002, 'PBN nobody has answered')], pages: [{ board: { id: 2, name: 'Black Hat SEO' }, rows: [BRc(7, 'Black Hat SEO thread I answered by hand'), BRc(8, 'Black Hat SEO thread I did not answer')] }] }, part, { now });
   ok('families: a thread you posted in is never suggested, wherever it came from (search or board), even if someone replied after you', fc.fresh.map((c) => c.threadId).sort().join() === '2002,8', fc.fresh.map((c) => c.threadId));
   const bl = pickBlock([{ board: { id: 219, name: 'Facebook (PPC)' }, rows: [BRc(9, 'Block thread I answered'), BRc(12, 'Block thread new to me')] }], part, rx, { now });
   ok('blocks: the same', bl.items.map((q) => q.threadId).join() === '12', bl.items.map((q) => q.threadId));

@@ -18,7 +18,7 @@ const R = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blac
   startedAt: hAgo(o.start ?? 48), lastActivityAt: hAgo(o.last ?? 6), replyCount: o.rep ?? 3, views: 100, sticky: false, locked: false, mine: !!o.mine, lastMine: false });
 let listings = {
   219: [R(1, 'Anyone still successfully running gambling niche ads on Meta?', { start: 326, last: 51, rep: 11 }), R(2, 'Best virtual credit cards (VCC) for Facebook Ads?', { start: 9, last: 9, rep: 0 }), R(3, 'How to reduce high cpc in facebook ads', { start: 150, last: 10, rep: 5 })],
-  2: [R(9, 'TrafficGuardian For Casino Campaigns?', { start: 1020, last: 7.5, rep: 5 }), R(10, 'which cloaking services would you reccomend?', { start: 50, last: 7, rep: 3 })],
+  50: [R(9, 'TrafficGuardian For Casino Campaigns?', { start: 1020, last: 7.5, rep: 5 }), R(10, 'which casino services would you reccomend?', { start: 50, last: 7, rep: 3 })],
   85: [R(20, 'Best Ad Networks for Promoting Gambling Apps?', { start: 1500, last: 6.6, rep: 25 })]
 };
 let threadPosts = { 10: [{ author: 'jak', text: 'JCI is good' }, { author: 'BargainBed', text: 'Check fingerprints and IP consistency.' }] };
@@ -52,9 +52,8 @@ globalThis.chrome = {
           { threadId: '3006', url: 'https://www.blackhatworld.com/seo/gambling-push.3006/', kind: 'thread', title: 'Gambling offers on push traffic', author: 'g', at: d(20), replyCount: 4, forum: 'Media Buying', snippet: 'which push networks allow gambling' }],
         pbn: [{ threadId: '4001', url: 'https://www.blackhatworld.com/seo/pbn-2026.4001/', kind: 'thread', title: 'Is PBN still working in 2026?', author: 'n', at: d(8), replyCount: 6, forum: 'Black Hat SEO', snippet: 'deindexed twice' }],
         'expired domain': [{ threadId: '4002', url: 'https://www.blackhatworld.com/seo/expired.4002/', kind: 'thread', title: 'Where do you buy expired domains now?', author: 'e', at: d(12), replyCount: 3, forum: 'Black Hat SEO', snippet: 'auctions' }],
-        cloaker: Array.from({ length: 10 }, (_, i) => ({ threadId: String(9100 + i), url: `https://www.blackhatworld.com/seo/c.${9100 + i}/`, kind: 'thread', title: i === 9 ? 'Cloaking my Instagram bio link?' : `Cloaker question ${i}: which one for ${['Meta', 'Google', 'TikTok', 'Bing', 'native', 'push', 'Snapchat', 'Taboola', 'Outbrain'][i]}?`, author: 'u', at: d(2 + i), replyCount: i === 0 ? 0 : i, forum: 'Cloaking', snippet: 'which cloaker' })),
-        cloaking: [{ threadId: '9200', url: 'https://www.blackhatworld.com/seo/c.9200/', kind: 'post', title: 'Cloaking for Finance ads', author: 'q', at: d(1), replyCount: 6, forum: 'Cloaking', snippet: 'finance' }],
-        'white page': []
+        'private blog network': Array.from({ length: 10 }, (_, i) => ({ threadId: String(9100 + i), url: `https://www.blackhatworld.com/seo/c.${9100 + i}/`, kind: 'thread', title: i === 9 ? 'Black Hat SEO my Instagram bio link?' : `PBN question ${i}: which one for ${['Meta', 'Google', 'TikTok', 'Bing', 'native', 'push', 'Snapchat', 'Taboola', 'Outbrain'][i]}?`, author: 'u', at: d(2 + i), replyCount: i === 0 ? 0 : i, forum: 'Black Hat SEO', snippet: 'which pbn' })),
+        'pbn links': [{ threadId: '9200', url: 'https://www.blackhatworld.com/seo/c.9200/', kind: 'post', title: 'Black Hat SEO for Finance ads', author: 'q', at: d(1), replyCount: 6, forum: 'Black Hat SEO', snippet: 'finance' }]
       };
       return [{ result: { rows: all[term] || [], loggedIn: !globalThis.__signedOut, next: false } }];
     }
@@ -69,10 +68,11 @@ globalThis.chrome = {
       if (/whats-new\/threads/.test(url) && globalThis.__noThreadsPage) return [{ result: { rows: [], me: 'bargainbed', loggedIn: true } }];
       return [{ result: { rows: globalThis.__newRows || [], me: 'bargainbed', loggedIn: true } }];
     }
-    if (func.name === 'extractRadarListing') { const id = (url.match(/forums\/(\d+)\//) || [])[1]; return [{ result: { rows: listings[id] || [], me: 'bargainbed', loggedIn: true } }]; }
+    if (func.name === 'extractRadarListing') { const id = (url.match(/forums\/(\d+)\//) || [])[1]; return [{ result: { rows: listings[id] || [], me: globalThis.__noMe ? '' : 'bargainbed', loggedIn: true } }]; }
     if (globalThis.__onThreadRead) { const f = globalThis.__onThreadRead; globalThis.__onThreadRead = null; await f(url); }
     const id = (url.match(/\.(\d+)\//) || [])[1]; const page = (url.match(/page-(\d+)/) || [])[1];
-    const posts = threadPosts[id] || [{ author: 'm1', text: 'Check the network allows gambling in your GEO.' }];
+    globalThis.__threadOpens = (globalThis.__threadOpens || []); globalThis.__threadOpens.push(url);
+    const posts = (page && (globalThis.__lastPagePosts || {})[id]) || threadPosts[id] || [{ author: 'm1', text: 'Check the network allows gambling in your GEO.' }];
     return [{ result: { page: Number(page) || 1, starter: 'starter', firstAuthor: page ? 'late' : 'starter', title: 't', body: page ? 'a late reply on the last page' : 'The opening question of the thread.', replies: posts } }];
   } },
   offscreen: { hasDocument: async () => true, createDocument: async () => {} },
@@ -108,6 +108,15 @@ globalThis.fetch = async (url, opts) => {
         ...(ids.length > half ? [{ name: 'SEO side', why: 'Quieter', ids: ids.slice(half), asked: 'What works for casino keywords.', need: 'Specifics, not generic tips.' }] : [])] });
       return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 600, output_tokens: 200 }, stop_reason: 'end_turn' }) };
     }
+    if (/private Telegram bot that watches/.test(b.system)) {
+      const req = (content.match(/^REQUEST: (.*)$/m) || [])[1] || '';
+      const plan = (globalThis.__askPlans || {})[req] || { kind: 'chat', reply: 'No plan in this test.' };
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify(plan) }], usage: { input_tokens: 300, output_tokens: 80 }, stop_reason: 'end_turn' }) };
+    }
+    if (/You rank BlackHatWorld threads/.test(b.system)) {
+      const ids = [...content.matchAll(/^(\d+) \| /gm)].map((m) => m[1]).filter((id) => !(globalThis.__rankDrop || []).includes(id));
+      return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: JSON.stringify({ keep: ids.map((id) => ({ id, why: `Why ${id} fits.` })) }) }], usage: { input_tokens: 600, output_tokens: 150 }, stop_reason: 'end_turn' }) };
+    }
     const ids = [...content.matchAll(/THREAD (\d+):/g)].map((m) => m[1]);
     const text = JSON.stringify({ threads: ids.map((id) => ({ id, asked: `What thread ${id} asked.`, said: [{ point: 'check the GEO is allowed', n: 3 }], back: '', gap: 'Nobody named a network.' })) });
     return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 900, output_tokens: 200 }, stop_reason: 'end_turn' }) };
@@ -128,14 +137,14 @@ const leadsBefore = JSON.stringify(bags.local.recentLeads || null);
 let r = await bg.runRadar({ fast: true });
 const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
 ok('the first cards of the day come after the list of words you can send', tg.filter((m) => m.method === 'sendMessage')[0]?.text.includes('the commands you can send') && tg.filter((m) => m.method === 'sendMessage' && /the commands you can send/.test(m.text)).length === 1, tg[0]?.text?.slice(0, 80));
-ok('the run reads the 8 section pages and sends 3 cards', r.ok && r.sent === 3 && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 8, { r, n: opened.length });
+ok('the run reads the 7 section pages and sends 3 cards', r.ok && r.sent === 3 && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 7, { r, n: opened.length });
 ok('Hire a Freelancer and the Marketplace are never opened', !opened.some((u) => /hire-a-freelancer|forums\/76\/|marketplace|want-to-buy/i.test(u)), opened);
 const kb = cards[0]?.reply_markup?.inline_keyboard || [];
 ok('the batch is ONE message (1.14.1) with Open / I replied / Not relevant per thread', cards.length === 1 && r.sent === 3 && kb.length === 6 && kb[0][0].url && /^rr:\d+$/.test(kb[1][0].callback_data) && /^rx:\d+$/.test(kb[1][1].callback_data) && /I replied 3/.test(kb[5][0].text), kb);
 ok('keyword ideas and the fixed code words close every message', /Try: next \w+ · next \w+/.test(cards[0].text) && cards[0].text.split('\n').pop() === 'Send: next &lt;word&gt; · new threads · mute &lt;word&gt; · radar · radar help', cards[0].text.split('\n').slice(-2));
 ok('threads are numbered, the first is starred, and the day\'s count is on the message', /<b>1\. .+<\/b> ⭐/.test(cards[0].text) && /<b>3\. /.test(cards[0].text) && /Public replies today: <b>0 of 10<\/b>/.test(cards[0].text), cards[0]?.text);
 ok('Claude was asked once for the whole batch, and its summary is in the message', claude.length === 1 && /Asked: What thread \d+ asked\./.test(cards[0].text) && /Already said: check the GEO is allowed \(3\)/.test(cards[0].text) && /Missing: Nobody named a network\./.test(cards[0].text), cards[0]?.text);
-ok('a thread that already has your reply inside is dropped, not sent', !cards.some((c) => /which cloaking services/.test(c.text)) && !!bags.local.radar.replied['10'] && !bags.local.radar.queue['10']);
+ok('a thread that already has your reply inside is dropped, not sent', !cards.some((c) => /which casino services/.test(c.text)) && !!bags.local.radar.replied['10'] && !bags.local.radar.queue['10']);
 ok('a long thread is read on its first and last page only', opened.includes('https://www.blackhatworld.com/seo/t.20/') ? opened.includes('https://www.blackhatworld.com/seo/t.20/page-2') && !opened.some((u) => /t\.20\/page-[3-9]/.test(u)) : true, opened.filter((u) => /t\.20/.test(u)));
 ok('nothing is written to HAF\'s leads', JSON.stringify(bags.local.recentLeads || null) === leadsBefore);
 ok('the batch is remembered: shown once, time kept, not running any more', bags.local.radar.lastBatch.ids.length === r.sent && !bags.local.radar.running && Object.values(bags.local.radar.queue).filter((q) => q.shown === 1).length === r.sent);
@@ -149,7 +158,7 @@ r = await bg.runRadar({ fast: true });
 const cards2 = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
 ok('the help is not repeated on the same day', !tg.some((m) => /the commands you can send/.test(m.text || '')));
 const titleOf = (t) => (t.match(/<b>1\. (?:<a href="[^"]+">)?(.+?)(?:<\/a>)?<\/b>/) || [])[1];
-ok('the second hour sends only what was not sent before - no thread twice', cards2.length === 1 && /1 thread\b/.test(cards2[0].text) && !cards[0].text.includes(titleOf(cards2[0].text)) && opened.length - before.opened === 8 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: titleOf(cards2[0].text), n: opened.length - before.opened });
+ok('the second hour sends only what was not sent before - no thread twice', cards2.length === 1 && /1 thread\b/.test(cards2[0].text) && !cards[0].text.includes(titleOf(cards2[0].text)) && opened.length - before.opened === 7 + 1 + (/(Gambling Apps)/.test(cards2[0].text) ? 1 : 0), { t: titleOf(cards2[0].text), n: opened.length - before.opened });
 tg = []; r = await bg.runRadar({ fast: true });
 ok('a third hour with nothing new sends nothing at all', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'), r);
 
@@ -279,16 +288,16 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   ok('buttons per thread, and both are remembered as sent', msgs[0].reply_markup.inline_keyboard.length === 4 && !!bags.local.radar.sent['7001'] && !!bags.local.radar.sent['7002']);
   tg = []; r = await bg.radarNewTick({ force: true });
   ok('the next check with the same page sends nothing: only new ones ever', r.sent === 0 && !tg.some((m) => m.method === 'sendMessage'));
-  globalThis.__newRows = [...globalThis.__newRows, NR(7005, 'Fresh: cloaker for Bing ads?', { forum: 'Cloaking', node: 2 })];
+  globalThis.__newRows = [...globalThis.__newRows, NR(7005, 'Fresh: casino offers for Bing ads?', { forum: 'Black Hat SEO', node: 2 })];
   tg = []; r = await bg.radarNewTick({ force: true });
-  ok('a thread that appears later comes through, alone', r.sent === 1 && /cloaker for Bing/.test(tg[0].text) && !/account got limited/.test(tg[0].text));
+  ok('a thread that appears later comes through, alone', r.sent === 1 && /casino offers for Bing/.test(tg[0].text) && !/account got limited/.test(tg[0].text));
   r = await bg.radarNewTick();
   ok('not due again inside 15 minutes', r.skipped === 'not due');
   bags.local.radar.newAt = Date.now() - 16 * 60000; r = await bg.radarNewTick();
   ok('due again after 15 minutes', r.ok === true);
   tg = []; r = await bg.runRadar({ fast: true });
   const hourly = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup).map((m) => m.text).join('\n');
-  ok('the hourly batch never repeats what the new-thread watch already sent', !/account got limited|Casino traffic from push|cloaker for Bing/.test(hourly));
+  ok('the hourly batch never repeats what the new-thread watch already sent', !/account got limited|Casino traffic from push|casino offers for Bing/.test(hourly));
   globalThis.__newRows = [NR(7006, 'VCC for Google Ads in 2026?')]; tg = []; opened.length = 0;
   r = await bg.radarNewTick({ force: true });
   ok('titles are tap-to-open links; no raw URL in the message', r.sent === 1 && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/n\.7006\/">VCC for Google Ads/.test(tg[0].text) && !/^https:\/\//m.test(tg[0].text), tg[0]?.text);
@@ -313,7 +322,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   let r = await bg.runBlock('ads', { force: true, fast: true });
   let msgs = tg.filter((m) => m.method === 'sendMessage');
   const blockMsg = msgs.find((m) => /📋 <b>Ads block<\/b>/.test(m.text));
-  ok('the Ads block reads page 1 of its boards and sends one message split by board', r.ok && r.sent >= 3 && blockMsg && /10 boards/.test(blockMsg.text) && /<b>Facebook \(PPC\)<\/b>/.test(blockMsg.text) && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 10, { r, t: blockMsg?.text?.slice(0, 300) });
+  ok('the Ads block reads page 1 of its boards and sends one message split by board', r.ok && r.sent >= 3 && blockMsg && /9 boards/.test(blockMsg.text) && /<b>Facebook \(PPC\)<\/b>/.test(blockMsg.text) && opened.filter((u) => /\/forums\/\d+\/$/.test(u)).length === 9, { r, t: blockMsg?.text?.slice(0, 300) });
   ok('HOT tag on the 0-reply thread, titles are links, no raw URL', /🔥 HOT · <a href="[^"]+">Best virtual credit cards/.test(blockMsg.text) && !/^https:\/\//m.test(blockMsg.text), blockMsg.text);
   ok('the traffic line closes the message, and brief is in the code words', /📈 BHW now: 1,820 members/.test(blockMsg.text) && /brief 3/.test(blockMsg.text.split('\n').pop()), blockMsg.text.split('\n').slice(-3));
   ok('a thread you replied in that got a new post comes as a separate "They answered you" message', r.back >= 1 && msgs.some((m) => /📬 <b>They answered you<\/b>/.test(m.text) && /buyerx posted/.test(m.text)), msgs.map((m) => m.text.slice(0, 40)));
@@ -361,38 +370,38 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
 // --- 1.18: families ---------------------------------------------------------------------------------
 {
   delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; claude = []; opened.length = 0;
-  listings[2] = [R(9301, 'Whats the longest payment processor cloaking worked for you?', { start: 100, last: 100, rep: 0 }), R(9302, 'Stripe cloaking for peps', { start: 52, last: 50, rep: 2 })];
-  let r = await bg.runFamily('cloaker', { force: true, fast: true });
+  listings[28] = [R(9301, 'Whats the longest payment processor pbn worked for you?', { start: 100, last: 100, rep: 0 }), R(9302, 'Stripe pbn for peps', { start: 52, last: 50, rep: 2 })];
+  let r = await bg.runFamily('pbn', { force: true, fast: true });
   let msgs = tg.filter((m) => m.method === 'sendMessage');
-  const fm = msgs.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  const fm = msgs.find((m) => /🔗 <b>PBN &amp; links<\/b>/.test(m.text || ''));
   ok('the day\'s first family message is preceded by the command list, once', msgs.findIndex((m) => /the commands you can send/.test(m.text)) === 0 && msgs.filter((m) => /the commands you can send/.test(m.text)).length === 1 && bags.local.radar.helpDay === new Date().toLocaleDateString('en-CA'), msgs.map((m) => m.text.slice(0, 40)));
-  ok('a family run: 3 rotating terms searched, the home board read, one message', r.ok && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 3 && opened.includes('https://www.blackhatworld.com/forums/2/') && !!fm, { r, opened });
-  ok('the terms were the first three of the family and the window is 14 days', r.terms.join() === 'cloaker,cloaking,white page' && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)) && bags.local.radar.termIdx.cloaker === 3);
+  ok('a family run: 3 rotating terms searched, the home board read, one message', r.ok && opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 3 && opened.includes('https://www.blackhatworld.com/forums/28/') && !!fm, { r, opened });
+  ok('the terms were the first three of the family and the window is 14 days', r.terms.join() === 'private blog network,pbn links,pbn footprint' && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)) && bags.local.radar.termIdx.pbn === 3);
   ok('more than 8 found, so Claude gated them once: the off-niche Instagram thread is out, scores are shown', claude.length === 1 && r.found >= 10 && r.gated === 1 && !/Instagram bio/.test(fm.text) && /fit 9\/10/.test(fm.text), { r, t: fm.text.slice(0, 200) });
-  ok('HOT first (the 0-reply board thread or the 0-reply search thread), at most 8, the rest held', /1\. 🔥 HOT · /.test(fm.text) && r.sent === 8 && r.held >= 2 && (bags.local.radar.held.cloaker || []).length === r.held, { sent: r.sent, held: r.held });
-  ok('the funnel line, the count, the traffic line and the code words close it', /Found \d+ ·.* · gated 1 · sent 8 · held \d+/.test(fm.text) && /Public replies today/.test(fm.text) && /more cloaker/.test(fm.text.split('\n').pop()), fm.text.split('\n').slice(-4));
+  ok('HOT first (the 0-reply board thread or the 0-reply search thread), at most 8, the rest held', /1\. 🔥 HOT · /.test(fm.text) && r.sent === 8 && r.held >= 2 && (bags.local.radar.held.pbn || []).length === r.held, { sent: r.sent, held: r.held });
+  ok('the funnel line, the count, the traffic line and the code words close it', /Found \d+(?: ·[^\n]*?)? · gated 1 · sent 8 · held \d+/.test(fm.text) && /Public replies today/.test(fm.text) && /more casino/.test(fm.text.split('\n').pop()), fm.text.split('\n').slice(-4));
   ok('buttons per thread', fm.reply_markup.inline_keyboard.length === 16);
-  const heldSnapshot = (bags.local.radar.held.cloaker || [])[0];
-  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
-  const fm2 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  const heldSnapshot = (bags.local.radar.held.pbn || [])[0];
+  tg = []; r = await bg.runFamily('pbn', { force: true, fast: true });
+  const fm2 = tg.find((m) => /🔗 <b>PBN &amp; links<\/b>/.test(m.text || ''));
   ok('the command list is not repeated the same day', !tg.some((m) => /the commands you can send/.test(m.text || '')));
-  ok('the next run rotates to the next three terms; fresh threads first, and a thread sent before only as a marked seen-before top-up', r.terms.join() === 'safe page,money page,bot filter' && r.ok && fm2 && /1\. .*Stripe cloaking for peps/.test(fm2.text) && /payment processor cloaking worked.*· seen before/.test(fm2.text), { r, t: fm2?.text?.slice(0, 260) });
-  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
-  const fm3 = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  ok('the next run rotates to the next three terms; fresh threads first, and a thread sent before only as a marked seen-before top-up', r.terms.join() === 'pbn hosting,link wheel,tier 2 links' && r.ok && fm2 && /1\. .*Stripe pbn for peps/.test(fm2.text) && /payment processor pbn worked.*· seen before/.test(fm2.text), { r, t: fm2?.text?.slice(0, 260) });
+  tg = []; r = await bg.runFamily('pbn', { force: true, fast: true });
+  const fm3 = tg.find((m) => /🔗 <b>PBN &amp; links<\/b>/.test(m.text || ''));
   ok('when fresh threads run out, seen-before threads top the message up to 3, marked', r.sent >= 1 && (r.sent >= 3 ? /seen before/.test(fm3.text) : true), { r, t: fm3?.text?.slice(0, 200) });
   // the schedule: one family per 20 minutes, pinned first when an hour has passed
-  bags.local.radar.famAt = 0; bags.local.radar.famRuns = { cloaker: Date.now() - 61 * 60000, circumvent: Date.now() - 10 * 60000, casino: Date.now() - 30 * 60000 }; tg = [];
+  bags.local.radar.famAt = 0; bags.local.radar.famRuns = { pbn: Date.now() - 61 * 60000, outreach: Date.now() - 10 * 60000, casino: Date.now() - 30 * 60000 }; tg = [];
   await bg.__familiesTickForTest(); await new Promise((rs) => setTimeout(rs, 500));
-  ok('the tick runs the pinned family that waited an hour', (bags.local.radar.famRuns || {}).cloaker > Date.now() - 60000);
+  ok('the tick runs the pinned family that waited an hour', (bags.local.radar.famRuns || {}).pbn > Date.now() - 60000);
   await bg.__familiesTickForTest();
   ok('and not another one inside 20 minutes', bags.local.radar.famAt > Date.now() - 60000 && Object.values(bags.local.radar.famRuns).filter((t) => t > Date.now() - 60000).length === 1);
   // commands
   let out = await say('families');
-  ok('"families" lists the ten with terms, boards and pins', /🔎 <b>Families<\/b>/.test(out) && /<b>cloaker<\/b> 📌/.test(out) && /<b>pharma<\/b>/.test(out), out.slice(0, 200));
-  out = await say('add cloaker mycloaker');
-  ok('"add cloaker <word>" edits the engine family, not the search-only family', /<b>cloaker<\/b> now has 16 terms/.test(out) && bags.local.radarCfg.fams.find((f) => f.id === 'cloaker').terms.includes('mycloaker'), out.slice(0, 120));
-  out = await say('drop cloaker mycloaker');
-  ok('"drop" removes it', !bags.local.radarCfg.fams.find((f) => f.id === 'cloaker').terms.includes('mycloaker'));
+  ok('"families" lists the ten with terms, boards and pins', /🔎 <b>Families<\/b>/.test(out) && /<b>pbn<\/b> 📌/.test(out) && /<b>pharma<\/b>/.test(out), out.slice(0, 200));
+  out = await say('add pbn mypbn');
+  ok('"add pbn <word>" edits the engine family, not the search-only family', /<b>pbn<\/b> now has 13 terms/.test(out) && bags.local.radarCfg.fams.find((f) => f.id === 'pbn').terms.includes('mypbn'), out.slice(0, 120));
+  out = await say('drop pbn mypbn');
+  ok('"drop" removes it', !bags.local.radarCfg.fams.find((f) => f.id === 'pbn').terms.includes('mypbn'));
   out = await say('pin pharma');
   ok('"pin pharma" makes it hourly', bags.local.radarCfg.fams.find((f) => f.id === 'pharma').pinned === true && /at least every hour/.test(out));
   out = await say('unpin pharma');
@@ -402,35 +411,35 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   out = await say('run nosuch');
   ok('an unknown family is refused', /No family "nosuch"/.test(out));
   // held -> send from the page
-  bags.local.radar.held = { ...(bags.local.radar.held || {}), cloaker: heldSnapshot ? [heldSnapshot] : [] }; delete bags.local.radar.sent[heldSnapshot?.threadId];
+  bags.local.radar.held = { ...(bags.local.radar.held || {}), pbn: heldSnapshot ? [heldSnapshot] : [] }; delete bags.local.radar.sent[heldSnapshot?.threadId];
   const heldOne = heldSnapshot;
   if (heldOne) {
     tg = [];
     const res = await new Promise((resolve) => globalThis.__onMessage({ cmd: 'radar-send-held', threadId: heldOne.threadId }, {}, resolve));
-    ok('a held thread can be sent from the Radar page and is then remembered as sent', tg.some((m) => /Held thread, sent by you/.test(m.text || '') && m.reply_markup) && !!bags.local.radar.sent[heldOne.threadId] && !(bags.local.radar.held.cloaker || []).some((c) => c.threadId === heldOne.threadId), res && Object.keys(res));
+    ok('a held thread can be sent from the Radar page and is then remembered as sent', tg.some((m) => /Held thread, sent by you/.test(m.text || '') && m.reply_markup) && !!bags.local.radar.sent[heldOne.threadId] && !(bags.local.radar.held.pbn || []).some((c) => c.threadId === heldOne.threadId), res && Object.keys(res));
   } else ok('held list has entries to test with', false, bags.local.radar.held);
   // blocks are opt-in now
   bags.local.radar.blockRuns = {}; opened.length = 0;
   await bg.__blocksTickForTest(); await new Promise((rs) => setTimeout(rs, 300));
   ok('the board blocks no longer run on their own (opt-in since the families took over)', !opened.length && !(bags.local.radar.blockRuns || {}).ads);
-  delete listings[2];
+  delete listings[28];
 }
 
 // --- 1.19: HAF first --------------------------------------------------------------------------------
 {
   bags.local.hafBusyUntil = Date.now() + 120000; opened.length = 0; tg = [];
-  const rs = [await bg.runFamily('cloaker', { force: true, fast: true }), await bg.radarNewTick({ force: true }), await bg.runBlock('ads', { force: true, fast: true }), await bg.pulseRead({ force: true }), await bg.runRadar({ fast: true })];
+  const rs = [await bg.runFamily('pbn', { force: true, fast: true }), await bg.radarNewTick({ force: true }), await bg.runBlock('ads', { force: true, fast: true }), await bg.pulseRead({ force: true }), await bg.runRadar({ fast: true })];
   ok('while HAF is sending, families, new threads, blocks, traffic and the old batch all step aside and open nothing', rs.every((r) => r.skipped === 'haf') && !opened.length, rs);
   delete bags.local.hafBusyUntil;
   bags.local.sourcesBackoffUntil = Date.now() + 10 * 60000;
-  const r1 = await bg.runFamily('cloaker', { force: true, fast: true });
+  const r1 = await bg.runFamily('pbn', { force: true, fast: true });
   ok('HAF\'s own wall pauses Radar too (safe side)', r1.skipped === 'wall');
   delete bags.local.sourcesBackoffUntil;
   const day = new Date().toLocaleDateString('en-CA');
   bags.local.ai = { budget: 5, usage: { day, calls: 10, leads: 10, in: 1000000, cached: 0, out: 180000 } };   // about $2 in + $1.8 out on Sonnet: under $1.50 left
   delete bags.local.radar; claude = []; tg = []; globalThis.__newRows = [];
-  const r2 = await bg.runFamily('cloaker', { force: true, fast: true });
-  const famMsg = tg.find((m) => /🛡 <b>Cloaker<\/b>/.test(m.text || ''));
+  const r2 = await bg.runFamily('pbn', { force: true, fast: true });
+  const famMsg = tg.find((m) => /🔗 <b>PBN &amp; links<\/b>/.test(m.text || ''));
   ok('with the reserve reached, a family run with more than 8 found skips the Claude gate and says so', r2.ok && r2.found > 8 && claude.length === 0 && famMsg && /gate off \(Claude kept for HAF\)/.test(famMsg.text), { r2, n: claude.length, t: famMsg?.text?.slice(0, 200) });
   let out = await say('brief 1');
   ok('"brief" is refused while the reserve holds, with the reason', /kept for HAF/.test(out) && claude.length === 0, out.slice(0, 160));
@@ -442,24 +451,134 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
 // --- 1.20: BHW's own list of threads you posted in ---------------------------------------------------
 {
   delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0; globalThis.__partReads = 0;
-  listings[2] = [R(9701, 'Cloaker thread I answered by hand last week', { start: 200, last: 2, rep: 6, lastPoster: 'someoneelse' }), R(9702, 'Cloaker thread nobody answered', { start: 20, last: 2, rep: 1 })];
-  globalThis.__contributed = [R(9701, 'Cloaker thread I answered by hand last week')];
-  let r = await bg.runFamily('cloaker', { force: true, fast: true });
-  const m = tg.find((x) => /🛡 <b>Cloaker<\/b>/.test(x.text || ''));
+  listings[28] = [R(9701, 'PBN thread I answered by hand last week', { start: 200, last: 2, rep: 6, lastPoster: 'someoneelse' }), R(9702, 'PBN thread nobody answered', { start: 20, last: 2, rep: 1 })];
+  globalThis.__contributed = [R(9701, 'PBN thread I answered by hand last week')];
+  let r = await bg.runFamily('pbn', { force: true, fast: true });
+  const m = tg.find((x) => /🔗 <b>PBN &amp; links<\/b>/.test(x.text || ''));
   ok('the run reads BHW\'s "threads you contributed to" list (page 1, then page 2 when there are rows)', opened.some((u) => /find-threads\/contributed$/.test(u)) && globalThis.__partReads >= 1 && Object.keys(bags.local.radar.participated).includes('9701'), { opened: opened.filter((u) => /find-threads/.test(u)), part: bags.local.radar.participated });
   ok('the thread you posted in is NOT in the message, the other one is', m && !/answered by hand last week/.test(m.text) && /nobody answered/.test(m.text), m?.text?.slice(0, 300));
-  ok('the funnel line says how many replied threads were left out', m && /threads you replied in left out/.test(m.text), m?.text?.split('\n').slice(-6));
+  ok('the funnel line says how many replied threads are on file', m && /replied threads on file/.test(m.text), m?.text?.split('\n').slice(-6));
   const reads1 = globalThis.__partReads;
-  tg = []; await bg.runFamily('cloaker', { force: true, fast: true });
+  tg = []; await bg.runFamily('pbn', { force: true, fast: true });
   ok('the list is not re-read inside 15 minutes', globalThis.__partReads === reads1, { reads1, now: globalThis.__partReads });
   bags.local.radar.partAt = 0; globalThis.__contributed = [];
   await bg.refreshParticipated({ fast: true });
   ok('a thread that drops off BHW\'s list is still remembered as replied (it is merged, never replaced)', Object.keys(bags.local.radar.participated).includes('9701'));
   bags.local.radar.partAt = 0; globalThis.__partFail = true; delete bags.local.radar.partOk;
-  tg = []; r = await bg.runFamily('cloaker', { force: true, fast: true });
-  const m2 = tg.find((x) => /🛡 <b>Cloaker<\/b>/.test(x.text || ''));
+  tg = []; r = await bg.runFamily('pbn', { force: true, fast: true });
+  const m2 = tg.find((x) => /🔗 <b>PBN &amp; links<\/b>/.test(x.text || ''));
   ok('signed out or unreadable: the run still works, falls back to the row markers, and the funnel says it could not read the list', r.ok === true && (!m2 || /could not read your replied list/.test(m2.text)), { r, t: m2?.text?.split('\n').slice(-5) });
-  globalThis.__partFail = false; delete listings[2]; globalThis.__contributed = [];
+  globalThis.__partFail = false; delete listings[28]; globalThis.__contributed = [];
+}
+
+// --- 1.20.1: your username inside the thread (page 1 and the last page) -------------------------------------
+{
+  bags.local.radar = { termIdx: { pbn: 6 } }; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0; globalThis.__threadOpens = []; globalThis.__contributed = []; globalThis.__partFail = false;   // terms with no stub search rows: only the board rows below
+  const rows2 = [R(9801, 'PBN thread I answered on page 1', { start: 100, last: 2, rep: 4 }), R(9802, 'PBN thread, my reply is only on the LAST page', { start: 300, last: 2, rep: 25 }), R(9803, 'PBN thread nobody answered', { start: 3, last: 3, rep: 0 }), R(9804, 'PBN thread, someone else answered', { start: 30, last: 4, rep: 3 })];
+  listings[28] = rows2;
+  threadPosts[9801] = [{ author: 'x', text: 'a' }, { author: 'BargainBed', text: 'my reply' }];
+  globalThis.__lastPagePosts = { 9802: [{ author: 'y', text: 'b' }, { author: 'bargainbed', text: 'my reply on page 2' }] };
+  threadPosts[9802] = [{ author: 'y', text: 'b' }];
+  let r = await bg.runFamily('pbn', { force: true, fast: true });
+  const fm = tg.find((x) => /🔗 <b>PBN &amp; links<\/b>/.test(x.text || ''));
+  ok('a thread with your username among the posters on page 1 is skipped (case-insensitive)', fm && !/answered on page 1/.test(fm.text), fm?.text?.slice(0, 400));
+  ok('a thread with 25 replies: page 1 AND the last page are read, and your name only on the last page still skips it', globalThis.__threadOpens.some((u) => /9802\/$/.test(u)) && globalThis.__threadOpens.some((u) => /9802\/page-2$/.test(u)) && fm && !/LAST page/.test(fm.text), globalThis.__threadOpens.filter((u) => /9802/.test(u)));
+  ok('a thread nobody replied to is not opened (it cannot hold a reply of yours), and is still offered', !globalThis.__threadOpens.some((u) => /9803/.test(u)) && fm && /nobody answered/.test(fm.text));
+  ok('a thread someone else answered is opened, found clean, and offered', globalThis.__threadOpens.some((u) => /9804/.test(u)) && fm && /someone else answered/.test(fm.text));
+  ok('the funnel says how many were skipped because you had already replied', fm && /2 you already replied to skipped/.test(fm.text), fm?.text?.split('\n').slice(-6));
+  ok('the skipped ones are remembered, so they are never opened or offered again', !!bags.local.radar.participated['9801'] && !!bags.local.radar.participated['9802'] && !!bags.local.radar.checked['9804']);
+  globalThis.__threadOpens = []; tg = [];
+  await bg.runFamily('pbn', { force: true, fast: true });
+  ok('the next run does not open a thread it already checked at the same activity', !globalThis.__threadOpens.some((u) => /9804|9801|9802/.test(u)), globalThis.__threadOpens);
+  // no username known: nothing can be checked, and nothing breaks
+  const cfgNow = bags.local.config; bags.local.config = { ...cfgNow, bhwUsername: '', boundAccount: '' }; globalThis.__noMe = true; delete bags.local.bhwMe; delete bags.local.radar.checked; delete bags.local.radar.participated['9804']; bags.local.radar.termIdx = { pbn: 6 }; bags.local.radar.sent = {}; listings[28] = rows2;
+  globalThis.__threadOpens = []; tg = []; r = await bg.runFamily('pbn', { force: true, fast: true });
+  ok('with no username known the run still works, opens no thread for the check, and says how many were not checked', r.ok === true && !globalThis.__threadOpens.length, { r, opens: globalThis.__threadOpens });
+  globalThis.__noMe = false; bags.local.config = cfgNow; delete listings[28]; delete threadPosts[9801]; delete threadPosts[9802]; globalThis.__lastPagePosts = {};
+  // the new-thread watch checks too
+  delete bags.local.radar; tg = []; globalThis.__threadOpens = [];
+  const NR2 = (id, title, rep) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/n.${id}/`, title, author: 's', lastPoster: 's', forum: 'Google Ads', forumNode: '83', startedAt: hAgo(0.3), lastActivityAt: hAgo(0.1), replyCount: rep, views: 5, sticky: false, locked: false, mine: false, lastMine: false });
+  threadPosts[9901] = [{ author: 'BargainBed', text: 'mine' }];
+  globalThis.__newRows = [NR2(9901, 'New thread I jumped on already', 2), NR2(9902, 'New thread, first reply open', 0)];
+  r = await bg.radarNewTick({ force: true });
+  const nm = tg.find((x) => /🆕/.test(x.text || ''));
+  ok('new threads: one you already posted in is dropped, the untouched one is sent', nm && !/jumped on already/.test(nm.text) && /first reply open/.test(nm.text), nm?.text);
+  delete threadPosts[9901];
+}
+
+
+// --- 1.21.0: Ask mode - plain words to the bot ------------------------------------------------------------
+{
+  const day = new Date().toLocaleDateString('en-CA');
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; delete bags.local.ai; claude = []; tg = []; opened.length = 0; globalThis.__threadOpens = []; globalThis.__contributed = []; globalThis.__partFail = false;
+  threadPosts[9102] = [{ author: 'x', text: 'a' }, { author: 'BargainBed', text: 'my old reply' }];
+  globalThis.__askPlans = {
+    'find PBN related threads in the last 24 hours': { kind: 'search', terms: ['private blog network', 'pbn links'], hours: 24, limit: 8, say: 'Looking for PBN threads' },
+    'check what is new': { kind: 'new', terms: [], hours: 24, limit: 8, say: 'Checking what is new' },
+    'turn off new threads please': { kind: 'command', command: 'new threads off' },
+    'how many replies today?': { kind: 'chat', reply: 'You have posted 0 of 10 public replies today.' },
+    'delete everything': { kind: 'command', command: 'rm -rf' }
+  };
+  let out = await say('find PBN related threads in the last 24 hours');
+  const sent = tg.filter((m) => m.method === 'sendMessage');
+  const am = sent.find((m) => /^🤖 <b>private blog network \/ pbn links<\/b>/.test(m.text || ''));
+  ok('plain words become a search: a short "looking for" line first, then one message of threads', /Looking for PBN threads/.test(sent[0]?.text || '') && !!am, sent.map((m) => (m.text || '').slice(0, 60)));
+  ok('only the two planned terms are searched, signed in, one page each', opened.filter((u) => /search\/search\?keywords=/.test(u)).length === 2 && opened.filter((u) => /keywords=/.test(u)).every((u) => /newer_than\]=/.test(u)));
+  ok('titles are links, each thread has Open / I replied / Not relevant, and Claude\'s one-line reason shows', am && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/[^"]+">[^<]+<\/a>/.test(am.text) && /Why \d+ fits\./.test(am.text) && (am.reply_markup?.inline_keyboard || []).some((row) => row.some((b) => /^rr:\d+$/.test(b.callback_data || ''))), am?.text?.slice(0, 300));
+  ok('a thread you posted in (found by reading it) is skipped and counted in the funnel', am && !/PBN question 2:/.test(am.text) && /you already replied to skipped/.test(am.text) && !!bags.local.radar.participated['9102'], am?.text?.split('\n').slice(-6));
+  ok('a thread nobody replied to stays and is marked HOT', am && /🔥 <a href="[^"]+">PBN question 0/.test(am.text.replace(/<b>/g, '')) || /🔥 /.test(am?.text || ''));
+  ok('the code words for asking again close the message, and nothing sent is sent twice', am && /Ask me anything like/.test(am.text) && Object.keys(bags.local.radar.sent).length >= 3 && !!bags.local.radar.askLast);
+  claude = []; tg = []; opened.length = 0; out = await say('find PBN related threads in the last 24 hours');
+  ok('asking the same thing again sends only what is new (nothing here), and says so', !tg.some((m) => m.method === 'sendMessage' && /^🤖 <b>private blog network/.test(m.text || '')) && /Nothing new/.test(out) || /more|fit/.test(out), out.slice(0, 200));
+
+  // what is new, no topic
+  globalThis.__newRows = [
+    { threadId: '7101', url: 'https://www.blackhatworld.com/seo/n.7101/', title: 'Best guest post sites that still work?', author: 's', lastPoster: 's', forum: 'Black Hat SEO', forumNode: '28', startedAt: hAgo(2), lastActivityAt: hAgo(1), replyCount: 0, views: 5, sticky: false, locked: false, mine: false, lastMine: false },
+    { threadId: '7102', url: 'https://www.blackhatworld.com/seo/n.7102/', title: 'WTS cheap backlinks $5', author: 's', lastPoster: 's', forum: 'Black Hat SEO', forumNode: '28', startedAt: hAgo(2), lastActivityAt: hAgo(1), replyCount: 0, views: 5, sticky: false, locked: false, mine: false, lastMine: false },
+    { threadId: '7103', url: 'https://www.blackhatworld.com/seo/n.7103/', title: 'Hello from India', author: 's', lastPoster: 's', forum: 'Introductions', forumNode: '12', startedAt: hAgo(2), lastActivityAt: hAgo(1), replyCount: 0, views: 5, sticky: false, locked: false, mine: false, lastMine: false },
+    { threadId: '7104', url: 'https://www.blackhatworld.com/seo/n.7104/', title: 'Old thread bumped', author: 's', lastPoster: 's', forum: 'Black Hat SEO', forumNode: '28', startedAt: hAgo(200), lastActivityAt: hAgo(1), replyCount: 2, views: 5, sticky: false, locked: false, mine: false, lastMine: false }
+  ];
+  tg = []; opened.length = 0; globalThis.__rankDrop = [];
+  out = await say('check what is new');
+  const nm = tg.filter((m) => m.method === 'sendMessage').find((m) => /^🤖 <b>New threads<\/b>/.test(m.text || ''));
+  ok('"check what is new" reads the new-threads page and lists only real discussion started inside the window', nm && /guest post sites/.test(nm.text) && !/WTS cheap/.test(nm.text) && !/Hello from India/.test(nm.text) && !/Old thread bumped/.test(nm.text), nm?.text);
+  ok('a new thread with 0 replies shows as started, not as a last reply', nm && /started /.test(nm.text) && /🔥/.test(nm.text));
+
+  // commands and chat
+  out = await say('turn off new threads please');
+  ok('"turn off new threads" runs the real command', bags.local.radarCfg.newWatch === false && /New-thread watch is OFF/.test(out), out.slice(0, 120));
+  await bg.setRadarCfgForTest?.({ newWatch: true });
+  out = await say('how many replies today?');
+  ok('a question is answered in words, with no search', /0 of 10/.test(out) && opened.filter((u) => /search\/search/.test(u)).length === 0, out.slice(0, 160));
+  out = await say('delete everything');
+  ok('Claude cannot make the bot run anything outside the short allowed list', /I cannot do that one/.test(out) && !/rm -rf/.test(JSON.stringify(bags.local)), out.slice(0, 160));
+
+  // follow-up and "more"
+  bags.local.radar.sent = {};
+  globalThis.__askPlans['same but last 7 days'] = { kind: 'search', terms: ['private blog network', 'pbn links'], hours: 168, limit: 3, say: 'Same search, last 7 days' };
+  tg = []; out = await say('same but last 7 days');
+  const m3 = tg.filter((m) => m.method === 'sendMessage').find((m) => /^🤖 <b>private blog network/.test(m.text || ''));
+  ok('a follow-up keeps the topic (Claude is told the previous request) and respects the new limit', claude.some((c) => /PREVIOUS: /.test(String(c.messages[0].content))) && m3 && (m3.text.match(/<b>\d+\. /g) || []).length === 3 && /more matched\. Send "more"/.test(m3.text), m3?.text?.slice(0, 200));
+  const searchesBefore = opened.filter((u) => /search\/search/.test(u)).length;
+  tg = []; out = await say('more');
+  const m4 = tg.filter((m) => m.method === 'sendMessage').find((m) => /^🤖 /.test(m.text || ''));
+  ok('"more" shows the next threads from the last answer without a new search', m4 && opened.filter((u) => /search\/search/.test(u)).length === searchesBefore && /<b>1\. /.test(m4.text), m4?.text?.slice(0, 160));
+
+  // no Claude: simple rules
+  bags.local.ai = { budget: 5, usage: { day, calls: 10, leads: 10, in: 1000000, cached: 0, out: 180000 } };
+  bags.local.radar.sent = {}; claude = []; tg = []; opened.length = 0;
+  out = await say('guest post last 3 days');
+  const rm = tg.filter((m) => m.method === 'sendMessage').find((m) => /^🤖 <b>guest post<\/b> · last 3 days/.test(m.text || ''));
+  ok('without Claude the words are read by rules (topic + time) and the answer says so', claude.length === 0 && opened.some((u) => /keywords=guest%20post/.test(u)) || (rm && /simple rules/.test(rm.text)) || /Nothing/.test(out), { out: out.slice(0, 200), opened: opened.slice(0, 3) });
+  delete bags.local.ai;
+
+  // switch off / on, help, one word keeps the old search
+  out = await say('ask off'); ok('"ask off" turns plain-word mode off', bags.local.radarCfg.ask === false);
+  tg = []; claude = []; out = await say('find pbn threads today');
+  ok('with ask off a sentence no longer starts a Claude search', claude.length === 0 && !/🤖 <b>/.test(out));
+  out = await say('ask on'); ok('"ask on" brings it back', bags.local.radarCfg.ask === true);
+  out = await say('ask help'); ok('"ask help" lists examples', /Ask me in plain words/.test(out) && /last 24 hours/.test(out));
+  claude = []; tg = []; out = await say('casino'); ok('a single word still uses the old index search, never Claude', claude.length === 0 && !/🤖/.test(out));
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
