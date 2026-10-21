@@ -889,6 +889,10 @@ async function showKeys() {
     + (!k.syncOn ? ' · <span style="color:#b45309" title="Sign in to Chrome with Sync on, on both machines, and the keys follow by themselves">Chrome Sync off</span>' : '');
 }
 showKeys();
+// The flags are re-read whenever a key, the token or the chat id changes (pasted in Settings while this tab is open), and
+// once a minute as a backstop - a stale 'Bot ✗' next to a bot that is actually answering is worse than no flag.
+chrome.storage.onChanged.addListener((changes, area) => { if ((area === 'local' && (changes.vault || changes.config || changes.ai || changes.tgBot)) || area === 'sync') showKeys(); });
+setInterval(showKeys, 60000);
 $('updNow')?.addEventListener('click', async () => { await chrome.runtime.sendMessage({ cmd: 'check-update' }); });
 
 $('cmd').addEventListener('click', async () => {
