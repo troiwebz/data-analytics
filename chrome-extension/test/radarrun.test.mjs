@@ -278,7 +278,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
 
 // --- 1.16: the 15-minute new-thread watch --------------------------------------------------------
 {
-  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0;
+  delete bags.local.radar; bags.local.radarCfg = { on: true, newAll: false }; tg = []; opened.length = 0;   // the niche mode of 1.16, still available
   const NR = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/n.${id}/`, title, author: 's', lastPoster: 's', forum: o.forum || 'Google Ads', forumNode: String(o.node ?? 83), startedAt: hAgo(o.start ?? 0.3), lastActivityAt: hAgo(o.start ?? 0.3), replyCount: o.rep ?? 0, views: 5, sticky: false, locked: false, mine: false, lastMine: false });
   globalThis.__newRows = [NR(7001, 'Google Ads account got limited after 3 days'), NR(7002, 'Casino traffic from push, who does it?', { forum: 'Media Buying', node: 175 }), NR(7003, 'Hello from Brazil', { forum: 'Introductions', node: 24 }), NR(7004, 'Need a casino ads guy', { forum: 'Hire a Freelancer', node: 76 })];
   let r = await bg.radarNewTick({ force: true });
@@ -292,9 +292,9 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   tg = []; r = await bg.radarNewTick({ force: true });
   ok('a thread that appears later comes through, alone', r.sent === 1 && /casino offers for Bing/.test(tg[0].text) && !/account got limited/.test(tg[0].text));
   r = await bg.radarNewTick();
-  ok('not due again inside 15 minutes', r.skipped === 'not due');
-  bags.local.radar.newAt = Date.now() - 16 * 60000; r = await bg.radarNewTick();
-  ok('due again after 15 minutes', r.ok === true);
+  ok('not due again inside 10 minutes', r.skipped === 'not due');
+  bags.local.radar.newAt = Date.now() - 11 * 60000; r = await bg.radarNewTick();
+  ok('due again after 10 minutes', r.ok === true);
   tg = []; r = await bg.runRadar({ fast: true });
   const hourly = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup).map((m) => m.text).join('\n');
   ok('the hourly batch never repeats what the new-thread watch already sent', !/account got limited|Casino traffic from push|casino offers for Bing/.test(hourly));
@@ -390,6 +390,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   const fm3 = tg.find((m) => /🔗 <b>PBN &amp; links<\/b>/.test(m.text || ''));
   ok('when fresh threads run out, seen-before threads top the message up to 3, marked', r.sent >= 1 && (r.sent >= 3 ? /seen before/.test(fm3.text) : true), { r, t: fm3?.text?.slice(0, 200) });
   // the schedule: one family per 20 minutes, pinned first when an hour has passed
+  bags.local.radarCfg = { ...bags.local.radarCfg, familiesOn: true };   // off by default since 1.23; this tests the engine itself
   bags.local.radar.famAt = 0; bags.local.radar.famRuns = { pbn: Date.now() - 61 * 60000, outreach: Date.now() - 10 * 60000, casino: Date.now() - 30 * 60000 }; tg = [];
   await bg.__familiesTickForTest(); await new Promise((rs) => setTimeout(rs, 500));
   ok('the tick runs the pinned family that waited an hour', (bags.local.radar.famRuns || {}).pbn > Date.now() - 60000);
@@ -647,6 +648,58 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   r = await bg.watchTick({ fast: true });
   ok('while HAF is sending, alerts wait and open no page', r.skipped === 'haf' && opened.length === 0 && tg.length === 0, r);
   delete bags.local.hafBusyUntil;
+}
+
+
+// --- 1.23.0: Telegram = HAF cards + every new thread, every 10 minutes --------------------------------------
+{
+  // the one-off quiet switch: families, blocks and alerts off; your later choices kept
+  bags.local.radarCfg = { on: true, familiesOn: true, alertsOn: true, blocks: [{ id: 'ads', on: true, boards: [] }], watches: [{ id: 'seo', label: 'seo', terms: ['seo'], on: true }] }; delete bags.local.radarQuiet123;
+  await bg.__quietRadarOnceForTest();
+  let rc = bags.local.radarCfg;
+  ok('on upgrade, once: families off, alerts off, blocks off, the 10-minute everything watch on; alerts and families are kept, just off', rc.familiesOn === false && rc.alertsOn === false && rc.blocks[0].on === false && rc.newWatch === true && rc.newAll === true && rc.newEvery === 10 && rc.watches.length === 1 && !!bags.local.radarQuiet123, rc);
+  bags.local.radarCfg = { ...rc, familiesOn: true };
+  await bg.__quietRadarOnceForTest();
+  ok('it never runs twice: switching families back on later sticks', bags.local.radarCfg.familiesOn === true);
+  bags.local.radarCfg = { on: true };    // a fresh install: the defaults alone
+  bags.local.radar = { famAt: 0 }; tg = []; opened.length = 0; claude = [];
+  await bg.__familiesTickForTest(); await bg.__blocksTickForTest(); await bg.watchTick({ fast: true });
+  ok('with the defaults, families, blocks and alerts send nothing and open nothing', opened.length === 0 && tg.length === 0, opened);
+
+  // the everything watch
+  delete bags.local.radar; bags.local.radarCfg = { on: true }; tg = []; opened.length = 0; globalThis.__threadOpens = []; bg.__forgetNewReadForTest();
+  const NA = (id, title, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/a.${id}/`, title, author: 's', lastPoster: 's', forum: o.forum || 'Black Hat SEO', forumNode: String(o.node ?? 28), startedAt: hAgo(o.start ?? 0.5), lastActivityAt: hAgo(o.last ?? 0.2), replyCount: o.rep ?? 0, views: 5, sticky: !!o.sticky, locked: false, mine: !!o.mine, lastMine: false });
+  const topics = ['WordPress speed plugin?', 'Shopify vs WooCommerce for a small store', 'YouTube shorts not getting views', 'Best email warmup tool', 'Fiverr gig ranking tips', 'Instagram reach dropped', 'ChatGPT for content, worth it?', 'Local SEO citations list', 'Amazon FBA in 2026', 'Pinterest traffic for blogs', 'Reddit marketing without bans', 'Upwork proposals that work', 'TikTok shop experiences'];
+  globalThis.__newRows = [...topics.map((t, i) => NA(7200 + i, t, { start: 0.2 + i * 0.1, rep: i % 4 })), NA(7300, 'Hello everyone, new here', { start: 0.1 }), NA(7301, 'Need an SEO freelancer', { forum: 'Hire a Freelancer', node: 76 }), NA(7302, 'Crowded thread with many answers', { rep: 12 }), NA(7303, 'Old thread bumped again, few replies', { start: 300, last: 0.05, rep: 3 })];
+  let r = await bg.radarNewTick({ force: true });
+  let nm = tg.filter((m) => m.method === 'sendMessage').find((m) => /🆕 <b>New threads<\/b>/.test(m.text || ''));
+  ok('one message, at most 10 threads, any topic, newest activity first, no niche filter', r.sent === 10 && nm && (nm.text.match(/<b>\d+\. /g) || []).length === 10 && /WordPress speed plugin/.test(nm.text) && /Amazon FBA/.test(nm.text), { r, t: nm?.text?.slice(0, 200) });
+  ok('out: the hello, the Hire a Freelancer thread (HAF\'s), and the thread with 12 replies', nm && !/Hello everyone/.test(nm.text) && !/SEO freelancer/.test(nm.text) && !/Crowded thread/.test(nm.text));
+  ok('an old thread bumped with few replies is in (the page says it is live), shown with its last reply time', nm && /Old thread bumped/.test(nm.text) && /last reply/.test(nm.text));
+  ok('the overflow is named and the footer explains the 10-minute rule, no keyword ideas', nm && /4 more waiting; they come with the next check/.test(nm.text) && /Every 10 minutes/.test(nm.text) && !/Try: next/.test(nm.text), nm?.text?.split('\n').slice(-4));
+  ok('🔥 on 0-reply threads and buttons on every thread', /🔥 <a/.test(nm?.text || '') && (nm?.reply_markup?.inline_keyboard || []).filter((row) => row.some((b) => /^rr:/.test(b.callback_data || ''))).length === 10);
+  ok('no Claude was used', claude.length === 0);
+  tg = []; r = await bg.radarNewTick({ force: true });
+  nm = tg.filter((m) => m.method === 'sendMessage').find((m) => /🆕 <b>New threads<\/b>/.test(m.text || ''));
+  ok('the next check sends the 4 that waited, and nothing from before', r.sent === 4 && nm && (nm.text.match(/<b>\d+\. /g) || []).length === 4 && !/WordPress speed plugin/.test(nm.text) && !/more waiting/.test(nm.text), { r, t: nm?.text?.slice(0, 160) });
+  tg = []; r = await bg.radarNewTick({ force: true });
+  ok('then nothing: a thread is never sent twice', r.sent === 0 && !tg.some((m) => /🆕/.test(m.text || '')));
+  globalThis.__newRows = [...globalThis.__newRows, NA(7304, 'Brand new: Etsy SEO question', { start: 0.05 })];
+  r = await bg.radarNewTick();
+  ok('not due inside 10 minutes', r.skipped === 'not due');
+  bags.local.radar.newAt = Date.now() - 11 * 60000; tg = []; r = await bg.radarNewTick();
+  ok('due after 10 minutes, and only the brand-new thread comes', r.sent === 1 && tg.some((m) => /Etsy SEO question/.test(m.text || '')), r);
+  // HAF first
+  bags.local.radar.newAt = 0; bags.local.hafBusyUntil = Date.now() + 120000; opened.length = 0; tg = [];
+  r = await bg.radarNewTick();
+  ok('while HAF is reading or sending, the watch waits and opens nothing', r.skipped === 'haf' && opened.length === 0 && tg.length === 0, r);
+  delete bags.local.hafBusyUntil;
+  bags.local.radarBackoffUntil = Date.now() + 600000; opened.length = 0;
+  r = await bg.radarNewTick();
+  ok('a wall the watch met pauses the watch only', r.skipped === 'wall' && opened.length === 0);
+  delete bags.local.radarBackoffUntil;
+  let out = await say('new threads off'); ok('"new threads off" still works', bags.local.radarCfg.newWatch === false);
+  out = await say('new threads on'); ok('"new threads on" says the new rule', /every 10 minutes/.test(out) && /under 10 replies/.test(out), out);
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');

@@ -46,7 +46,12 @@ export const GROUP_LABELS = {
   restricted: 'Restricted niches', setup: 'Account setup (ad sections only)', trouble: 'Account trouble (ad sections only)'
 };
 
-export const DEFAULT_RADAR_CFG = { on: true, everyMinutes: 60, perBatch: 3, dailyTarget: 10, briefs: true, general: false, words: DEFAULT_WORDS, muted: [], families: {} };
+export const DEFAULT_RADAR_CFG = { on: true, everyMinutes: 60, perBatch: 3, dailyTarget: 10, briefs: true, general: false, words: DEFAULT_WORDS, muted: [], families: {}, newWatch: true, newEvery: 10, newAll: true, newMaxReplies: 10, familiesOn: false, alertsOn: false };
+/** 1.23: how many threads one new-threads message carries; the rest wait for the next check (never lost, never a flood). */
+export const NEW_MAX_PER_MESSAGE = 10;
+/** Threads that are only a hello: the one kind you asked never to see. Title or the Introductions board. */
+export const WELCOME_TITLE = /^\s*(hello|hi|hey|hola|greetings|welcome|good (morning|evening|afternoon|day)|new (here|member|to (bhw|the forum|blackhatworld))|newbie|i'?m new|just joined|introduc\w*|nice to meet)\b/i;
+export const WELCOME_FORUM = /introduc/i;
 
 const AD_WORD = /\b(ads?|advertis\w*|campaigns?|traffic|media buy\w*|ppc|promot\w*|marketing)\b/i;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -635,7 +640,7 @@ export const NEW_EVERY_MS = 15 * 60000;
  * niche word anywhere else that is not a buyers' or sales board, not sticky,
  * not muted, and never shown before (the shared "sent" memory and the watch's own).
  */
-export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, muted = [], seen = {} } = {}) {
+export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, muted = [], seen = {}, all = false, maxReplies = 10 } = {}) {
   const ids = new Set(RADAR_SECTIONS.map((x) => String(x.id)));
   const out = [];
   for (const r of rows || []) {
@@ -643,9 +648,19 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
     const id = String(r.threadId);
     if (seen[id] || state?.sent?.[id] || iPosted(state, id) || state?.hidden?.[id]) continue;
     if (r.mine) continue;
+    if (NEVER.test(`/forums/${r.forumNode}/`)) continue;                      // Hire a Freelancer is HAF's; marketplaces are not discussion
+    if (all) {
+      // 1.23 'everything' mode: a normal forum, any topic, any board. Out: only a hello, a thread with too many replies
+      // already (you asked for under 10), marketplace boards, and a muted word. No niche words, no age limit beyond the page itself.
+      if (WELCOME_TITLE.test(r.title) || WELCOME_FORUM.test(r.forum || '')) continue;
+      if ((Number(r.replyCount) || 0) >= maxReplies) continue;
+      if (FORUM_DENY.test(r.forum || '') || isMuted(r.title, muted)) continue;
+      out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: 'all', tier: 'N' });
+      continue;
+    }
     const started = ms(r.startedAt); if (!started || now - started > hours * 3600000) continue;
     if ((Number(r.replyCount) || 0) > 5) continue;                          // a new thread already crowded is not a first-reply chance
-    if (FORUM_DENY.test(r.forum || '') || NEVER.test(`/forums/${r.forumNode}/`)) continue;
+    if (FORUM_DENY.test(r.forum || '')) continue;
     if (SALES_TITLE.test(r.title) || isMuted(r.title, muted)) continue;
     const inSection = ids.has(String(r.forumNode));
     const section = RADAR_SECTIONS.find((x) => String(x.id) === String(r.forumNode));
@@ -653,18 +668,22 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
     if (!inSection && match !== 'strict') continue;
     out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || section?.name || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: match || 'section', tier: 'N' });
   }
-  return out.sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+  return all ? out.sort((a, b) => (ms(b.lastActivityAt) || ms(b.startedAt)) - (ms(a.lastActivityAt) || ms(a.startedAt))) : out.sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
 }
 
 /** The 15-minute message: only threads never shown before, newest first, with links. */
-export function formatNewThreads(items, { now = Date.now(), count = 0, target = 10, families = {} } = {}) {
+export function formatNewThreads(items, { now = Date.now(), count = 0, target = 10, families = {}, more = 0, all = false } = {}) {
   const d = new Date(now);
   const lines = [`🆕 <b>New threads</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} new`, ''];
   items.forEach((q, i) => {
     const rep = Number(q.replyCount) || 0;
-    lines.push(`<b>${i + 1}. <a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · started ${ago(q.startedAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
+    const fresh = ms(q.startedAt) && now - ms(q.startedAt) < 6 * HOUR;
+    lines.push(`<b>${i + 1}. ${rep === 0 ? '🔥 ' : ''}<a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · ${fresh || !q.lastActivityAt ? `started ${ago(q.startedAt, now)}` : `last reply ${last(q.lastActivityAt, now)}`} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
   });
-  lines.push(`Public replies today: <b>${count} of ${target}</b>`, keywordIdeas(items, { families }));
+  if (more > 0) lines.push(`${more} more waiting; they come with the next check.`, '');
+  lines.push(`Public replies today: <b>${count} of ${target}</b>`);
+  if (all) lines.push('Every 10 minutes: every thread started or answered on BHW with under 10 replies. Send: new threads off · new threads on · radar help');
+  else lines.push(keywordIdeas(items, { families }));
   return lines.join('\n').slice(0, 3900);
 }
 

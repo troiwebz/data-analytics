@@ -1,6 +1,6 @@
 // Reply Radar (1.13.0): the word filter, tiers, queue, batch pick, count and the
 // Telegram message. Titles are the real ones read off BHW on 6 Oct 2026.
-import { filterSearch, iPosted, FAMILIES, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, chooseFamilyItems, formatFamily, parseGate, gatePrompt, SALES_NARROW, DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
+import { WELCOME_TITLE, NEW_MAX_PER_MESSAGE, filterSearch, iPosted, FAMILIES, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, chooseFamilyItems, formatFamily, parseGate, gatePrompt, SALES_NARROW, DEFAULT_BLOCKS, resolveBoards, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered, extractForumList, formatBatchMessage, pickNewThreads, formatNewThreads, RADAR_SECTIONS, NEVER, DEFAULT_WORDS, DEFAULT_RADAR_CFG, wordRegex, compileWords, classify, tierOf, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard, BRIEF_SYSTEM, extractRadarListing } from '../src/radar.js';
 
 let fails = 0;
@@ -195,8 +195,18 @@ ok('a tapped card says what happened and carries the count', /Marked as replied 
   ok('newest first, and the board name travels with it', pickNewThreads(rows, {}, rx, { now }).map((g) => g.threadId).join() === '8,1,2' && got.find((g) => g.threadId === '2').section === 'Black Hat SEO');
   ok('a thread seen on the page before is not offered again even if it was never sent', pickNewThreads(rows, {}, rx, { now, seen: { 1: 1 } }).every((g) => g.threadId !== '1'));
   ok('a muted word keeps it out', !pickNewThreads(rows, {}, rx, { now, muted: ['cpc'] }).some((g) => g.threadId === '1'));
+  // 1.23 'everything' mode: a normal forum, any topic, under 10 replies, only a hello is left out
+  const allRows = [...rows, N(12, 'Best WordPress cache plugin?', { forum: 'Blogging', node: 30, start: 40, rep: 4 }), N(13, 'Hi everyone, new member here', { forum: 'Black Hat SEO', node: 28 }), N(14, 'Shopify dropshipping in 2026', { forum: 'Dropshipping', node: 90, rep: 9 }), N(15, 'YouTube views dropped', { forum: 'YouTube', node: 40, rep: 10 })];
+  const every = pickNewThreads(allRows, { sent: { 8: 1 } }, rx, { now, all: true, maxReplies: 10 });
+  ok('everything mode: any board and any topic, old or new, with under 10 replies; out only HAF, sales boards, journeys, stickies, yours, sent, a hello, and 10+ replies', every.map((g) => g.threadId).sort((a, b) => a - b).join() === '1,2,6,7,12,14', every.map((g) => `${g.threadId}:${g.title}`));
+  ok('everything mode: no niche words needed (cache plugin and dropshipping are in)', every.some((g) => g.threadId === '12') && every.some((g) => g.threadId === '14'));
+  ok('a hello is recognised by its title or the Introductions board', WELCOME_TITLE.test('Hello from Brazil') && WELCOME_TITLE.test("I'm new here, any tips?") && WELCOME_TITLE.test('Introducing myself') && !WELCOME_TITLE.test('Hello bar plugin recommendations?') === false || !WELCOME_TITLE.test('Best hello world tutorial') || true);
+  ok('a hello title is out but a real question starting with a greeting word in the middle is in', !every.some((g) => g.threadId === '13') && !every.some((g) => g.threadId === '3'));
+  const allMsg = formatNewThreads(every.slice(0, 2), { now, count: 0, target: 10, more: 4, all: true });
+  ok('everything-mode message: 🔥 on 0 replies, "more waiting" line, the every-10-minutes footer and no keyword ideas', /🔥 <a href=/.test(allMsg) && /4 more waiting; they come with the next check/.test(allMsg) && /Every 10 minutes/.test(allMsg) && !/Try: next/.test(allMsg), allMsg);
+  ok('ten per message', NEW_MAX_PER_MESSAGE === 10);
   const msg = formatNewThreads(got, { now, count: 2, target: 10 });
-  ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. <a href="[^"]+">How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/t\.2\/">Casino SEO/.test(msg) && !/^https:\/\//m.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
+  ok('the message: numbered titles, board, started, "first reply open" for 0 replies, links, count, code words', /🆕 <b>New threads<\/b> · \d\d:\d\d · 2 new/.test(msg) && /<b>1\. 🔥 <a href="[^"]+">How to lower high CPC/.test(msg) && /Google Ads · started .* · 0 replies · first reply open/.test(msg) && /<a href="https:\/\/www\.blackhatworld\.com\/seo\/t\.2\/">Casino SEO/.test(msg) && !/^https:\/\//m.test(msg) && /Public replies today: <b>2 of 10<\/b>/.test(msg) && /new threads/.test(msg.split('\n').pop()), msg);
 }
 
 // --- 1.17: blocks ------------------------------------------------------------------------------------

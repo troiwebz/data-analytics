@@ -38,7 +38,7 @@ import { alive, held } from './alive.js';
 import { ownership, takeOver, describe as describeOwner, loginProblem } from './owner.js';
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
-  countToday, setCount, emptyState as radarEmpty, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
+  countToday, setCount, emptyState as radarEmpty, NEW_MAX_PER_MESSAGE, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
   familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
   DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
   FAMILIES, FAMILY_EVERY_MIN, FAMILY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
@@ -528,6 +528,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       const links = await repairJumpLinks().catch(() => ({}));
       if (links.fixed) await log(`thread links: ${links.fixed} pointed at the first UNREAD post (a later page), now page 1; ${links.reread} unsent HAF thread(s) will be read again and re-screened - they may have been judged on a seller's reply`);
     }
+    if (alarm.name === UPDATE_ALARM) await quietRadarOnce().catch((e) => log(`radar quiet switch: ${e.message}`, 'error'));
     if (alarm.name === UPDATE_ALARM) await checkForUpdate();
     // The hourly alarm stays as a backstop: polling can be switched off, or a
     // cycle can fail, and the list should still be reconciled eventually.
@@ -2037,6 +2038,21 @@ export async function refreshParticipated({ fast = false } = {}) {
  * and only threads never shown before go out - with links, as one message.
  * Shares the "sent" memory with the hourly batch and "next", so nothing comes twice.
  */
+/**
+ * 1.23, once: Telegram carries HAF cards and the 10-minute new-threads list, nothing else. The families engine, blocks and
+ * alerts are switched OFF (not removed: "families", "run casino", "notify me when..." bring any of them back). Your own
+ * later choices are kept, because this runs exactly once.
+ */
+async function quietRadarOnce() {
+  const { radarQuiet123 } = await chrome.storage.local.get('radarQuiet123');
+  if (radarQuiet123) return;
+  const { [RADAR_CFG]: c = {} } = await chrome.storage.local.get(RADAR_CFG);
+  const blocks = Array.isArray(c.blocks) ? c.blocks.map((b) => ({ ...b, on: false })) : c.blocks;
+  await chrome.storage.local.set({ [RADAR_CFG]: { ...c, familiesOn: false, alertsOn: false, newWatch: true, newAll: true, newEvery: 10, newMaxReplies: 10, ...(blocks ? { blocks } : {}) }, radarQuiet123: Date.now() });
+  await log('1.23: Telegram now carries HAF cards and the 10-minute new-threads list only; families, blocks and alerts are off (send "families" or "notify me when ..." to use them again)');
+}
+export const __quietRadarOnceForTest = quietRadarOnce;
+
 let newRead = { at: 0, rows: [] };
 export const __forgetNewReadForTest = () => { newRead = { at: 0, rows: [] }; };   // tests only
 export async function radarNewTick({ force = false } = {}) {
@@ -2044,11 +2060,12 @@ export async function radarNewTick({ force = false } = {}) {
   const rc = await getRadarCfg();
   if (rc.newWatch === false && !force) return { skipped: 'off' };
   let st = await getRadar();
-  const every = Math.max(5, Number(rc.newEvery) || 15) * 60000;
+  const every = Math.max(5, Number(rc.newEvery) || 10) * 60000;
   if (!force && st.newAt && Date.now() - st.newAt < every) return { skipped: 'not due' };
   if (await radarPaused()) return { skipped: 'wall' };
   await setRadar({ ...st, newAt: Date.now() });
   const cfg = await getConfig();
+  const all = rc.newAll !== false;
   try {
     let rows = [];
     for (const url of NEW_THREADS_URLS) {                 // the threads-only page first; the summary page if BHW has no such page
@@ -2061,13 +2078,15 @@ export async function radarNewTick({ force = false } = {}) {
     await refreshParticipated();
     st = await getRadar();
     const seen = Object.fromEntries(Object.entries(st.newSeen || {}).filter(([, t]) => Date.now() - t < 7 * 86400000));
-    const items = pickNewThreads(rows, st, compileWords(rc.words), { muted: rc.muted, seen });
-    for (const r of rows) if (r && r.threadId) seen[String(r.threadId)] = seen[String(r.threadId)] || Date.now();   // everything on the page is now "seen", shown or not
+    const items = pickNewThreads(rows, st, compileWords(rc.words), { muted: rc.muted, seen, all, maxReplies: Number(rc.newMaxReplies) || 10 });
+    const over = all ? items.slice(NEW_MAX_PER_MESSAGE) : [];            // 1.23: beyond 10 wait for the next check instead of flooding you
+    const waiting = new Set(over.map((q) => String(q.threadId)));
+    for (const r of rows) if (r && r.threadId && !waiting.has(String(r.threadId))) seen[String(r.threadId)] = seen[String(r.threadId)] || Date.now();   // everything on the page is now "seen", shown or not
     if (!items.length) { await saveRadar({ ...st, newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; }
     if (!cfg.telegramChatId || !(await telegram.hasToken())) { await saveRadar({ ...st, newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; }
-    let batch = items.slice(0, 8);
+    let batch = items.slice(0, all ? NEW_MAX_PER_MESSAGE : 8);
     { const chk = await mineInThreads(batch, cfg); batch = chk.keep; if (!batch.length) { await saveRadar({ ...(await getRadar()), newSeen: seen }); return { ok: true, read: rows.length, sent: 0 }; } }
-    const mid = await telegram.sendCard(cfg.telegramChatId, formatNewThreads(batch, { count: countToday(st), target: rc.dailyTarget, families: rc.families }), batchKeyboard(batch));
+    const mid = await telegram.sendCard(cfg.telegramChatId, formatNewThreads(batch, { count: countToday(st), target: rc.dailyTarget, families: rc.families, more: over.length, all }), batchKeyboard(batch));
     const cards = { ...(st.cards || {}) };
     if (mid) cards[String(mid)] = { kind: 'batch', ids: batch.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(batch.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, startedAt: q.startedAt, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
     const queue = { ...st.queue };
@@ -2590,7 +2609,7 @@ async function radarCommand(body, cfg) {
   if ((x = text.match(/^\/?block\s+([a-z0-9-]+)\s*[.!]?$/i))) { const r = await runBlock(x[1].toLowerCase(), { force: true }); if (!r.sent) await telegram.say(cfg.telegramChatId, r.error ? `📋 ${r.error}` : r.skipped === 'wall' ? '📋 BHW showed a wall recently; reading is paused for a while.' : r.skipped === 'busy' ? '📋 A block is already running.' : '📋 Nothing new in that block right now.'); return true; }
   if ((x = text.match(/^\/?new\s*threads?\s*(on|off|now)?\s*[.!]?$/i))) {
     const verb = (x[1] || 'now').toLowerCase();
-    if (verb === 'on' || verb === 'off') { await setRadarCfg({ newWatch: verb === 'on' }); await telegram.say(cfg.telegramChatId, verb === 'on' ? '🆕 New-thread watch is ON: every 15 minutes, only threads never shown before.' : '🆕 New-thread watch is OFF. Send "new threads on" to start it again.'); return true; }
+    if (verb === 'on' || verb === 'off') { await setRadarCfg({ newWatch: verb === 'on' }); await telegram.say(cfg.telegramChatId, verb === 'on' ? '🆕 New-thread watch is ON: every 10 minutes, every thread started or answered on BHW with under 10 replies, never twice.' : '🆕 New-thread watch is OFF. Send "new threads on" to start it again.'); return true; }
     const r = await radarNewTick({ force: true });
     if (!r.sent) await telegram.say(cfg.telegramChatId, r.error ? `🆕 Could not read the new-threads page: ${r.error}` : r.skipped === 'wall' ? '🆕 BHW showed a wall recently; reading is paused for a while.' : '🆕 Nothing new since the last check.');
     return true;
