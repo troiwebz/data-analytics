@@ -719,3 +719,30 @@ $('playSound').addEventListener('click', () => preview('sound'));
 $('playHot').addEventListener('click', () => preview('soundHot'));
 
 getConfig().then(fill).then(showVol).then(refreshAi).then(refreshTg).then(showBackup).then(showSeed).then(showSync);
+
+
+// ---- 1.25: the phone dashboard link ------------------------------------------
+async function paintMobile(st) {
+  st = st || await chrome.runtime.sendMessage({ cmd: 'mobile-status' }).catch(() => null);
+  if (!st || !document.getElementById('mobileLink')) return;
+  document.getElementById('mobileLink').value = st.link || '';
+  document.getElementById('mobileOn').checked = !!st.on;
+  const when = st.lastAt ? new Date(st.lastAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not yet';
+  document.getElementById('mobileState').textContent = !st.on ? 'Off: the phone page keeps showing the last update it got.'
+    : st.error ? `⚠️ Last send failed (${st.error}). It tries again in 2 minutes.` : `✓ Last sent ${when}.`;
+}
+if (document.getElementById('mobileLink')) {
+  paintMobile();
+  document.getElementById('mobileCopy').addEventListener('click', async () => {
+    const v = document.getElementById('mobileLink').value;
+    try { await navigator.clipboard.writeText(v); document.getElementById('mobileCopy').textContent = 'Copied'; }
+    catch { document.getElementById('mobileLink').select(); document.execCommand('copy'); document.getElementById('mobileCopy').textContent = 'Copied'; }
+    setTimeout(() => { document.getElementById('mobileCopy').textContent = 'Copy'; }, 2000);
+  });
+  document.getElementById('mobileOpen').addEventListener('click', () => { const v = document.getElementById('mobileLink').value; if (v) window.open(v, '_blank'); });
+  document.getElementById('mobileOn').addEventListener('change', async (e) => paintMobile(await chrome.runtime.sendMessage({ cmd: 'mobile-save', on: e.target.checked })));
+  document.getElementById('mobileNew').addEventListener('click', async () => {
+    if (!confirm('Make a new phone link? The old link stops working at once.')) return;
+    paintMobile(await chrome.runtime.sendMessage({ cmd: 'mobile-save', newKey: true, on: true }));
+  });
+}

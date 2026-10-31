@@ -216,6 +216,20 @@ We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40
   </div>
 
   <div class="c">
+    <h2>Phone dashboard <span class="hint">this dashboard, live on your phone - open the link once, then Add to Home Screen</span></h2>
+    <label>Your phone link</label>
+    <div class="row" style="display:flex;gap:8px;align-items:center">
+      <input id="mobileLink" readonly style="flex:1" placeholder="(created when this page opens)">
+      <button id="mobileCopy" class="sec" style="flex:0 0 auto">Copy</button>
+      <button id="mobileOpen" class="sec" style="flex:0 0 auto">Open</button>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="mobileOn"> Send this dashboard to the phone page every 2 minutes</label>
+    <p class="hint" id="mobileState"></p>
+    <p class="hint">Only the numbers and the thread list go there: no keys, no bot token, no drafts. Anyone with the link can view it, so keep it to yourself.
+      <button id="mobileNew" class="sec" style="margin-left:6px">Make a new link</button> stops the old one working.</p>
+  </div>
+
+  <div class="c">
     <h2>Telegram <span class="hint">every new thread arrives on your phone automatically</span></h2>
     <label class="sw"><input type="checkbox" id="telegramEnabled"> Send new threads to Telegram</label>
     <p class="hint" style="margin:0 0 10px">The PM comes first, because it is the one you send. Tap a block on

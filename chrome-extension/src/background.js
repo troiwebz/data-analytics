@@ -45,7 +45,8 @@ import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS 
 import { ASK_SYSTEM, ASK_DENY, ASK_HELP, askPrompt, parseAsk, ruleAsk, pickAsk, titleHasTerm, RANK_SYSTEM, rankPrompt, parseRank, formatAsk, applyWatch, matchWatches, formatWatch, formatWatchList } from './ask.js';
 import { SALES_TITLE as RADAR_SALES, isMuted as radarIsMuted, iPosted as radarIPosted } from './radar.js';
 import * as pulse from './pulse.js';
-import { zoneOf } from './timefmt.js';
+import { zoneOf, partsIn, todayKey } from './timefmt.js';
+import { MOBILE_URL, MOBILE_EVERY_MS, newMobileKey, mobileLink, mobileRows } from './mobile.js';
 
 /**
  * Settings → "This copy works for BHW account" against who Chrome is actually
@@ -519,6 +520,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await radarNewTick().catch((e) => log(`Reply Radar new threads: ${e.message}`, 'error'));
       await watchTick().catch((e) => log(`Reply Radar alerts: ${e.message}`, 'error'));
       await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
+      await mobileTick().catch((e) => log(`phone dashboard: ${e.message}`, 'error'));
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
     // One-off repairs also run here: when Chrome itself loads a new version
@@ -2881,6 +2883,104 @@ async function takeAsk(ev, cfg) {
   if (cost) await log(`Reply Radar ask: plan cost $${cost.toFixed(4)}`);
   await askRun(plan, text, cfg, { note });
   return true;
+}
+
+// ------------------------------------------------- 1.25: the phone dashboard
+/**
+ * Every 2 minutes this Chrome sends what its dashboard shows to haf-mobile.vercel.app, where the phone link reads it:
+ * the header (version, next check, replies and PMs against their caps), the main-system banner, the stat tiles of both
+ * views and the newest 150 threads of each. Never keys, tokens or drafts. Off with Settings -> Phone dashboard.
+ */
+async function mobileKey() {
+  let { mobileKey: k } = await chrome.storage.local.get('mobileKey');
+  if (!k) { k = newMobileKey(); await chrome.storage.local.set({ mobileKey: k }); }
+  return k;
+}
+async function mobileStatus() {
+  const { mobileOn = true, mobileAt = 0, mobileErr = '' } = await chrome.storage.local.get(['mobileOn', 'mobileAt', 'mobileErr']);
+  return { on: mobileOn !== false, link: mobileLink(await mobileKey()), lastAt: mobileAt, error: mobileErr };
+}
+const MOBILE_NAME = { mac: 'MacBook', win: 'Windows server', linux: 'Linux server' };
+
+async function buildMobileSnap() {
+  const cfg = await getConfig();
+  const leads = await getLeads();
+  const rate = await getRateState();
+  const staged = await getStaged();
+  const ai = await aiStatus().catch(() => ({}));
+  const own = await ownership({}).catch(() => null);
+  const tg = await telegram.status(cfg).catch(() => ({}));
+  const alarm = await chrome.alarms.get(FEED_ALARM).catch(() => null);
+  const { lastPollAt = 0, bhwMe = '' } = await chrome.storage.local.get(['lastPollAt', 'bhwMe']);
+  const os = (await chrome.runtime.getPlatformInfo().catch(() => ({}))).os || '';
+  const machine = MOBILE_NAME[os] || 'computer';
+  const account = cfg.boundAccount || cfg.bhwUsername || bhwMe || '';
+
+  // the banner, in the dashboard's own words
+  let banner = null;
+  const lm = await loginMismatch(cfg).catch(() => '');
+  if (lm) banner = { kind: 'warn', text: `⛔ Wrong BHW login. ${lm}.` };
+  else if (own?.wrongAccount) banner = { kind: 'warn', text: `⛔ This Telegram bot belongs to BHW account "${own.owner?.acct || ''}". This copy reads nothing, sends nothing and posts nothing.` };
+  else if (own && (own.accountElsewhere || (own.known && !own.active))) banner = { kind: 'standby', text: `⏸ Standby. The main system is the ${MOBILE_NAME[String(own.owner?.os || '').toLowerCase()] || 'other machine'}; this copy reads nothing, sends nothing and posts nothing.` };
+  else if (own?.known && own.active) banner = { kind: 'main', text: `✅ This ${machine} is the main system${own.owner?.pin ? ' - chosen by you' : ''}. Auto mode here: ${cfg.autoMode ? 'ON' : 'OFF'}.${account ? ` Account: ${account}` : ''}` };
+
+  const haf = leads.filter((l) => l.kind !== 'thread' && String(l.threadId) !== 'sample');
+  const other = leads.filter((l) => l.kind === 'thread');
+  const t = (iso) => { const x = new Date(iso || 0).getTime(); return isFinite(x) ? x : 0; };
+  const dayAgo = Date.now() - 86400000;
+  const key = todayKey(cfg);
+  const startedToday = haf.filter((l) => l.postedAtSource === 'listing' && !isNaN(new Date(l.postedAt)) && partsIn(new Date(l.postedAt), cfg).key === key).length;
+  const n = (list, s) => list.filter((l) => l.status === s).length;
+  const tilesHaf = [
+    [haf.length, 'in database'], [startedToday, 'launched today'], [haf.filter((l) => t(l.foundAt) > dayAgo).length, 'found today'],
+    [n(haf, 'POSTED'), 'replies posted'], [haf.filter((l) => l.pmSent).length, 'PMs sent'], [n(haf, 'SKIPPED'), 'skipped'],
+    [Object.keys(staged || {}).length, 'staged']
+  ];
+  if (ai?.configured) tilesHaf.push([`$${Number(ai.spentToday || 0).toFixed(2)}`, ai.budget > 0 ? `claude today · of $${Number(ai.budget).toFixed(2)}` : 'claude today']);
+  const hours = Number(cfg.threadMaxAgeHours) || 48;
+  const act = (l) => t((l.bump && l.bumpedAt) || l.postedAt || l.foundAt);
+  const otherToday = other.filter((l) => t(l.foundAt) > dayAgo);
+  const idx = await indexStats().catch(() => null), bank = await bankStats().catch(() => null);
+  const tilesOther = [
+    [other.length, 'in database'], [otherToday.length, 'found today'], [otherToday.filter((l) => l.bump).length, 'bumps today'],
+    [n(other, 'POSTED'), 'answered'],
+    [other.filter((l) => !['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status) && act(l) > Date.now() - hours * 3600000).length, `waiting · last ${hours}h`],
+    [n(other, 'SKIPPED'), 'skipped'], [idx?.size ?? '—', 'in search index'], [bank?.threads ?? '—', 'threads in answer bank']
+  ];
+  const forums = sourcesOf(cfg).filter((x) => x.kind === 'forum' && x.enabled).map((x) => x.label);
+  const words = watchWordsOf(cfg).filter((w) => w.enabled).map((w) => w.word);
+  return {
+    v: 1, version: chrome.runtime.getManifest().version, sentAt: Date.now(), machine, account,
+    enabled: !!cfg.enabled, autoMode: !!cfg.autoMode, nextCheckAt: alarm?.scheduledTime || 0, lastPollAt,
+    rate: { replies: rate.count || 0, repliesCap: Number(cfg.maxPostsPerDay) || 0, pms: rate.dmCount || 0, pmsCap: Number(cfg.maxDmsPerDay) || 0 },
+    banner,
+    tiles: { haf: tilesHaf, other: tilesOther },
+    watching: {
+      haf: cfg.enabled ? `Watching Hire a Freelancer · auto mode ${cfg.autoMode ? 'ON (private message only)' : 'off'}` : 'Not watching · turn it on in Settings',
+      other: cfg.enabled ? `Watching ${forums.length ? forums.join(', ') : 'no forums'} · site-wide words: ${words.length ? words.join(', ') : 'none'}` : 'Not watching'
+    },
+    keys: { claude: !!ai?.configured, bot: !!tg?.stored, chat: !!cfg.telegramChatId },
+    rows: { haf: mobileRows(leads, 'haf'), other: mobileRows(leads, 'other') }
+  };
+}
+
+export async function mobileTick({ force = false } = {}) {
+  const { mobileOn = true, mobileAt = 0 } = await chrome.storage.local.get(['mobileOn', 'mobileAt']);
+  if (mobileOn === false && !force) return { skipped: 'off' };
+  if (!force && Date.now() - mobileAt < MOBILE_EVERY_MS - 5000) return { skipped: 'not due' };
+  await chrome.storage.local.set({ mobileAt: Date.now() });
+  const k = await mobileKey();
+  const snap = await buildMobileSnap();
+  try {
+    const r = await fetch(`${MOBILE_URL}/api/push`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k, snap }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    await chrome.storage.local.set({ mobileErr: '' });
+    return { ok: true, bytes: j.bytes, rows: snap.rows.haf.length + snap.rows.other.length };
+  } catch (e) {
+    await chrome.storage.local.set({ mobileErr: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${e.message}` });
+    return { error: e.message };
+  }
 }
 
 export async function pollSources({ all = false } = {}) {
@@ -6094,6 +6194,15 @@ const onExtMessage = (msg, _sender, sendResponse) => {
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
       // Claude lives in the extension: key, spend and limits are all local.
       case 'ai-status':   sendResponse(await aiStatus()); break;
+      case 'mobile-status': sendResponse(await mobileStatus()); break;
+      case 'mobile-save': {                          // on / off, or a new link (the old one stops working)
+        if (typeof msg.on === 'boolean') await chrome.storage.local.set({ mobileOn: msg.on });
+        if (msg.newKey) await chrome.storage.local.set({ mobileKey: newMobileKey() });
+        if (msg.on !== false) await mobileTick({ force: true }).catch(() => {});
+        sendResponse(await mobileStatus());
+        break;
+      }
+      case 'mobile-now':    sendResponse(await mobileTick({ force: true }).catch((e) => ({ error: e.message }))); break;
       case 'ai-save-key': sendResponse(await saveKey(msg.key).catch((e) => ({ error: e.message }))); break;
       case 'ai-clear-key':sendResponse(await clearKey()); break;
       case 'ai-budget':   sendResponse(await setBudget(msg.budget).catch((e) => ({ error: e.message }))); break;
