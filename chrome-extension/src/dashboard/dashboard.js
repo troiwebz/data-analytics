@@ -68,7 +68,7 @@ const COLS = [
   { key: 'title',   label: 'Thread',   sortable: false,
     // The title opens the draft, because that is what a click on a row is for.
     // Going to the thread on BHW is the arrow next to it, deliberately small.
-    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span>` +
+    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span>` + shine(l) +
       `<span class="t">${esc(l.title || '(no title)')}</span>` +
       doneTag(l) +
       ` <a class="ext" href="${esc(l.url)}" target="_blank" rel="noopener" title="Open this thread on BlackHatWorld">↗</a>` +
@@ -112,7 +112,7 @@ const COLS2 = [
   { key: 'intent', label: 'Intent', sortable: true, dir: 1, get: (l) => ({ BUYER: 0, QUESTION: 1 }[l.intent] ?? 2),
     cell: (l) => `<span class="tag ${esc(l.intent || 'INFO')}">${esc(l.intent || 'INFO')}</span>` },
   { key: 'title', label: 'Thread', sortable: false,
-    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span> `
+    cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span> ` + shine(l)
       + `<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>${doneTag(l)}`
       + `<br><span class="srcline">${esc(l.author || '')} · ${esc(l.sourceLabel || '')}`
       + `${l.forum && l.forum !== l.sourceLabel ? ' · ' + esc(l.forum) : ''}`
@@ -321,6 +321,15 @@ async function renderInner() {
  * than only as a strike through it. A strike alone is easy to miss on a long
  * list, and it does not distinguish a posted reply from a PM.
  */
+// 1.26.1: ✨ BRAND NEW = nobody replied, under 30 min; 🔥 FIRST 5 = 1-4 replies, under 30 min. Nothing once it is done.
+function freshness(l) {
+  if (['POSTED', 'SKIPPED', 'EXPIRED', 'BACKFILL'].includes(l.status) || l.replyCount == null) return '';
+  const t = time(l.postedAt);
+  if (!t || Date.now() - t > 30 * 60000) return '';
+  return l.replyCount === 0 ? 'fresh' : l.replyCount <= 4 ? 'first5' : '';
+}
+const shine = (l) => { const f = freshness(l); return f === 'fresh' ? '<span class="shine new">✨ Brand new</span>' : f === 'first5' ? '<span class="shine first">🔥 First 5</span>' : ''; };
+
 function doneTag(l) {
   const posted = l.status === 'POSTED';
   // Filled is not done: the reply is sitting in a tab waiting for you. Say so
@@ -370,7 +379,7 @@ function row(l, staged, cfg) {
     try { html = c.cell(l); } catch { html = '<span class="sub">—</span>'; }
     return `<td class="${c.num ? 'num' : ''}">${html}</td>`;
   }).join('');
-  return `<tr class="r ${tier} ${state}" data-row="${id}">${cells}</tr>` +
+  return `<tr class="r ${tier} ${state} ${freshness(l)}" data-row="${id}">${cells}</tr>` +
          (openRow === String(l.threadId) ? (l.kind === 'thread' ? detailThread(l, cfg) : detail(l, staged, cfg)) : '');
 }
 
