@@ -911,6 +911,7 @@ export async function settleExcludedLeads(cfg) {
   return { settled: n };
 }
 
+const cfg0OtherOff = (cfg) => cfg.otherSourcesOn === false;   // 1.26.2: fewer page loads from one IP
 export async function runCheck() {
   await fillEssentials().catch(() => []);
   // Asleep: a member is not reading the forum at 3am. Nothing is fetched or
@@ -930,7 +931,7 @@ export async function runCheck() {
 
   // The watched forums and the site-wide feed, after HAF so HAF keeps its own.
   let sources;
-  try { sources = await pollSources(); }
+  try { sources = cfg0OtherOff(cfgS) ? { skipped: 'other sources off' } : await pollSources(); }
   catch (e) { sources = { error: e.message }; await log(`sources check: ${e.message}`, 'error'); }
 
   const cfg0 = await getConfig();
@@ -1628,7 +1629,7 @@ async function wall(why) {
   const { [WALL_STRIKES_KEY]: strikes = 0 } = await chrome.storage.local.get(WALL_STRIKES_KEY);
   const ms = Math.min(WALL_MAX_MS, WALL_BASE_MS * 2 ** strikes);
   const mins = Math.round(ms / 60000);
-  await chrome.storage.local.set({ [WALL_KEY]: Date.now() + ms, [WALL_STRIKES_KEY]: strikes + 1 });
+  await chrome.storage.local.set({ [WALL_KEY]: Date.now() + ms, [WALL_STRIKES_KEY]: strikes + 1, hafSlowUntil: Date.now() + ms + 60 * 60000 });   // 1.26.2: then an hour at the slow pace
   await log(`${why} - pausing every BHW read for ${mins} minutes, then trying again quietly`, 'error');
   await watch(await getConfig(), 'bhwWall', true,
     `BlackHatWorld is blocking reads (${why}). Pausing every check for ${mins} minutes`
@@ -4024,16 +4025,20 @@ async function firstFiveAlert(leads, cfg) {
  * sleep, and BHW's wall pauses it like every other read.
  */
 export const __firstFiveForTest = (leads, cfg) => firstFiveAlert(leads, cfg);   // tests only
-export async function hafQuickTick({ force = false } = {}) {
+export async function hafQuickTick({ force = false, wait = true } = {}) {
   const cfg = await getConfig();
   if (!cfg.enabled || cfg.readMode === 'feeds' || (cfg.hafQuick === false && !force)) return { skipped: 'off' };
   if (cfg.sleepEnabled && night.inWindow(cfg, cfg.sleepStart, cfg.sleepEnd)) return { skipped: 'asleep' };
   if (await hafBusy()) return { skipped: 'haf' };
   if (await walled()) return { skipped: 'wall' };
-  const { lastPollAt = 0 } = await chrome.storage.local.get('lastPollAt');
-  const every = Math.max(45, Number(cfg.hafQuickSeconds) || 60) * 1000;
-  if (!force && Date.now() - lastPollAt < every - 5000) return { skipped: 'not due' };
-  if (!force) await new Promise((r) => setTimeout(r, Math.random() * 15000));
+  const { lastPollAt = 0, hafSlowUntil = 0 } = await chrome.storage.local.get(['lastPollAt', 'hafSlowUntil']);
+  // 1.26.2: one IP, read like a person - every ~90-110 s by day, every ~5 min at night (quietStart-quietEnd) and for an
+  // hour after BHW showed a wall. Never an even interval.
+  const quiet = !!(cfg.quietStart && cfg.quietEnd && night.inWindow(cfg, cfg.quietStart, cfg.quietEnd));
+  const slow = quiet || Date.now() < hafSlowUntil;
+  const every = (slow ? Math.max(180, Number(cfg.hafSlowSeconds) || 300) : Math.max(60, Number(cfg.hafQuickSeconds) || 90)) * 1000;
+  if (!force && Date.now() - lastPollAt < every - 5000) return { skipped: 'not due', slow };
+  if (!force && wait) await new Promise((r) => setTimeout(r, Math.random() * 20000));
   const r = await pollFeed().catch((e) => ({ error: e.message }));
   if (r && r.new) await announceNew(await getConfig()).catch(() => {});
   mobileSoon();

@@ -936,6 +936,6 @@ export function formatFamily(f, items, { now = Date.now(), count = 0, target = 1
 
 /** BHW's own list of threads you have contributed to, newest activity first (XenForo "find threads"). */
 export const PARTICIPATED_URL = 'https://www.blackhatworld.com/find-threads/contributed';
-export const PARTICIPATED_EVERY_MS = 15 * 60000;
+export const PARTICIPATED_EVERY_MS = 30 * 60000;   // 1.26.2: every 30 min (was 15) - fewer page loads
 /** Posted in, by your own tap OR by BHW's list. Never suggested again; an answer from someone else still comes back as "They answered you". */
 export const iPosted = (state, id) => !!(state?.replied?.[id] || state?.participated?.[id]);

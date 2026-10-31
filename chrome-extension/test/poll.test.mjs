@@ -391,5 +391,31 @@ ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), se
   ok('alert: switched off sends nothing', r.sent === 0 && tg.length === 0);
 }
 
+// --- 1.26.2: one server IP read like a person -----------------------------------------------------------
+{
+  const base = await getConfig();
+  const at = async (secsAgo, extra = {}, local = {}) => {
+    await setConfig({ ...base, enabled: true, readMode: 'tabs', hafQuick: true, hafQuickSeconds: 90, hafSlowSeconds: 300, quietStart: '', quietEnd: '', ...extra });
+    await chrome.storage.local.set({ lastPollAt: Date.now() - secsAgo * 1000, hafSlowUntil: 0, sourcesBackoffUntil: 0, ...local });
+    return bg.hafQuickTick({ wait: false });
+  };
+  let r = await at(60);
+  ok('pace: by day, not again inside 90 s', r.skipped === 'not due' && r.slow === false, JSON.stringify(r));
+  r = await at(100);
+  ok('pace: by day, reads again after ~90 s', !r || !r.skipped || r.skipped === 'already reading', JSON.stringify(r));
+  r = await at(100, { quietStart: '00:00', quietEnd: '23:59' });
+  ok('pace: in the quiet hours, 100 s is too soon (slow pace)', r.skipped === 'not due' && r.slow === true, JSON.stringify(r));
+  r = await at(310, { quietStart: '00:00', quietEnd: '23:59' });
+  ok('pace: in the quiet hours, reads again after ~5 min', !r || !r.skipped || r.skipped === 'already reading', JSON.stringify(r));
+  r = await at(100, {}, { hafSlowUntil: Date.now() + 30 * 60000 });
+  ok('pace: for an hour after a wall, the slow pace holds by day too', r.skipped === 'not due' && r.slow === true, JSON.stringify(r));
+  const { migrateConfig } = await import('../src/config.js');
+  await chrome.storage.local.set({ config: { ...base, configVersion: 36, hafQuickSeconds: 60, otherSourcesOn: true } });
+  await migrateConfig();
+  const c = (await chrome.storage.local.get('config')).config;
+  ok('upgrade: 90 s reads, other sources off, quiet 01:00-07:00 at 5 min', c.hafQuickSeconds === 90 && c.otherSourcesOn === false && c.quietStart === '01:00' && c.quietEnd === '07:00' && c.hafSlowSeconds === 300, JSON.stringify({ q: c.hafQuickSeconds, o: c.otherSourcesOn, s: c.quietStart }));
+  await setConfig(base);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

@@ -127,7 +127,10 @@ export const DEFAULT_CONFIG = {
   indexDays: 7,                // how long the search index remembers a thread
   // 1.26: page 1 of Hire a Freelancer about every minute, on its own, so a new thread reaches you while it still has
   // 0-4 replies; a loud alert with the public reply ready, and the reply typed into a background tab (not sent).
-  hafQuick: true, hafQuickSeconds: 60, firstFiveAlert: true, firstFiveStage: true, firstFiveMaxReplies: 4,
+  hafQuick: true, hafQuickSeconds: 90, firstFiveAlert: true, firstFiveStage: true, firstFiveMaxReplies: 4,
+  // 1.26.2: one server IP must read like a person. Slow pace (seconds) at night and for an hour after a BHW wall;
+  // the watched "Other sources" boards are not read by the automatic check (the dashboard button still reads them).
+  hafSlowSeconds: 300, quietStart: '01:00', quietEnd: '07:00', otherSourcesOn: false,
   pollMinutes: 6,              // how often to check (tabs mode: one What's-new page per check)
   jitterSeconds: 150,          // plus 0-150 s at random, so checks are never on the clock
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
@@ -761,7 +764,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 36;
+export const CONFIG_VERSION = 37;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -944,6 +947,12 @@ export async function migrateConfig() {
     const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
     if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
     if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
+  }
+  if (v < 37) {
+    // 1.26.2: the safer reading pace, once (what you change later stays): 90 s HAF reads, slow at night, other sources off.
+    if (!(Number(next.hafQuickSeconds) > 90)) next.hafQuickSeconds = 90;
+    for (const k of ['hafSlowSeconds', 'quietStart', 'quietEnd']) if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    next.otherSourcesOn = false;
   }
   if (v < 36) {
     // 1.12.4: the PM cap of 8 came back on the server through the settings file in the
