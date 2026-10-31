@@ -125,6 +125,9 @@ export const DEFAULT_CONFIG = {
   whatsNewPages: 1,            // tabs mode: pages of What's new per check (1 is plenty at 5 min)
   pmCheckMinutes: 15,          // how often your BHW message list is read
   indexDays: 7,                // how long the search index remembers a thread
+  // 1.26: page 1 of Hire a Freelancer about every minute, on its own, so a new thread reaches you while it still has
+  // 0-4 replies; a loud alert with the public reply ready, and the reply typed into a background tab (not sent).
+  hafQuick: true, hafQuickSeconds: 60, firstFiveAlert: true, firstFiveStage: true, firstFiveMaxReplies: 4,
   pollMinutes: 6,              // how often to check (tabs mode: one What's-new page per check)
   jitterSeconds: 150,          // plus 0-150 s at random, so checks are never on the clock
   approvalPollMinutes: 1,      // how often to ask Apps Script for approvals

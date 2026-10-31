@@ -512,6 +512,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
     if (alarm.name === APPROVAL_ALARM) { await expireStaged(); await pollApprovals(); }
     if (alarm.name === TAP_ALARM) await pollTaps();
     if (alarm.name === UPDATE_ALARM) {          // the minute tick doubles as the night/auto runner
+      await hafQuickTick().catch((e) => log(`quick HAF check: ${e.message}`, 'error'));
       await runNightQueue().catch((e) => log(`night mode: ${e.message}`, 'error'));
       await runAutoQueue().catch((e) => log(`auto mode: ${e.message}`, 'error'));
       await nightSummary().catch(() => {});
@@ -953,6 +954,7 @@ export async function runCheck() {
       return { error: e.message };
     });
   }
+  mobileSoon();
   return { ...(r || {}), ...(failed ? { error: failed } : {}), sources, told, pms };
 }
 
@@ -2909,7 +2911,7 @@ async function buildMobileSnap() {
   const staged = await getStaged();
   const ai = await aiStatus().catch(() => ({}));
   const own = await ownership({}).catch(() => null);
-  const tg = await telegram.status(cfg).catch(() => ({}));
+  const tg = { stored: await telegram.hasToken().catch(() => false) };   // no network call: only whether a token is saved
   const alarm = await chrome.alarms.get(FEED_ALARM).catch(() => null);
   const { lastPollAt = 0, bhwMe = '' } = await chrome.storage.local.get(['lastPollAt', 'bhwMe']);
   const os = (await chrome.runtime.getPlatformInfo().catch(() => ({}))).os || '';
@@ -2962,6 +2964,17 @@ async function buildMobileSnap() {
     keys: { claude: !!ai?.configured, bot: !!tg?.stored, chat: !!cfg.telegramChatId },
     rows: { haf: mobileRows(leads, 'haf'), other: mobileRows(leads, 'other') }
   };
+}
+
+/** A change just happened (a check ran, a tap landed): send within ~10 s, never more than one send per 10 s. */
+let mobileTimer = null;
+function mobileSoon() {
+  if (mobileTimer) return;
+  mobileTimer = setTimeout(async () => {
+    mobileTimer = null;
+    const { mobileOn = true, mobileAt = 0 } = await chrome.storage.local.get(['mobileOn', 'mobileAt']);
+    if (mobileOn !== false && Date.now() - mobileAt > 10000) await mobileTick({ force: true }).catch(() => {});
+  }, 3000);
 }
 
 export async function mobileTick({ force = false } = {}) {
@@ -3959,7 +3972,83 @@ export async function topUpHaf(items, listing, cfg) {
   return { added: pick.length };
 }
 
+// ------------------------------------------------- 1.26: first to reply on HAF
+/** Still worth being first on: at most 4 replies and started inside the last 30 minutes. */
+function isFirstFive(l, cfg) {
+  const rep = l.replyCount == null ? 0 : Number(l.replyCount);
+  const started = new Date(l.postedAt || l.foundAt || 0).getTime();
+  return rep <= (Number(cfg.firstFiveMaxReplies) || 4) && (!started || Date.now() - started < 30 * 60000);
+}
+
+/**
+ * The loud one: a new HAF thread in its first 5 replies gets its own short Telegram message at once, separate from
+ * the full card: age, replies, budget, the technical public reply already written, and one tap to post it. The tap
+ * is the post; nothing public ever goes out without it.
+ */
+async function firstFiveAlert(leads, cfg) {
+  if (cfg.firstFiveAlert === false || !cfg.telegramChatId || !(await telegram.hasToken())) return { sent: 0 };
+  const rate = await getRateState();
+  const cap = Number(cfg.maxPostsPerDay) || 0;
+  let sent = 0;
+  for (const l of leads) {
+    if (l.firstAlertAt || !isFirstFive(l, cfg)) continue;
+    const draft = String(l.draftApproved || l.draft || '').trim();
+    if (!draft) continue;
+    const mins = Math.max(0, Math.round((Date.now() - new Date(l.postedAt || l.foundAt || Date.now()).getTime()) / 60000));
+    const rep = l.replyCount == null ? 0 : Number(l.replyCount);
+    const h = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = [
+      `🔥 <b>NEW HAF · ${rep === 0 ? 'nobody has replied yet' : `${rep} repl${rep === 1 ? 'y' : 'ies'}`} · ${mins < 1 ? 'just now' : `${mins} min ago`}</b>`,
+      `<a href="${h(l.url)}">${h(l.title)}</a>`,
+      [l.author, l.budget, l.categoryLabel].filter(Boolean).map(h).join(' · '),
+      '',
+      '<b>Public reply, ready:</b>',
+      h(draft),
+      '',
+      cap ? `Public replies today: <b>${rate.count || 0} of ${cap}</b>${(rate.count || 0) >= cap ? ' · cap reached, posting is held' : ''}` : ''
+    ].filter((x, i, a) => x !== '' || (a[i - 1] !== '' && i > 0)).join('\n');
+    const kb = { inline_keyboard: [
+      [{ text: '🔗 Open thread', url: l.url }],
+      [{ text: '🚀 Post Public Now', callback_data: `p:${l.threadId}` }, { text: '✏️ Edit Post', callback_data: `e:${l.threadId}` }]
+    ] };
+    const went = await telegram.sendCard(cfg.telegramChatId, text.slice(0, 3900), kb).then(() => true).catch(() => false);
+    if (went) { await updateLead(l.threadId, { firstAlertAt: new Date().toISOString() }); l.firstAlertAt = true; sent++; }
+  }
+  if (sent) await log(`first-reply alert: ${sent} new HAF thread(s) still in their first 5 replies`);
+  return { sent };
+}
+
+/**
+ * The quick HAF read: page 1 of Hire a Freelancer about every minute (a random 0-15 s later than due), nothing else.
+ * The full check (other boards, inbox) keeps its own slower timer. Waits while a PM is being sent, sleeps when you
+ * sleep, and BHW's wall pauses it like every other read.
+ */
+export const __firstFiveForTest = (leads, cfg) => firstFiveAlert(leads, cfg);   // tests only
+export async function hafQuickTick({ force = false } = {}) {
+  const cfg = await getConfig();
+  if (!cfg.enabled || cfg.readMode === 'feeds' || (cfg.hafQuick === false && !force)) return { skipped: 'off' };
+  if (cfg.sleepEnabled && night.inWindow(cfg, cfg.sleepStart, cfg.sleepEnd)) return { skipped: 'asleep' };
+  if (await hafBusy()) return { skipped: 'haf' };
+  if (await walled()) return { skipped: 'wall' };
+  const { lastPollAt = 0 } = await chrome.storage.local.get('lastPollAt');
+  const every = Math.max(45, Number(cfg.hafQuickSeconds) || 60) * 1000;
+  if (!force && Date.now() - lastPollAt < every - 5000) return { skipped: 'not due' };
+  if (!force) await new Promise((r) => setTimeout(r, Math.random() * 15000));
+  const r = await pollFeed().catch((e) => ({ error: e.message }));
+  if (r && r.new) await announceNew(await getConfig()).catch(() => {});
+  mobileSoon();
+  return r;
+}
+
+// One HAF read at a time (1.26): the quick read and the full check can land in the same minute, and two reads of
+// the same page at once would each think a thread was new.
+let feedRunning = 0;
 export async function pollFeed() {
+  if (feedRunning && Date.now() - feedRunning < 3 * 60000) return { skipped: 'already reading' };
+  feedRunning = Date.now();
+  try { return await pollFeedOnce(); } finally { feedRunning = 0; }
+}
+async function pollFeedOnce() {
   const cfg = await getConfig();
   if (!cfg.enabled) return { skipped: 'disabled' };
   await chrome.storage.local.set({ lastPollAt: Date.now() });
@@ -4067,6 +4156,7 @@ export async function pollFeed() {
   if (!leads.length) return { new: fresh.length, matched: 0 };
 
   await recordLeads(leads);
+  await firstFiveAlert(leads, cfg).catch((e) => log(`first-reply alert: ${e.message}`, 'error'));
 
   // Night mode: arm the countdown BEFORE Telegram, so the card that reaches
   // your phone already says when it will post and carries the Hold button.
@@ -4120,6 +4210,8 @@ export async function pollFeed() {
   }
 
   const hot = leads.filter((l) => l.score >= cfg.stageScore).sort((a, b) => b.score - a.score);
+  // 1.26: a thread still in its first 5 replies is staged too (reply typed in, NOT sent), so a tap posts it at once.
+  if (cfg.firstFiveStage !== false) for (const l of leads) if (isFirstFive(l, cfg) && String(l.draft || '').trim() && !hot.includes(l)) hot.push(l);
 
   // One banner and one sound per check, not one per thread: five at once is a
   // single alert. A hot lead gets the louder sound and says so, so it is
@@ -4732,6 +4824,7 @@ export async function pollTaps() {
     await log(`Telegram tap on "${lead.title}": ${line || 'card rewritten in place'}`);
     done++;
   }
+  if (done) mobileSoon();
   return { taps: events.length, done };
 }
 

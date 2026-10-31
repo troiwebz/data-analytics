@@ -55,7 +55,7 @@ ok('browser header sent', lastReq.opts.headers['anthropic-dangerous-direct-brows
 ok('api version sent', lastReq.opts.headers['anthropic-version'] === '2023-06-01');
 ok('system prefix is cached', body.system[0].cache_control.type === 'ephemeral');
 ok('effort low', body.output_config.effort === 'low');
-ok('max_tokens scales with batch', body.max_tokens === 170 * 2 + 60, body.max_tokens);   // 170: the lines plus the screen verdict
+ok('max_tokens scales with batch', body.max_tokens === 260 * 2 + 60, body.max_tokens);   // 260: the lines, the screen verdict and the public line (1.26)
 ok('snippet is capped', body.messages[0].content.length < 1500);
 
 // 5. Usage and cost.

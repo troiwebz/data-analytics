@@ -58,7 +58,7 @@ export function partsFor(lead, cfg) {
   const ids = Object.keys(cfg.offers || {});
   const offer = ids.includes(obj.offer) ? obj.offer
     : ids[Math.floor(seeded(`f${lead.threadId}`)() * ids.length)] || '';
-  return { tips, question: obj.question || '', offer };
+  return { tips, question: obj.question || '', offer, pub: obj.pub || '' };
 }
 
 /** Kept for callers that only want the technical lines. */
@@ -87,9 +87,10 @@ export function layTips(tips) {
  * other freelancers reading the same thread.
  */
 export function renderReply(lead, cfg) {
-  const { tips, question } = partsFor(lead, cfg);
+  const { tips, question, pub } = partsFor(lead, cfg);
+  // 1.26: Claude's technical public line ("pub") when there is one; the first capability line otherwise.
   return render({ ...lead,
-    tip: tips[0] ? tips[0].replace(/\.?$/, '.') : '',
+    tip: pub ? pub.replace(/\.?$/, '.') : tips[0] ? tips[0].replace(/\.?$/, '.') : '',
     question, specifics: tips[0] || '' },
     cfg.templates[lead.category] || cfg.templates.generic || Object.values(cfg.templates)[0],
     `r${lead.threadId}`);

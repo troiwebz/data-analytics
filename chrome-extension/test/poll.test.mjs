@@ -104,7 +104,8 @@ await C.saveKey('sk-ant-api03-TESTKEYTESTKEY');
 // No webhookUrl, no sharedSecret: the Apps Script path must never be touched.
 await setConfig({ enabled: true, webhookUrl: '', sharedSecret: '', backfillHours: 0, hafMinThreads: 0,
                   telegramEnabled: true, telegramChatId: '999', telegramApprovals: true,
-                  secondsBetweenThreadReads: 0 });   // no need to pace a stub
+                  secondsBetweenThreadReads: 0,     // no need to pace a stub
+                  firstFiveAlert: false, firstFiveStage: false, hafQuick: false });   // 1.26 extras tested on their own, below
 const TG = await import('../src/telegram.js');
 await TG.setToken('1234567890:AAtesttoken');
 
@@ -164,6 +165,7 @@ ok('spend recorded', st.spentToday > 0 && st.leadsToday === 3, JSON.stringify(st
 // Telegram fires by itself on a new thread, with no Apps Script involved.
 ok('a sound played for the check', globalThis.__sounds.length === 1, JSON.stringify(globalThis.__sounds));
 ok('one sound for three threads, not three', globalThis.__sounds.filter((s) => s.target === 'offscreen-audio').length === 1);
+tg = tg.filter((m) => m.text);   // 1.25+: the main-copy check's own Telegram calls are not messages
 ok('Telegram got two messages per new thread', tg.length === 6, String(tg.length));
 ok('the public reply went to Telegram', tg.some((m) => /We have built citations manually/.test(m.text) && /Public reply/.test(m.text)));
 ok('Telegram gets the words, not the bold markers', !tg.some((m) => m.text.includes('**')));
@@ -362,6 +364,31 @@ ok('and the newcomer reached Claude', /manual audit side/.test(sentToClaude), se
 
   const tgCount = tg.filter((c) => c.method === 'sendMessage').length;
   ok('and nothing was actually sent', tgCount === 0, String(tgCount));
+}
+
+// --- 1.26: the loud first-5 alert for a new HAF thread ------------------------------------------------
+{
+  const cfg = { ...(await getConfig()), firstFiveAlert: true, maxPostsPerDay: 10 };
+  const now = Date.now();
+  const L = (id, o = {}) => ({ threadId: String(id), url: `https://www.blackhatworld.com/seo/x.${id}/`, title: `Need help ${id}`, author: 'buyer' + id,
+    budget: o.budget || '', categoryLabel: 'SEO', replyCount: o.rep ?? 0, postedAt: new Date(now - (o.min ?? 1) * 60000).toISOString(),
+    draft: o.draft ?? 'Citations only stick when the NAP matches the GBP exactly. Build the core ten first.\n\nPM sent with the detail.' });
+  tg = [];
+  const leads = [L(701, { rep: 0, budget: '$200' }), L(702, { rep: 3 }), L(703, { rep: 9 }), L(704, { rep: 1, min: 45 }), L(705, { draft: '' })];
+  let r = await bg.__firstFiveForTest(leads, cfg);
+  const sent = tg.filter((m) => m.method === undefined || true).filter((m) => /NEW HAF/.test(m.text || ''));
+  ok('alert: only threads with 0-4 replies, under 30 min old, with a reply ready', r.sent === 2 && sent.length === 2 && sent.some((m) => /x\.701/.test(m.text)) && sent.some((m) => /x\.702/.test(m.text)), JSON.stringify(r));
+  const a = sent.find((m) => /x\.701/.test(m.text)) || {};
+  ok('alert: says nobody has replied, the age, the budget, and shows the public reply ready', /nobody has replied yet/.test(a.text) && /\$200/.test(a.text) && /Public reply, ready/.test(a.text) && /NAP matches the GBP/.test(a.text) && /Public replies today: <b>\d+ of 10<\/b>/.test(a.text), a.text);
+  const kb = JSON.stringify(a.reply_markup || {});
+  ok('alert: Open thread link, Post Public Now and Edit Post buttons (the tap is the post)', /x\.701/.test(kb) && /"p:701"/.test(kb) && /"e:701"/.test(kb), kb);
+  ok('alert: never says "we" or pitches', !/\bwe\b/i.test((a.text || '').split('Public reply, ready')[0]));
+  tg = [];
+  r = await bg.__firstFiveForTest(leads, cfg);
+  ok('alert: each thread is alerted once only', r.sent === 0 && !tg.some((m) => /NEW HAF/.test(m.text || '')), JSON.stringify(r));
+  tg = [];
+  r = await bg.__firstFiveForTest([L(706)], { ...cfg, firstFiveAlert: false });
+  ok('alert: switched off sends nothing', r.sent === 0 && tg.length === 0);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

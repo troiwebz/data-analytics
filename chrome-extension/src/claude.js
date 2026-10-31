@@ -321,9 +321,17 @@ const CONTRACT_LINES = [
   '  rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
   '- "why": the reason, under 12 words.',
   '',
+  '5. "pub": the PUBLIC reply posted on the thread itself, for everyone to read. 2 short sentences, 120-240',
+  '   characters in total. Pure technical substance: HOW this exact job is done right - the method, the setting,',
+  '   the source, the check, the common mistake to avoid - specific to what the post asks. It must read like an',
+  '   expert dropping one useful tip, not a pitch. No "we", no "I can", no offer, no price, no "PM me", no',
+  '   question, no greeting, no restating the request. Do not repeat the tips word for word.',
+  '   Good: "For UAE local packs, citations only stick when the NAP matches the GBP to the character. Build the',
+  '   10 core ones (Yelp UAE, Connect.ae, Dubizzle biz) first, then the niche ones."',
+  '',
   'Return ONLY a JSON object mapping each thread id to',
-  '{"tips":[3 strings],"question":"...","offer":"id","pm":"yes" or "no","why":"..."}.',
-  'Example: {"1847904":{"tips":["...","...","..."],"question":"...","offer":"formula","pm":"yes","why":"asks for a Google Ads manager"}}'
+  '{"tips":[3 strings],"pub":"...","question":"...","offer":"id","pm":"yes" or "no","why":"..."}.',
+  'Example: {"1847904":{"tips":["...","...","..."],"pub":"...","question":"...","offer":"formula","pm":"yes","why":"asks for a Google Ads manager"}}'
 ];
 export const DEFAULT_WRITING = WRITING_LINES.join('\n');
 export const LOCKED_PROMPT = CONTRACT_LINES.join('\n');
@@ -453,7 +461,7 @@ export async function writeSpecifics(leads, cfg = {}) {
 
   const body = {
     model: ai.model,
-    max_tokens: 170 * batch.length + 60,
+    max_tokens: 260 * batch.length + 60,     // 1.26: room for the public "pub" line too
     system: [{ type: 'text', text: systemFor(cfg.brief, cfg.screenRules, cfg.claudeWriting, cfg.boundAccount), cache_control: { type: 'ephemeral' } }],
     output_config: { effort: 'low' },
     messages: [{ role: 'user', content: threads }]
@@ -522,7 +530,14 @@ export function clean(obj) {
     const said = String(raw.pm ?? '').trim().toLowerCase();
     const pm = raw.pm === true || said === 'yes' ? 'yes' : raw.pm === false || said === 'no' ? 'no' : '';
     const why = tidy(raw.why).slice(0, 120);
-    out[String(id)] = { tips, question, offer: raw.offer in OFFERS ? raw.offer : '', pm, why };
+    // The public reply (1.26): technical, short, no pitch. Dropped (template line used instead) if it breaks a rule.
+    const pub = (() => {
+      const t = tidy(raw.pub);
+      if (!t || t.length < 40 || t.length > 320 || !allowed(t)) return '';
+      if (/\b(we|our|us)\b|\bpm me\b|\bdm me\b|\bi can\b|\$\s?\d|\?/i.test(t)) return '';
+      return t;
+    })();
+    out[String(id)] = { tips, pub, question, offer: raw.offer in OFFERS ? raw.offer : '', pm, why };
   }
   return out;
 }

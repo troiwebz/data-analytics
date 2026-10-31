@@ -3,7 +3,7 @@
 // sending lives in background.js. Thread data only: no keys, no tokens, no DM or reply drafts.
 
 export const MOBILE_URL = 'https://haf-mobile.vercel.app';
-export const MOBILE_EVERY_MS = 2 * 60000;
+export const MOBILE_EVERY_MS = 60000;            // at least once a minute; also right after every check and tap
 export const MOBILE_ROWS = 150;
 
 /** A long random code (32 characters). Whoever has it can view this account's board, nothing else. */
