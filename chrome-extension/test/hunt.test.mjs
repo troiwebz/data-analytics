@@ -95,7 +95,12 @@ ok('WTB: older than 24 h or 10+ replies stays out', !W('Need guest posts', { m: 
 ok('WTB is HAF\'s now: not in the Hunt feed, no gem', H.formatFeed([H.mergeRows({}, [R(501, 'Need guest posts', { forum: 'Want to Buy', m: 5 })], { now }).pool['501']], { now }).length === 0
   && H.gemOf(H.mergeRows({}, [R(502, 'Need guest posts', { forum: 'Want to Buy', m: 5, rep: 0 })], { now }).pool['502'], { now }) === '');
 
-ok('WTB send-all mode: anything a buyer wants goes, cloaker never', W2('WTB aged Reddit accounts').ok && W2('Need a logo').ok && !W2('Looking for a cloaker').ok);
+ok('WTB send-all mode: any service a buyer wants goes, cloaker never', W2('Need a logo').ok && !W2('Looking for a cloaker').ok);
+ok('1.27.1: buying a THING never goes, in either mode (the Google Ads account DM)', !W2('[WTB] Google ads account that ran call ads in past').ok && !W2('WTB aged Reddit accounts').ok
+  && !W('[WTB] Google ads account that ran call ads in past').ok && W2('Need someone to manage my Google Ads account').ok);
+
+const { wtbWording } = await import('../src/templates.js');
+ok('1.27.1: WTB DM never says HAF', ['Came across your thread on HAF: x', 'Saw your HAF thread: x', 'Just read your post on HAF', 'your Hire a Freelancer request'].map(wtbWording).every((t) => !/HAF|Hire a Freelancer/.test(t)) && wtbWording('Came across your thread on HAF: x') === 'Came across your thread in Want to Buy: x');
 
 // reading plan
 const log = Array.from({ length: 10 }, (_, i) => now - i * 60000);

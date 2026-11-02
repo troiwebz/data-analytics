@@ -156,7 +156,7 @@ bags.local.hunt.nextAt = Date.now() - 1;
 whatsNew = { 1: [R('WTB aged Reddit accounts', { id: 8806, m: 10, forum: 'Want to Buy' }), R('Need a logo for my brand', { id: 8807, m: 10, forum: 'Want to Buy' }), R('Looking for a cloaker for Google Ads', { id: 8808, m: 10, forum: 'Want to Buy' })] };
 await bg.huntTick();
 const all2 = (bags.local.recentLeads || []).filter((l) => ['8806', '8807', '8808'].includes(l.threadId)).map((l) => l.threadId).sort().join();
-ok('"send them all" (default): every WTB buyer goes to HAF, except a cloaker', all2 === '8806,8807', all2);
+ok('"send them all" (default): every WTB service buyer goes to HAF - never a thing (accounts), never a cloaker', all2 === '8807', all2);
 const fakeRows = bags.local.recentLeads.filter((l) => l.board === 'WTB');
 bags.local.recentLeads = (bags.local.recentLeads || []).filter((l) => l.board !== 'WTB');
 void fakeRows;

@@ -289,14 +289,21 @@ export const WTB_GOODS = /\b(accounts?|pvas?|aged|vccs?|virtual (credit )?cards?
 export const WTB_SERVICE = /\b(seo|rank\w*|backlinks?|links?|link building|guest posts?|outreach|niche edits?|citations?|gmb|local seo|audit|on-?page|technical seo|content|articles?|writ\w+|ads|ppc|google ads|adwords|facebook ads|meta ads|tiktok ads|linkedin ads|bing ads|campaigns?|media buy\w*|reddit|subreddit|marketing|promotion|promote|posting|manage\w*|setup|set up|expert|agency|freelancer|someone|service|help)\b/i;
 export const WTB_CATS = ['seo', 'ads', 'social:reddit', 'content:articles'];
 
+/** 1.27.1: a Want to Buy title asking for a thing (an account, proxies, followers...) rather than work. */
+export const wtbGoods = (title) => WTB_GOODS.test(String(title || ''))
+  && !/\b(seo|backlinks?|guest posts?|niche edits?|citations?|outreach|articles?|content|campaigns?|management|manag(e|er|ing)|setup|set up|expert|agency|service)\b/i.test(String(title || ''));
+
 /** Should this Want to Buy thread go to HAF's DM path? { ok, why }. */
 export function wtbTarget(item, { cats = WTB_CATS, all = false, now = Date.now(), maxAgeH = 24, maxReplies = 10 } = {}) {
   if (!item || !isWtb(item.forum)) return { ok: false, why: 'not Want to Buy' };
   const title = String(item.title || '');
   if (item.lane !== 'buyer') return { ok: false, why: 'not a buyer' };
   if (OFF_LIMITS.test(title)) return { ok: false, why: 'off limits' };
+  // 1.27.1: buying a THING (accounts, proxies, followers...) never gets a DM, in either mode - we sell no
+  // goods, and Claude once wrote "we supply accounts" to a buyer of Google Ads accounts.
+  if (wtbGoods(title)) return { ok: false, why: 'buying a thing, not a service' };
   if (all) {
-    // "Send them all": every Want to Buy buyer goes to HAF; Claude's screen and you decide what to skip.
+    // "Send them all": every Want to Buy service buyer goes to HAF; Claude's screen and you decide what to skip.
     if ((Number(item.replyCount) || 0) >= maxReplies) return { ok: false, why: 'too many replies' };
     const t0w = new Date(item.startedAt || 0).getTime();
     if (!t0w || now - t0w > maxAgeH * HOUR) return { ok: false, why: 'older than 24 h' };
@@ -304,8 +311,7 @@ export function wtbTarget(item, { cats = WTB_CATS, all = false, now = Date.now()
   }
   const inCat = cats.some((c) => (c.includes(':') ? c === `${item.cat}:${item.topic}` : c === item.cat));
   if (!inCat) return { ok: false, why: `not our line (${item.cat})` };
-  const goods = WTB_GOODS.test(title), service = WTB_SERVICE.test(title);
-  if (goods && !/\b(seo|backlinks?|guest posts?|niche edits?|citations?|outreach|articles?|content|campaigns?|management|manager|setup|set up|run|expert|agency|service)\b/i.test(title)) return { ok: false, why: 'buying a thing, not a service' };
+  const service = WTB_SERVICE.test(title);
   if (!service) return { ok: false, why: 'no service named' };
   if ((Number(item.replyCount) || 0) >= maxReplies) return { ok: false, why: 'too many replies' };
   const t = new Date(item.startedAt || 0).getTime();

@@ -105,7 +105,17 @@ export function renderReply(lead, cfg) {
 export function renderDm(lead, cfg) {
   const out = renderDmBase(lead, cfg);
   // 1.27.0: a Want to Buy thread is not a Hire a Freelancer request
-  return lead.board === 'WTB' ? out.replace(/your Hire a Freelancer request/g, 'your WTB thread').replace(/Hire a Freelancer/g, 'Want to Buy') : out;
+  return lead.board === 'WTB' ? wtbWording(out) : out;
+}
+
+/** 1.27.1: every way the HAF templates name the board ("your thread on HAF", "your HAF thread", ...) reads as Want to Buy. */
+export function wtbWording(text) {
+  return String(text)
+    .replace(/your Hire a Freelancer request/gi, 'your WTB thread')
+    .replace(/\b(thread|post|request) on HAF\b/g, '$1 in Want to Buy')
+    .replace(/\byour HAF (thread|post|request)\b/g, 'your WTB $1')
+    .replace(/Hire a Freelancer/g, 'Want to Buy')
+    .replace(/\bHAF\b/g, 'Want to Buy');
 }
 
 function renderDmBase(lead, cfg) {
