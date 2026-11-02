@@ -86,6 +86,11 @@ export const DEFAULT_CONFIG = {
   // looking installed; it cannot post or message anyone until the two keys are
   // in, so there is nothing to start early.
   enabled: true,
+  // 1.27.0: the SEO buyer hunter. One what's-new list for every forum, its own 12 BHW pages an hour.
+  huntOn: true, huntFocus: ['seo', 'content'], huntGems: true, huntSummary: true, huntGemsPerDay: 8,
+  // Want to Buy buyers go down HAF's DM path (screen, draft, auto mode). wtbAll: every buyer, you skip what you
+  // do not want (false = SEO / Ads / Reddit services only). 50 a day keeps Claude spend and thread reads bounded.
+  wtbOn: true, wtbAll: true, wtbPerDay: 50, wtbCats: ['seo', 'ads', 'social:reddit', 'content:articles'],
   feedUrl: FEED_URL,
 
   // ---- More sources (v1.1) ---------------------------------------------
@@ -764,7 +769,7 @@ Thanks!!`
   }
 };
 
-export const CONFIG_VERSION = 37;
+export const CONFIG_VERSION = 38;
 
 /**
  * Upgrade settings saved by an older version of the extension without
@@ -947,6 +952,12 @@ export async function migrateConfig() {
     const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
     if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
     if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
+  }
+  if (v < 38) {
+    // 1.27.0: the SEO buyer hunter reads one what's-new list; Want to Buy buyers go down HAF's path.
+    next.huntOn = true;
+    if (!Array.isArray(next.huntFocus) || !next.huntFocus.length) next.huntFocus = ['seo', 'content'];
+    for (const k of ['huntGems', 'huntSummary', 'huntGemsPerDay', 'wtbOn', 'wtbAll', 'wtbPerDay', 'wtbCats']) if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
   }
   if (v < 37) {
     // 1.26.2: the safer reading pace, once (what you change later stays): 90 s HAF reads, slow at night, other sources off.

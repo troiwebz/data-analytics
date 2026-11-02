@@ -130,7 +130,7 @@ const ok = (n, c, e) => { if (!c) fails++; console.log(`${c ? '  ok' : 'FAIL'}  
 
 bags.local.vault = { tgToken: '123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef', key: 'sk-ant-test-key-000', savedAt: 1 };
 bags.sync.vault = { key: 'sk-ant-test-key-000', savedAt: 1 };
-bags.local.config = { ...DEFAULT_CONFIG, configVersion: CONFIG_VERSION, enabled: true, telegramEnabled: true, telegramApprovals: true, telegramChatId: '999', bhwUsername: 'bargainbed' };
+bags.local.config = { ...DEFAULT_CONFIG, configVersion: CONFIG_VERSION, enabled: true, telegramEnabled: true, telegramApprovals: true, telegramChatId: '999', bhwUsername: 'bargainbed', huntOn: false };   // 1.27.0: the old watch, as it runs with Hunt off
 const leadsBefore = JSON.stringify(bags.local.recentLeads || null);
 
 // --- one run: 8 sections, 3 cards -------------------------------------------------------------

@@ -113,7 +113,7 @@ const COLS2 = [
     cell: (l) => `<span class="tag ${esc(l.intent || 'INFO')}">${esc(l.intent || 'INFO')}</span>` },
   { key: 'title', label: 'Thread', sortable: false,
     cell: (l) => `<span class="ch">${openRow === String(l.threadId) ? '▾' : '▸'}</span> ` + shine(l)
-      + `<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>${doneTag(l)}`
+      + `${l.board === 'WTB' ? '<span style="display:inline-block;margin-right:6px;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:800;background:#0f172a;color:#fcd34d">WTB</span>' : ''}<a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>${doneTag(l)}`
       + `<br><span class="srcline">${esc(l.author || '')} · ${esc(l.sourceLabel || '')}`
       + `${l.forum && l.forum !== l.sourceLabel ? ' · ' + esc(l.forum) : ''}`
       + `${tags(l.watchWords).length ? ' · ' + esc(tags(l.watchWords).join(', ')) : ''}</span>` },

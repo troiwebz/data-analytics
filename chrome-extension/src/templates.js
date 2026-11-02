@@ -103,6 +103,12 @@ export function renderReply(lead, cfg) {
  * The top and bottom are common to every PM; the middle is this thread's.
  */
 export function renderDm(lead, cfg) {
+  const out = renderDmBase(lead, cfg);
+  // 1.27.0: a Want to Buy thread is not a Hire a Freelancer request
+  return lead.board === 'WTB' ? out.replace(/your Hire a Freelancer request/g, 'your WTB thread').replace(/Hire a Freelancer/g, 'Want to Buy') : out;
+}
+
+function renderDmBase(lead, cfg) {
   const style = DM_STYLES[cfg.dmStyle];
   if (style) return renderStyled(lead, cfg, style);
   const seed = `d${lead.threadId}`;

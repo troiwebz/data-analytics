@@ -12,6 +12,7 @@
 import { getConfig, setConfig, migrateConfig, adoptNewTemplates, DEFAULT_CONFIG } from './config.js';
 import { pushConfig, restoreIfEmpty, exportAll, importAll, readSynced, fillEssentials } from './backup.js';
 import * as night from './night.js';
+import * as hunt from './hunt.js';
 import * as auto from './auto.js';
 import { fetchFeed, threadIdFromUrl } from './feed.js';
 import { fetchListing, fetchListingPages, forumUrlFromFeed, withListing } from './listing.js';
@@ -521,6 +522,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => alive(async () => {
       await radarNewTick().catch((e) => log(`Reply Radar new threads: ${e.message}`, 'error'));
       await watchTick().catch((e) => log(`Reply Radar alerts: ${e.message}`, 'error'));
       await pulseTick().catch((e) => log(`BHW traffic: ${e.message}`, 'error'));
+      await huntTick().catch((e) => log(`Hunt: ${e.message}`, 'error'));
       await mobileTick().catch((e) => log(`phone dashboard: ${e.message}`, 'error'));
     }
     if (alarm.name === UPDATE_ALARM) await takeKeysFile();
@@ -2062,6 +2064,7 @@ let newRead = { at: 0, rows: [] };
 export const __forgetNewReadForTest = () => { newRead = { at: 0, rows: [] }; };   // tests only
 export async function radarNewTick({ force = false } = {}) {
   if (await hafBusy()) return { skipped: 'haf' };
+  if (!force && (await getConfig()).huntOn !== false) return { skipped: 'hunt' };   // 1.27.0: the hunter reads what's new instead
   const rc = await getRadarCfg();
   if (rc.newWatch === false && !force) return { skipped: 'off' };
   let st = await getRadar();
@@ -2102,6 +2105,343 @@ export async function radarNewTick({ force = false } = {}) {
   } catch (e) {
     if (/blocked/i.test(e.message)) await radarWall(e.message);
     await log(`Reply Radar new threads: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+}
+
+// ------------------------------------------------- 1.27.0: the SEO buyer hunter
+// One pool of threads, filled from BHW's what's-new list (all forums) every 10-15 minutes by day and
+// every 30 at night, plus a one-time 7-day history from a few boards. The hunter's own BHW pages
+// count against PAGES_PER_HOUR (HAF is paced on its own), and HAF always goes first. Gems ping Telegram at
+// once (8 a day at most); everything else waits until 10 or more new threads make one summary.
+// The pool is mirrored to the central database (haf-mobile) for the phone and for safe keeping.
+const HUNT_KEY = 'hunt', HUNT_POOL_KEY = 'huntPool';
+let huntRunning = false;
+const huntState = async () => (await chrome.storage.local.get(HUNT_KEY))[HUNT_KEY] || {};
+const huntPool = async () => (await chrome.storage.local.get(HUNT_POOL_KEY))[HUNT_POOL_KEY] || {};
+// 1.27.0: the hunter counts only its own BHW pages (12 an hour); HAF keeps its own 1.26.2 pace.
+const HUNT_READS_KEY = 'huntReadLog';
+const readLog = async () => (await chrome.storage.local.get(HUNT_READS_KEY))[HUNT_READS_KEY] || [];
+async function huntReadInTab(url, func) {
+  const now = Date.now();
+  await chrome.storage.local.set({ [HUNT_READS_KEY]: [...(await readLog()).filter((t) => now - t < 3 * 3600000), now].slice(-300) });
+  return readInTab(url, func);
+}
+const huntFocus = (cfg) => (Array.isArray(cfg.huntFocus) && cfg.huntFocus.length ? cfg.huntFocus : ['seo', 'content']);
+const huntGap = () => new Promise((r) => setTimeout(r, 6000 + Math.random() * 9000));
+
+export async function huntTick({ force = false } = {}) {
+  const cfg = await getConfig();
+  if (cfg.huntOn === false && !force) return { skipped: 'off' };
+  if (huntRunning) return { skipped: 'running' };
+  if (!force && cfg.sleepEnabled && night.inWindow(cfg, cfg.sleepStart, cfg.sleepEnd)) return { skipped: 'asleep' };
+  if (await hafBusy()) return { skipped: 'haf' };
+  if (await radarPaused()) return { skipped: 'wall' };
+  huntRunning = true;
+  try {
+    let st = await huntState();
+    const now = Date.now();
+    const quiet = night.inWindow(cfg, cfg.quietStart || '01:00', cfg.quietEnd || '07:00');
+    if (!st.fastDone) return await huntUpdate(cfg, { pages: hunt.FAST_START_PAGES, fast: true });
+    if (force || now >= (st.nextAt || 0)) return await huntUpdate(cfg, { pages: hunt.MAX_PAGES_PER_UPDATE, quiet });
+    if (!st.history) { st = { ...st, history: { queue: [], done: false, lastAt: 0, total: 0, resolved: false } }; await chrome.storage.local.set({ [HUNT_KEY]: st }); }
+    if (hunt.historyDue({ ...st, history: { ...st.history, queue: st.history.resolved ? st.history.queue : ['x'] } }, await readLog(), now)) return await huntHistoryStep(cfg);
+    return { skipped: 'not due', nextAt: st.nextAt };
+  } finally { huntRunning = false; }
+}
+
+/** Read one listing page into the pool. Returns { rows, url, fresh } or throws on a wall. */
+async function huntRead(url, cfg, source) {
+  const page = await huntReadInTab(url, extractRadarListing);
+  if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+  const now = Date.now();
+  const merged = hunt.mergeRows(await huntPool(), page.rows || [], { now, focus: huntFocus(cfg), source });
+  await chrome.storage.local.set({ [HUNT_POOL_KEY]: merged.pool });
+  const touched = (page.rows || []).map((r) => String(r.threadId)).filter((id) => merged.pool[id]);
+  await huntQueuePush(touched);
+  return { rows: page.rows || [], url: page.url || url, fresh: merged.fresh };
+}
+
+async function huntUpdate(cfg, { pages, fast = false, quiet = false }) {
+  const fresh = [];
+  let read = 0, firstUrl = '', wall = '';
+  for (let p = 1; p <= pages; p++) {
+    if (hunt.pagesLeft(await readLog()) < 1) break;
+    const url = p === 1 ? hunt.POSTS_URL : hunt.pageUrl(firstUrl, p);
+    if (!url) break;
+    try {
+      const got = await huntRead(url, cfg, 'new');
+      read++; fresh.push(...got.fresh);
+      if (p === 1) firstUrl = got.url;
+      if (!got.rows.length) break;
+    } catch (e) {
+      if (/blocked/i.test(e.message)) { wall = e.message; await radarWall(e.message); break; }
+      await log(`Hunt: ${e.message}`, 'error'); break;
+    }
+    if (!fast && fresh.length >= hunt.MIN_NEW_PER_UPDATE) break;
+    if (p < pages) await huntGap();
+  }
+  const now = Date.now();
+  const before = await huntPool();
+  const pruned = hunt.prunePool(before, { now });
+  await chrome.storage.local.set({ [HUNT_POOL_KEY]: pruned.pool });
+  const st = await huntState();
+  const pending = [...new Set([...(st.pending || []), ...fresh])].filter((id) => pruned.pool[id] && !hunt.isHaf(pruned.pool[id].forum));
+  const next = {
+    ...st, fastDone: true, lastAt: now, nextAt: now + hunt.nextGapMin(quiet) * 60000,
+    lastUpdate: { at: now, pages: read, fresh: fresh.length, wall: wall ? 1 : 0, fast },
+    pending, drop: [...(st.drop || []), ...pruned.dropped.map((id) => ({ id, day: before[id]?.day || '' }))].slice(-2000)
+  };
+  await chrome.storage.local.set({ [HUNT_KEY]: next });
+  await wtbHandOff(cfg, fresh).catch((e) => log(`Want to Buy: ${e.message}`, 'error'));
+  await huntGems(cfg, fresh);
+  if (fast && read) await huntReady(cfg);
+  else await huntSummary(cfg);
+  await huntPushNow().catch(() => {});
+  mobileSoon();
+  await log(`Hunt: ${read} BHW page(s), ${fresh.length} new thread(s)${wall ? ' - BHW showed a check, pausing' : ''}`);
+  return { ok: true, pages: read, fresh: fresh.length, wall: !!wall };
+}
+
+/** The 7-day history, one board page at a time, a few minutes apart. The forum list is read once to find the boards known by name only. */
+async function huntHistoryStep(cfg) {
+  const st = await huntState();
+  const h0 = st.history || {};
+  try {
+    if (!h0.resolved) {
+      let boards = hunt.HISTORY_BOARDS;
+      if (boards.some((b) => !b.id)) {
+        const got = await huntReadInTab(hunt.FORUM_LIST_URL, extractForumList);
+        boards = resolveBoards(boards, got.boards);
+      }
+      const queue = hunt.historyQueue(boards);
+      await chrome.storage.local.set({ [HUNT_KEY]: { ...st, history: { queue, done: !queue.length, lastAt: Date.now(), total: queue.length, resolved: true } } });
+      return { ok: true, history: 'boards found', pages: queue.length };
+    }
+    const [step, ...rest] = h0.queue;
+    const got = await huntRead(step.url, cfg, 'history');
+    const st2 = await huntState();
+    await chrome.storage.local.set({ [HUNT_KEY]: { ...st2, history: { ...h0, queue: rest, done: !rest.length, lastAt: Date.now() } } });
+    await wtbHandOff(cfg, got.fresh).catch((e) => log(`Want to Buy: ${e.message}`, 'error'));
+    await huntGems(cfg, got.fresh, { history: true });
+    if (!rest.length) await huntHistoryDone(cfg);
+    await huntPushNow().catch(() => {});
+    mobileSoon();
+    return { ok: true, history: step.board, fresh: got.fresh.length, left: rest.length };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
+    const st2 = await huntState();
+    // a board that will not load is skipped, never retried in a loop
+    await chrome.storage.local.set({ [HUNT_KEY]: { ...st2, history: { ...h0, queue: h0.resolved ? h0.queue.slice(1) : h0.queue, lastAt: Date.now(), resolved: h0.resolved || /blocked/i.test(e.message) ? h0.resolved : true } } });
+    await log(`Hunt history: ${e.message}`, 'error');
+    return { error: e.message };
+  }
+}
+
+/**
+ * 1.27.0: Want to Buy buyers go down HAF's own path - the
+ * same match, thread read, Claude screen, the DM wording ("your WTB thread"), Telegram card and auto-mode
+ * rules and caps - as if they had been found on Hire a Freelancer. At most cfg.wtbPerDay a day (10).
+ * Nothing here posts anything; a PM goes only through auto mode's normal checks.
+ */
+async function wtbHandOff(cfg, ids) {
+  if (cfg.wtbOn === false || !ids.length || !cfg.enabled) return { skipped: 'off' };
+  const pool = await huntPool();
+  const st = await huntState();
+  const day = new Date().toLocaleDateString('en-CA');
+  const done = st.wtbDay === day ? { ...(st.wtbDone || {}) } : {};
+  const cap = Math.max(0, Number(cfg.wtbPerDay ?? 50));
+  const seen = await getSeen();
+  const known = new Set((await getLeads()).map((l) => String(l.threadId)));
+  const cats = Array.isArray(cfg.wtbCats) && cfg.wtbCats.length ? cfg.wtbCats : hunt.WTB_CATS;
+  const skipped = {};
+  const pick = [];
+  for (const id of ids) {
+    const i = pool[id];
+    if (!i || !hunt.isWtb(i.forum) || done[id] || seen[id] || known.has(String(id))) continue;
+    const t = hunt.wtbTarget(i, { cats, all: cfg.wtbAll !== false });
+    if (!t.ok) { skipped[id] = t.why; continue; }
+    if (Object.keys(done).length + pick.length >= cap) break;
+    pick.push(i);
+  }
+  if (Object.keys(skipped).length) await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), wtbSkipped: { ...((await huntState()).wtbSkipped || {}), ...skipped } } });
+  if (!pick.length) return { handed: 0, skipped: Object.keys(skipped).length };
+  const items = pick.map((i) => ({ threadId: i.id, url: i.url, title: i.title, author: i.author, snippet: '',
+    postedAt: i.startedAt || new Date().toISOString(), lastActivityAt: i.lastActivityAt, postedAtSource: i.startedAt ? 'listing' : 'feed', replyCount: i.replyCount }));
+  const matched = items
+    .filter((item) => !isExcludedThread(item, cfg))
+    .map((item) => matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 });
+  const full = (await withThreads(matched, cfg)).map((m) => rematch(m, cfg));
+  const { specifics: ai, note: aiNote } = await specificsFor(full.map((m) => ({ ...m, board: 'WTB' })), cfg);
+  const leads = full.map((m) => {
+    const got = ai[m.threadId];
+    const lead = enrich({ ...m, board: 'WTB' }, cfg, 'SENT', got, !got && cfg.aiSpecifics ? (aiNote || 'Claude did not write this one') : '');
+    if (got) lead.aiFrom = sourceOf(m);
+    return { ...lead, board: 'WTB', sourceLabel: 'Want to Buy' };
+  });
+  await markSeen(items.map((i) => i.threadId));
+  if (leads.length) await recordLeads(leads);
+  for (const i of pick) done[i.id] = Date.now();
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), wtbDay: day, wtbDone: done } });
+  await log(`Want to Buy: ${leads.length} buyer thread(s) handed to HAF (screen, draft, auto mode) - ${Object.keys(done).length} of ${cap} today`);
+  return { handed: leads.length };
+}
+
+async function huntTelegramOk(cfg) { return !!cfg.telegramChatId && (await telegram.hasToken().catch(() => false)); }
+
+/** Gems among the fresh ids: an instant message each, 8 a day at most, never twice for one thread. */
+async function huntGems(cfg, ids, { history = false } = {}) {
+  if (cfg.huntGems === false || !ids.length || !(await huntTelegramOk(cfg))) return 0;
+  const pool = await huntPool();
+  const st = await huntState();
+  const day = new Date().toISOString().slice(0, 10);
+  const sent = st.gemDay === day ? { ...(st.gemsSent || {}) } : {};
+  let n = Object.keys(sent).length, out = 0;
+  const cap = Number(cfg.huntGemsPerDay) || hunt.GEMS_PER_DAY;
+  const marks = await hafMarks();
+  const cands = ids.map((id) => pool[id]).filter((i) => i && !['dm', 'posted'].includes(marks[i.id]))
+    .map((i) => ({ i, why: hunt.gemOf(i, { focus: huntFocus(cfg) }) })).filter((x) => x.why && !sent[x.i.id])
+    .sort((a, b) => b.i.score - a.i.score);
+  for (const { i, why } of cands) {
+    if (n >= cap) break;
+    if (history && Date.now() - new Date(i.startedAt || 0).getTime() > 3 * 3600000) continue;
+    try { await telegram.sendCard(cfg.telegramChatId, hunt.formatGem(i, why), hunt.gemKeyboard(i)); sent[i.id] = Date.now(); n++; out++; }
+    catch (e) { await log(`Hunt gem: ${e.message}`, 'error'); break; }
+  }
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), gemDay: day, gemsSent: sent } });
+  return out;
+}
+
+/** 10 or more new threads waiting: one message, then the count starts again. */
+async function huntSummary(cfg) {
+  if (cfg.huntSummary === false || !(await huntTelegramOk(cfg))) return false;
+  const st = await huntState();
+  const pool = await huntPool();
+  const items = (st.pending || []).map((id) => pool[id]).filter((i) => i && !hunt.isHaf(i.forum));
+  if (items.length < hunt.MIN_NEW_PER_UPDATE) return false;
+  try { for (const msg of hunt.formatFeed(items)) await telegram.sendCard(cfg.telegramChatId, msg); }
+  catch (e) { await log(`Hunt feed: ${e.message}`, 'error'); return false; }
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), pending: [], summaryAt: Date.now() } });
+  return true;
+}
+
+async function huntReady(cfg) {
+  if (!(await huntTelegramOk(cfg))) return;
+  const c = hunt.countPool(await huntPool());
+  await telegram.say(cfg.telegramChatId, `✅ Hunt is ready: ${c.all} threads so far, 💰 ${c.buyers} buyers, 🎓 ${c.experts} questions.\nThe last 7 days load quietly over the next 1-2 hours. Gems come here straight away; the live feed comes every 10 new threads. Hire a Freelancer stays with HAF.`).catch(() => {});
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), pending: [] } });
+}
+
+async function huntHistoryDone(cfg) {
+  if (!(await huntTelegramOk(cfg))) return;
+  const c = hunt.countPool(await huntPool());
+  await telegram.say(cfg.telegramChatId, `📚 History loaded: ${c.all} threads in your database, 💰 ${c.buyers} buyers, 🎓 ${c.experts} questions. From now on: new threads every 10-15 minutes.`).catch(() => {});
+}
+
+// ---- the central database (haf-mobile): the pool, per account, under the phone link's private code
+async function huntQueuePush(ids) {
+  if (!ids.length) return;
+  const st = await huntState();
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...st, pushQ: [...new Set([...(st.pushQ || []), ...ids])].slice(-5000) } });
+}
+/** What our own system already did with a thread (HAF auto DM, a posted reply, still in HAF's queue), by id. */
+async function hafMarks() {
+  const out = {};
+  for (const l of await getLeads().catch(() => [])) {
+    const id = String(l.threadId || '');
+    if (!id || id === 'sample') continue;
+    const m = hunt.hafMark(l);
+    if (m) out[id] = m;
+  }
+  return out;
+}
+const huntRow = (i) => ({ id: i.id, url: i.url, title: i.title, author: i.author, forum: i.forum, startedAt: i.startedAt, lastActivityAt: i.lastActivityAt,
+  replyCount: i.replyCount, cat: i.cat, topic: i.topic, lane: i.lane, score: i.score, budget: !!i.budget, firstSeen: i.firstSeen, day: i.day, status: i.status || '', haf: i.haf || '' });
+
+export async function huntPushNow() {
+  const { mobileOn = true } = await chrome.storage.local.get('mobileOn');
+  if (mobileOn === false) return { skipped: 'off' };
+  const st = await huntState();
+  const q = st.pushQ || [], drop = st.drop || [];
+  if (!q.length && !drop.length) return { ok: true, sent: 0 };
+  const pool = await huntPool();
+  const marks = await hafMarks();
+  for (const id of Object.keys(pool)) pool[id] = { ...pool[id], haf: marks[id] || '' };
+  const k = await mobileKey();
+  const account = (await getConfig()).boundAccount || (await chrome.storage.local.get('bhwMe')).bhwMe || '';
+  let sent = 0;
+  for (let i = 0; i < Math.max(q.length, 1); i += 300) {
+    const items = q.slice(i, i + 300).map((id) => pool[id]).filter(Boolean).map(huntRow);
+    const r = await fetch(`${MOBILE_URL}/api/pool`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k, account, items, drop: i ? [] : drop }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) { await chrome.storage.local.set({ huntPushErr: j.error || `HTTP ${r.status}` }); return { error: j.error || `HTTP ${r.status}` }; }
+    sent += items.length;
+  }
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), pushQ: [], drop: [], pushedAt: Date.now() }, huntPushErr: '' });
+  return { ok: true, sent };
+}
+
+/** The dashboard's Hunt page. */
+async function huntView() {
+  const cfg = await getConfig();
+  const st = await huntState();
+  const pool = await huntPool();
+  const marks = await hafMarks();
+  for (const id of Object.keys(pool)) if (marks[id]) pool[id] = { ...pool[id], haf: marks[id] };
+  const log0 = await readLog();
+  const h0 = st.history || {};
+  return {
+    on: cfg.huntOn !== false, focus: huntFocus(cfg), pool, counts: hunt.countPool(pool), picks: hunt.nextPicks(pool, { shown: st.shown || {} }).map((i) => i.id),
+    lastUpdate: st.lastUpdate || null, nextAt: st.nextAt || 0, pagesHour: hunt.readsLastHour(log0), pagesCap: hunt.PAGES_PER_HOUR,
+    history: { total: h0.total || 0, left: (h0.queue || []).length, done: !!h0.done, started: !!h0.resolved },
+    fastDone: !!st.fastDone, pending: (st.pending || []).length, gemsToday: st.gemDay === new Date().toISOString().slice(0, 10) ? Object.keys(st.gemsSent || {}).length : 0,
+    pushedAt: st.pushedAt || 0, pushErr: (await chrome.storage.local.get('huntPushErr')).huntPushErr || '',
+    paused: await radarPaused(), account: cfg.boundAccount || (await chrome.storage.local.get('bhwMe')).bhwMe || '',
+    categories: hunt.ALL_CATEGORIES.map((c) => ({ id: c.id, name: c.name, icon: c.icon, topics: c.topics.map((t) => ({ id: t.id, name: t.name })) })),
+    phone: mobileLink(await mobileKey())
+  };
+}
+
+async function huntMark(id, status) {
+  const pool = await huntPool();
+  if (!pool[id]) return { error: 'not in the pool' };
+  pool[id] = { ...pool[id], status: status || '' };
+  await chrome.storage.local.set({ [HUNT_POOL_KEY]: pool });
+  await huntQueuePush([String(id)]);
+  return { ok: true };
+}
+
+/** "Next 10": the picks on screen count as shown, so the next best come up. */
+async function huntNextPicks() {
+  const st = await huntState();
+  const pool = await huntPool();
+  const shown = { ...(st.shown || {}) };
+  for (const i of hunt.nextPicks(pool, { shown })) shown[i.id] = Date.now();
+  const keep = Object.fromEntries(Object.entries(shown).filter(([, t]) => Date.now() - t < 3 * 86400000));
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...st, shown: keep } });
+  return { ok: true };
+}
+
+export const __huntForTest = { search: (q, d) => huntSearch(q, d), mark: (id, s) => huntMark(id, s), view: () => huntView() };
+
+/** One BHW search, on a tap only, inside the hourly cap. */
+async function huntSearch(term, days = 7) {
+  const cfg = await getConfig();
+  const q = String(term || '').trim().slice(0, 60);
+  if (!q) return { error: 'type a word to search' };
+  if (await radarPaused()) return { error: 'BHW showed a check a moment ago - search waits until the pause ends' };
+  if (hunt.pagesLeft(await readLog()) < 1) return { error: `${hunt.PAGES_PER_HOUR} BHW pages already this hour - try again a little later` };
+  try {
+    const page = await huntReadInTab(searchUrl(q, { days }), extractRadarSearch);
+    const rows = (page.rows || []).map((r) => ({ ...r, forum: r.forum || r.section || '' }));
+    const merged = hunt.mergeRows(await huntPool(), rows, { focus: huntFocus(cfg), source: 'search' });
+    await chrome.storage.local.set({ [HUNT_POOL_KEY]: merged.pool });
+    const ids = rows.map((r) => String(r.threadId)).filter((id) => merged.pool[id]);
+    await huntQueuePush(ids);
+    huntPushNow().catch(() => {});
+    return { ok: true, ids, fresh: merged.fresh.length };
+  } catch (e) {
+    if (/blocked/i.test(e.message)) await radarWall(e.message);
     return { error: e.message };
   }
 }
@@ -6292,6 +6632,19 @@ const onExtMessage = (msg, _sender, sendResponse) => {
       case 'defaults':      sendResponse(DEFAULT_CONFIG); break;
       // Claude lives in the extension: key, spend and limits are all local.
       case 'ai-status':   sendResponse(await aiStatus()); break;
+      case 'hunt-view':     sendResponse(await huntView()); break;
+      case 'hunt-now':      alive(() => huntTick({ force: true })).catch(() => {}); sendResponse({ started: true }); break;
+      case 'hunt-mark':     sendResponse(await huntMark(String(msg.id), msg.status)); break;
+      case 'hunt-next':     sendResponse(await huntNextPicks()); break;
+      case 'hunt-search':   sendResponse(await huntSearch(msg.q, msg.days)); break;
+      case 'hunt-save': {                            // Hunt page settings: on/off, focus categories, gems, summary
+        const patch = {};
+        for (const k of ['huntOn', 'huntGems', 'huntSummary']) if (typeof msg[k] === 'boolean') patch[k] = msg[k];
+        if (Array.isArray(msg.huntFocus)) patch.huntFocus = msg.huntFocus.filter((x) => hunt.ALL_CATEGORIES.some((c) => c.id === x));
+        await setConfig(patch);
+        sendResponse({ ok: true });
+        break;
+      }
       case 'mobile-status': sendResponse(await mobileStatus()); break;
       case 'mobile-save': {                          // on / off, or a new link (the old one stops working)
         if (typeof msg.on === 'boolean') await chrome.storage.local.set({ mobileOn: msg.on });
