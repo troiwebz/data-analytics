@@ -2240,7 +2240,8 @@ async function huntGems(cfg, ids, { history = false } = {}) {
   const sent = st.gemDay === day ? { ...(st.gemsSent || {}) } : {};
   let n = Object.keys(sent).length, out = 0;
   const cap = Number(cfg.huntGemsPerDay) || hunt.GEMS_PER_DAY;
-  const cands = ids.map((id) => pool[id]).filter(Boolean)
+  const marks = await hafMarks();
+  const cands = ids.map((id) => pool[id]).filter((i) => i && !['dm', 'posted'].includes(marks[i.id]))
     .map((i) => ({ i, why: hunt.gemOf(i, { focus: huntFocus(cfg) }) })).filter((x) => x.why && !sent[x.i.id])
     .sort((a, b) => b.i.score - a.i.score);
   for (const { i, why } of cands) {
@@ -2285,8 +2286,19 @@ async function huntQueuePush(ids) {
   const st = await huntState();
   await chrome.storage.local.set({ [HUNT_KEY]: { ...st, pushQ: [...new Set([...(st.pushQ || []), ...ids])].slice(-5000) } });
 }
+/** What our own system already did with a thread (HAF auto DM, a posted reply, still in HAF's queue), by id. */
+async function hafMarks() {
+  const out = {};
+  for (const l of await getLeads().catch(() => [])) {
+    const id = String(l.threadId || '');
+    if (!id || id === 'sample') continue;
+    const m = hunt.hafMark(l);
+    if (m) out[id] = m;
+  }
+  return out;
+}
 const huntRow = (i) => ({ id: i.id, url: i.url, title: i.title, author: i.author, forum: i.forum, startedAt: i.startedAt, lastActivityAt: i.lastActivityAt,
-  replyCount: i.replyCount, cat: i.cat, topic: i.topic, lane: i.lane, score: i.score, budget: !!i.budget, firstSeen: i.firstSeen, day: i.day, status: i.status || '' });
+  replyCount: i.replyCount, cat: i.cat, topic: i.topic, lane: i.lane, score: i.score, budget: !!i.budget, firstSeen: i.firstSeen, day: i.day, status: i.status || '', haf: i.haf || '' });
 
 export async function huntPushNow() {
   const { mobileOn = true } = await chrome.storage.local.get('mobileOn');
@@ -2295,6 +2307,8 @@ export async function huntPushNow() {
   const q = st.pushQ || [], drop = st.drop || [];
   if (!q.length && !drop.length) return { ok: true, sent: 0 };
   const pool = await huntPool();
+  const marks = await hafMarks();
+  for (const id of Object.keys(pool)) pool[id] = { ...pool[id], haf: marks[id] || '' };
   const k = await mobileKey();
   const account = (await getConfig()).boundAccount || (await chrome.storage.local.get('bhwMe')).bhwMe || '';
   let sent = 0;
@@ -2314,6 +2328,8 @@ async function huntView() {
   const cfg = await getConfig();
   const st = await huntState();
   const pool = await huntPool();
+  const marks = await hafMarks();
+  for (const id of Object.keys(pool)) if (marks[id]) pool[id] = { ...pool[id], haf: marks[id] };
   const log0 = await readLog();
   const h0 = st.history || {};
   return {

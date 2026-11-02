@@ -163,6 +163,14 @@ ok('Done marks the thread and queues it for the central database', bags.local.hu
 const v = await bg.__huntForTest.view();
 ok('the Hunt page view: counts, picks, pages this hour, history progress', v.counts.all > 30 && v.picks.length === 10 && v.pagesCap === 15 && v.history.total === 18 && !v.picks.includes('7001'), { all: v.counts.all, p: v.picks.length, h: v.history });
 
+// ---- 7b. what our system already did shows on the Hunt page and keeps picks and gems clean
+const LK = (await import('../src/store.js')).LEADS_KEY || 'recentLeads';
+const someId = v.picks[0];
+bags.local[LK] = [{ threadId: someId, kind: 'haf', status: 'SENT', pmSent: true, title: 'x' }];
+const v2 = await bg.__huntForTest.view();
+ok('a thread HAF already messaged is marked and leaves the picks', v2.pool[someId].haf === 'dm' && !v2.picks.includes(someId), { haf: v2.pool[someId].haf });
+delete bags.local[LK];
+
 // ---- 8. HAF is untouched, and the old readers stand aside
 ok('nothing written to HAF\'s leads', !bags.local.recentLeads || !Object.values(bags.local.recentLeads).some((l) => /Looking for links/.test(l.title || '')));
 const rn = await bg.radarNewTick();

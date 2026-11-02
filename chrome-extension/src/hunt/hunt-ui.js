@@ -25,7 +25,7 @@ const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', min
 const dayLabel = (ms) => { const d = new Date(ms), n = new Date(); return d.toDateString() === n.toDateString() ? clock(ms) : `${d.getDate()} ${d.toLocaleString([], { month: 'short' })} ${clock(ms)}`; };
 
 // ---------------------------------------------------------------- state (remembered per viewer)
-const DEF = { cat: 'all', topic: '', who: 'buyer', age: '24', reps: '10', sort: 'score', q: '' };
+const DEF = { cat: 'all', topic: '', who: 'buyer', age: '24', reps: '10', sort: 'score', q: '', ours: 'all' };
 let F = { ...DEF };
 try { F = { ...DEF, ...JSON.parse(localStorage.getItem('huntView') || '{}') }; } catch { /* first visit */ }
 const save = () => { try { localStorage.setItem('huntView', JSON.stringify(F)); } catch { /* private window */ } };
@@ -68,6 +68,8 @@ function passes(i, now, f = F, skip = '') {
   const rep = Number(i.replyCount) || 0;
   if (skip !== 'reps' && f.reps === '0' && rep !== 0) return false;
   if (skip !== 'reps' && f.reps === '10' && rep >= 10) return false;
+  if (skip !== 'ours' && f.ours === 'open' && (i.haf === 'dm' || i.haf === 'posted')) return false;
+  if (skip !== 'ours' && f.ours === 'ours' && !i.haf) return false;
   if (f.q) { const q = f.q.toLowerCase(); if (!`${i.title} ${i.author} ${i.forum}`.toLowerCase().includes(q)) return false; }
   return true;
 }
@@ -81,6 +83,9 @@ function labels(i, now) {
   if (i.lane === 'buyer' && i.budget) out += '<span class="shine gem">💵 BUDGET</span>';
   return out;
 }
+const OURS = { dm: ['ours', '🤖 DM sent by our system'], posted: ['ours', '✅ Replied by our system'], queued: ['queued', '⏳ In HAF queue'] };
+const BOARD = (f) => (/hire a freelancer/i.test(f || '') ? 'HAF' : /want to buy/i.test(f || '') ? 'WTB' : '');
+const catOf = (id) => CATS.find((c) => c.id === id) || CATS[CATS.length - 1];
 const WHO = { buyer: ['buyer', 'BUYER'], expert: ['expert', 'QUESTION'], other: ['other', 'THREAD'] };
 
 // ---------------------------------------------------------------- render
@@ -138,7 +143,7 @@ function render() {
   // picks
   const byId = new Map(data.items.map((i) => [String(i.id), i]));
   const picks = (data.picks || []).map((id) => byId.get(String(id))).filter(Boolean);
-  $('picks').innerHTML = picks.length ? picks.map((i) => `<li><span class="tag ${WHO[i.lane][0]}">${WHO[i.lane][1]}</span> <a class="t" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>${labels(i, now)} <span class="s">· ${esc(topicName(i.cat, i.topic))} · ${Number(i.replyCount) || 0} replies · ${ago(t0(i.startedAt) || i.firstSeen, now)}</span></li>`).join('') : '<li class="s">No picks yet - they appear after the first update.</li>';
+  $('picks').innerHTML = picks.length ? picks.map((i) => `<li><span class="tag ${WHO[i.lane][0]}">${WHO[i.lane][1]}</span> <a class="t" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>${labels(i, now)} <span class="s">· ${catOf(i.cat).icon} ${esc(catOf(i.cat).name)} › ${esc(topicName(i.cat, i.topic))}${BOARD(i.forum) ? ` · ${BOARD(i.forum)}` : ''}${OURS[i.haf] ? ` · ${OURS[i.haf][1]}` : ''} · ${Number(i.replyCount) || 0} replies · ${ago(t0(i.startedAt) || i.firstSeen, now)}</span></li>`).join('') : '<li class="s">No picks yet - they appear after the first update.</li>';
   $('picksNote').textContent = 'best buyers and questions not acted on, under 10 replies, last 3 days';
 
   // filter rows
@@ -149,6 +154,7 @@ function render() {
   chips($('who'), [['buyer', '💰 Buyers', count((i) => passes(i, now, { ...F, who: 'buyer' }))], ['expert', '🎓 Questions', count((i) => passes(i, now, { ...F, who: 'expert' }))], ['all', 'Everything', count((i) => passes(i, now, { ...F, who: 'all' }))]], F.who, (x) => { F.who = x; });
   chips($('age'), [['1', 'Last hour'], ['24', 'Today'], ['48', '48 h'], ['168', '7 days'], ['any', 'Any']], F.age, (x) => { F.age = x; });
   chips($('reps'), [['0', '0 only'], ['10', 'Under 10'], ['any', 'Any']], F.reps, (x) => { F.reps = x; });
+  chips($('ours'), [['all', 'Everything'], ['open', 'Not handled yet', count((i) => passes(i, now, { ...F, ours: 'open' }))], ['ours', 'Handled by our system', count((i) => passes(i, now, { ...F, ours: 'ours' }))]], F.ours, (x) => { F.ours = x; });
   chips($('sort'), [['score', 'Best first'], ['new', 'Newest'], ['reps', 'Fewest replies']], F.sort, (x) => { F.sort = x; });
   if ($('q').value !== F.q) $('q').value = F.q;
 
@@ -158,12 +164,14 @@ function render() {
   list.sort(F.sort === 'new' ? (a, b) => st(b) - st(a) : F.sort === 'reps' ? (a, b) => (Number(a.replyCount) || 0) - (Number(b.replyCount) || 0) || st(b) - st(a) : (a, b) => b.score - a.score || st(b) - st(a));
   $('rows').innerHTML = list.slice(0, limit).map((i) => {
     const s = st(i);
-    const status = i.status === 'done' ? '✓ Done' : i.status === 'skip' ? 'Skipped' : 'To do';
-    const acts = EXT && !i.status ? `<span class="act"><button data-a="done" data-id="${esc(i.id)}">✓ Done</button> <button data-a="skip" data-id="${esc(i.id)}">Skip</button></span>` : EXT ? `<span class="act"><button data-a="" data-id="${esc(i.id)}">Undo</button></span>` : '';
-    return `<tr class="${i.status ? 'done' : ''}"><td>${s ? dayLabel(s) : '—'}<div class="s">${ago(s, now)}</div></td><td>${i.replyCount ?? '—'}</td>
-      <td><span class="tag topic">${esc(topicName(i.cat, i.topic).toUpperCase())}</span></td><td><span class="tag ${WHO[i.lane]?.[0] || 'other'}">${WHO[i.lane]?.[1] || ''}</span></td>
+    const ours = OURS[i.haf];
+    const status = ours ? `<span class="tag ${ours[0]}">${ours[1]}</span>` : i.status === 'done' ? '✓ Done' : i.status === 'skip' ? 'Skipped' : 'To do';
+    const c = catOf(i.cat), board = BOARD(i.forum);
+    const acts = i.haf === 'dm' || i.haf === 'posted' ? '' : EXT && !i.status ? `<span class="act"><button data-a="done" data-id="${esc(i.id)}">✓ Done</button> <button data-a="skip" data-id="${esc(i.id)}">Skip</button></span>` : EXT ? `<span class="act"><button data-a="" data-id="${esc(i.id)}">Undo</button></span>` : '';
+    return `<tr class="${i.status || i.haf === 'dm' || i.haf === 'posted' ? 'done' : ''}"><td>${s ? dayLabel(s) : '—'}<div class="s">${ago(s, now)}</div></td><td>${i.replyCount ?? '—'}</td>
+      <td><b class="catn">${c.icon} ${esc(c.name)}</b><div><span class="tag topic">${esc(topicName(i.cat, i.topic).toUpperCase())}</span></div></td><td><span class="tag ${WHO[i.lane]?.[0] || 'other'}">${WHO[i.lane]?.[1] || ''}</span></td>
       <td><a class="t" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>${labels(i, now)}<div class="s">${esc(i.author || '')}</div></td>
-      <td class="hide-m">${esc(i.forum || '')}</td><td>${status}<div>${acts}</div></td></tr>`;
+      <td class="hide-m">${board ? `<span class="tag board">${board}</span> ` : ''}${esc(i.forum || '')}</td><td>${status}<div>${acts}</div></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="s">Nothing matches these filters yet.</td></tr>';
   $('more').innerHTML = list.length > limit ? `<span class="s">Showing ${limit} of ${list.length}</span> · <button id="moreBtn">Show 25 more ▾</button>` : list.length ? `<span class="s">${list.length} thread${list.length === 1 ? '' : 's'}</span>` : '';
   if ($('moreBtn')) $('moreBtn').onclick = () => { limit += 25; render(); };

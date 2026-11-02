@@ -76,6 +76,11 @@ ok('no gem: old or crowded', G('Looking for backlink builder', { m: 200, rep: 2 
 ok('no gem outside her categories', G('Need a logo designer', { m: 5, forum: 'Graphics' }) === '');
 ok('no gem once acted on', H.gemOf({ ...H.mergeRows({}, [R(31, 'Looking for links', { m: 5 })], { now }).pool['31'], status: 'skip' }, { now }) === '');
 
+// what our own system already did
+ok('HAF marks: DM sent, reply posted, still queued, nothing', H.hafMark({ pmSent: true }) === 'dm' && H.hafMark({ status: 'POSTED' }) === 'posted' && H.hafMark({ kind: 'haf', status: 'SENT' }) === 'queued' && H.hafMark({ kind: 'haf', status: 'SKIPPED' }) === '' && H.hafMark(null) === '');
+const withHaf = { ...pp, 20: { ...pp['20'], haf: 'dm' } };
+ok('picks skip a thread our system already messaged', !H.nextPicks(withHaf, { now }).some((i) => i.id === '20'));
+
 // reading plan
 const log = Array.from({ length: 13 }, (_, i) => now - i * 60000);
 ok('hourly cap counts the last hour only', H.readsLastHour([...log, now - 2 * 3600000], now) === 13 && H.pagesLeft(log, now) === 2);

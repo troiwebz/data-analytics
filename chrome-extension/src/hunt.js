@@ -187,10 +187,20 @@ export function prunePool(pool, { now = Date.now(), days = POOL_DAYS, max = POOL
   return { pool: Object.fromEntries(items.map((i) => [i.id, i])), dropped };
 }
 
+/** HAF's own record of a thread, in one word: 'dm' (a PM went, auto or by hand), 'posted' (our public reply is up), 'queued' (HAF has it, not done), or ''. */
+export function hafMark(lead) {
+  if (!lead) return '';
+  if (lead.pmSent) return 'dm';
+  if (lead.status === 'POSTED') return 'posted';
+  if (lead.kind !== 'thread' && !['SKIPPED', 'EXPIRED', 'BACKFILL'].includes(lead.status)) return 'queued';
+  return '';
+}
+export const HAF_LABEL = { dm: '🤖 DM sent by our system', posted: '✅ Replied by our system', queued: '⏳ In HAF queue' };
+
 /** The next picks: best score first among buyers and questions not acted on, not already shown in a pick round. */
 export function nextPicks(pool, { n = PICKS, shown = {}, now = Date.now(), maxReplies = 10, maxAgeH = 72 } = {}) {
   return Object.values(pool || {})
-    .filter((i) => !i.status && !shown[i.id] && (i.lane === 'buyer' || i.lane === 'expert'))
+    .filter((i) => !i.status && !shown[i.id] && i.haf !== 'dm' && i.haf !== 'posted' && (i.lane === 'buyer' || i.lane === 'expert'))
     .filter((i) => (Number(i.replyCount) || 0) < maxReplies && now - (t0(i.startedAt) || i.firstSeen) < maxAgeH * HOUR)
     .sort((a, b) => b.score - a.score || (t0(b.startedAt) - t0(a.startedAt)))
     .slice(0, n);
