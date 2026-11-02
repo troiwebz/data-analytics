@@ -25,7 +25,7 @@ const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', min
 const dayLabel = (ms) => { const d = new Date(ms), n = new Date(); return d.toDateString() === n.toDateString() ? clock(ms) : `${d.getDate()} ${d.toLocaleString([], { month: 'short' })} ${clock(ms)}`; };
 
 // ---------------------------------------------------------------- state (remembered per viewer)
-const DEF = { cat: 'all', topic: '', who: 'buyer', age: '24', reps: '10', sort: 'score', q: '', ours: 'all' };
+const DEF = { cat: 'all', topic: '', who: 'buyer', age: '24', reps: '10', sort: 'score', q: '', ours: 'all', boards: 'hide' };
 let F = { ...DEF };
 try { F = { ...DEF, ...JSON.parse(localStorage.getItem('huntView') || '{}') }; } catch { /* first visit */ }
 const save = () => { try { localStorage.setItem('huntView', JSON.stringify(F)); } catch { /* private window */ } };
@@ -68,6 +68,7 @@ function passes(i, now, f = F, skip = '') {
   const rep = Number(i.replyCount) || 0;
   if (skip !== 'reps' && f.reps === '0' && rep !== 0) return false;
   if (skip !== 'reps' && f.reps === '10' && rep >= 10) return false;
+  if (skip !== 'boards' && f.boards === 'hide' && BOARD(i.forum)) return false;
   if (skip !== 'ours' && f.ours === 'open' && (i.haf === 'dm' || i.haf === 'posted')) return false;
   if (skip !== 'ours' && f.ours === 'ours' && !i.haf) return false;
   if (f.q) { const q = f.q.toLowerCase(); if (!`${i.title} ${i.author} ${i.forum}`.toLowerCase().includes(q)) return false; }
@@ -121,6 +122,12 @@ function render() {
     for (const x of $('phoneDays').querySelectorAll('button')) x.onclick = () => { days = Number(x.dataset.d); load(); };
   }
 
+  // one click: Hire a Freelancer + Want to Buy out of (or back into) the whole page
+  const nBoards = data.items.filter((i) => BOARD(i.forum)).length;
+  $('boards').className = `chip big${F.boards === 'hide' ? ' on' : ''}`;
+  $('boards').textContent = F.boards === 'hide' ? `🚫 HAF + Want to Buy hidden (${nBoards}) · click to show` : `👁 Showing HAF + Want to Buy (${nBoards}) · click to hide`;
+  $('boards').onclick = () => { F.boards = F.boards === 'hide' ? 'show' : 'hide'; limit = 25; save(); render(); };
+
   // categories
   const catCount = (id) => count((i) => passes(i, now, { ...F, cat: id, topic: '' }, ''));
   $('cats').innerHTML = [['all', 'All', '🧲'], ...CATS.map((c) => [c.id, c.name, c.icon])]
@@ -128,7 +135,7 @@ function render() {
   for (const c of $('cats').querySelectorAll('.cat')) c.onclick = () => { F.cat = c.dataset.c; F.topic = ''; limit = 25; save(); render(); };
 
   // tiles
-  const today = data.items.filter((i) => now - (i.firstSeen || 0) < 24 * HOUR && (F.cat === 'all' || i.cat === F.cat));
+  const today = data.items.filter((i) => now - (i.firstSeen || 0) < 24 * HOUR && (F.cat === 'all' || i.cat === F.cat) && !(F.boards === 'hide' && BOARD(i.forum)));
   const tiles = [
     [EXT ? (v.lastUpdate?.fresh ?? 0) : count((i) => now - (i.firstSeen || 0) < HOUR), EXT ? 'new this update' : 'new last hour', true],
     [today.length, `${F.cat === 'all' ? '' : `${(CATS.find((c) => c.id === F.cat) || {}).name} `}threads today`],
@@ -142,7 +149,7 @@ function render() {
 
   // picks
   const byId = new Map(data.items.map((i) => [String(i.id), i]));
-  const picks = (data.picks || []).map((id) => byId.get(String(id))).filter(Boolean);
+  const picks = (data.picks || []).map((id) => byId.get(String(id))).filter((i) => i && !(F.boards === 'hide' && BOARD(i.forum)));
   $('picks').innerHTML = picks.length ? picks.map((i) => `<li><span class="tag ${WHO[i.lane][0]}">${WHO[i.lane][1]}</span> <a class="t" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>${labels(i, now)} <span class="s">· ${catOf(i.cat).icon} ${esc(catOf(i.cat).name)} › ${esc(topicName(i.cat, i.topic))}${BOARD(i.forum) ? ` · ${BOARD(i.forum)}` : ''}${OURS[i.haf] ? ` · ${OURS[i.haf][1]}` : ''} · ${Number(i.replyCount) || 0} replies · ${ago(t0(i.startedAt) || i.firstSeen, now)}</span></li>`).join('') : '<li class="s">No picks yet - they appear after the first update.</li>';
   $('picksNote').textContent = 'best buyers and questions not acted on, under 10 replies, last 3 days';
 
