@@ -2243,7 +2243,7 @@ async function wtbHandOff(cfg, ids) {
   const st = await huntState();
   const day = new Date().toLocaleDateString('en-CA');
   const done = st.wtbDay === day ? { ...(st.wtbDone || {}) } : {};
-  const cap = Math.max(0, Number(cfg.wtbPerDay ?? 10));
+  const cap = Math.max(0, Number(cfg.wtbPerDay ?? 50));
   const seen = await getSeen();
   const known = new Set((await getLeads()).map((l) => String(l.threadId)));
   const cats = Array.isArray(cfg.wtbCats) && cfg.wtbCats.length ? cfg.wtbCats : hunt.WTB_CATS;
@@ -2252,7 +2252,7 @@ async function wtbHandOff(cfg, ids) {
   for (const id of ids) {
     const i = pool[id];
     if (!i || !hunt.isWtb(i.forum) || done[id] || seen[id] || known.has(String(id))) continue;
-    const t = hunt.wtbTarget(i, { cats });
+    const t = hunt.wtbTarget(i, { cats, all: cfg.wtbAll !== false });
     if (!t.ok) { skipped[id] = t.why; continue; }
     if (Object.keys(done).length + pick.length >= cap) break;
     pick.push(i);

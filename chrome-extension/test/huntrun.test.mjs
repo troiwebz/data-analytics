@@ -138,6 +138,7 @@ bags.local.hunt.nextAt = Date.now() - 1;
 whatsNew = { 1: [R('WTB high DR guest posts for SaaS', { id: 8801, m: 30, rep: 1, forum: 'Want to Buy' }), R('Need someone to run LinkedIn ads', { id: 8802, m: 40, rep: 0, forum: 'Want to Buy' }),
   R('WTB aged Reddit accounts', { id: 8803, m: 20, forum: 'Want to Buy' }), R('Need a logo for my brand', { id: 8804, m: 20, forum: 'Want to Buy' }),
   ...page(10, (i) => R(`Looking for outreach tips ${i}?`, { m: 300, rep: 6, forum: 'Black Hat SEO' }))] };
+bags.local.config.wtbAll = false;   // the SEO / Ads / Reddit filter, as an option
 r = await bg.huntTick();
 const leadsNow = bags.local.recentLeads || [];
 const wtb = leadsNow.filter((l) => l.board === 'WTB');
@@ -145,11 +146,17 @@ ok('WTB: the guest-post and LinkedIn-ads buyers became HAF leads; the accounts a
 ok('WTB leads carry HAF\'s draft DM, worded for Want to Buy, with the thread link', wtb.every((l) => l.dm && l.dm.includes(l.url) && !/Hire a Freelancer/.test(l.dm) && l.status === 'SENT'), wtb.map((l) => l.dm.slice(0, 160)));
 ok('WTB threads are not in the Hunt live feed', !msgs().some((m) => /Live feed/.test(m.text) && /guest posts for SaaS|LinkedIn ads|aged Reddit/.test(m.text)));
 ok('why the others stayed out is kept', /buying a thing/.test(bags.local.hunt.wtbSkipped['8803']) && /not her line/.test(bags.local.hunt.wtbSkipped['8804']), bags.local.hunt.wtbSkipped);
-bags.local.hunt.wtbDone = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`x${i}`, 1])); bags.local.hunt.wtbDay = new Date().toLocaleDateString('en-CA');
+bags.local.hunt.wtbDone = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}`, 1])); bags.local.hunt.wtbDay = new Date().toLocaleDateString('en-CA');
 bags.local.hunt.nextAt = Date.now() - 1;
 whatsNew = { 1: [R('WTB guest posts on tech blogs', { id: 8805, m: 10, forum: 'Want to Buy' })] };
 await bg.huntTick();
-ok('WTB: 10 a day, then no more', !(bags.local.recentLeads || []).some((l) => l.threadId === '8805'));
+ok('WTB: 50 a day, then no more', !(bags.local.recentLeads || []).some((l) => l.threadId === '8805'));
+bags.local.config.wtbAll = true; bags.local.hunt.wtbDone = {}; bags.local.bhwReadLog = [];
+bags.local.hunt.nextAt = Date.now() - 1;
+whatsNew = { 1: [R('WTB aged Reddit accounts', { id: 8806, m: 10, forum: 'Want to Buy' }), R('Need a logo for my brand', { id: 8807, m: 10, forum: 'Want to Buy' }), R('Looking for a cloaker for Google Ads', { id: 8808, m: 10, forum: 'Want to Buy' })] };
+await bg.huntTick();
+const all2 = (bags.local.recentLeads || []).filter((l) => ['8806', '8807', '8808'].includes(l.threadId)).map((l) => l.threadId).sort().join();
+ok('"send them all" (default): every WTB buyer goes to HAF, except a cloaker', all2 === '8806,8807', all2);
 const fakeRows = bags.local.recentLeads.filter((l) => l.board === 'WTB');
 bags.local.recentLeads = (bags.local.recentLeads || []).filter((l) => l.board !== 'WTB');
 void fakeRows;
