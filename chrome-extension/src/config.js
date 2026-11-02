@@ -89,6 +89,8 @@ export const DEFAULT_CONFIG = {
   // log 1.26.0: the SEO buyer hunter. One what's-new list for every forum, under 15 BHW pages an hour.
   huntOn: true, huntFocus: ['seo', 'content'], huntGems: true, huntSummary: true, huntGemsPerDay: 8,
   otherSourcesOn: false, quietStart: '01:00', quietEnd: '07:00',
+  // Want to Buy buyers in her lines go down HAF's DM path (screen, draft, auto mode), 10 a day at most.
+  wtbOn: true, wtbPerDay: 10, wtbCats: ['seo', 'ads', 'social:reddit', 'content:articles'],
   feedUrl: FEED_URL,
 
   // ---- More sources (v1.1) ---------------------------------------------

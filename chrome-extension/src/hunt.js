@@ -278,8 +278,33 @@ export function formatGem(i, reason, { now = Date.now() } = {}) {
 }
 export const gemKeyboard = (i) => ({ inline_keyboard: [[{ text: '🔗 Open thread', url: i.url }]] });
 
-/** Hire a Freelancer: HAF already reads, drafts and messages these, so Hunt's Telegram leaves them out. */
-export const isHaf = (forum) => /hire a freelancer/i.test(String(forum || ''));
+/** Hire a Freelancer and Want to Buy: HAF reads, screens and messages these (WTB since log 1.26.0), so Hunt's Telegram leaves them out. */
+export const isHaf = (forum) => /hire a freelancer|want to buy/i.test(String(forum || ''));
+export const isWtb = (forum) => /want to buy/i.test(String(forum || ''));
+
+// ------------------------------------------------------------------ Want to Buy -> HAF (log 1.26.0)
+// Only service requests in her lines go to HAF's DM path. Buying a THING (accounts, proxies, cards, domains,
+// followers, upvotes, software) is not a job for her, and fake engagement is never one.
+export const WTB_GOODS = /\b(accounts?|pvas?|aged|vccs?|virtual (credit )?cards?|cards?|proxies|proxy|ips?|domains?|websites? for sale|buy (a |an )?(site|website|blog)|followers|likes|views|subscribers|upvotes?|downvotes?|karma|bms?|business managers?|agency accounts?|gmails?|sims?|phone numbers?|numbers|software|licen[cs]es?|keys?|bank|paypal|stripe|crypto|usdt|btc|tokens?|reviews?|ratings|traffic bot|bot traffic|scripts?|templates?|themes?|plugins?|ebooks?|courses?|database|leads list|email list)\b/i;
+export const WTB_SERVICE = /\b(seo|rank\w*|backlinks?|links?|link building|guest posts?|outreach|niche edits?|citations?|gmb|local seo|audit|on-?page|technical seo|content|articles?|writ\w+|ads|ppc|google ads|adwords|facebook ads|meta ads|tiktok ads|linkedin ads|bing ads|campaigns?|media buy\w*|reddit|subreddit|marketing|promotion|promote|posting|manage\w*|setup|set up|expert|agency|freelancer|someone|service|help)\b/i;
+export const WTB_CATS = ['seo', 'ads', 'social:reddit', 'content:articles'];
+
+/** Should this Want to Buy thread go to HAF's DM path? { ok, why }. */
+export function wtbTarget(item, { cats = WTB_CATS, now = Date.now(), maxAgeH = 24, maxReplies = 10 } = {}) {
+  if (!item || !isWtb(item.forum)) return { ok: false, why: 'not Want to Buy' };
+  const title = String(item.title || '');
+  if (item.lane !== 'buyer') return { ok: false, why: 'not a buyer' };
+  if (OFF_LIMITS.test(title)) return { ok: false, why: 'off limits' };
+  const inCat = cats.some((c) => (c.includes(':') ? c === `${item.cat}:${item.topic}` : c === item.cat));
+  if (!inCat) return { ok: false, why: `not her line (${item.cat})` };
+  const goods = WTB_GOODS.test(title), service = WTB_SERVICE.test(title);
+  if (goods && !/\b(seo|backlinks?|guest posts?|niche edits?|citations?|outreach|articles?|content|campaigns?|management|manager|setup|set up|run|expert|agency|service)\b/i.test(title)) return { ok: false, why: 'buying a thing, not a service' };
+  if (!service) return { ok: false, why: 'no service named' };
+  if ((Number(item.replyCount) || 0) >= maxReplies) return { ok: false, why: 'too many replies' };
+  const t = new Date(item.startedAt || 0).getTime();
+  if (!t || now - t > maxAgeH * HOUR) return { ok: false, why: 'older than 24 h' };
+  return { ok: true, why: `${item.cat}${item.topic ? ` › ${item.topic}` : ''}` };
+}
 export const FEED_PER_MESSAGE = 15;
 const LANE_ICON = { buyer: '💰', expert: '🎓', other: '🆕' };
 

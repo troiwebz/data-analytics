@@ -2186,6 +2186,7 @@ async function huntUpdate(cfg, { pages, fast = false, quiet = false }) {
     pending, drop: [...(st.drop || []), ...pruned.dropped.map((id) => ({ id, day: before[id]?.day || '' }))].slice(-2000)
   };
   await chrome.storage.local.set({ [HUNT_KEY]: next });
+  await wtbHandOff(cfg, fresh).catch((e) => log(`Want to Buy: ${e.message}`, 'error'));
   await huntGems(cfg, fresh);
   if (fast && read) await huntReady(cfg);
   else await huntSummary(cfg);
@@ -2214,6 +2215,7 @@ async function huntHistoryStep(cfg) {
     const got = await huntRead(step.url, cfg, 'history');
     const st2 = await huntState();
     await chrome.storage.local.set({ [HUNT_KEY]: { ...st2, history: { ...h0, queue: rest, done: !rest.length, lastAt: Date.now() } } });
+    await wtbHandOff(cfg, got.fresh).catch((e) => log(`Want to Buy: ${e.message}`, 'error'));
     await huntGems(cfg, got.fresh, { history: true });
     if (!rest.length) await huntHistoryDone(cfg);
     await huntPushNow().catch(() => {});
@@ -2227,6 +2229,55 @@ async function huntHistoryStep(cfg) {
     await log(`Hunt history: ${e.message}`, 'error');
     return { error: e.message };
   }
+}
+
+/**
+ * log 1.26.0: Want to Buy buyers in her lines (SEO, Ads, Reddit, SEO content) go down HAF's own path - the
+ * same match, thread read, Claude screen, her DM wording ("your WTB thread"), Telegram card and auto-mode
+ * rules and caps - as if they had been found on Hire a Freelancer. At most cfg.wtbPerDay a day (10).
+ * Nothing here posts anything; a PM goes only through auto mode's normal checks.
+ */
+async function wtbHandOff(cfg, ids) {
+  if (cfg.wtbOn === false || !ids.length || !cfg.enabled) return { skipped: 'off' };
+  const pool = await huntPool();
+  const st = await huntState();
+  const day = new Date().toLocaleDateString('en-CA');
+  const done = st.wtbDay === day ? { ...(st.wtbDone || {}) } : {};
+  const cap = Math.max(0, Number(cfg.wtbPerDay ?? 10));
+  const seen = await getSeen();
+  const known = new Set((await getLeads()).map((l) => String(l.threadId)));
+  const cats = Array.isArray(cfg.wtbCats) && cfg.wtbCats.length ? cfg.wtbCats : hunt.WTB_CATS;
+  const skipped = {};
+  const pick = [];
+  for (const id of ids) {
+    const i = pool[id];
+    if (!i || !hunt.isWtb(i.forum) || done[id] || seen[id] || known.has(String(id))) continue;
+    const t = hunt.wtbTarget(i, { cats });
+    if (!t.ok) { skipped[id] = t.why; continue; }
+    if (Object.keys(done).length + pick.length >= cap) break;
+    pick.push(i);
+  }
+  if (Object.keys(skipped).length) await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), wtbSkipped: { ...((await huntState()).wtbSkipped || {}), ...skipped } } });
+  if (!pick.length) return { handed: 0, skipped: Object.keys(skipped).length };
+  const items = pick.map((i) => ({ threadId: i.id, url: i.url, title: i.title, author: i.author, snippet: '',
+    postedAt: i.startedAt || new Date().toISOString(), lastActivityAt: i.lastActivityAt, postedAtSource: i.startedAt ? 'listing' : 'feed', replyCount: i.replyCount }));
+  const matched = items
+    .filter((item) => !isExcludedThread(item, cfg))
+    .map((item) => matchLead(item, cfg) || { ...item, score: 0, category: '', categoryLabel: '', matched: [], budget: '', budgetAmount: 0 });
+  const full = (await withThreads(matched, cfg)).map((m) => rematch(m, cfg));
+  const { specifics: ai, note: aiNote } = await specificsFor(full.map((m) => ({ ...m, board: 'WTB' })), cfg);
+  const leads = full.map((m) => {
+    const got = ai[m.threadId];
+    const lead = enrich({ ...m, board: 'WTB' }, cfg, 'SENT', got, !got && cfg.aiSpecifics ? (aiNote || 'Claude did not write this one') : '');
+    if (got) lead.aiFrom = sourceOf(m);
+    return { ...lead, board: 'WTB', sourceLabel: 'Want to Buy' };
+  });
+  await markSeen(items.map((i) => i.threadId));
+  if (leads.length) await recordLeads(leads);
+  for (const i of pick) done[i.id] = Date.now();
+  await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), wtbDay: day, wtbDone: done } });
+  await log(`Want to Buy: ${leads.length} buyer thread(s) handed to HAF (screen, draft, auto mode) - ${Object.keys(done).length} of ${cap} today`);
+  return { handed: leads.length };
 }
 
 async function huntTelegramOk(cfg) { return !!cfg.telegramChatId && (await telegram.hasToken().catch(() => false)); }

@@ -105,7 +105,9 @@ export function renderDm(lead, cfg) {
   // Her copy (1.24.2): every PM is Audit, Plan or Specialist. Any other saved or passed style (the old
   // Points / Paragraph / Steps / Classic, or an angle's format) falls back to the per-thread pick.
   const id = HER_STYLES.includes(cfg.dmStyle) ? cfg.dmStyle : pickStyle(lead, cfg);
-  return renderStyled(lead, cfg, DM_STYLES[id]);
+  const out = renderStyled(lead, cfg, DM_STYLES[id]);
+  // log 1.26.0: a Want to Buy thread is not a Hire a Freelancer request
+  return lead.board === 'WTB' ? out.replace(/your Hire a Freelancer request/g, 'your WTB thread').replace(/Hire a Freelancer/g, 'Want to Buy') : out;
   const style = DM_STYLES[cfg.dmStyle];
   if (style) return renderStyled(lead, cfg, style);
   const seed = `d${lead.threadId}`;

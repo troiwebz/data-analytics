@@ -43,7 +43,7 @@ export function buildCard(lead) {
   ].filter(Boolean).join('\n');
 
   const head =
-    `${tier} <b>${score} pts</b> · ${esc(lead.categoryLabel || lead.category || '—')}${lead.budget ? ' · ' + esc(lead.budget) : ''}\n` +
+    `${lead.board === 'WTB' ? '🛒 <b>Want to Buy</b> · ' : ''}${tier} <b>${score} pts</b> · ${esc(lead.categoryLabel || lead.category || '—')}${lead.budget ? ' · ' + esc(lead.budget) : ''}\n` +
     `<b>${esc(lead.title)}</b>\n\n` +
     // A generic draft never looks wrong on its own - nothing about it says
     // "this is the fallback", so it has to be said here, loud, before the

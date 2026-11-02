@@ -81,6 +81,19 @@ ok('HAF marks: DM sent, reply posted, still queued, nothing', H.hafMark({ pmSent
 const withHaf = { ...pp, 20: { ...pp['20'], haf: 'dm' } };
 ok('picks skip a thread our system already messaged', !H.nextPicks(withHaf, { now }).some((i) => i.id === '20'));
 
+// Want to Buy -> HAF: only service requests in her lines
+const W = (t, o = {}) => { const it = H.mergeRows({}, [R(500, t, { forum: 'Want to Buy', m: o.m ?? 60, rep: o.rep ?? 2 })], { now }).pool['500']; return it ? H.wtbTarget(it, { now }) : { ok: false, why: 'dropped' }; };
+ok('WTB: SEO, guest posts, local SEO, Google/LinkedIn ads, Reddit marketing, SEO articles go to HAF',
+  ['WTB high DR guest posts for SaaS', 'Need niche edits for a finance site', 'Looking for local SEO for a dentist', 'WTB Google Ads campaign setup', 'Need someone to run LinkedIn ads', 'Looking for Reddit marketing for my app', 'WTB SEO articles, 20 a month']
+    .every((t) => W(t).ok), ['WTB high DR guest posts for SaaS', 'Need niche edits for a finance site', 'Looking for local SEO for a dentist', 'WTB Google Ads campaign setup', 'Need someone to run LinkedIn ads', 'Looking for Reddit marketing for my app', 'WTB SEO articles, 20 a month'].map((t) => [t, W(t)]));
+ok('WTB: buying things never goes (accounts, proxies, VCC, domains, upvotes, followers, reviews)',
+  ['WTB aged Reddit accounts', 'Looking for residential proxies', 'WTB VCC for ads', 'Need expired domains with DR 30', 'Buying Reddit upvotes', 'WTB Instagram followers', 'Need Google reviews for my business', 'WTB agency ad account']
+    .every((t) => !W(t).ok), ['WTB aged Reddit accounts', 'Looking for residential proxies', 'WTB VCC for ads', 'Need expired domains with DR 30', 'Buying Reddit upvotes', 'WTB Instagram followers', 'Need Google reviews for my business', 'WTB agency ad account'].map((t) => [t, W(t)]));
+ok('WTB: other lines never go (logo, video, WordPress, Instagram growth)', ['Need a logo', 'WTB video editing', 'Need WordPress developer', 'Looking for Instagram growth'].every((t) => !W(t).ok));
+ok('WTB: older than 24 h or 10+ replies stays out', !W('Need guest posts', { m: 60 * 30 }).ok && !W('Need guest posts', { rep: 12 }).ok);
+ok('WTB is HAF\'s now: not in the Hunt feed, no gem', H.formatFeed([H.mergeRows({}, [R(501, 'Need guest posts', { forum: 'Want to Buy', m: 5 })], { now }).pool['501']], { now }).length === 0
+  && H.gemOf(H.mergeRows({}, [R(502, 'Need guest posts', { forum: 'Want to Buy', m: 5, rep: 0 })], { now }).pool['502'], { now }) === '');
+
 // reading plan
 const log = Array.from({ length: 13 }, (_, i) => now - i * 60000);
 ok('hourly cap counts the last hour only', H.readsLastHour([...log, now - 2 * 3600000], now) === 13 && H.pagesLeft(log, now) === 2);
