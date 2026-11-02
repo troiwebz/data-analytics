@@ -5763,7 +5763,8 @@ export async function runAutoQueue() {
   for (const lead of due) {
     // Re-check at the moment of sending: you may have edited it, Claude's
     // verdict may have been replaced, or it may have been sent some other way.
-    const why = auto.blockedReason(lead, cfg);
+    // log 1.27.1: a Want to Buy for a thing (accounts, proxies...) is never sent.
+    const why = lead.board === 'WTB' && hunt.wtbGoods(lead.title) ? 'Want to Buy for a thing (accounts, proxies...), not a service - not sent' : auto.blockedReason(lead, cfg);
     if (why) {
       await updateLead(lead.threadId, { autoSendAt: 0, autoSendBlocked: why });
       await log(`auto mode: not sending the PM for "${lead.title}" - ${why}`);

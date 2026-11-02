@@ -107,7 +107,7 @@ export function renderDm(lead, cfg) {
   const id = HER_STYLES.includes(cfg.dmStyle) ? cfg.dmStyle : pickStyle(lead, cfg);
   const out = renderStyled(lead, cfg, DM_STYLES[id]);
   // log 1.26.0: a Want to Buy thread is not a Hire a Freelancer request
-  return lead.board === 'WTB' ? out.replace(/your Hire a Freelancer request/g, 'your WTB thread').replace(/Hire a Freelancer/g, 'Want to Buy') : out;
+  return lead.board === 'WTB' ? wtbWording(out) : out;
   const style = DM_STYLES[cfg.dmStyle];
   if (style) return renderStyled(lead, cfg, style);
   const seed = `d${lead.threadId}`;
@@ -303,4 +303,14 @@ function render(lead, tpl, seed) {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/** log 1.27.1: every way the templates name the board ("your thread on HAF", "your HAF thread", ...) reads as Want to Buy. */
+export function wtbWording(text) {
+  return String(text)
+    .replace(/your Hire a Freelancer request/gi, 'your WTB thread')
+    .replace(/\b(thread|post|request) on HAF\b/g, '$1 in Want to Buy')
+    .replace(/\byour HAF (thread|post|request)\b/g, 'your WTB $1')
+    .replace(/Hire a Freelancer/g, 'Want to Buy')
+    .replace(/\bHAF\b/g, 'Want to Buy');
 }

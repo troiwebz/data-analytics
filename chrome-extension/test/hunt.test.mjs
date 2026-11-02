@@ -95,7 +95,8 @@ ok('WTB: older than 24 h or 10+ replies stays out', !W('Need guest posts', { m: 
 ok('WTB is HAF\'s now: not in the Hunt feed, no gem', H.formatFeed([H.mergeRows({}, [R(501, 'Need guest posts', { forum: 'Want to Buy', m: 5 })], { now }).pool['501']], { now }).length === 0
   && H.gemOf(H.mergeRows({}, [R(502, 'Need guest posts', { forum: 'Want to Buy', m: 5, rep: 0 })], { now }).pool['502'], { now }) === '');
 
-ok('WTB send-all mode: anything a buyer wants goes, cloaker never', W2('WTB aged Reddit accounts').ok && W2('Need a logo').ok && !W2('Looking for a cloaker').ok);
+ok('WTB send-all mode: any service a buyer wants goes, cloaker never', W2('Need a logo').ok && !W2('Looking for a cloaker').ok);
+ok('log 1.27.1: buying a THING never goes, in either mode', !W2('[WTB] Google ads account that ran call ads in past').ok && !W2('WTB aged Reddit accounts').ok && W2('Need someone to manage my Google Ads account').ok);
 
 // reading plan
 const log = Array.from({ length: 13 }, (_, i) => now - i * 60000);
