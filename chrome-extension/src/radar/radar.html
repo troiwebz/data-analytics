@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Reply Radar</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626;--teal:#0f766e}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0} header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)} button:disabled{opacity:.55;cursor:default}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  button.pri{background:var(--teal);border-color:var(--teal);color:#fff}
+  button.on{background:var(--green);border-color:var(--green);color:#fff}
+  button.off{background:#475569;border-color:#475569;color:#fff}
+  .mini{padding:3px 8px;font-size:12px;font-weight:500}
+  .w{max-width:1180px;margin:0 auto;padding:20px}
+  .how{background:#ecfeff;border:1px solid #a5f3fc;color:#155e75;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .tile .k{font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  .tile .v{font:700 22px system-ui;margin-top:2px}
+  .tile .s{font-size:12px;color:var(--mute)}
+  .tile.warn .v{color:var(--red)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);white-space:nowrap}
+  td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  .chip{display:inline-block;font:600 11px system-ui;padding:2px 8px;border-radius:99px;white-space:nowrap}
+  .chip.A{background:#dcfce7;color:#15803d}.chip.B{background:#dbeafe;color:#1d4ed8}.chip.C{background:#fef3c7;color:#92400e}.chip.G{background:#f1f5f9;color:#475569}
+  .brief{margin-top:6px;padding:8px 10px;background:#f8fafc;border-left:3px solid var(--teal);font-size:12.5px;color:#334155}
+  .brief b{color:var(--ink)}
+  .sub{color:var(--mute);font-size:12.5px}
+  .empty{padding:18px;text-align:center;color:var(--mute)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  label.f{display:grid;gap:5px;font:600 11.5px system-ui;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+  input[type=text],input[type=number],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;background:#fff;color:var(--ink)}
+  textarea{min-height:58px;resize:vertical}
+  .chk{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .okmsg{color:var(--green);font-weight:600;font-size:13px}
+  .errmsg{color:var(--red);font-weight:600;font-size:13px}
+</style>
+<header>
+  <h1>📡 Reply Radar</h1>
+  <span class="sp"></span>
+  <button id="toggle" class="off">Radar is OFF</button>
+  <button id="send" class="pri" title="Run the Ads block now: page 1 of its boards, one message to Telegram">Run Ads block now</button>
+  <button id="refresh" title="Read the sections now and update this page. Nothing is sent to Telegram.">Check BHW now</button>
+  <button id="back">← HAF dashboard</button>
+</header>
+<div class="w">
+  <div class="how">Every hour each <b>block</b> reads page 1 of its boards (Ads at :00, SEO at :30) and sends one Telegram message: new threads (🔥 HOT when nobody has replied), threads with a new reply, and quiet top-ups to at least 5. Every 10 minutes the What's new page is checked and every thread started or answered with under 10 replies is sent (any topic; only hellos, marketplaces and Hire a Freelancer are left out). Families, blocks and alerts are off unless you switch them on. Nothing is ever sent twice. Send <b>brief 3</b> for Claude's summary of a thread, <b>next casino</b> for a live search, or just type what you want in plain words ("find PBN threads in the last 24 hours", "check what's new"). You write and post each reply yourself. Radar never posts, and it never reads Hire a Freelancer (HAF does that).</div>
+  <div id="msg" class="errmsg" hidden></div>
+  <div class="tiles">
+    <div class="tile" id="t-today"><div class="k">Public replies today</div><div class="v" id="today">–</div><div class="s"><button class="mini" id="minus">−</button> <button class="mini" id="plus">+</button> correct the number</div></div>
+    <div class="tile"><div class="k">Threads waiting</div><div class="v" id="waiting">–</div><div class="s" id="waiting-s"></div></div>
+    <div class="tile"><div class="k">Last batch</div><div class="v" id="last">–</div><div class="s" id="last-s"></div></div>
+    <div class="tile"><div class="k">Next batch</div><div class="v" id="next">–</div><div class="s" id="next-s"></div></div>
+  </div>
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="queue" aria-selected="true">Waiting</button>
+      <button role="tab" data-tab="replied" aria-selected="false">Replied</button>
+      <button role="tab" data-tab="unmatched" aria-selected="false">Not matched</button>
+      <button role="tab" data-tab="families" aria-selected="false">Families</button>
+      <button role="tab" data-tab="held" aria-selected="false">Held</button>
+      <button role="tab" data-tab="blocks" aria-selected="false">Blocks</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings and words</button>
+    </div>
+    <div id="p-queue"></div>
+    <div id="p-replied" hidden></div>
+    <div id="p-unmatched" hidden></div>
+    <div id="p-families" hidden>
+      <div class="sub" style="margin-bottom:8px">One family runs every 20 minutes (pinned ones at least hourly): 3 of its terms through BHW search, rotating, plus page 1 of its home boards. Terms: comma separated. Boards: one per line, <b>id: name</b>, add <b>[family]</b> to keep only titles with family words. The meaning line is what Claude judges against when a run finds more than 8 threads.</div>
+      <div class="row" style="margin:0 0 10px"><label class="f">Minutes between family runs<input type="number" id="s-famevery" min="10" max="120" style="width:120px"></label><label class="chk" style="margin:22px 0 0"><input type="checkbox" id="s-famon"> Families on</label><label class="chk" style="margin:22px 0 0"><input type="checkbox" id="s-gate"> Claude gate when more than 8 found</label></div>
+      <div id="fams"></div>
+      <div class="row"><button class="pri" id="save-fams">Save families</button><button id="add-fam">Add a family</button><button id="reset-fams">Put the built-in families back</button><span id="saved-fams" class="okmsg" hidden>Saved</span></div>
+    </div>
+    <div id="p-held" hidden>
+      <div class="sub" style="margin-bottom:8px">Threads a family run found but did not send (over the 8 per message, or under the Claude gate). Send any of them to Telegram now.</div>
+      <div id="held"></div>
+    </div>
+    <div id="p-blocks" hidden>
+      <div class="sub" style="margin-bottom:8px">A block reads page 1 of its boards once an hour, from its minute on, and sends one Telegram message with what is new. One line per board: <b>id or slug: name [filter]</b>. Filters: <b>niche</b> (niche words only), <b>adwords</b> (ad words only). Hire a Freelancer and Marketplace boards are refused.</div>
+      <div id="blocks"></div>
+      <div class="row"><button class="pri" id="save-blocks">Save blocks</button><button id="add-block">Add a block</button><button id="reset-blocks">Put the default blocks back</button><span id="saved-blocks" class="okmsg" hidden>Saved</span></div>
+    </div>
+    <div id="p-settings" hidden>
+      <div class="grid">
+        <label class="f">Minutes between batches<input type="number" id="s-every" min="30" max="720"></label>
+        <label class="f">Threads per batch<input type="number" id="s-per" min="1" max="5"></label>
+        <label class="f">Daily reply limit shown<input type="number" id="s-target" min="1" max="50"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="s-briefs"> Add the short summary to each card (what was asked, what was already said, what is missing). Uses a little Claude credit.</label>
+      <label class="chk"><input type="checkbox" id="s-general"> Also offer brand-new general ads questions with 0–2 replies when niche threads run low.</label>
+      <h3 style="margin:18px 0 4px;font-size:14px">Words Radar looks for in thread titles</h3>
+      <div class="sub">Separate with commas. Add * for any ending: gambl* finds gambling and gamblers.</div>
+      <div id="words" class="grid" style="margin-top:10px"></div>
+      <h3 style="margin:18px 0 4px;font-size:14px">Muted words</h3>
+      <div class="sub">Threads whose title has any of these are never shown. Same as "mute …" on Telegram.</div>
+      <textarea id="s-muted" style="margin-top:8px"></textarea>
+      <h3 style="margin:18px 0 4px;font-size:14px">Search families ("next keyword" on Telegram)</h3>
+      <div class="sub">One line per keyword: <b>keyword: term, term, term</b>. A keyword without a line here is expanded by Claude the first time you search it.</div>
+      <textarea id="s-families" style="margin-top:8px;min-height:90px"></textarea>
+      <div class="row"><button class="pri" id="save">Save</button><button id="reset">Put the default words back</button><span id="saved" class="okmsg" hidden>Saved</span></div>
+    </div>
+  </div>
+</div>
+<script type="module" src="radar.js"></script>

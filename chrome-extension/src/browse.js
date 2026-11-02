@@ -1,0 +1,330 @@
+import { canonicalThreadUrl } from './feed.js';
+// Reading BlackHatWorld the way a member does: in a real tab.
+//
+// A fetch() from the extension carries the cookies but not the rest - no
+// page load, no assets, no JavaScript, a burst of requests in a second - and
+// Cloudflare answered a morning of that with 429 for every feed. A background
+// tab is the browser doing what it always does. One tab at a time, a pause
+// while the page "is read", a random gap before the next. Slower on purpose.
+//
+// Everything that runs INSIDE the page is a plain function with no closure
+// (chrome.scripting serialises it), and returns data only.
+
+export const BHW = 'https://www.blackhatworld.com';
+export const WHATS_NEW = `${BHW}/whats-new/posts/`;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const between = (lo, hi) => lo + Math.random() * (hi - lo);
+
+export function waitForTabLoad(tabId, timeoutMs = 45000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('tab load timeout')); }, timeoutMs);
+    const onUpdated = (id, info) => { if (id === tabId && info.status === 'complete') { cleanup(); resolve(); } };
+    const cleanup = () => { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(onUpdated); };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+  });
+}
+
+// ---------------------------------------------------------- inside the page
+
+/** Is this a Cloudflare wall rather than the forum? Runs in the page. */
+function blockedReason() {
+  const t = String(document.title || '');
+  const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)) return `BHW blocked the page: ${t.slice(0, 80)}`;
+  if (/you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) return 'BHW blocked the page (Cloudflare)';
+  return '';
+}
+
+/** Is this Cloudflare's interstitial that clears by itself? Runs in the page. */
+export function isChallengePage() {
+  const t = String(document.title || '');
+  const b = String((document.body && (document.body.innerText || document.body.textContent)) || '').slice(0, 2000);
+  return /just a moment|checking your browser/i.test(t) || /performing security verification|verifies you are not a bot|checking your browser/i.test(b);
+}
+
+/** The page's HTML, for readers that parse HTML themselves (the inbox). Runs in the page. */
+export function pageHtml() { return { html: document.documentElement.outerHTML, title: document.title }; }
+
+/** Thread rows off a forum listing or the What's new page. Runs in the page. */
+export function extractListing() {
+  const t = String(document.title || '');
+  const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
+      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+    return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
+  }
+  const iso = (el) => {
+    const v = el && el.getAttribute('data-timestamp');
+    const ms = v ? parseInt(v, 10) * 1000 : NaN;
+    return isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+  };
+  const num = (s) => {
+    const m = String(s || '').replace(/,/g, '').match(/([\d.]+)\s*([KkMm])?/);
+    if (!m) return null;
+    const n = parseFloat(m[1]);
+    return Math.round(n * (/k/i.test(m[2] || '') ? 1000 : /m/i.test(m[2] || '') ? 1e6 : 1));
+  };
+  const rows = [];
+  for (const el of document.querySelectorAll('.structItem--thread')) {
+    const m = String(el.className).match(/js-threadListItem-(\d+)/);
+    if (!m) continue;
+    const a = el.querySelector('.structItem-title a[href*="/threads/"]') || el.querySelector('.structItem-title a');
+    if (!a) continue;
+    let forumA = null;
+    for (const x of el.querySelectorAll('.structItem-cell--main a[href*="/forums/"]')) {
+      if (/\/forums\/[a-z0-9-]+\.\d+\/?$/i.test(x.getAttribute('href') || '')) { forumA = x; break; }
+    }
+    let replies = null, views = null;
+    for (const dl of el.querySelectorAll('.structItem-cell--meta dl')) {
+      const dd = dl.querySelector('dd');
+      if (replies == null && /repl/i.test(dl.textContent || '')) replies = num(dd && dd.textContent);
+      else if (views == null && /view/i.test(dl.textContent || '')) views = num(dd && dd.textContent);
+    }
+    const href = forumA ? forumA.getAttribute('href') || '' : '';
+    const lastEl = el.querySelector('.structItem-cell--latest .username');
+    rows.push({
+      lastPoster: lastEl ? (lastEl.textContent || '').trim() : '',
+      threadId: m[1],
+      // Page 1 of the thread, never …/unread (see canonicalThreadUrl in feed.js - inlined, this runs in the page).
+      url: (() => { const u = new URL(a.getAttribute('href'), location.href).href; const c = u.match(/^(https?:\/\/[^?#]*?\.\d+)(?=\/|$|[?#])/); return c ? `${c[1]}/` : u; })(),
+      title: (a.textContent || '').trim(),
+      author: el.getAttribute('data-author') || '',
+      startedAt: iso(el.querySelector('.structItem-startDate time')),
+      lastActivityAt: iso(el.querySelector('.structItem-latestDate time') || el.querySelector('.structItem-cell--latest time')),
+      replyCount: replies,
+      views,
+      // BHW pins threads by putting them in a sticky GROUP, not with a class on
+      // the row; checking the row alone let rules threads through as leads.
+      sticky: /structItem--sticky/.test(String(el.className)) || !!el.closest('.structItemContainer-group--sticky')
+        || !!el.querySelector('.structItem-status--sticky'),
+      forum: forumA ? (forumA.textContent || '').trim() : '',
+      forumNode: ((href.match(/\.(\d+)\/?$/) || [])[1]) || ''
+    });
+  }
+  const loggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+  const meEl = document.querySelector('.p-navgroup-link--user .p-navgroup-linkText');
+  const me = meEl ? (meEl.textContent || '').trim() : '';
+  const next = !!document.querySelector('a.pageNav-jump--next');
+  const env = document.querySelector('.p-navgroup-link--conversations, a[href*="/direct-messages/"][data-badge]');
+  const dmBadge = env ? parseInt(env.getAttribute('data-badge') || '0', 10) || 0 : null;
+  return { rows, loggedIn, me, next, dmBadge, title: t, url: location.href };
+}
+
+/** The first post and every reply on a thread page. Runs in the page. */
+export function extractThread() {
+  const t = String(document.title || '');
+  const bodyText = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
+      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(bodyText)) {
+    return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
+  }
+  const iso = (el) => {
+    const v = el && el.getAttribute('data-timestamp');
+    const ms = v ? parseInt(v, 10) * 1000 : NaN;
+    return isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+  };
+  const posts = [];
+  for (const art of document.querySelectorAll('article.message--post')) {
+    const wrap = art.querySelector('.bbWrapper');
+    if (!wrap) continue;
+    const clone = wrap.cloneNode(true);
+    for (const n of clone.querySelectorAll('blockquote, script, style, .bbCodeBlock--quote')) n.remove();
+    const text = String(clone.innerText || clone.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    posts.push({ author: art.getAttribute('data-author') || '', text, at: iso(art.querySelector('time[data-timestamp]')) });
+  }
+  // The page carries the breadcrumb twice (top and bottom); read the first.
+  const crumbs = [];
+  const bc = document.querySelector('.p-breadcrumbs');
+  if (bc) for (const x of bc.querySelectorAll('[itemprop="name"]')) crumbs.push((x.textContent || '').trim());
+  let forumUrl = '';
+  if (bc) { const links = [...bc.querySelectorAll('a[href*="/forums/"]')].map((a) => a.href).filter((h) => /\/forums\/[a-z0-9-]+\.\d+\/?$/i.test(h)); forumUrl = links[links.length - 1] || ''; }
+  const keyEl = document.querySelector('[data-container-key^="node-"]');
+  const forumNode = keyEl ? String(keyEl.getAttribute('data-container-key')).replace('node-', '') : '';
+  const startEl = document.querySelector('.p-description time[data-timestamp]');
+  const h1 = document.querySelector('h1.p-title-value');
+  // Which page this is, and who started the thread: the first post on the page
+  // is only the buyer's post on page 1, and only if the starter wrote it.
+  const cur = document.querySelector('.pageNav-page--current');
+  const page = cur ? parseInt(cur.textContent, 10) || 1 : ((location.pathname.match(/\/page-(\d+)/) || [])[1] | 0) || 1;
+  const starterEl = document.querySelector('.p-description .username') || document.querySelector('.p-description [data-user-id]');
+  const starter = starterEl ? (starterEl.textContent || '').trim() : '';
+  return {
+    page,
+    starter,
+    firstAuthor: posts.length ? posts[0].author : '',
+    title: h1 ? (h1.textContent || '').trim() : '',
+    body: posts.length ? posts[0].text : '',
+    replies: posts.slice(1).map((p) => ({ author: p.author, text: p.text })),
+    startedAt: iso(startEl) || (posts.length ? posts[0].at : null),
+    forumNode,
+    // "Home › Forums › Making Money › Pay Per Click › General PPC Discussion":
+    // the breadcrumb ends at the forum; the thread title is the h1, not a crumb.
+    forum: crumbs.length ? crumbs[crumbs.length - 1] : '',
+    section: crumbs.slice(2).join(' › '),
+    forumUrl,
+    loggedIn: document.documentElement.getAttribute('data-logged-in') === 'true',
+    dmBadge: (() => { const e = document.querySelector('.p-navgroup-link--conversations, a[href*="/direct-messages/"][data-badge]'); return e ? parseInt(e.getAttribute('data-badge') || '0', 10) || 0 : null; })()
+  };
+}
+
+// ----------------------------------------------------------- from outside
+
+/** log 1.26.0: every BHW page this copy opens is written down, so the hunter can keep the whole copy under its hourly cap. */
+export const READ_LOG_KEY = 'bhwReadLog';
+async function logRead(url) {
+  if (!/blackhatworld\.com/i.test(String(url || ''))) return;
+  try {
+    const { [READ_LOG_KEY]: log = [] } = await chrome.storage.local.get(READ_LOG_KEY);
+    const now = Date.now();
+    await chrome.storage.local.set({ [READ_LOG_KEY]: [...log.filter((t) => now - t < 3 * 3600000), now].slice(-300) });
+  } catch { /* never block a read on the log */ }
+}
+
+/**
+ * Open a page in a background tab, let it load, pause like a reader would,
+ * run `func` inside it, close the tab. Throws when the page is a wall.
+ */
+export async function readInTab(url, func, { settleMs, args = [] } = {}) {
+  await logRead(url);
+  const tab = await chrome.tabs.create({ url, active: false });
+  try {
+    await waitForTabLoad(tab.id);
+    await sleep(settleMs ?? between(1500, 4000));
+    // Cloudflare's "Performing security verification" page clears itself in a
+    // real browser after a few seconds and reloads the forum page. Reading it
+    // too early called that a wall and paused everything for 30 minutes or
+    // more (1.19.4): wait up to ~30 s for it to clear first.
+    if (settleMs !== 0) {
+      for (let i = 0; i < 10; i++) {
+        let probe = null, failed = false;
+        try { [probe] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: isChallengePage }); } catch { failed = true; /* mid-navigation */ }
+        if (!failed && !(probe && probe.result === true)) break;   // only a positive "this is the check page" waits
+        await sleep(3000);
+        try { await waitForTabLoad(tab.id, 8000); } catch { /* it may not navigate */ }
+      }
+    }
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args });
+    const out = r && r.result;
+    if (!out) throw new Error('the page gave nothing back');
+    if (out.blocked) throw new Error(out.blocked);
+    return out;
+  } finally {
+    setTimeout(() => { try { Promise.resolve(chrome.tabs.remove(tab.id)).catch(() => {}); } catch { /* already gone */ } }, between(400, 1500));
+  }
+}
+
+/** Lines that carry no information about the post: contact handles, bare links. */
+const NOISE = new RegExp([
+  '^\\s*(telegram|skype|whatsapp|discord|email|gmail|e-?mail|contact|pm me|dm me|website|site)\\b',
+  '^\\s*https?://', '^\\s*@\\w+\\s*$', '^[\\W_]{0,4}$'
+].join('|'), 'i');
+const clean = (text) => String(text || '').split('\n').filter((l) => l.trim() && !NOISE.test(l)).join('\n').trim();
+
+/**
+ * A BHW search results page (signed in only - signed out, BHW shows the search
+ * form and nothing else). Each row carries the title, forum, start date, reply
+ * count and a snippet of the post, so a niche can be researched from two page
+ * loads instead of a crawl. Runs inside the page.
+ */
+export function extractSearch() {
+  const t = String(document.title || '');
+  const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
+  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
+      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+    return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
+  }
+  const rows = [];
+  for (const c of document.querySelectorAll('.contentRow')) {
+    const a = c.querySelector('.contentRow-title a');
+    const minor = c.querySelector('.contentRow-minor');
+    if (!a || !minor) continue;
+    const txt = [...minor.querySelectorAll('li')].map((l) => String(l.textContent || '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ');
+    if (!/\bThread\b/.test(txt)) continue;                    // posts, media and profiles are not threads
+    const tm = minor.querySelector('time[data-timestamp]');
+    const ms = tm ? parseInt(tm.getAttribute('data-timestamp'), 10) * 1000 : NaN;
+    const href = new URL(a.getAttribute('href'), location.href).href;
+    const m = href.match(/^(https?:\/\/[^?#]*?\.\d+)(?=\/|$|[?#])/);
+    rows.push({
+      threadId: (m ? m[1].match(/\.(\d+)$/)[1] : (href.match(/\.(\d+)(?=\/|$|[?#])/) || [])[1]) || '',
+      url: m ? `${m[1]}/` : href,
+      title: (a.textContent || '').trim(),
+      author: ((minor.querySelector('.username') || {}).textContent || '').trim(),
+      startedAt: isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null,
+      replyCount: parseInt(String((txt.match(/Replies:\s*([\d,]+)/) || [])[1] || '').replace(/,/g, ''), 10) || 0,
+      forum: String((txt.match(/Forum:\s*(.+?)\s*$/) || [])[1] || '').trim(),
+      snippet: String((c.querySelector('.contentRow-snippet') || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+    });
+  }
+  const loggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+  const next = !!document.querySelector('a.pageNav-jump--next');
+  return { rows, loggedIn, next, title: t, url: location.href };
+}
+
+/** One BHW search, read in a tab. */
+export const readSearchTab = (url) => readInTab(url, extractSearch);
+
+/** Was the first post read the thread starter's own, on page 1? Pure. */
+export function opIsFirst(got) {
+  if (!got) return false;
+  if ((got.page || 1) > 1) return false;
+  if (got.starter && got.firstAuthor && got.starter.toLowerCase() !== got.firstAuthor.toLowerCase()) return false;
+  return true;
+}
+
+/** One thread, read in a tab. Same shape thread.js gives, never throws on an unreadable page. */
+export async function readThreadTab(url) {
+  try {
+    const got = seen(await readInTab(canonicalThreadUrl(url), extractThread));
+    const out = { ...got, body: clean(got.body), replies: (got.replies || []).map((r) => ({ author: r.author, text: clean(r.text) })).filter((r) => r.text) };
+    // Not the buyer's post: say nothing rather than hand Claude a seller's reply as the brief.
+    if (!opIsFirst(got)) { out.body = ''; out.replies = []; out.notOp = true; }
+    return out;
+  } catch (e) {
+    if (/blocked/i.test(e.message)) throw e;            // a wall is news; an odd page is not
+    return { body: '', replies: [] };
+  }
+}
+
+/**
+ * Several threads, one tab at a time, a human gap between them. `onOne` sees
+ * each result as it lands. Stops early on a wall and says so in `blocked`.
+ */
+export async function readThreadsInTabs(leads, { max = 5, gapMs = 6000, onOne } = {}) {
+  const out = {};
+  const list = leads.slice(0, max);
+  let blocked = '';
+  for (let i = 0; i < list.length; i++) {
+    const l = list[i];
+    if (!l || !l.url) continue;
+    let got;
+    try { got = await readThreadTab(l.url); }
+    catch (e) { blocked = e.message; break; }
+    if (got.body || (got.replies && got.replies.length)) out[l.threadId] = got;
+    if (onOne) onOne(l, got);
+    if (i < list.length - 1) await sleep(between(gapMs * 0.6, gapMs * 1.6));
+  }
+  return blocked ? Object.assign(out, { __blocked: blocked }) : out;
+}
+
+/** A listing page (a forum, or What's new) as rows. Throws on a wall. */
+// Every page the extension reads anyway carries the envelope's unread count.
+// Whoever wants it (the new-message alert) registers here: no extra visits.
+let pageHook = null;
+export const onPageRead = (fn) => { pageHook = fn; };
+const seen = (r) => { try { if (pageHook && r && r.dmBadge != null) pageHook(r); } catch { /* never break a read */ } return r; };
+export const readListingTab = async (url) => seen(await readInTab(url, extractListing));
+
+/** Several pages of one listing, as { [threadId]: row }, a human gap between pages. */
+export async function readListingPages(url, pages = 1, { gapMs = 5000, onPage } = {}) {
+  const out = {};
+  for (let p = 1; p <= pages; p++) {
+    const u = p === 1 ? url : `${url}${url.includes('?') ? '&' : '?'}page=${p}`;
+    const got = await readListingTab(u);
+    for (const r of got.rows) out[r.threadId] = r;
+    if (onPage) onPage(p, got.rows.length, Object.keys(out).length);
+    if (!got.next) break;
+    if (p < pages) await sleep(between(gapMs * 0.6, gapMs * 1.6));
+  }
+  return out;
+}

@@ -1,0 +1,1067 @@
+// Default configuration. Everything here is editable from the Options page
+// (chrome://extensions -> HAF Watcher -> Details -> Extension options) and is
+// stored in chrome.storage.local under the key "config".
+
+import { pushConfig } from './backup.js';
+
+export const FEED_URL =
+  'https://www.blackhatworld.com/forums/hire-a-freelancer.76/index.rss';
+
+// The forums a black-hat ads client hunt watches out of the box: the whole PPC
+// section, the places buyers ask (Want to Buy, Joint Ventures), and the
+// verticals' home forums. Bump alerts on: a thread bumped today is a target.
+// Add or remove in Settings; a version update only ADDS what is missing.
+export const WATCH_FORUMS = [
+  { url: 'https://www.blackhatworld.com/forums/google-ads.83/', label: 'Google Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/facebook.219/', label: 'Facebook Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/general-ppc-discussion.125/', label: 'General PPC', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/other-ppc-networks.85/', label: 'Other PPC', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/yahoo-bing-msn.93/', label: 'Bing Ads', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/media-buying.175/', label: 'Media Buying', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/cloaking-and-content-generators.2/', label: 'Cloaking', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/cpa.50/', label: 'CPA', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/affiliate-programs.15/', label: 'Affiliate Programs', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/tiktok.279/', label: 'TikTok', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/facebook.86/', label: 'Facebook Social', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/want-to-buy.92/', label: 'Want to Buy', enabled: true, bumpAlerts: true },
+  { url: 'https://www.blackhatworld.com/forums/joint-ventures.65/', label: 'Joint Ventures', enabled: true, bumpAlerts: true }
+];
+
+// Words that pick black-hat ads threads out of every other forum, site-wide.
+export const WATCH_WORDS = [
+  { word: 'google ads', enabled: true, bumpAlerts: true },
+  { word: 'adwords', enabled: true, bumpAlerts: true },
+  { word: 'facebook ads', enabled: true, bumpAlerts: true },
+  { word: 'meta ads', enabled: true, bumpAlerts: true },
+  { word: 'tiktok ads', enabled: true, bumpAlerts: true },
+  { word: 'bing ads', enabled: true, bumpAlerts: false },
+  { word: 'ppc', enabled: true, bumpAlerts: true },
+  { word: 'media buying', enabled: true, bumpAlerts: true },
+  { word: 'media buyer', enabled: true, bumpAlerts: true },
+  { word: 'ad account', enabled: true, bumpAlerts: true },
+  { word: 'ads account', enabled: true, bumpAlerts: true },
+  { word: 'agency account', enabled: true, bumpAlerts: true },
+  { word: 'business manager', enabled: true, bumpAlerts: true },
+  { word: 'ad approval', enabled: true, bumpAlerts: false },
+  { word: 'disapproved', enabled: true, bumpAlerts: true },
+  { word: 'policy violation', enabled: true, bumpAlerts: true },
+  { word: 'cloak', enabled: true, bumpAlerts: true },
+  { word: 'cloaking', enabled: true, bumpAlerts: true },
+  { word: 'cloaker', enabled: true, bumpAlerts: true },
+  { word: 'prelander', enabled: true, bumpAlerts: false },
+  { word: 'pre-lander', enabled: true, bumpAlerts: false },
+  { word: 'safe page', enabled: true, bumpAlerts: false },
+  { word: 'landing page', enabled: true, bumpAlerts: false },
+  { word: 'ad creative', enabled: true, bumpAlerts: false },
+  { word: 'ad spend', enabled: true, bumpAlerts: false },
+  { word: 'roas', enabled: true, bumpAlerts: false },
+  { word: 'casino', enabled: true, bumpAlerts: true },
+  { word: 'gambling', enabled: true, bumpAlerts: true },
+  { word: 'igaming', enabled: true, bumpAlerts: true },
+  { word: 'betting', enabled: true, bumpAlerts: true },
+  { word: 'crypto ads', enabled: true, bumpAlerts: true },
+  { word: 'forex', enabled: true, bumpAlerts: true },
+  { word: 'adult', enabled: true, bumpAlerts: true },
+  { word: 'dating', enabled: true, bumpAlerts: true },
+  { word: 'nutra', enabled: true, bumpAlerts: true },
+  { word: 'cbd', enabled: true, bumpAlerts: true },
+  { word: 'pharma', enabled: true, bumpAlerts: true },
+  { word: 'peptides', enabled: true, bumpAlerts: true },
+  { word: 'supplements', enabled: true, bumpAlerts: false },
+  { word: 'weight loss', enabled: true, bumpAlerts: false },
+  { word: 'sweepstakes', enabled: true, bumpAlerts: true },
+  { word: 'black hat ads', enabled: true, bumpAlerts: true },
+  { word: 'blackhat ads', enabled: true, bumpAlerts: true },
+  { word: 'grey hat', enabled: true, bumpAlerts: false },
+  { word: 'gray hat', enabled: true, bumpAlerts: false }
+];
+
+// Patterns added in 1.6.2. Named, so the migration can add exactly these to a
+// category list you already have without touching the rest of it.
+export const SEO_MORE = ['quality links?', 'links? with (?:real |organic )?traffic', 'traffic proof', 'niche edits?', 'link insertions?', 'do-?follow', '(?:high|strong) (?:da|dr|authority)', 'authority links?', '(?:buy|buying|need|want|looking for) (?:some |quality |good |strong |real |casino |igaming )*(?:back)?links?', '(?:casino|betting|gambling|igaming|adult|crypto) (?:seo|(?:back)?links?)', 'link (?:network|provider|seller|vendor|insertion)s?', 'sponsored posts?', 'outreach links?', '\\bguest ?posts?\\b', 'link ?boost', 'tier ?[123]', 'organic traffic', 'rank(?:ing)? (?:on|in) google', '\\bindex(?:ing|er)?\\b'];
+export const ADS_MORE = ['ads? (?:manager|management|expert|specialist|buyer)', 'run(?:ning)? (?:my |our )?ads', '\\bmedia buyer\\b', 'ad ?accounts?', 'agency accounts?', '(?:google|meta|facebook|fb|tiktok|bing|native|push) (?:ads?|advertising|campaigns?)', '\\bgads?\\b', 'ads? approv', 'credit line', '\\bcpa\\b', '\\broas\\b'];
+
+export const DEFAULT_CONFIG = {
+  // On by default. A fresh install should start watching rather than sit there
+  // looking installed; it cannot post or message anyone until the two keys are
+  // in, so there is nothing to start early.
+  enabled: true,
+  // log 1.26.0: the SEO buyer hunter. One what's-new list for every forum, under 15 BHW pages an hour.
+  huntOn: true, huntFocus: ['seo', 'content'], huntGems: true, huntSummary: true, huntGemsPerDay: 8,
+  otherSourcesOn: false, quietStart: '01:00', quietEnd: '07:00',
+  feedUrl: FEED_URL,
+
+  // ---- More sources (v1.1) ---------------------------------------------
+  // Any BHW forum, by URL: every new thread there is a lead (public reply
+  // only). And the site-wide new-threads feed, kept only where a watch word
+  // hits. Bump alerts are per forum / per word, off unless you turn them on;
+  // search from Telegram always shows bumps regardless.
+  watchForums: WATCH_FORUMS.map((f) => ({ ...f })),
+  watchWords: WATCH_WORDS.map((w) => ({ ...w })),
+  siteWideEnabled: true,
+  siteFeedUrl: 'https://www.blackhatworld.com/forums/-/index.rss',
+  threadMaxAgeHours: 48,       // "next" and "haf" on Telegram look back this far
+  // Pacing. BHW answers a burst of requests with HTTP 429 and then refuses
+  // every feed for a while, so the forums are polled a few per check, in
+  // turn, with a pause between fetches. The site-wide feed goes every check.
+  sourcesPerPoll: 4,           // feeds mode only: forums read per check
+  secondsBetweenSourceFetches: 2,
+  // How BHW is read. 'tabs' opens a real background tab per page - the What's
+  // new page for every forum at once, the thread pages one at a time with a
+  // human gap - exactly what a member's browser does. 'feeds' is the old way
+  // (RSS + fetch), faster and the thing Cloudflare rate-limits.
+  readMode: 'tabs',
+  // Push the backlog too? Off: threads found on a first look or a forum-page
+  // sweep wait quietly for "next". On: they go to Telegram as cards as well,
+  // six per check, so a busy day trickles in over an hour. "push on" / "push off".
+  pushBacklog: false,
+  // Do threads from the watched forums and the site-wide feed reach Telegram at
+  // all? Off: the phone is Hire a Freelancer only, and the other sources are on
+  // the dashboard's Other sources tab. "others on" / "others off".
+  telegramOtherSources: false,
+  // A member sleeps. No reads at all in this window (your timezone); Telegram
+  // taps still work, so a post you approve at 3am still goes up.
+  sleepEnabled: false,         // off: you work at night; turn it on in Settings if you want a quiet window
+  sleepStart: '01:00',
+  sleepEnd: '07:00',
+  threadReadGapSeconds: 8,     // tabs mode: average gap between two thread reads
+  whatsNewPages: 1,            // tabs mode: pages of What's new per check (1 is plenty at 5 min)
+  pmCheckMinutes: 15,          // how often your BHW message list is read
+  indexDays: 7,                // how long the search index remembers a thread
+  pollMinutes: 6,              // how often to check (tabs mode: one What's-new page per check)
+  jitterSeconds: 150,          // plus 0-150 s at random, so checks are never on the clock
+  approvalPollMinutes: 1,      // how often to ask Apps Script for approvals
+  backfillHours: 48,           // first run: record threads this recent into the Sheet (no Telegram)
+  hafMinThreads: 20,           // and never fewer than this many of the newest HAF threads on the dashboard
+  aiSpecifics: true,           // let Claude write the bullets (needs ANTHROPIC_API_KEY
+                               // in Apps Script Script Properties); falls back to rules
+
+
+  // Every time shown to you is rendered in this zone, on a 12 hour clock.
+  // '' means "use this computer's own zone".
+  timezone: 'Asia/Kolkata',
+
+  // Your own words about the business, handed to Claude with every thread.
+  // Optional, and empty by default: what goes in here is what Claude knows
+  // about you that the thread cannot tell it.
+  brief: '',
+
+  // A sound when new threads land, so the machine can sit in the background.
+  soundEnabled: true,
+  sound: 'chime',              // new threads
+  soundHot: 'alert',           // at least one lead at or above stageScore
+  soundVolume: 0.5,
+
+  // Telegram, straight from this extension. The bot token lives in the vault.
+  telegramEnabled: true,       // send every new lead to Telegram automatically
+  telegramChatId: '',          // from @userinfobot
+  telegramSend: 'both',        // 'both' (PM first, then the reply) | 'pm' | 'reply'
+
+  // Approval buttons under each Telegram message. Tapping one on your phone
+  // makes Chrome do it: send the PM, or post the public reply.
+  //
+  // This is the ONLY thing in the extension that posts by itself, and it does
+  // so only because you tapped. Nothing is ever posted or sent on a timer, on
+  // a score, or because a lead looked good. No tap, nothing leaves.
+  //
+  // It needs no server. Chrome asks Telegram "any taps?" on a timer, which
+  // means CHROME HAS TO BE RUNNING - a tap while the Mac is asleep is acted on
+  // when Chrome wakes, not lost.
+  telegramApprovals: true,     // the buttons are the point, and nothing acts without a tap
+  telegramPollSeconds: 30,     // Chrome clamps alarms to 30s, so lower is the same
+
+  // ---- Night mode -------------------------------------------------------
+  // The one thing here that posts without a tap, so it is off until you turn
+  // it on and it is deliberately narrow. A lead found inside the window is
+  // announced with a countdown; tap Hold and it stops, do nothing and it goes
+  // up. Public replies only - an unsolicited PM is what BHW moderators act on,
+  // and it is not worth an account to save you typing.
+  nightMode: false,
+  nightStart: '23:00',         // in your timezone above
+  nightEnd: '07:00',
+  nightVetoMinutes: 20,        // how long you have to stop it
+  nightMinScore: 10,           // below this it waits for you
+  nightMaxPosts: 3,            // unattended posts per night, on top of the daily cap
+  nightSummary: true,          // a Telegram summary when the window closes
+
+  webhookUrl: '',              // Apps Script /exec URL (optional, legacy relay)
+  sharedSecret: '',            // must match SHARED_SECRET in Apps Script
+
+  notifyScore: 0,              // send everything; Telegram decides what buzzes
+  autoPost: true,              // act on 🚀 taps from Telegram and the dashboard (nothing posts without one)
+
+  // ---- Auto mode --------------------------------------------------------
+  // Off by default. Post the PUBLIC REPLY to a qualifying thread by itself, a
+  // random 1-3 minutes after it was found - no tap needed. Toggle it by
+  // sending "auto on" / "auto off" to the bot; "status" says whether it is on.
+  //
+  // Same safety rule night mode uses, and for the same reason: PUBLIC REPLIES
+  // ONLY. An unsolicited PM is the thing BHW moderators actually act on, so a
+  // PM always waits for your tap, whether auto mode is on or off. Every lead
+  // still gets a Telegram card with a Hold button while it counts down - tap
+  // it and that one lead waits for you, same as night mode.
+  autoMode: false,
+  // ---- What auto mode will NOT message -----------------------------------
+  // Three layers, cheapest first. A thread that fails any of them is left for
+  // you with the reason on its card - it is never sent and never retried.
+  //
+  // 1. It has to be your kind of work: a thread matching none of your service
+  //    categories below is not auto-messaged, whatever Claude thinks of it.
+  autoRequireMatch: false,     // off: every genuine HAF request gets the first PM; you judge the rest
+  // 2. Deal-breakers: phrases in the title or the post that mean "not worth a
+  //    PM". Case-insensitive; plain words or regex. Add your own in Settings
+  //    or with "block <phrase>" on Telegram.
+  autoSkipPhrases: [
+    // Only a buyer saying "do not message me". Everything else that used to be
+    // here (pay after delivery, commission, jobs, India) is yours to judge
+    // after the first PM - you said so. Add your own here or with "block …".
+    'no (?:pms?|dms?)\\b', "don'?t (?:pm|dm) me", '(?:pms?|dms?) will be ignored', 'reply (?:here|in (?:the )?thread) only'
+  ],
+  // 3. A stated budget below this is not worth the message. 0 = no minimum.
+  autoMinBudget: 0,
+  // And your own rules for Claude's screen, in your own words. Claude reads the
+  // whole post, so this catches what a phrase list cannot.
+  screenRules: 'Say yes to every genuine request to hire someone or to buy a service or work - any budget, any country, '
+    + 'any payment terms, any kind of work. Say no only when it is not a request at all: a seller advertising their own '
+    + 'service, a moderator or rules post, a discussion or a question with no job in it, or a thread that says not to PM.',
+  autoModeSince: '',           // when it was last switched on (kept for the report)
+  autoBackfillHours: 72,
+  backlogGapMinutes: 6,
+  dmAlerts: true,              // a new BHW message (envelope count) -> one Telegram line: who, subject, link        // PMs for threads older than 6h go at least this far apart (+ random), after your inbox is checked       // auto mode sends the pending PMs from this far back (3 days)
+  autoModeMinScore: 0,         // below this it waits for you; 0 = any matched lead qualifies
+
+  maxPostsPerDay: 10,          // hard cap on 🚀 posts, resets at local midnight
+  minSecondsBetweenPosts: 180, // spacing between two sent replies; 0 = none
+  // Your BHW username. Normally worked out from your own message list - you
+  // are the one person in every conversation - so this is only needed if that
+  // ever fails. It decides which conversations count as PMs YOU sent, so a
+  // wrong value here means leads marked done that are not.
+  bhwUsername: '',
+  // The BHW account this copy works for. Tied: the Telegram bot is locked to
+  // it (one bot per account), a second copy of the same account stands by, and
+  // nothing is sent while Chrome is signed in to BHW as anyone else.
+  boundAccount: '',
+  // Claude's writing instructions for this account ('' = the built-in ones).
+  // The screen verdict and answer format are always added after it.
+  claudeWriting: '',
+  // The PM's format for this account ('' = your own dmTemplates; points / paragraph / steps).
+  dmStyle: 'auto',
+  // The Specialist opener's first sentence (1.24, her copy). Edit to her own words.
+  specialty: 'Search is the only thing I work on.',
+  // Auto mode's wait before a PM sends, in minutes: a random point between these two (1.24, her copy).
+  autoDelayMin: 6,
+  autoDelayMax: 15,
+
+  // Telegram is for threads worth acting on NOW. Anything older than this is
+  // on the dashboard and does not need to buzz your phone - a thread from two
+  // days ago has twenty replies on it already.
+  announceMaxAgeHours: 24,
+
+  maxDmsPerDay: 30,            // cap on sent PMs per day; 0 = no cap at all.
+                               // Deliberately high: this is a backstop against
+                               // a runaway loop, not a policy about how many
+                               // PMs you may send - that is your call.
+  minSecondsBetweenDms: 300,   // spacing between two sent PMs; 0 = none
+
+  // Staging: for strong leads, open the thread in a background tab and type the
+  // reply in WITHOUT submitting. A 🚀 tap then just clicks Submit — sub-second.
+  stageScore: 10,              // stage leads at or above this score
+  maxStagedTabs: 3,            // never hold more than this many tabs open
+  stageTtlMinutes: 20,         // close a staged tab if you haven't decided by then
+
+  // ---- Reading the thread ----------------------------------------------
+  // The feed gives a title and sometimes a description; a thread found on a
+  // listing page gives a title and nothing else. That is not a brief, and
+  // answering a title you have misread is the worst thing a reply can do.
+  // So the thread page itself is read before drafting: the buyer's post in
+  // full, and the replies already on it from the other freelancers bidding.
+  // Signed in, one thread at a time, at a human pace.
+  readThreads: true,           // off = go on the title and feed description alone
+  maxThreadReads: 3,           // per check; the rest are read when you ask for Material           // per poll; 0 = no limit
+  secondsBetweenThreadReads: 2,
+
+  // ---- Matching -------------------------------------------------------
+  // A lead must hit at least one category. The first category it hits picks
+  // the reply template. Patterns are case-insensitive regex source strings.
+  categories: [
+    {
+      key: 'seo',
+      label: 'SEO / Links',
+      patterns: [
+        '\\bseo\\b', 'backlink', 'link building', 'guest post', '\\bpbn\\b',
+        'off[- ]?page', 'on[- ]?page', '\\bserp\\b', 'keyword research',
+        'domain authority', '\\bda\\s?\\d+', '\\bdr\\s?\\d+', 'rank(ing)? (my|our|the) site',
+        'google ranking', 'local seo', 'gmb', 'google business profile',
+        // Local-search work is SEO, not a generic enquiry.
+        { p: 'citations?\\b', w: 2 }, { p: '\\bnap\\b', w: 2 },
+        'directory (listing|submission)', 'business listing', 'map ?pack', 'local ?pack',
+        'yext', 'moz local', 'near me', 'schema markup', 'technical seo', '\\baso\\b',
+        // How buyers actually ask for links - "Looking for Quality Links With
+        // Traffic Proof" matched nothing above, and auto mode left it for you.
+        ...SEO_MORE
+      ]
+    },
+    {
+      key: 'ads',
+      label: 'Paid Ads',
+      patterns: [
+        'google ads', 'adwords', 'facebook ads', '\\bfb ads\\b', 'meta ads',
+        'ppc', 'ad account', 'ad campaign', 'tiktok ads', 'bing ads',
+        'media buy', 'campaign manager', 'ads? manager', 'white ?hat ads',
+        'black ?hat ads', 'cloak', 'ad creative',
+        ...ADS_MORE
+      ]
+    },
+    {
+      key: 'design',
+      label: 'Design / Artwork',
+      patterns: [
+        { p: '\\bdesign(er|s)?\\b', w: 2 }, { p: 'artwork', w: 2 }, { p: '\\blogo\\b', w: 2 },
+        'banner', 'graphic', 'photoshop', 'illustrator', '\\bfigma\\b', 'thumbnail',
+        'mockup', 'ui\\s?/?\\s?ux', 'branding', 'brand identity', 'flyer',
+        // "poster" alone is the person who posts, not a printed poster — the
+        // TikTok USA Poster thread taught us that. Require a design context.
+        // Outweigh Social's generic "poster" (w:3) — an explicit design
+        // context means it really is a printed poster.
+        { p: 'poster design', w: 4 }, { p: 'design(ed|ing)?\\s+(a\\s+)?poster', w: 4 },
+        { p: 'print(ed)?[- ]?(ready )?poster', w: 4 }, { p: '\\ba[0-9] poster', w: 4 },
+        'social media creative', 'video edit', 'banner ad'
+      ]
+    },
+    {
+      key: 'social',
+      label: 'Social / Accounts',
+      patterns: [
+        // Platform + doing-something-with-accounts is the strong signal.
+        { p: '\\btiktok\\b', w: 3 }, { p: '\\binstagram\\b|\\big\\b', w: 3 },
+        { p: '\\byoutube\\b|\\bshorts\\b', w: 3 }, { p: '\\btwitter\\b|\\bx\\.com\\b', w: 2 },
+        { p: '\\bthreads\\b|\\bsnapchat\\b|\\breddit\\b', w: 2 },
+        { p: '\\bposter\\b|\\bposters\\b', w: 3 },          // a person who posts
+        { p: 'post(ing|er)?\\s+(daily|for us|content|videos|reels)', w: 3 },
+        { p: 'account manage|manage (my|our|the) account|account manager', w: 3 },
+        { p: 'aged account|warm(ed)?[- ]up|account warm', w: 3 },
+        { p: '\\b(usa?|uk|canada|australia|german|geo)[- ]?(based|ip|account|number|sim)', w: 3 },
+        { p: 'upload(s|ing)? (videos|reels|shorts|content)', w: 2 },
+        'content calendar', 'engagement group', 'follower growth', 'grow (my|our) (page|account)',
+        'social media manage', 'community manage', 'creator account', 'shadowban'
+      ]
+    },
+    {
+      key: 'web',
+      label: 'Web / Dev',
+      patterns: [
+        'wordpress', 'landing page', 'website (build|design|develop)',
+        'web ?dev', 'shopify', 'funnel', 'html', 'css', 'react', 'php',
+        'plugin dev', 'speed optimi'
+      ]
+    },
+    {
+      key: 'content',
+      label: 'Content / Copy',
+      patterns: [
+        'content writ', 'copywrit', 'blog post', 'article writ', 'ghost ?writ',
+        '\\bcopy\\b', 'script writ', 'product description'
+      ]
+    }
+  ],
+
+  // Extra points when these appear anywhere in the post.
+  boosts: [
+    { pattern: 'monthly|retainer|ongoing|long[- ]term|recurring', weight: 4, label: 'recurring' },
+    { pattern: 'bulk|multiple sites|several projects', weight: 2, label: 'bulk' },
+    { pattern: 'urgent|asap|immediately|today', weight: 2, label: 'urgent' },
+    { pattern: 'agency|white ?label|reseller', weight: 3, label: 'agency' },
+    { pattern: 'portfolio|samples', weight: 1, label: 'wants-samples' }
+  ],
+
+  // Any hit here kills the lead outright — never emailed, never posted.
+  excludes: [
+    // No money in it
+    'for free', 'no budget', 'free of charge', 'exchange for',
+    'barter', 'revenue share', 'rev ?share', 'equity only', 'unpaid',
+    'no payment', 'partnership only',
+    // Someone selling, not hiring — pitching them our services reads badly.
+    '^\\s*(wts|selling|for sale)\\b', '\\bwts\\b', '\\bfor sale\\b',
+    'accounts? for sale', 'selling (my|our|aged|bulk|\\d)',
+    'i am (selling|offering)', "i'm (selling|offering)"
+  ],
+
+  // Threads that are never leads at all, whatever their words say - a mod's
+  // "how to post in this forum" thread, forum rules, and the like. These
+  // never become a lead, never reach Telegram, and never sit on the
+  // dashboard looking unactioned. A sticky/pinned thread is caught
+  // automatically (see src/listing.js); this is the exact, permanent way to
+  // silence one specific thread whatever the listing markup does. Seeded with
+  // the HAF rules thread, since a mod bumping it kept making it look like a
+  // fresh lead.
+  excludeThreadIds: ['951769'],
+  excludeAuthors: [],          // usernames (case-insensitive) to always ignore, e.g. mod accounts
+
+  // ---- Your own service threads ------------------------------------------
+  // Separate from everything above: HAF watches OTHER people's buyer threads
+  // across the whole forum, this watches a short, fixed list of threads YOU
+  // run - your own "SEO services" / "social accounts" / etc. listing threads
+  // - and tells you when one is due to bump. Nothing here posts by itself
+  // yet: the bot suggests the wording and you post it on BHW yourself, then
+  // tell it "bumped <label>" so the clock resets.
+  //
+  // BHW's own rule: a bump with a real update behind it is fine every 24h; a
+  // bump with nothing new to say is capped at once per 72h. Every self-only
+  // bump from this feature is treated as the slower, safer 72h kind - a
+  // faster cadence is only earned by answering a real reply on the thread,
+  // which is a separate, later piece.
+  serviceThreads: [],          // [{ id, url, label, lastBumpedAt, lastBumpKind, bumpNotifiedAt }]
+  // Your buyers' peak browsing window, in the timezone set above. A bump
+  // held until this window starts is worth more than one fired the instant
+  // it becomes eligible at 3am and buried by the time anyone is looking.
+  servicesPeakStartHour: 9,
+  servicesPeakEndHour: 22,
+  // Rotated at random so two bumps in a row never read identically. {a|b}
+  // spintax, same mechanism as the reply templates. Kept deliberately vague
+  // about specifics so one set of lines works across any service thread.
+  bumpTemplates: [
+    'Quick update - {a fresh slot has opened up this week|taking on one more project this week|room in the schedule this week}.',
+    '{Bumping with|Small update -} {a couple of spots free for new work|availability just opened up|capacity freed up this week}.',
+    '{Still taking on new projects|Open for new work} this week - {drop a reply or a PM with what you need|reply below or PM with the details}.'
+  ],
+
+  // ---- BHW compliance ---------------------------------------------------
+  // Every public reply and PM is checked before it goes anywhere. A failing
+  // draft is never auto-posted; it still reaches you, flagged with the rule.
+  compliance: {
+    mustInclude: [],                                   // e.g. { pattern: 'your-sales-thread', label: 'BST link' }
+    mustAppearEarly: [],                               // e.g. { pattern: 'Telegram', within: 120, label: 'contact at top' }
+    // Free work is banned outright: it is what attracts time wasters, and it
+    // was the rule from day one. Every shape of it, not just the phrase.
+    banned: [
+      'free trial', 'free sample', 'free test', 'for free', 'no charge',
+      'free of charge', 'at no cost', "won't cost you", 'free work'
+    ],
+    warn: [
+      'guaranteed', 'guarantee', '100%', 'cheapest',
+      // Reads as AI-written on a forum. Keep replies in plain punctuation.
+      '\\u2014', '\\u2013', '\\u2022', 'delve', 'leverage our', 'tailored solution',
+      'in today\'s', 'game[- ]?changer', 'seamless'
+    ]
+  },
+
+  // ---- Thread-specific bullets -------------------------------------------
+  // The template says what we do; these say "we have done exactly this".
+  // First matching rule wins. {{geo}} becomes the places named in the thread,
+  // and a bullet needing a geo is dropped when none was named.
+  specifics: {
+    geoPatterns: [
+      { p: '\\bdubai\\b|\\buae\\b|abu dhabi|sharjah', label: 'Dubai/UAE' },
+      { p: '\\buk\\b|united kingdom|\\blondon\\b|\\bengland\\b|manchester|birmingham', label: 'the UK' },
+      { p: '\\bus(a)?\\b|united states|america\\b', label: 'the US' },
+      { p: '\\bcanada\\b|toronto|vancouver', label: 'Canada' },
+      { p: '\\baustralia\\b|\\bsydney\\b|melbourne', label: 'Australia' },
+      { p: '\\bindia\\b|mumbai|delhi|bangalore', label: 'India' },
+      { p: '\\bgermany\\b|\\bberlin\\b|munich', label: 'Germany' },
+      { p: '\\bsingapore\\b', label: 'Singapore' },
+      { p: 'saudi|\\bksa\\b|riyadh', label: 'Saudi' }
+    ],
+    multiGeoBullet: 'Separate listing sets per market, not one profile stretched across {{geo}}',
+
+    rules: [
+      { p: 'citation|nap\\b|directory (listing|submission)|yext|moz local|business listing',
+        bullets: [
+          'Manual submissions to directories that actually index in {{geo}}, not a blast list',
+          'Existing listings audited first, so duplicates and wrong NAP get fixed before new ones go out',
+          'Live sheet with every citation, its login and its live/pending status'
+        ] },
+      { p: 'gmb|google business profile|google my business|map ?pack|local ?pack',
+        bullets: [
+          'Profile built out properly for {{geo}}: categories, services, service area, hours, Q&A',
+          'Geo-tagged posts and photos on a weekly schedule, not a one-off setup',
+          'Rank tracked on a grid around the pin, so you see movement by area not one average'
+        ] },
+      { p: 'local seo|rank (my|our) (business|shop|store|clinic)|near me',
+        bullets: [
+          'On-page built around the {{geo}} service pages, not generic keywords',
+          'Citations and NAP consistency cleaned up first, since that gates the map pack',
+          'Grid rank tracking around the pin so you can see area-by-area movement'
+        ] },
+      { p: 'guest post|link ?insert|niche edit|\\bpbn\\b|outreach link',
+        bullets: [
+          'Live sites with real traffic only, metrics shown before anything is placed',
+          'You approve every domain before we buy or place',
+          'Anchor mix kept natural, no exact-match stacking'
+        ] },
+      { p: 'e-?commerce|shopify|woocommerce|product page',
+        bullets: [
+          'Product and collection pages templated so the fixes scale across the catalogue',
+          'Schema, internal linking and faceted-navigation handling done properly',
+          'Reporting by collection, so you can see which range is actually earning'
+        ] },
+      { p: 'app store|aso\\b|play store',
+        bullets: [
+          'Keyword field, title and subtitle worked separately for each store',
+          'Screenshot and icon tests run against install rate, not opinion',
+          'Reviews and ratings velocity handled alongside the listing'
+        ] }
+    ],
+
+    // Used when no rule matches: the category's own bullets.
+    defaults: {
+      seo:     ['Full audit, on-page fixes, and a white hat link plan',
+                'First deliverables in 5-7 days',
+                'Monthly rank and traffic report'],
+      ads:     ['Account structure, tracking and conversion events set up properly',
+                'Ad creative produced in house',
+                'Weekly optimisation with a clear spend to result report'],
+      design:  ['Source files included (PSD, AI, Figma)',
+                '2 concepts first, then unlimited tweaks on the one you pick',
+                '2-4 days depending on scope'],
+      social:  ['Real devices and residential connections, matched to the geo you need',
+                'Steady daily posting on your schedule, not bursts',
+                'Warmed accounts and sensible limits so the profile stays healthy'],
+      web:     ['Clean, fast, mobile first build',
+                'On-page SEO done properly from the start',
+                'Timeline depends on page count, happy to scope it today'],
+      content: ['SEO aware, no AI filler',
+                'Sample piece before you commit',
+                '2-3 days per batch'],
+      generic: ['Tell us the details and we will scope it same day',
+                'Clear price before any work starts']
+    }
+  },
+
+  // ---- Reply templates -------------------------------------------------
+  // {{var}} is substituted. {a|b|c} picks one at random (spintax), so no two
+  // replies are byte-identical.
+  // Available vars: author, title, budget, category, link
+  // ---- Public forum reply ------------------------------------------------
+  // Short on purpose. One technical line proves you read the thread; the rest
+  // goes in the PM, where the other freelancers reading the thread cannot see
+  // it.
+  //
+  // No salutation, and no @name. Look at what actually gets posted on HAF and
+  // nobody opens by tagging the buyer - they start with the claim ("I have
+  // over 10 years in Google & Meta Ads...") and end with "check your PM".
+  // Opening every one of our replies with "Hi @buyer," would be a pattern of
+  // its own, and tagging the thread starter pings them for a post they are
+  // already reading. So the tip is the first line.
+  //
+  // No question either. Nobody on HAF opens a public reply with a question -
+  // they state what they can do and move to PM, and a question posted in the
+  // open invites the other freelancers to answer it for you. The question is
+  // still written; it is held back for the private message.
+  //
+  // So the public reply is two lines: the technical claim, then the PM. What
+  // varies per thread is that claim, which Claude writes against the thread's
+  // own post and the replies already on it, plus the closer below.
+  templates: {
+    seo: `{{tip}}
+
+{PM sent with the detail|Sent you a PM with the specifics|Dropped you a PM}.`,
+
+    ads: `{{tip}}
+
+{Sent you a PM|PM sent with how we would approach it|Dropped you a PM with the detail}.`,
+
+    design: `{{tip}}
+
+{PM sent|Sent you a PM with examples|Dropped you a PM}.`,
+
+    social: `{{tip}}
+
+{Sent you a PM|PM sent with the specifics|Dropped you a PM with the detail}.`,
+
+    web: `{{tip}}
+
+{PM sent|Sent you a PM|Dropped you a PM with the detail}.`,
+
+    content: `{{tip}}
+
+{PM sent with samples|Sent you a PM|Dropped you a PM}.`,
+
+    generic: `{{tip}}
+
+{Sent you a PM|PM sent with the detail|Dropped you a PM}.`
+  },
+  // ---- The four closes -------------------------------------------------
+  // Claude picks whichever fits the thread and never repeats the one it used
+  // last, so a buyer reading two of your PMs does not see the same pitch.
+  // None of them offers free work: that was the rule from the start, and on a
+  // board like this free work mostly buys time wasters.
+  //
+  //   pilot    small paid first order, so they risk little without you working free
+  //   ready    the asset or list already exists, so there is nothing to wait for
+  //   formula  the method, given away openly, which proves it better than claiming it
+  //   terms    money after delivery, not before
+  //
+  // There used to be a fifth, "scope" ("tell me the shape you want and it is
+  // priced the same day") - removed on request, it read as a weaker close
+  // than the other four.
+  //
+  // Each is one sentence. The line about starting immediately and the sign-off
+  // come after them, from the template, so no close repeats either.
+  offers: {
+    pilot: `{Easiest way in is a small first order|Simplest start is one small order|If it helps, start small}: {one page, one listing, one article, whatever the smallest useful unit is here|a single item at the normal rate}, {so you see the actual work before committing to volume|so you can judge it before scaling}.`,
+
+    ready: `{The list and the accounts are already built our side|We already have the list built and cleaned|The groundwork is already done our side}, {so day one is delivery rather than research|so there is nothing to wait for|so we start on the actual work and not the setup}.`,
+
+    formula: `{That is the whole method, in that order|That is the entire approach, and the order matters|Those three, in that order, are the whole method}. {The sequence is the part most people get wrong|Run it out of order and the later work inherits the earlier errors|Most of the failures we see are that sequence run backwards}.`,
+
+    terms: `{Happy to invoice after the first batch lands|We can deliver the first batch and invoice after|Payment after the first batch suits us fine}, {so you are judging finished work rather than a promise|so you see it before anything is paid}.`
+  },
+
+  // ---- When they pay -----------------------------------------------------
+  // The line that answers the question behind every HAF thread: what happens
+  // if I pay and nothing arrives. Nobody on that forum has to wonder about it
+  // out loud - they have all been burned once - so it is said before they ask.
+  //
+  // Named against the actual work, because "after the first milestone" is a
+  // phrase and "once the campaigns are live and spending" is a commitment. The
+  // milestone is the first point where the buyer can SEE something, not the
+  // point where the job is finished.
+  //
+  // Not free work: the work is paid for, just not before it exists. It is
+  // rendered in every PM except one carrying the "terms" close, which already
+  // says this - saying it twice reads as protesting.
+  //
+  // Written the way someone actually types on a forum. "Nothing is due until
+  // the campaigns are live and spending. First invoice after that, not before."
+  // is invoice boilerplate - correct, and nobody talks like that. "No money
+  // upfront. You pay once the ads are live and running." says the same thing
+  // in words a person would use, which is the whole point on a forum where
+  // everyone can smell a template.
+  paymentTerms: {
+    seo:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the first links are live|You pay after the first links are live and you can check them|Pay after the links are live, not before}.`,
+    ads:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the ads are live and running|You pay after the ads go live and you can see them running|Pay after the ads are live, not before}.`,
+    design:  `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you have seen the first files|You pay after the first files are with you|Pay after you have the first files, not before}.`,
+    social:  `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the posts are going up|You pay after the account is running and posting|Pay after the first posts are live, not before}.`,
+    web:     `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you can click through the first build|You pay after the first build is up and you have seen it|Pay after you have seen the first build, not before}.`,
+    content: `{No money upfront|No payment upfront|Nothing upfront}. {You pay once you have read the first pieces|You pay after the first pieces are with you|Pay after you have the first pieces, not before}.`,
+    generic: `{No money upfront|No payment upfront|Nothing upfront}. {You pay once the first part is done and you can see it|You pay after the first piece is with you|Pay after you have seen the first part, not before}.`
+  },
+
+  // ---- Private message ---------------------------------------------------
+  // Fixed shape, every time:
+  //
+  //   Hi <author>,
+  //   Came across your thread on HAF: <link>
+  //   Why We Can Do It:            <- bold in the BHW editor
+  //   1. 2. 3.                     <- what we have done, from Claude
+  //   <one of the five closes>
+  //   Just send a reply and we can get started.
+  //   Thanks!!
+  //
+  // Only the numbered lines and the close change between threads. **bold**
+  // renders as bold when the extension types it into BHW; everything that
+  // copies the draft strips the markers.
+  dmTemplates: {
+    generic: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    seo: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    ads: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    design: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    social: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    web: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your thread on HAF|Just read your HAF thread}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`,
+
+    content: `Hi {{author}},
+
+{Came across your thread on HAF|Saw your HAF thread|Just read your thread on HAF}: {{url}}
+
+**Why We Can Do It:**
+
+{{tips}}
+
+{{offer}}
+
+{{payment}}
+
+{Reply here and I will send real samples of work like this, plus a short plan for yours|Send a reply and you will get real samples and a short plan for your job|Drop a reply and I will come back with real samples and a short plan for this one}.
+
+Thanks!!`
+  }
+};
+
+export const CONFIG_VERSION = 39;
+
+/**
+ * Upgrade settings saved by an older version of the extension without
+ * touching what the user typed (URL, secret, keyword edits). Runs on every
+ * install/reload; a no-op once configVersion is current.
+ */
+export async function migrateConfig() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config) return;
+  const v = config.configVersion || 1;
+  if (v >= CONFIG_VERSION) return;
+  const next = { ...config };
+  if (v < 3) {
+    // v1/v2 shipped 10-minute polling, a score filter, no staging, no backfill.
+    if (next.pollMinutes === 10) next.pollMinutes = DEFAULT_CONFIG.pollMinutes;
+    if (next.notifyScore === 4) next.notifyScore = DEFAULT_CONFIG.notifyScore;
+    for (const k of ['jitterSeconds', 'stageScore', 'maxStagedTabs', 'stageTtlMinutes', 'backfillHours']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+    next.templates = { ...DEFAULT_CONFIG.templates, ...(next.templates || {}) };  // adds 'generic'
+  }
+  if (v < 4) {
+    for (const k of ['compliance']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+    next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates, ...(next.dmTemplates || {}) };
+    for (const [k, t] of Object.entries(next.templates || {})) {   // retire the old opener
+      if (typeof t === 'string') next.templates[k] = t.replace(/\{I can take this on\|/, '{').replace(/\|Happy to take this on\}/, '|Happy to handle this}');
+    }
+  }
+  if (v < 5) {
+    // v4's PMs were standalone paragraphs; v5 mirrors the public reply and
+    // closes with the shared offer. Replace them unless they were customised.
+    next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates };
+  }
+  if (v < 8) {
+    for (const k of ['dmTitle', 'maxDmsPerDay']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+  }
+  if (v < 25 && next.timezone == null) next.timezone = DEFAULT_CONFIG.timezone;
+  if (v < 24 && next.telegramSend == null) next.telegramSend = DEFAULT_CONFIG.telegramSend;
+  if (v < 23 && next.brief == null) next.brief = DEFAULT_CONFIG.brief;
+  if (v < 22) {
+    // Spacing moves from whole minutes to seconds, so it can be set below a
+    // minute. Carry over whatever was set, and bring the PM default down.
+    next.minSecondsBetweenPosts = next.minSecondsBetweenPosts
+      ?? (next.minMinutesBetweenPosts != null ? next.minMinutesBetweenPosts * 60 : DEFAULT_CONFIG.minSecondsBetweenPosts);
+    next.minSecondsBetweenDms = next.minSecondsBetweenDms
+      ?? (next.minMinutesBetweenDms === 5 ? DEFAULT_CONFIG.minSecondsBetweenDms
+          : next.minMinutesBetweenDms != null ? next.minMinutesBetweenDms * 60 : DEFAULT_CONFIG.minSecondsBetweenDms);
+    delete next.minMinutesBetweenPosts;
+    delete next.minMinutesBetweenDms;
+  }
+  if (v < 21) {
+    // The sign-off asked for a reply instead of announcing availability.
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.offers = DEFAULT_CONFIG.offers;
+  }
+  if (v < 20) {
+    // Checking every 3 minutes is the point of the thing; a config still on
+    // the old 10-minute default is lifted. A figure you chose is left alone.
+    if (next.pollMinutes === 10) next.pollMinutes = DEFAULT_CONFIG.pollMinutes;
+  }
+  if (v < 19) {
+    for (const k of ['soundEnabled', 'sound', 'soundHot', 'soundVolume']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+  }
+  if (v < 18) {
+    // The PM gains a bold heading and a fixed sign-off, the public reply drops
+    // the filler after the tip, and the five closes lose their trailing
+    // "we can start today" now that the template carries it once.
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.offers = DEFAULT_CONFIG.offers;
+  }
+  if (v < 16) {
+    // One offer for every PM became five, chosen per thread, and the public
+    // reply gained a question. Both template sets change shape, and the ban on
+    // free work is widened from the single phrase to every form of it.
+    next.offers = next.offers ?? DEFAULT_CONFIG.offers;
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+    next.compliance = { ...next.compliance, banned: DEFAULT_CONFIG.compliance.banned };
+    delete next.dmOffer;
+  }
+  if (v < 13 && next.aiSpecifics == null) next.aiSpecifics = DEFAULT_CONFIG.aiSpecifics;
+  if (v < 15) {
+    for (const k of ['telegramEnabled', 'telegramChatId']) {
+      if (next[k] == null) next[k] = DEFAULT_CONFIG[k];
+    }
+  }
+  if (v < 14) {
+    // v13 put the same three bullets in the public reply and the PM, and the
+    // PM quoted the reply back. v14 splits them: one line in public, three in
+    // the PM, and the PM stands on its own. The old templates use {{specifics}}
+    // and {{reply}}, which no longer exist, so they have to be replaced.
+    next.templates = DEFAULT_CONFIG.templates;
+    next.dmTemplates = DEFAULT_CONFIG.dmTemplates;
+  }
+  if (v < 12) {
+    next.specifics = next.specifics ?? DEFAULT_CONFIG.specifics;
+    next.templates = DEFAULT_CONFIG.templates;   // now carry a {{specifics}} slot
+  }
+  if (v < 11) {
+    // Em dashes and "•" read as AI-written; templates rewritten without them.
+    next.templates = DEFAULT_CONFIG.templates;
+  }
+  if (v < 10 && Array.isArray(next.excludes) && !next.excludes.some((e) => /for sale/.test(e))) {
+    next.excludes = DEFAULT_CONFIG.excludes;   // seller-thread guards added
+  }
+  if (v < 9) {
+    // "poster" used to mean design; a Social / Accounts category now owns it.
+    next.categories = DEFAULT_CONFIG.categories;
+    next.templates = { ...DEFAULT_CONFIG.templates, ...(next.templates || {}) };
+    if (!next.templates.social) next.templates.social = DEFAULT_CONFIG.templates.social;
+    if (!next.dmTemplates?.social) next.dmTemplates = { ...DEFAULT_CONFIG.dmTemplates, ...(next.dmTemplates || {}) };
+  }
+  if (v < 26) {
+    // Every template change shipped since the first time Save was pressed was
+    // invisible. setConfig writes the WHOLE merged config, so pressing Save
+    // once froze a copy of the templates into storage, and from then on the
+    // stored copy beat anything the code shipped. The public reply kept its
+    // "Hi @buyer," salutation and its question for exactly that reason - both
+    // were removed in the source and neither reached the browser.
+    //
+    // This resets the wording to what the code now ships. It is a one-time
+    // reset and it does discard hand-edited template text; from here on the
+    // fingerprint below makes this automatic and only for wording nobody has
+    // touched, so it will not need doing again.
+    for (const k of TEXT_KEYS) next[k] = DEFAULT_CONFIG[k];
+  }
+  if (v < 27) {
+    // The PM cap shipped at 8, on the theory that a low number was safer. In
+    // practice it holds back PMs you have already read, approved and tapped -
+    // a decision you had made - so it was doing the wrong job. It is now a
+    // backstop against a runaway loop, not a policy, and 0 switches it off.
+    //
+    // Only the old default is lifted: a number you typed yourself is yours.
+    if (Number(next.maxDmsPerDay) === 8) next.maxDmsPerDay = DEFAULT_CONFIG.maxDmsPerDay;
+  }
+  if (v < 28) {
+    // 1.2.0 ships the black-hat ads forum list and watch words. Merge, never
+    // replace: whatever you added yourself stays, and what you removed on
+    // purpose (by URL or word) is not put back if you had saved the list once.
+    const haveF = new Set((next.watchForums || []).map((f) => String(f.url || '').replace(/\/?(?:[?#].*)?$/, '/').toLowerCase()));
+    next.watchForums = [...(next.watchForums || []), ...WATCH_FORUMS.filter((f) => !haveF.has(f.url.toLowerCase())).map((f) => ({ ...f }))];
+    const haveW = new Set((next.watchWords || []).map((w) => String(w.word || '').toLowerCase()));
+    next.watchWords = [...(next.watchWords || []), ...WATCH_WORDS.filter((w) => !haveW.has(w.word)).map((w) => ({ ...w }))];
+    if (next.siteWideEnabled == null) next.siteWideEnabled = true;
+    // Only the old defaults are lifted; a number you typed yourself is yours.
+    if (Number(next.announceMaxAgeHours) === 12) next.announceMaxAgeHours = 24;
+    if (Number(next.maxThreadReads) === 8) next.maxThreadReads = 15;
+  }
+  if (v < 29) {
+    // 1.3: real tabs, slower and less regular. Only the shipped numbers move.
+    if ([3, 5].includes(Number(next.pollMinutes))) next.pollMinutes = 6;
+    if (Number(next.jitterSeconds) === 40) next.jitterSeconds = 150;
+    if (next.sleepEnabled == null) { next.sleepEnabled = false; next.sleepStart = '01:00'; next.sleepEnd = '07:00'; }
+    if (Number(next.maxThreadReads) === 15) next.maxThreadReads = 3;
+  }
+  if (v < 30) next.sleepEnabled = false;   // 1.3.1 switched sleep on by itself; that was wrong
+  if (v < 32 && Array.isArray(next.categories)) {
+    // Wider service patterns, merged into the lists you have: yours stay.
+    const add = (key, more) => {
+      const cat = next.categories.find((c) => c.key === key);
+      if (!cat || !Array.isArray(cat.patterns)) return;
+      const have = new Set(cat.patterns.map((p) => (typeof p === 'string' ? p : p.p)));
+      for (const p of more) if (!have.has(p)) cat.patterns.push(p);
+    };
+    add('seo', SEO_MORE);
+    add('ads', ADS_MORE);
+  }
+  if (v < 34) {
+    // 1.7.2: the first PM goes to every genuine HAF request; the operator
+    // judges the rest afterwards. Only the shipped rules are replaced - a
+    // phrase list or wording you edited yourself is left alone.
+    next.autoRequireMatch = false;
+    const shippedPhrases = Array.isArray(next.autoSkipPhrases) && next.autoSkipPhrases.some((p) => String(p).startsWith('pay(?:ment|ing)?s? (?:will be'));
+    if (!Array.isArray(next.autoSkipPhrases) || shippedPhrases) next.autoSkipPhrases = DEFAULT_CONFIG.autoSkipPhrases.slice();
+    if (!next.screenRules || String(next.screenRules).startsWith('Say no when: the buyer will pay only after')) next.screenRules = DEFAULT_CONFIG.screenRules;
+  }
+  if (v < 39) {
+    // log 1.26.0: the SEO buyer hunter replaces the ads-forum list; her copy reads one what's-new list instead.
+    next.huntOn = true; next.otherSourcesOn = false;
+    if (!Array.isArray(next.huntFocus) || !next.huntFocus.length) next.huntFocus = ['seo', 'content'];
+  }
+  if (v < 38) {
+    // 1.24.2: her own wording only - the old default specialty line, and any old style, are replaced.
+    if (!next.specialty || /day in and day out/.test(next.specialty)) next.specialty = DEFAULT_CONFIG.specialty;
+    if (!['auto', 'audit', 'plan', 'specialist'].includes(next.dmStyle)) next.dmStyle = 'auto';
+  }
+  if (v < 37) {
+    // 1.24.1 (her copy): her own DM concept and timing replace what an earlier install saved
+    // (1.23's Paragraph style, the 1-3 minute wait). Once only: what she changes later stays.
+    next.dmStyle = 'auto';
+    if (!next.specialty) next.specialty = DEFAULT_CONFIG.specialty;
+    next.autoDelayMin = DEFAULT_CONFIG.autoDelayMin;
+    next.autoDelayMax = DEFAULT_CONFIG.autoDelayMax;
+    if (!(Number(next.minSecondsBetweenDms) > 300)) next.minSecondsBetweenDms = DEFAULT_CONFIG.minSecondsBetweenDms;
+  }
+  if (v < 36) {
+    // 1.12.4: the PM cap of 8 came back on the server through the settings file in the
+    // zip (saved by settings version 26, so the lift below, which runs only for versions
+    // under 22, never touched it). The old default is lifted again here, for any version.
+    if (Number(next.maxDmsPerDay) === 8) next.maxDmsPerDay = DEFAULT_CONFIG.maxDmsPerDay;
+  }
+  if (v < 35) {
+    // 1.10.1: auto mode covers 3 days, not 1; the dashboard keeps the newest 20 HAF threads.
+    if (next.autoBackfillHours == null || Number(next.autoBackfillHours) === 24) next.autoBackfillHours = 72;
+    if (next.hafMinThreads == null) next.hafMinThreads = 20;
+  }
+  if (v < 33) {
+    // Nothing public is ever posted without a tap. Night mode was the one
+    // setting that did, so it is switched off and stays off.
+    next.nightMode = false;
+    delete next.allowAutoPublic;
+    delete next.legacyApprovals;
+  }
+  if (v < 31) next.telegramOtherSources = false;   // the phone is for Hire a Freelancer; the rest lives on the dashboard
+  next.templateDefaults = textStamp(DEFAULT_CONFIG);
+  next.configVersion = CONFIG_VERSION;
+  await chrome.storage.local.set({ config: next });
+  // Mirror to sync so a new machine starts prefilled. Fire and forget: a full
+  // or switched-off sync must never fail the local save, which is the one that
+  // matters right now.
+  pushConfig(next).catch(() => {});
+  return next;
+}
+
+/**
+ * The wording of a draft, as opposed to your settings. These are the keys the
+ * code owns unless you have deliberately rewritten them.
+ */
+const TEXT_KEYS = ['templates', 'dmTemplates', 'offers', 'specifics', 'dmTitle'];
+
+/** A cheap fingerprint of just that wording. */
+export function textStamp(cfg) {
+  const src = JSON.stringify(TEXT_KEYS.map((k) => cfg[k] ?? null));
+  let h = 2166136261 >>> 0;
+  for (const ch of src) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return h.toString(36);
+}
+
+/**
+ * Take new wording from the code, unless you have written your own.
+ *
+ * `templateDefaults` records the fingerprint of the defaults that were in
+ * force when the config was last written. If the stored wording still matches
+ * that fingerprint you never edited it, so a new version's wording is yours to
+ * have. If it does not match, you changed something and it is left alone.
+ */
+export async function adoptNewTemplates() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config) return { adopted: false };
+  const shipped = textStamp(DEFAULT_CONFIG);
+  const stored = textStamp(config);
+  if (stored === shipped) return { adopted: false };            // already current
+  if (config.templateDefaults && config.templateDefaults !== stored) {
+    return { adopted: false, yours: true };                     // you rewrote it; keep it
+  }
+  const next = { ...config };
+  for (const k of TEXT_KEYS) next[k] = DEFAULT_CONFIG[k];
+  next.templateDefaults = shipped;
+  await chrome.storage.local.set({ config: next });
+  return { adopted: true };
+}
+
+export async function getConfig() {
+  const { config } = await chrome.storage.local.get('config');
+  const cfg = { ...DEFAULT_CONFIG, ...(config || {}) };
+  // Settings used to save "Your BHW username" as a NUMBER: an empty box became
+  // 0, shown again as "0", saved back as the text "0". The inbox check then
+  // read your message list as a user called "0", decided the PMs there were not
+  // yours, and cleared marks it had set. A name is never a bare number.
+  cfg.bhwUsername = cleanUsername(cfg.bhwUsername);
+  return cfg;
+}
+export const cleanUsername = (v) => {
+  const t = String(v ?? '').trim();
+  return !t || /^(0|nan|null|undefined)$/i.test(t) ? '' : t;
+};
+
+export async function setConfig(patch) {
+  const current = await getConfig();
+  const next = { ...current, ...patch, configVersion: CONFIG_VERSION };
+  // Record which defaults this wording came from, so a later version can tell
+  // untouched wording from wording you wrote yourself.
+  next.templateDefaults = textStamp(next) === textStamp(DEFAULT_CONFIG)
+    ? textStamp(DEFAULT_CONFIG)          // still the shipped wording
+    : current.templateDefaults;          // yours, or not yet known - do not invent one
+  await chrome.storage.local.set({ config: next });
+  // Every change reaches your Google account, not only a Save in Settings, so
+  // the other machine gets it - the chat id above all. Never fails the save.
+  pushConfig(next).catch(() => {});
+  return next;
+}

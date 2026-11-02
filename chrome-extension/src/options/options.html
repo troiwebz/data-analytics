@@ -1,0 +1,559 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher — Settings</title>
+<style>
+  body{font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f1f5f9;color:#0f172a}
+  .w{max-width:760px;margin:0 auto;padding:24px}
+  .c{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
+  h1{font-size:20px;margin:0 0 16px} h2{font-size:15px;margin:0 0 12px;color:#334155}
+  label{display:block;font-weight:600;margin:12px 0 4px;font-size:13px}
+  .hint{font-weight:400;color:#64748b;font-size:12px}
+  input[type=text],input[type=number],textarea{width:100%;box-sizing:border-box;padding:9px;
+    border:1px solid #cbd5e1;border-radius:8px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+  textarea{min-height:150px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  button{padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+  button.sec{background:#e2e8f0;color:#0f172a}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  #status{font-size:13px;padding:8px 0}
+  .sw{display:flex;align-items:center;gap:8px;font-weight:600}
+</style>
+<div class="w">
+  <h1>HAF Watcher</h1>
+
+  <div class="c" id="accountCard">
+    <h2>Account <span class="hint">which BHW account this copy works for, and how Claude writes for it</span></h2>
+    <div class="row">
+      <div style="flex:1 1 260px"><label>This copy works for BHW account
+        <span class="hint">your BHW username, exactly as on the forum</span></label>
+        <input type="text" id="boundAccount" placeholder="e.g. bargainbed" autocomplete="off"></div>
+    </div>
+    <p id="acctState" class="hint" style="margin:6px 0 0"></p>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Two PCs, two BHW accounts - how to set it up</summary>
+      <ol class="hint" style="margin:6px 0 0 18px;padding:0">
+        <li>Each account gets <b>its own Telegram bot</b>. Make the second one in @BotFather (/newbot) - it is free and takes a minute. One bot can only be read by one copy.</li>
+        <li>On each PC: sign Chrome in to BHW as that PC's account, type the same name above, paste that account's bot token, Save.</li>
+        <li>The Claude key can be the same on both.</li>
+        <li>Then on each PC press "Keep THIS as the main system" on the dashboard. Each bot is locked to its account: a PC tied to account A can never take account B's bot.</li>
+        <li>The same account never runs twice: a second copy of it stands by (when both Chromes are signed in to the same Google account, even with different bots).</li>
+        <li>If Chrome is signed in to BHW as someone other than the account above, nothing is sent or posted until they match.</li>
+      </ol>
+    </details>
+
+    <label style="margin-top:14px">Claude prompt for this account
+      <span class="hint">how the lines are written - voice, "we" or "I", format. Empty = the built-in prompt</span></label>
+    <textarea id="claudeWriting" style="min-height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px"
+      placeholder="Empty: the built-in prompt is used. Press &quot;Load the built-in skeleton&quot; to start from it and change what you need."></textarea>
+    <div class="row" style="margin-top:6px">
+      <button id="loadSkeleton" class="sec" style="flex:0 0 auto">Load the built-in skeleton</button>
+      <button id="resetWriting" class="sec" style="flex:0 0 auto">Back to built-in (empty)</button>
+      <span id="writingState" class="hint" style="flex:1;align-self:center"></span>
+    </div>
+    <label style="margin-top:10px">Or start from an angle <span class="hint">same rules, different lead - give each account its own so they never read alike</span></label>
+    <div class="row" id="angleBtns" style="margin-top:4px;align-items:center"></div>
+    <p id="angleHelp" class="hint" style="margin:4px 0 0"></p>
+
+    <label style="margin-top:10px">PM format for this account <span class="hint">greeting, layout, closing lines and sign-off - give each account a different one so two accounts never share a skeleton</span></label>
+    <div class="row" style="align-items:center">
+      <select id="dmStyle" style="flex:0 1 260px"></select>
+      <span id="dmStyleHelp" class="hint" style="flex:1 1 200px"></span>
+    </div>
+
+    <div style="margin-top:14px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc">
+      <b>Check the output</b> <span class="hint">runs a real recent thread through the prompts and shows the exact PM each would send - nothing is saved or sent. About $0.01 per prompt.</span>
+      <div class="row" style="margin-top:8px">
+        <select id="previewThread" style="flex:1 1 320px;min-width:0"></select>
+      </div>
+      <div class="row" style="margin-top:6px;align-items:center">
+        <button id="previewAngles" style="flex:0 0 auto">Compare the 3 angles</button>
+        <button id="previewBox" class="sec" style="flex:0 0 auto">Preview what is in the box</button>
+      </div>
+      <p id="previewState" class="hint" style="margin:6px 0 0"></p>
+      <div id="previewOut" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px"></div>
+    </div>
+
+    <p class="hint" style="margin:6px 0 0"><b>{{account}}</b> anywhere in it becomes the account name above.
+      Your "What to say about you" and screen rules are still added. Saved with the Save button.</p>
+    <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Always added after it (locked - auto mode's safety check and the answer format)</summary>
+      <pre id="lockedPrompt" style="white-space:pre-wrap;font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;max-height:260px;overflow:auto"></pre>
+    </details>
+  </div>
+
+  <div class="c">
+    <h2>Connection</h2>
+    <label class="sw"><input type="checkbox" id="enabled"> Watcher enabled</label>
+    <label>Time zone <span class="hint">every time on every page is shown in this zone, on a 12 hour clock</span></label>
+    <select id="timezone" style="max-width:320px">
+      <option value="Asia/Kolkata">India (IST)</option>
+      <option value="">This computer's own zone</option>
+      <option value="Asia/Dubai">Dubai (GST)</option>
+      <option value="Europe/London">London</option>
+      <option value="America/New_York">New York</option>
+      <option value="America/Los_Angeles">Los Angeles</option>
+      <option value="UTC">UTC</option>
+    </select>
+    <label>Feed URL</label>
+    <input type="text" id="feedUrl">
+    <div class="row">
+      <div><label>Poll every (minutes)</label><input type="number" id="pollMinutes" min="1"></div>
+      <div><label>+ random jitter (seconds)</label><input type="number" id="jitterSeconds" min="0"></div>
+      <div><label>Check approvals every (min)</label><input type="number" id="approvalPollMinutes" min="1"></div>
+      <div><label>First-run backfill (hours)</label><input type="number" id="backfillHours" min="0"></div>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>More sources <span class="hint">any BHW forum, plus the site-wide feed filtered by your words — public reply only</span></h2>
+    <label>Forums to watch <span class="hint">one per line: <code>url | label | bump</code> — label and "bump" are optional; "bump" also alerts when a thread there is bumped</span></label>
+    <textarea id="watchForumsText" rows="4" placeholder="https://www.blackhatworld.com/forums/google-ads.83/ | Google Ads"></textarea>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="siteWideEnabled"> Watch the whole site (What's new) for the words below</label>
+    <label>Watch words <span class="hint">one per line: <code>word | bump</code> — matched against every new thread's title and first lines</span></label>
+    <textarea id="watchWordsText" rows="5" placeholder="casino
+google ads | bump
+ppc"></textarea>
+    <div class="row" style="margin-top:8px">
+      <div><label>"next" / "haf" look back (hours)</label><input type="number" id="threadMaxAgeHours" min="1"></div>
+      <div><label>Search index keeps (days)</label><input type="number" id="indexDays" min="1"></div>
+      <div><label>How BHW is read</label><select id="readMode"><option value="tabs">Real tabs, like a member (recommended)</option><option value="feeds">RSS feeds (faster, gets rate-limited)</option></select></div>
+      <div><label>Gap between thread reads (seconds)</label><input type="number" id="threadReadGapSeconds" min="2"></div>
+      <div><label>Message list check every (min)</label><input type="number" id="pmCheckMinutes" min="1"></div>
+    </div>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="telegramOtherSources"> Send these threads to Telegram <span class="hint">off = Telegram is Hire a Freelancer only; these stay on the dashboard</span></label>
+    <label class="sw"><input type="checkbox" id="dmAlerts"> New BHW messages → Telegram <span class="hint">when your envelope shows unread messages: who wrote, the subject and a link - no extra page visits</span></label>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="pushBacklog"> Push the swept backlog to Telegram too <span class="hint">off = those wait for "next"; new and bumped threads always come as cards</span></label>
+    <label class="sw" style="margin-top:10px"><input type="checkbox" id="sleepEnabled"> Sleep: no reads at night <span class="hint">a member is not on the forum at 3am; Telegram taps still post</span></label>
+    <div class="row">
+      <div><label>Sleep from</label><input type="time" id="sleepStart"></div>
+      <div><label>until</label><input type="time" id="sleepEnd"></div>
+      <div><label>Forums read per check <span class="hint">feeds mode only</span></label><input type="number" id="sourcesPerPoll" min="1"></div>
+      <div><label>Pause between fetches (seconds)</label><input type="number" id="secondsBetweenSourceFetches" min="0"></div>
+    </div>
+    <p class="hint" style="margin-top:6px">BHW answers a burst of requests with "429" and then refuses every feed for a while. Four forums per
+      check with a two-second pause keeps it happy; on a 429 the sources pause for ten minutes by themselves.</p>
+    <p class="hint" style="margin-top:8px">From Telegram: <code>watch &lt;forum url or word&gt;</code>, <code>unwatch &lt;label or word&gt;</code>,
+      <code>watching</code>, <code>next</code>, <code>haf</code>, <code>casino</code> / <code>casino new</code> / <code>casino bump</code> / <code>casino done</code>,
+      <code>stats</code>, <code>seed &lt;forum label&gt;</code>. Threads from these sources get a card with 📋 Material —
+      copy it into Claude/ChatGPT, then reply to the card with your answer and tap 🚀.</p>
+  </div>
+
+  <div class="c">
+    <h2>Claude <span class="hint">writes the 2-4 technical bullets in each reply; the rest stays templated</span></h2>
+    <label class="sw"><input type="checkbox" id="aiSpecifics"> Let Claude write the technical bullets</label>
+    <label>Anthropic API key <span class="hint">from console.anthropic.com — stored on this Mac only, in the extension's own storage</span></label>
+    <div class="row">
+      <input type="password" id="aiKey" placeholder="sk-ant-..." autocomplete="off">
+      <button id="saveKey" style="flex:0 0 auto">Save key</button>
+      <button id="copyKey" class="sec" style="flex:0 0 auto">Copy stored key</button>
+      <button id="clearKey" class="sec" style="flex:0 0 auto">Remove</button>
+    </div>
+    <p class="hint" style="margin:6px 0 0">The box above is always blank. It is a place to paste a new key,
+      not a display of the stored one. What is actually stored is shown below.
+      <b>Copy stored key</b> puts it on your clipboard so you can keep it in a password manager.</p>
+    <label>What to say about you <span class="hint">optional, but the single biggest thing you can do to improve the drafts</span></label>
+    <textarea id="brief" style="min-height:110px" placeholder="What you actually do, what you are good at, what you will not take on, anything true and specific you want mentioned. For example:
+
+We are a 6 person agency in Chennai. Strongest at local SEO and GMB, we own a 40 directory list for UAE and UK. We do our own phone verification in house. We do not touch adult or crypto. Turnaround is usually 3 to 5 days. Clients are mostly agencies reselling to their own clients."></textarea>
+    <p class="hint" style="margin:6px 0 0">Claude gets this with every thread. It decides what "we" can honestly claim,
+      which of the five closes fits, and what to say when a post is vague. It is never quoted back at the buyer.
+      Leave it empty and Claude works from the thread alone, as it does now.</p>
+    <label>Model <span class="hint">cheaper models cost less per lead; all three follow the same template</span></label>
+    <div class="row">
+      <select id="aiModel" style="max-width:260px"></select>
+      <span style="flex:1"></span>
+    </div>
+    <label>Spend limit per day <span class="hint">Claude stands down and the built-in rules take over once this is reached; 0 means no cap</span></label>
+    <div class="row">
+      <input type="number" id="aiBudget" step="0.05" min="0" style="max-width:140px">
+      <button id="saveBudget" class="sec" style="flex:0 0 auto">Set limit</button>
+      <span style="flex:1"></span>
+    </div>
+    <label>Credit you have topped up <span class="hint">Anthropic has no way for this extension to read your real balance, so tell it what you added and it counts down</span></label>
+    <div class="row">
+      <input type="number" id="aiCredits" step="1" min="0" placeholder="5" style="max-width:140px">
+      <button id="addCredits" class="sec" style="flex:0 0 auto">I added this much</button>
+      <button id="resetSpend" class="sec" style="flex:0 0 auto">Start the count again</button>
+    </div>
+    <div id="aiStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="testAi" class="sec" style="flex:0 0 auto">Test Claude now</button>
+      <span class="hint" style="align-self:center">Writes bullets for a sample thread so you can see the real output. Costs about $0.001.</span>
+    </div>
+    <div id="aiTest" style="margin-top:10px"></div>
+  </div>
+
+  <div class="c">
+    <h2>Alerts <span class="hint">a Mac notification and a sound when new threads land</span></h2>
+    <label class="sw"><input type="checkbox" id="soundEnabled"> Play a sound when new threads are found</label>
+    <p class="hint" style="margin:0 0 10px">One banner and one sound per check, not one per thread. A check that
+      finds five threads makes one noise. The banner is a real macOS notification: it stacks in Notification
+      Centre, arrives over other apps, and a hot lead stays on screen until you dismiss it. Clicking it opens
+      the drafts.</p>
+    <div class="row">
+      <div style="flex:1">
+        <label>New threads</label>
+        <select id="sound"></select>
+      </div>
+      <div style="flex:1">
+        <label>Hot lead <span class="hint">score 10+</span></label>
+        <select id="soundHot"></select>
+      </div>
+      <div style="flex:1">
+        <label>Volume <span class="hint" id="volLabel"></span></label>
+        <input type="range" id="soundVolume" min="0" max="1" step="0.05" style="width:100%">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="testAlert" style="flex:0 0 auto">Test the banner and sound</button>
+      <button id="playSound" class="sec" style="flex:0 0 auto">Just the new-thread sound</button>
+      <button id="playHot" class="sec" style="flex:0 0 auto">Just the hot-lead sound</button>
+      <span style="flex:1"></span>
+    </div>
+    <div id="soundMsg" class="hint" style="margin-top:8px"></div>
+    <p class="hint" style="margin:10px 0 0">No banner? macOS decides that, not this extension.
+      Open <b>System Settings &rarr; Notifications &rarr; Google Chrome</b> and turn <b>Allow notifications</b> on,
+      with the style set to <b>Alerts</b> if you want them to stay on screen. Also check no <b>Focus</b> or
+      Do Not Disturb is running, and that Chrome is not in full screen with notifications suppressed.</p>
+  </div>
+
+  <div class="c">
+    <h2>Phone dashboard <span class="hint">this dashboard, live on your phone - open the link once, then Add to Home Screen</span></h2>
+    <label>Your phone link</label>
+    <div class="row" style="display:flex;gap:8px;align-items:center">
+      <input id="mobileLink" readonly style="flex:1" placeholder="(created when this page opens)">
+      <button id="mobileCopy" class="sec" style="flex:0 0 auto">Copy</button>
+      <button id="mobileOpen" class="sec" style="flex:0 0 auto">Open</button>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="mobileOn"> Send this dashboard to the phone page every 2 minutes</label>
+    <p class="hint" id="mobileState"></p>
+    <p class="hint">Only the numbers and the thread list go there: no keys, no bot token, no drafts. Anyone with the link can view it, so keep it to yourself.
+      <button id="mobileNew" class="sec" style="margin-left:6px">Make a new link</button> stops the old one working.</p>
+  </div>
+
+  <div class="c">
+    <h2>Telegram <span class="hint">every new thread arrives on your phone automatically</span></h2>
+    <label class="sw"><input type="checkbox" id="telegramEnabled"> Send new threads to Telegram</label>
+    <p class="hint" style="margin:0 0 10px">The PM comes first, because it is the one you send. Tap a block on
+      your phone to copy it. Sent straight from Chrome, so nothing else has to be running.</p>
+    <label>What to send</label>
+    <select id="telegramSend" style="max-width:320px">
+      <option value="both">The PM, then the public reply</option>
+      <option value="pm">The PM only</option>
+      <option value="reply">The public reply only</option>
+    </select>
+    <label>Bot token <span class="hint">from @BotFather on Telegram — stored in the vault with your Claude key</span></label>
+    <div class="row">
+      <input type="password" id="tgToken" placeholder="1234567890:AA…" autocomplete="off">
+      <button id="saveTg" style="flex:0 0 auto">Save token</button>
+      <button id="clearTg" class="sec" style="flex:0 0 auto">Remove</button>
+    </div>
+    <label>Your chat id</label>
+    <div class="row">
+      <input type="text" id="telegramChatId" placeholder="8812664414">
+      <button id="findChat" class="sec" style="flex:0 0 auto">Find it for me</button>
+    </div>
+    <div class="hint" style="margin-top:6px">Send your bot any message on Telegram — "hi" is enough — then
+      press <b>Find it for me</b>. It reads your id straight off the bot and saves it; there is nothing else
+      to press.</div>
+    <div class="row" style="margin-top:10px">
+      <button id="testTg" class="sec" style="flex:0 0 auto">Send a test message</button>
+      <button id="sampleTg" style="flex:0 0 auto">Send a sample lead</button>
+      <span class="hint" style="align-self:center">Press Save first. The sample is a real thread put through
+        the whole pipeline, so it is exactly what a genuine lead will look like.</span>
+    </div>
+    <div id="tgStatus" class="hint" style="margin-top:10px;line-height:1.7"></div>
+
+    <label class="sw" style="margin-top:14px"><input type="checkbox" id="telegramApprovals">
+      Approval buttons on every Telegram message</label>
+    <div class="hint" style="margin-top:6px;line-height:1.7">
+      Each lead arrives with <b>🚀 Post Public Now</b>, <b>✉️ Post DM Now</b>, <b>✏️ Edit Post</b>,
+      <b>✏️ Edit DM</b> and <b>⏭ Skip</b>. Tap to post and Chrome does it, then edits the message to say what
+      happened. Tap Edit and it puts the text in front of you with the reply box open — what you send replaces
+      it, and the lead comes back with Post Now so one more tap posts your version.<br>
+      There is no "I posted it" button: a reply is marked posted when it really lands on the thread, whether
+      you tapped it here or pressed Post reply in the browser yourself.<br>
+      This is the only thing that posts without you being at the keyboard, and only because you tapped —
+      nothing is ever sent on a timer or because a lead scored well.<br>
+      <b>Chrome has to be running.</b> There is no server: Chrome asks Telegram for your taps on a timer.
+      Tap while the Mac is asleep and it happens when Chrome wakes, not never.<br>
+      Your daily caps and spacing still apply — a tap is permission, not an override.
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><label>Check for taps every (seconds)</label><input type="number" id="telegramPollSeconds" min="30"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="unhook" class="sec" style="flex:0 0 auto">Remove the webhook</button>
+      <button id="selfTest" style="flex:0 0 auto">🧪 Test everything</button>
+      <button id="tgCheck" class="sec" style="flex:0 0 auto">Why is nothing arriving?</button>
+      <button id="tapsNow" class="sec" style="flex:0 0 auto">Check for taps now</button>
+    </div>
+    <div class="hint" style="margin-top:8px"><b>Test everything</b> checks the version, the bot, the chat, the
+      webhook and the tap checker, then sends a test message to your phone with one button on it. Tap that
+      button and the message answers itself — that is the whole chain proved, and nothing is posted to the
+      forum.
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="hint" style="align-self:center"><b>Remove the webhook</b> if a check says one is set — a bot
+        can have a webhook or be read by Chrome, never both, so while the old Apps Script relay's webhook is
+        on, your messages and your taps go to Google instead of here.
+        "Why is nothing arriving?" names the broken part.
+        "Check for taps now" skips the timer after you tap something.</span>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Google Sheet <span class="hint">optional — leave empty and everything still works</span></h2>
+    <p class="hint" style="margin:0 0 10px">Only needed for a shared Sheet as a permanent record, and for
+      approving posts from the old Telegram buttons. Telegram above does not need it.</p>
+    <label>Apps Script web app URL <span class="hint">ends in /exec</span></label>
+    <input type="text" id="webhookUrl" placeholder="https://script.google.com/macros/s/…/exec">
+    <label>Shared secret <span class="hint">must match SHARED_SECRET in Apps Script</span></label>
+    <input type="text" id="sharedSecret">
+  </div>
+
+  <div class="c">
+    <h2>Your limits <span class="hint">all four are yours — 0 means no limit</span></h2>
+    <p class="hint" style="margin:0 0 10px">Set any of these to <b>0</b> and that limit is off: 0 a day is
+      unlimited, 0 seconds apart lets you go back to back. Spacing is in <b>seconds</b>, so 30 is half a minute.
+      It only applies to actually sending; opening a page with the text filled in is never held up.
+      Nothing is enforced beyond what you type here.
+      They exist because volume and speed are what forum moderators notice, not because the extension
+      insists on them.</p>
+    <label class="sw"><input type="checkbox" id="autoPost"> Act on 🚀 taps from Telegram <span class="hint">(nothing posts without a tap)</span></label>
+    <div class="row">
+      <div><label>Min score to send <span class="hint">0 = everything</span></label><input type="number" id="notifyScore" min="0"></div>
+      <div><label>Max replies per day <span class="hint">0 = no cap</span></label><input type="number" id="maxPostsPerDay" min="0"></div>
+      <div><label>Min seconds between replies</label><input type="number" id="minSecondsBetweenPosts" min="0" step="10"></div>
+      <div><label>Max PMs per day <span class="hint">0 = no cap</span></label><input type="number" id="maxDmsPerDay" min="0"></div>
+      <div><label>Only announce threads newer than (hours)
+        <span class="hint">0 = any age</span></label><input type="number" id="announceMaxAgeHours" min="0"></div>
+      <div style="flex:1 1 240px"><label>Your BHW username
+        <span class="hint">usually worked out by itself</span></label>
+        <input type="text" id="bhwUsername" placeholder="only if the message check cannot tell"></div>
+      <div><label>Min seconds between PMs</label><input type="number" id="minSecondsBetweenDms" min="0" step="10"></div>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Reading the thread <span class="hint">the feed gives a title and sometimes a line of description;
+      a thread found on a listing page gives a title and nothing else. Reading the thread itself is what
+      stops a reply answering the wrong job, and it also shows who has already pitched against you.</span></h2>
+    <label class="ck"><input type="checkbox" id="readThreads"> Open each thread before drafting</label>
+    <div class="row">
+      <div><label>Threads to read per check</label><input type="number" id="maxThreadReads" min="0"></div>
+      <div><label>Seconds between reads</label><input type="number" id="secondsBetweenThreadReads" min="0"></div>
+    </div>
+    <div class="hint" style="margin-top:8px">0 threads means no limit. These are signed-in reads of threads
+      you are about to reply to, one at a time.</div>
+  </div>
+
+  <div class="c">
+    <h2>Night mode <span class="hint">the only thing here that posts without a tap</span></h2>
+    <label class="sw"><input type="checkbox" id="nightMode" disabled title="Retired: public replies are never posted automatically"> Post public replies by myself overnight</label>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Inside the window below, a lead arrives saying <b>"posting in N minutes unless you tap Hold"</b>. Tap
+      Hold and it stops and waits for you. Do nothing and it goes up.<br>
+      <b>Public replies only.</b> A PM never sends itself — an unsolicited PM is what BHW moderators act on,
+      and it is not worth an account to save you typing.<br>
+      <b>Only drafts worth posting.</b> A draft written from the title alone never qualifies, whatever it
+      scores: that is the one that answered "Crypto Runner" with multi-chain wallet operations, and in
+      public under your name at 3am it is the worst thing this could do. Claude must have written it, the
+      compliance check must be clean, and it must clear your score below.<br>
+      <b>Chrome still has to be running.</b> Lid shut and asleep, nothing posts — it is your browser doing it.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>From</label><input type="text" id="nightStart" placeholder="23:00"></div>
+      <div><label>Until</label><input type="text" id="nightEnd" placeholder="07:00"></div>
+      <div><label>You have (minutes) to stop it</label><input type="number" id="nightVetoMinutes" min="0"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><label>Only at or above score</label><input type="number" id="nightMinScore" min="0"></div>
+      <div><label>Most posts per night</label><input type="number" id="nightMaxPosts" min="0"></div>
+    </div>
+    <label class="ck" style="margin-top:10px"><input type="checkbox" id="nightSummary">
+      Send me a summary when the window closes</label>
+    <div class="hint" style="margin-top:6px">Times are in the timezone set at the top. Your daily caps and
+      spacing still apply on top of the overnight cap.</div>
+  </div>
+
+  <div class="c">
+    <h2>Auto mode <span class="hint">post the public reply itself, any time of day, 1-3 minutes after a thread is found</span></h2>
+    <label class="sw"><input type="checkbox" id="autoMode"> Send the private message by itself, 1-3 min after a new Hire a Freelancer thread is found</label>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>Private message only</b> — a public reply is never posted by itself. <b>Only threads found after you
+      switch it on.</b> <b>Claude's screen must pass</b> — Claude has to have read the actual post, judged it a real
+      request to hire, and written the lines; with no key, no budget, an error or a "no", that thread is skipped
+      and waits for you. Never a buyer you have messaged before. Every lead still gets its Telegram card with a
+      <b>✋ Hold</b> button on the PM while it counts down.<br>
+      You can also turn this on or off by sending <code>auto on</code> or <code>auto off</code> to the bot.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>Only at or above score</label><input type="number" id="autoModeMinScore" min="0"></div>
+      <div><label>Minimum stated budget ($) <span class="hint">0 = none</span></label><input type="number" id="autoMinBudget" min="0"></div>
+      <div><label>Also send pending PMs from the last (hours)</label><input type="number" id="autoBackfillHours" min="1"></div>
+    </div>
+    <h3 style="margin:16px 0 4px;font-size:14px">What auto mode will not message</h3>
+    <label class="sw"><input type="checkbox" id="autoRequireMatch"> Only threads that match one of my service categories <span class="hint">off = every genuine request gets the first PM</span></label>
+    <label style="margin-top:10px">Deal-breakers <span class="hint">one per line - a phrase in the title or the post that means "do not message". Plain words or regex, any capitalisation</span></label>
+    <textarea id="autoSkipPhrasesText" rows="8" placeholder="payment after delivery
+commission only
+free trial"></textarea>
+    <label style="margin-top:10px">My rules for Claude's screen <span class="hint">in your own words - Claude reads the whole post, so this catches what a phrase list cannot</span></label>
+    <textarea id="screenRules" rows="5"></textarea>
+    <p class="hint" style="margin-top:6px">A thread that fails any of these is left for you with the reason on its card and in <code>skipped</code>. From Telegram: <code>block payment after posting</code>, <code>unblock …</code>, <code>blocks</code>.</p>
+  </div>
+
+  <div class="c">
+    <h2>Your service threads <span class="hint">separate from everything above - a short list of threads YOU run, checked against BHW's own bump rule</span></h2>
+    <div class="hint" style="margin-bottom:8px;line-height:1.7">
+      Add one from Telegram: <code>track &lt;thread url&gt; &lt;label&gt;</code>. <code>services</code> lists them
+      with a countdown to when each is next eligible to bump. Nothing here posts by itself - you're told when a
+      thread is due, with suggested wording to copy, and you post it yourself on BHW, then send
+      <code>bumped &lt;label&gt;</code> so the clock resets.
+    </div>
+    <div class="row">
+      <div><label>Peak hours start <span class="hint">your buyers' timezone, set above</span></label><input type="number" id="servicesPeakStartHour" min="0" max="23"></div>
+      <div><label>Peak hours end</label><input type="number" id="servicesPeakEndHour" min="0" max="23"></div>
+    </div>
+    <label style="margin-top:10px">Add threads by pasting links <span class="hint">one or more BHW thread URLs, any way you paste them - the title is read from each thread itself</span></label>
+    <textarea id="bulkTrack" placeholder="https://www.blackhatworld.com/seo/your-thread.123456/&#10;https://www.blackhatworld.com/seo/another-thread.654321/" style="min-height:70px"></textarea>
+    <div style="margin-top:6px"><button id="bulkTrackBtn" style="flex:0 0 auto">Add tracked threads</button>
+      <span id="bulkTrackStatus" class="hint" style="margin-left:8px"></span></div>
+    <label style="margin-top:14px">Tracked threads <span class="hint">JSON - usually easier to manage from Telegram or the box above</span></label>
+    <textarea id="serviceThreads" style="min-height:80px"></textarea>
+    <label>Suggested bump wording <span class="hint">{a|b} spintax, one is picked at random each time</span></label>
+    <textarea id="bumpTemplates" style="min-height:100px"></textarea>
+  </div>
+
+  <div class="c">
+    <h2>Moving to another machine <span class="hint">so a new install comes up already set up</span></h2>
+    <div id="backupState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Your settings are mirrored to Chrome's own sync every time you press Save, so signing into the same
+      Chrome on another machine brings them back by itself. The file below is for when that will not help —
+      a different Google account, a different browser, or a machine that is not signed in at all.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="backupNow" class="sec" style="flex:0 0 auto">Back up now</button>
+      <button id="exportCfg" style="flex:0 0 auto">Download settings file</button>
+      <button id="importCfg" class="sec" style="flex:0 0 auto">Restore from a file…</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+    <label class="ck" style="margin-top:10px"><input type="checkbox" id="exportSecrets">
+      Include the Claude key and bot token in the file</label>
+    <div class="hint" style="margin-top:6px;line-height:1.7">
+      Leave that unticked unless you need it. A downloaded file sits in Downloads, where it may be backed up
+      to a cloud, opened by anything, or sent to somebody by accident — and a live key in it is a live key in
+      all of those places. Without it the file still carries every setting; you paste the two keys back by
+      hand on the new machine.
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Set it up once, automatically <span class="hint">Chrome carries the keys for you — nothing to download</span></h2>
+    <div id="syncState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      This install now has a fixed identity, so Chrome treats it as the SAME extension wherever it is
+      unpacked — your Mac, the VPS, a laptop, anywhere. Chrome already mirrors your Claude key and bot token
+      to your Google account the moment you save them here (that has always been true). What was missing was
+      the fixed identity: without it, every machine got a different, unrelated copy, so there was nothing for
+      Chrome to match up. With it, sign in to the SAME Google account with Sync turned on in Chrome on the new
+      machine, install the extension, and the keys are there before you even open Settings — on this install
+      and on every future version update, forever, with nothing to download or move.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="syncCheck" class="sec" style="flex:0 0 auto">Check sync status</button>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>The one-time step <span class="hint">only needed once, to move onto this fixed identity</span></h2>
+    <div class="hint" style="line-height:1.7">
+      Pinning the identity changes it — Chrome sees this as a new, different extension the moment it reloads,
+      which is the one time your current keys will not carry over by themselves. After this single reload,
+      it never happens again. Two ways to carry them across just this once:
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>Easiest:</b> if you are already signed in to Chrome with Sync on, on the machine that already has
+      your keys — do nothing. Reload the extension there first; the keys stay, because Sync already matches
+      the old copy to itself. Then on every OTHER machine, sign in to that same account, install this version,
+      and press "Check sync status" above to confirm it arrived.
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>If Sync was never on anywhere:</b> paste the Claude key and bot token back in by hand, this one time,
+      on whichever machine you normally use. Settings → the Claude and Telegram sections below. That is the
+      last time — from this reload on, the fixed identity carries them for you.
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Old-style file (fallback) <span class="hint">only if Sync is off and staying off</span></h2>
+    <div id="seedState" class="hint" style="line-height:1.7"></div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      Keys normally live in this Chrome profile, which is why copying the extension to a server copies the
+      code and none of the setup. Put a file named <code>haf-secrets.json</code> next to
+      <code>manifest.json</code> in the extension folder and it is read on every install and every browser
+      start, filling in whatever is missing. Zip the folder with that file inside and every machine you
+      unzip it onto sets itself up — nothing to retype over RDP.
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="seedMake" style="flex:0 0 auto">Download haf-secrets.json</button>
+      <button id="seedApply" class="sec" style="flex:0 0 auto">Read the file now</button>
+    </div>
+    <div class="hint" style="margin-top:8px;line-height:1.7">
+      <b>The trade:</b> anyone who has the folder has your Claude key and your bot token. On a server you
+      alone reach that is much the same as the browser profile they were already in — but it does mean the
+      zip is now a secret. Don't email it, don't put it in shared storage, and delete it from Downloads once
+      it is in place. It is kept out of git and, unless you ask for it, out of
+      <code>tools/build-zip.sh</code>'s zip.
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Staging <span class="hint">strong leads are opened in a background tab with the reply typed in but NOT sent — a 🚀 tap just clicks Submit</span></h2>
+    <div class="row">
+      <div><label>Stage leads scoring ≥</label><input type="number" id="stageScore" min="0"></div>
+      <div><label>Max staged tabs</label><input type="number" id="maxStagedTabs" min="0"></div>
+      <div><label>Close staged tab after (min)</label><input type="number" id="stageTtlMinutes" min="1"></div>
+    </div>
+  </div>
+
+  <div class="c">
+    <h2>Matching <span class="hint">JSON — case-insensitive regex</span></h2>
+    <label>Categories</label><textarea id="categories"></textarea>
+    <label>Boosts</label><textarea id="boosts"></textarea>
+    <label>Excludes <span class="hint">any hit kills the lead</span></label><textarea id="excludes"></textarea>
+    <label>Never-a-lead thread ids <span class="hint">JSON array of thread ids, e.g. the HAF rules thread — a mod
+      bumping one of these must never make it look like a new lead</span></label><textarea id="excludeThreadIds" style="min-height:60px"></textarea>
+    <label>Never-a-lead authors <span class="hint">JSON array of usernames (case-insensitive) — e.g. mod accounts</span></label>
+    <textarea id="excludeAuthors" style="min-height:60px"></textarea>
+  </div>
+
+  <div class="c">
+    <h2>Reply templates <span class="hint">{{var}} substitution, {a|b} spintax</span></h2>
+    <label>Public reply <span class="hint">vars: {{author}} {{tip}} {{question}}</span></label>
+    <textarea id="templates" style="min-height:280px"></textarea>
+    <label>The five closes <span class="hint">Claude picks one per thread; {{offer}} in the PM templates below. Put the same text in all five to always use one.</span></label>
+    <textarea id="offers" style="min-height:160px"></textarea>
+    <label>Private message templates <span class="hint">vars: {{author}} {{url}} {{tips}} {{offer}} {{threadTitle}} — **text** becomes bold</span></label>
+    <textarea id="dmTemplates" style="min-height:240px"></textarea>
+  </div>
+
+  <div class="c">
+    <h2>Thread-specific bullets <span class="hint">the lines that prove you read the thread; first matching rule wins, {{geo}} becomes the places named</span></h2>
+    <textarea id="specifics" style="min-height:300px"></textarea>
+  </div>
+
+  <div class="c">
+    <h2>BHW compliance <span class="hint">every reply and PM is checked against these before it reaches you</span></h2>
+    <textarea id="compliance" style="min-height:140px"></textarea>
+  </div>
+
+  <div class="c bar">
+    <button id="save">Save</button>
+    <button id="test" class="sec">Test connection</button>
+    <button id="poll" class="sec">Poll feed now</button>
+    <button id="reset" class="sec">Reset to defaults</button>
+    <span id="status"></span>
+  </div>
+</div>
+<script type="module" src="options.js"></script>

@@ -1,0 +1,222 @@
+// Reading your BHW message list to tick off what was already sent.
+//
+// The rule this file mostly exists to hold down: a conversation is only proof
+// you pitched a job if YOU started it and its subject is that job. The earlier
+// version accepted any conversation with that person whose timestamp was later
+// than when the thread was found - and since XenForo puts the LAST message's
+// time in that field, a buyer messaging you about something else, or a
+// year-old chat getting one reply, both read as "already sent". Leads nobody
+// had contacted were struck off, the Telegram tap refused them as duplicates,
+// and each one charged a slot to the daily PM cap.
+import { parseConversations, parseMe, matchLead, norm, normTitle, titlesMatch } from '../src/messages.js';
+
+let fails = 0;
+const ok = (n, c, e='') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + ' ' + e); } };
+
+const ME = 'bargainbed';
+const ts = (d) => Math.floor(new Date(d).getTime() / 1000);
+
+// `starter` is the point of this helper: data-author is who opened the
+// conversation, and it decides everything below.
+const row = (id, title, people, when, starter) => `
+  <div class="structItem structItem--conversation" data-author="${starter || people[0]}">
+    <div class="structItem-title">
+      <a href="/direct-messages/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${id}/">${title}</a>
+    </div>
+    <div class="structItem-minor">
+      <ul class="listInline listInline--comma">
+        ${people.map((p) => `<li><a href="/members/${p.toLowerCase()}.99/" class="username">${p}</a></li>`).join('')}
+      </ul>
+    </div>
+    <div class="structItem-cell--latest"><time data-timestamp="${ts(when)}"></time></div>
+  </div>`;
+
+const nav = `<div class="p-navgroup-user"><span class="p-navgroup-user-linkText">${ME}</span></div>`;
+
+const html = '<html>' + nav + '<div class="structItemContainer">' + [
+  // You started this one, about that job: proof.
+  row(101, 'Re: Bulk GMB Listings', ['Yeon G Mallah', ME], '2026-09-15T10:00:00Z', ME),
+  // Old, yours: history.
+  row(102, 'Some old chat about hosting', ['rankonserp', ME], '2025-02-01T09:00:00Z', ME),
+  // THEY started it, and it is recent. The old code called this "sent".
+  row(103, 'looking for gmail creator tool', ['AFFMUS', ME], '2026-09-15T17:30:00Z', 'AFFMUS'),
+  // Yours, recent, but about something else entirely.
+  row(104, 'invoice for the march work', ['seospecialist', ME], '2026-09-15T18:00:00Z', ME)
+].join('') + '</div></html>';
+
+const convs = parseConversations(html);
+ok('every conversation is found', convs.length === 4, String(convs.length));
+ok('the title is read', convs[0].title === 'Re: Bulk GMB Listings', convs[0].title);
+ok('the id is read', convs[0].id === '101');
+ok('the link is absolute', convs[0].url.startsWith('https://www.blackhatworld.com/direct-messages/'), convs[0].url);
+ok('participants are found', convs[0].people.includes(norm('Yeon G Mallah')), JSON.stringify(convs[0].people));
+ok('a display name with spaces matches its slug', norm('Yeon G Mallah') === 'yeongmallah');
+ok('the date is read', convs[0].at.startsWith('2026-09-15'), convs[0].at);
+ok('who opened it is read, which is the whole basis of the check',
+   convs[0].startedBy === norm(ME) && convs[2].startedBy === norm('AFFMUS'),
+   `${convs[0].startedBy} / ${convs[2].startedBy}`);
+ok('nothing is invented from an empty page', parseConversations('<html></html>').length === 0);
+
+ok('your own username is read off the page', parseMe(html) === norm(ME), parseMe(html));
+ok('and a page without it does not guess one', parseMe('<html></html>') === '');
+
+// --- what counts as proof ---------------------------------------------------
+const byTitle = matchLead(
+  { author: 'Yeon G Mallah', title: 'Looking for Bulk GMB Listings', dmTitle: 'Bulk GMB Listings',
+    foundAt: '2026-09-15T09:00:00Z' }, convs, ME);
+ok('a conversation you started, with that subject, is sent', byTitle?.sent === true, JSON.stringify(byTitle));
+ok('and says why', /you started/.test(byTitle.why), byTitle.why);
+ok('and carries the date and a link to read it',
+   byTitle.at.startsWith('2026-09-15') && /direct-messages/.test(byTitle.url), JSON.stringify(byTitle));
+
+// --- the bug, held down -----------------------------------------------------
+const theyStarted = matchLead(
+  { author: 'AFFMUS', title: 'Totally different wording here', dmTitle: 'Totally different wording here',
+    foundAt: '2026-09-15T16:00:00Z' }, convs, ME);
+ok('a message THEY sent you is never proof you pitched', theyStarted?.sent === false, JSON.stringify(theyStarted));
+ok('but it is offered for you to look at', theyStarted?.maybe === true, JSON.stringify(theyStarted));
+ok('and says it was them', /they have messaged you/.test(theyStarted.why), theyStarted.why);
+ok('and links the conversation so the call is yours to make',
+   /direct-messages/.test(theyStarted.url || ''), theyStarted.url);
+
+const otherSubject = matchLead(
+  { author: 'seospecialist', title: 'need a google ads guy for crypto', dmTitle: 'need a google ads guy for crypto',
+    foundAt: '2026-09-15T12:00:00Z' }, convs, ME);
+ok('your own chat about something else is not proof either', otherSubject?.sent === false, JSON.stringify(otherSubject));
+ok('and is flagged as worth a look', otherSubject?.maybe === true, JSON.stringify(otherSubject));
+
+// Without a username, authorship cannot be established - so nothing is sent.
+// Failing closed the other way would mark every lead done the moment the page
+// layout changed.
+const noMe = matchLead(
+  { author: 'Yeon G Mallah', title: 'Looking for Bulk GMB Listings', dmTitle: 'Bulk GMB Listings',
+    foundAt: '2026-09-15T09:00:00Z' }, convs, '');
+ok('with no username read, nothing is claimed as sent', noMe?.sent === false, JSON.stringify(noMe));
+
+// --- history, not proof -----------------------------------------------------
+const old = matchLead(
+  { author: 'rankonserp', title: 'finland guest post', dmTitle: 'finland guest post',
+    foundAt: '2026-09-15T00:00:00Z' }, convs, ME);
+ok('an older chat is not treated as this pitch', old?.sent === false, JSON.stringify(old));
+ok('nor as a possible duplicate', !old?.maybe, JSON.stringify(old));
+ok('but is reported as prior contact', /spoken to them before/.test(old.why));
+
+ok('a stranger matches nothing',
+   matchLead({ author: 'nobody123', title: 'x', foundAt: '2026-09-15T00:00:00Z' }, convs, ME) === null);
+ok('a lead with no author matches nothing',
+   matchLead({ author: '', title: 'x', foundAt: 0 }, convs, ME) === null);
+
+// The {rows, me} shape fetchConversations now returns is accepted directly.
+ok('the fetched shape works without unpacking',
+   matchLead({ author: 'Yeon G Mallah', dmTitle: 'Bulk GMB Listings', foundAt: '2026-09-15T09:00:00Z' },
+             { rows: convs, me: ME }, ME)?.sent === true);
+
+// --- subjects ---------------------------------------------------------------
+ok('Re: is ignored when comparing subjects', normTitle('Re: Bulk GMB Listings!') === 'bulk gmb listings');
+ok('case and punctuation are ignored', normTitle('BULK-GMB, listings') === 'bulk gmb listings');
+ok('the same subject matches itself', titlesMatch('Bulk GMB Listings', 'Re: bulk gmb listings!'));
+ok('and a real overlap matches', titlesMatch('Looking for Bulk GMB Listings', 'Bulk GMB Listings'));
+
+// The old test was `a.includes(b) || b.includes(a)`, which made any short
+// subject a match for anything containing it.
+ok('one shared word is not a subject match', !titlesMatch('seo', 'Looking for SEO expert'), 'seo vs seo expert');
+ok('nor is a single long word inside a longer title',
+   !titlesMatch('crypto', 'need a crypto runner for continuous campaigns'));
+ok('and unrelated subjects do not match',
+   !titlesMatch('invoice for the march work', 'need a google ads guy for crypto'));
+ok('an empty subject never matches', !titlesMatch('', 'anything') && !titlesMatch('anything', ''));
+
+// One page only. The list is ordered by most recent activity, so a lead found
+// today is on page one or it is not there at all - and a second page cost an
+// extra request to the forum on every single check without ever changing an
+// answer.
+const asked = [];
+globalThis.fetch = async (url) => {
+  asked.push(String(url));
+  return { ok: true, status: 200, text: async () => html };
+};
+const got = await (await import('../src/messages.js')).fetchConversations();
+ok('the inbox is read with one request', asked.length === 1, JSON.stringify(asked));
+ok('and it is page one', /\/direct-messages\/$/.test(asked[0]), asked[0]);
+ok('no page-2 walk', !asked.some((u) => /page-/.test(u)), JSON.stringify(asked));
+ok('the rows and your username come back together',
+   got.rows.length === 4 && got.me === norm(ME), JSON.stringify({ n: got.rows.length, me: got.me }));
+
+// --- 1.19.4: Cloudflare in front of the inbox ---------------------------------------------------
+// An unreadable inbox holds every auto PM (a duplicate cannot be ruled out). When
+// Cloudflare answered the plain fetch with its check page or a 403, the inbox was
+// "unreadable" for as long as the check lasted - days, on a network it challenges.
+{
+  const mod = await import('../src/messages.js');
+  const challenge = '<html><head><title>Just a moment...</title></head><body>Performing security verification</body></html>';
+  const tabbed = [];
+  mod.setPageReader(async (url) => { tabbed.push(url); return html; });
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => challenge });
+  let g = await mod.fetchConversations();
+  ok('a 403 from the fetch: the inbox is read in a real tab instead, and parsed the same', tabbed.length === 1 && g.rows.length === 4 && g.me === norm(ME), JSON.stringify({ tabbed, n: g.rows.length }));
+  tabbed.length = 0;
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => challenge });
+  g = await mod.fetchConversations();
+  ok('a 200 that is really the Cloudflare check page: also read in a tab', tabbed.length === 1 && g.rows.length === 4);
+  tabbed.length = 0;
+  globalThis.fetch = async () => { throw new Error('network'); };
+  g = await mod.fetchConversations();
+  ok('a fetch that throws: read in a tab', tabbed.length === 1 && g.rows.length === 4);
+  mod.setPageReader(async () => challenge);
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => challenge });
+  let err = ''; try { await mod.fetchConversations(); } catch (e) { err = e.message; }
+  ok('if the tab is still on the check page, it is an error that says so (never an empty inbox)', /Cloudflare check that did not clear/.test(err), err);
+  mod.setPageReader(null);
+  err = ''; try { await mod.fetchConversations(); } catch (e) { err = e.message; }
+  ok('with no tab reader set, a failed fetch is still an error, never an empty list', /returned 403/.test(err), err);
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => html });
+  tabbed.length = 0; mod.setPageReader(async (url) => { tabbed.push(url); return html; });
+  await mod.fetchConversations();
+  ok('a normal fetch never opens a tab', tabbed.length === 0);
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '' });
+  await mod.fetchConversations();
+  ok('an empty 200 page is an empty inbox, not a reason to open a tab (the taps suite caught this)', tabbed.length === 0);
+  mod.setPageReader(null);
+}
+
+// --- working out who you are ------------------------------------------------
+//
+// This is what the whole check rests on, and it was resting on two regexes
+// against markup nobody had verified. One of them could never match: real
+// XenForo writes the href BEFORE the class, and it looked for it after. With
+// both missing and the check failing closed, "already sent" was never applied
+// to anything and the button reported 0 for ever - which reads exactly like
+// "nothing to do".
+const { peopleInEvery } = await import('../src/messages.js');
+
+ok('you are the name in every conversation', peopleInEvery(convs) === norm(ME), peopleInEvery(convs));
+ok('and that is what parseMe uses, with no page markup at all',
+   parseMe('', convs) === norm(ME), parseMe('', convs));
+
+// Two rows can share a second person by chance; three is the threshold.
+ok('two conversations are not enough to conclude from', peopleInEvery(convs.slice(0, 2)) === '');
+ok('and neither is none', peopleInEvery([]) === '' && peopleInEvery() === '');
+
+// If two people are in every row, there is no answer - a guess here marks
+// leads done that are not.
+const pair = [
+  { people: ['me', 'other'] }, { people: ['me', 'other'] }, { people: ['me', 'other'] }
+];
+ok('a tie yields nothing rather than a guess', peopleInEvery(pair) === '', peopleInEvery(pair));
+
+// The navigation markup is now a fallback, and the pattern that could never
+// match is fixed - href first is the real shape.
+const realNav = '<a href="/members/bargainbed.123/" class="p-navgroup-link p-navgroup-link--user">acc</a>';
+ok('the real nav shape is read now', parseMe(realNav, []) === norm(ME), parseMe(realNav, []));
+ok('and the other order still works',
+   parseMe('<a class="p-navgroup-link--user" href="/members/bargainbed.9/">x</a>', []) === norm(ME));
+
+// What you typed in Settings beats everything: if you have said, guessing is absurd.
+ok('a username you set wins over the page', parseMe(html, convs, 'SomeoneElse') === 'someoneelse',
+   parseMe(html, convs, 'SomeoneElse'));
+
+// And when nothing can be determined it says so, rather than picking one.
+ok('no evidence means no answer', parseMe('', []) === '');
+
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
+process.exit(fails ? 1 : 0);

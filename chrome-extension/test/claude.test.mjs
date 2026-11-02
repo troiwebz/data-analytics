@@ -1,0 +1,209 @@
+// Smoke test: the extension's Claude client, with chrome + fetch stubbed.
+const store = {};
+globalThis.chrome = {
+  storage: {
+    local: {
+      get: async (k) => (k in store ? { [k]: structuredClone(store[k]) } : {}),
+      set: async (o) => Object.assign(store, o),
+      remove: async (k) => { delete store[k]; }
+    },
+    sync: { get: async () => ({}), set: async () => {}, remove: async () => {} }
+  }
+};
+
+let lastReq = null;
+let reply = {
+  ok: true, status: 200,
+  json: async () => ({
+    content: [{ type: 'text', text: 'Here you go:\n```json\n{"111":{"tips":["Manual citations on UAE directories that actually index — no scraped lists","GMB category and service-area fixes before any citation work","NAP audit across the profiles you already have"],"question":"Audit-safe citations, or volume for a tier 2 layer?","offer":"formula"},"222":{"tips":["short"],"question":"x","offer":"nope"}}\n```' }],
+    usage: { input_tokens: 900, cache_read_input_tokens: 400, output_tokens: 120 }
+  })
+};
+globalThis.fetch = async (url, opts) => { lastReq = { url, opts }; return reply; };
+
+const C = await import('../src/claude.js');
+let fails = 0;
+const ok = (name, cond, extra='') => { if (cond) console.log('  ok  ' + name); else { fails++; console.log('  FAIL ' + name + ' ' + extra); } };
+
+// 1. No key -> stands down quietly, never throws.
+let r = await C.writeSpecifics([{ threadId: '1', title: 't', snippet: 's' }]);
+ok('no key: empty + note', Object.keys(r.specifics).length === 0 && /no Claude key/.test(r.note));
+
+// 2. A bad key is rejected before it is stored.
+await C.saveKey('nope').then(() => ok('rejects non sk-ant key', false), (e) => ok('rejects non sk-ant key', /sk-ant/.test(e.message)));
+ok('bad key not stored', !(await C.revealKey()));
+
+// 3. A good key is validated against the API then stored.
+await C.saveKey('sk-ant-api03-ABCDEFGHIJKLMNOP');
+ok('key stored in the vault', (await C.revealKey()) === 'sk-ant-api03-ABCDEFGHIJKLMNOP');
+ok('validated via /v1/models', /\/v1\/models/.test(lastReq.url));
+let st = await C.aiStatus();
+ok('hint masks the key', st.hint === 'sk-ant-api0…MNOP', st.hint);
+
+// 4. A real batch.
+r = await C.writeSpecifics([
+  { threadId: '111', title: 'Local Citation Services - Dubai & UK', snippet: 'need citations', category: 'seo' },
+  { threadId: '222', title: 'x', snippet: 'y', category: 'seo' }
+]);
+ok('parses JSON out of prose + fence', r.specifics['111']?.tips?.length === 3, JSON.stringify(r.specifics['111']));
+ok('keeps the public question', /tier 2 layer\?$/.test(r.specifics['111'].question), r.specifics['111'].question);
+ok('keeps the chosen offer', r.specifics['111'].offer === 'formula');
+ok('drops bullets under 16 chars', !('222' in r.specifics));
+
+const body = JSON.parse(lastReq.opts.body);
+ok('browser header sent', lastReq.opts.headers['anthropic-dangerous-direct-browser-access'] === 'true');
+ok('api version sent', lastReq.opts.headers['anthropic-version'] === '2023-06-01');
+ok('system prefix is cached', body.system[0].cache_control.type === 'ephemeral');
+ok('effort low', body.output_config.effort === 'low');
+ok('max_tokens scales with batch', body.max_tokens === 260 * 2 + 60, body.max_tokens);   // 260: the lines, the screen verdict and the public line (1.26)
+ok('snippet is capped', body.messages[0].content.length < 1500);
+
+// 5. Usage and cost.
+st = await C.aiStatus();
+ok('calls counted', st.callsToday === 1 && st.leadsToday === 2);
+// sonnet default: 900/1e6*2 + 400/1e6*0.2 + 120/1e6*10 = 0.0018+0.00008+0.0012
+// sonnet: 900/1e6*2 + 400/1e6*(2*0.1) + 120/1e6*10 = 0.00308, shown rounded to 4dp
+ok('cost priced with cache discount', Math.abs(C.spendOf({ in: 900, cached: 400, out: 120 }, 'claude-sonnet-5') - 0.00308) < 1e-9);
+ok('spendToday rounded for display', st.spentToday === 0.0031, st.spentToday);
+ok('per-lead shown', st.perLead > 0);
+
+// 6. Batch cap.
+await C.writeSpecifics(Array.from({ length: 20 }, (_, i) => ({ threadId: String(i), title: 't', snippet: 's' })));
+ok('never more than 8 leads per call', JSON.parse(lastReq.opts.body).messages[0].content.split('---').length === 8);
+
+// 7. The daily limit stands Claude down instead of spending.
+await C.setBudget(0.0001);
+const before = lastReq;
+r = await C.writeSpecifics([{ threadId: '9', title: 't', snippet: 's' }]);
+ok('over budget: no call made', lastReq === before);
+ok('over budget: says why', /daily limit/.test(r.note), r.note);
+
+// 8. API errors never throw at the caller.
+await C.setBudget(5);
+reply = { ok: false, status: 401, json: async () => ({ error: { message: 'invalid x-api-key' } }) };
+r = await C.writeSpecifics([{ threadId: '9', title: 't', snippet: 's' }]);
+ok('401 handled', Object.keys(r.specifics).length === 0 && /rejected the key/.test(r.note));
+globalThis.fetch = async () => { throw new Error('network down'); };
+r = await C.writeSpecifics([{ threadId: '9', title: 't', snippet: 's' }]);
+ok('network failure handled', /could not reach/.test(r.note));
+
+// 9. The prompt's rules are enforced on the way out.
+const cleaned = C.clean({ a: { tips: [
+  '— leading dash and an em—dash inside the line here',
+  'We guarantee first page rankings within thirty days',
+  '• bullet glyph opener that is quite long indeed',
+  'We will do the first one for free so you can judge it'
+], question: 'Which route do you want, audit-safe or volume', offer: 'terms' } }).a.tips;
+ok('em/en dashes stripped', !/[–—]/.test(cleaned.join('')), JSON.stringify(cleaned));
+ok('bullet glyph stripped', !/•/.test(cleaned.join('')));
+ok('guarantees dropped', !cleaned.some((b) => /guarantee/i.test(b)));
+ok('offers of free work dropped', !cleaned.some((b) => /\bfree\b/i.test(b)), JSON.stringify(cleaned));
+ok('a bogus offer id is discarded', C.clean({ a: { tips: ['a long enough line to survive the filter'], offer: 'nope' } }).a.offer === '');
+ok('a question is given its question mark', C.clean({ a: { tips: ['a long enough line to survive the filter'], question: 'Audit-safe or volume for a tier 2 layer' } }).a.question.endsWith('?'));
+ok('cap of 3 bullets', C.clean({ a: { tips: Array(9).fill('a long enough bullet line to survive') } }).a.tips.length === 3);
+// --- the screen verdict: yes, no, or nothing - and nothing never sends -------
+{
+  const line = 'a long enough line to survive the filter';
+  const v = (pm, why) => C.clean({ a: { tips: [line], pm, why } }).a;
+  ok('"yes" is a yes', v('yes').pm === 'yes');
+  ok('"YES " is a yes', v('YES ').pm === 'yes');
+  ok('true is a yes', v(true).pm === 'yes');
+  ok('"no" is a no', v('no').pm === 'no');
+  ok('false is a no', v(false).pm === 'no');
+  ok('a missing verdict is no verdict', v(undefined).pm === '');
+  ok('"maybe" is no verdict', v('maybe').pm === '');
+  ok('a sentence is no verdict', v('yes, probably worth a message').pm === '');
+  ok('the reason is kept for the operator', v('no', 'a seller advertising').why === 'a seller advertising', v('no', 'a seller advertising').why);
+  const sys = (Array.isArray(body.system) ? body.system.map((x) => x.text || '') : [String(body.system)]).join('\n');
+  ok('the prompt asks for the verdict', /SCREEN\./.test(sys) && /"pm":"yes"/.test(sys), sys.slice(-300));
+}
+ok('the old bare-array shape still parses', C.clean({ a: ['a long enough bullet line to survive'] }).a.tips.length === 1);
+
+// 10. Clearing forgets the key.
+await C.clearKey();
+ok('key cleared', !(await C.aiStatus()).configured);
+
+// Tone. A quote to someone who has already decided what they want must not
+// lecture them: these are the real lines that lost a job.
+const tone = (l) => C.clean({ a: { tips: [l] } }).a?.tips?.[0];
+for (const bad of [
+  "Bulk Gmail creation tools usually get flagged by Google's phone verification checks.",
+  "Worth clarifying your intended use case, since bulk creation breaches Google's ToS.",
+  "You should be aware this is against Google's policy.",
+  "Bear in mind the accounts can be banned without warning.",
+  "This is risky and we would advise against it at that volume.",
+  "Typically these tend to get suspended within a week.",
+  "Happy to send you a demo version so you can see the standard.",
+  "We can share a sample first so you can judge it."
+]) ok(`tone: drops "${bad.slice(0, 42)}..."`, !tone(bad), tone(bad));
+
+for (const good of [
+  "We create these in batches that hold, using our own number pool.",
+  "We have run this at 500 a week without the accounts dropping.",
+  "We can hand them over aged and warmed rather than fresh.",
+  "We handle the phone verification in house rather than buying it in."
+]) ok(`tone: keeps "${good.slice(0, 42)}..."`, !!tone(good), good);
+
+ok('a bare noun phrase still becomes a claim',
+   tone('manual creation on residential IPs with our own numbers') === 'We handle manual creation on residential IPs with our own numbers');
+
+// The brief: the user's own words about their business, handed to Claude with
+// every thread. Last, because each call here moves the usage counters.
+// Earlier tests cleared the key and broke fetch on purpose; put both back or
+// writeSpecifics returns before it ever builds a request.
+globalThis.fetch = async (url, opts) => { lastReq = { url, opts }; return reply; };
+reply = { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: '{}' }], usage: {} }) };
+await C.saveKey('sk-ant-api03-BRIEFTEST000001');
+
+const systemFor = async (cfg) => {
+  lastReq = null;
+  await C.writeSpecifics([{ threadId: 'b', title: 't', snippet: 's' }], cfg);
+  if (!lastReq) throw new Error('no request was made - the key or fetch stub is wrong');
+  return JSON.parse(lastReq.opts.body).system[0];
+};
+
+const plainSys = await systemFor({});
+ok('no brief leaves the instructions exactly as they were', !/ABOUT THE WRITER/.test(plainSys.text));
+
+const brief = 'We are a 6 person agency in Chennai, strongest at local SEO and GMB. We do not touch adult or crypto.';
+const withBrief = await systemFor({ brief });
+ok('the brief reaches Claude', withBrief.text.includes('6 person agency in Chennai'));
+ok('it is labelled as the writer, not as instructions', /ABOUT THE WRITER/.test(withBrief.text));
+ok('and cannot override the rules', /the rules win/i.test(withBrief.text));
+ok('it rides in the cached prefix', withBrief.cache_control.type === 'ephemeral');
+ok('and not in the per-thread message', !JSON.parse(lastReq.opts.body).messages[0].content.includes('Chennai'));
+
+const huge = await systemFor({ brief: 'x'.repeat(6000) });
+ok('a runaway brief is trimmed rather than billed',
+   Math.max(...(huge.text.match(/x+/g) || ['']).map((r) => r.length)) === 1200,
+   String(Math.max(...(huge.text.match(/x+/g) || ['']).map((r) => r.length))));
+
+const blank = await systemFor({ brief: '   \n  ' });
+ok('whitespace is not a brief', !/ABOUT THE WRITER/.test(blank.text));
+
+// --- the daily budget's second bump: $1 -> $5 -------------------------------
+//
+// $1/day turned out too low for real use - hitting it mid-day drops every
+// remaining draft to the built-in generic rules with nothing on the phone
+// saying so. Same rule as the $0.50 -> $1 bump before it: only the untouched
+// shipped default moves, never a number you chose yourself.
+{
+  store.ai = { budget: 1, budgetBumped: true };     // the earlier bump already applied
+  let st2 = await C.aiStatus();
+  ok('the old $1 default is lifted to $5', st2.budget === 5, String(st2.budget));
+
+  store.ai = { budget: 2, budgetBumped: true };      // a number you chose
+  st2 = await C.aiStatus();
+  ok('a budget you set yourself is left alone', st2.budget === 2, String(st2.budget));
+
+  store.ai = { budget: 1 };                          // never went through the first bump at all
+  st2 = await C.aiStatus();
+  ok('an install that never had the first bump gets both, ending at $5', st2.budget === 5, String(st2.budget));
+
+  store.ai = { budget: 0, budgetBumped: true, budgetBumped2: true };  // explicitly uncapped
+  st2 = await C.aiStatus();
+  ok('0 (no limit) is a real choice and is never touched', st2.budget === 0, String(st2.budget));
+}
+
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
+process.exit(fails ? 1 : 0);

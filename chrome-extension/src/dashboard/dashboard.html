@@ -1,0 +1,201 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HAF Watcher</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--blue:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:#0f172a;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0 10px 0 0}
+  header h1 small{font-weight:400;opacity:.6;font-size:12px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;background:#64748b}
+  .dot.on{background:#22c55e}
+  header .sp{flex:1}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:600 13px system-ui;cursor:pointer;color:var(--ink)}
+  button:hover{filter:brightness(.96)}
+  header button{background:#1e293b;color:#fff;border-color:#334155}
+  header button.pri{background:var(--blue);border-color:var(--blue)}
+  /* Ten buttons wrapped to three rows and buried the ones added last, so the
+     three that get used stay out and the rest live behind More. */
+  .menu{position:relative}
+  .menu>summary{list-style:none;cursor:pointer;padding:7px 12px;border:1px solid #334155;border-radius:8px;
+    background:#1e293b;font:600 13px system-ui;user-select:none}
+  .menu>summary::-webkit-details-marker{display:none}
+  .menu>summary::after{content:' ▾';opacity:.7}
+  .menu[open]>summary{background:#334155}
+  .menu .panel{position:absolute;right:0;top:calc(100% + 6px);z-index:20;display:flex;flex-direction:column;
+    gap:6px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);min-width:210px}
+  .menu .panel button{text-align:left;width:100%}
+  button.go{background:var(--green);color:#fff;border-color:var(--green)}
+  button.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+  .stats{display:flex;gap:10px;padding:14px 20px 10px;flex-wrap:wrap}
+  .k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 16px;min-width:104px}
+  .k b{display:block;font-size:20px}.k span{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+  .tools{display:flex;gap:10px;align-items:center;padding:0 20px 12px;flex-wrap:wrap}
+  .tools input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui;min-width:260px}
+  #cmd{font:11px ui-monospace,Menlo,monospace;background:#1e293b;color:#cbd5e1;padding:6px 10px;border-radius:6px;cursor:pointer;border:1px solid #334155}
+  .wrap{padding:0 20px 40px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th{background:#f8fafc;border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;font-size:12px;
+     text-transform:uppercase;letter-spacing:.04em;color:var(--mute);white-space:nowrap}
+  th.s{cursor:pointer;user-select:none}
+  th.s:hover{color:var(--ink);background:#f1f5f9}
+  th .ar{opacity:.35;font-size:10px}
+  th.on{color:var(--blue)} th.on .ar{opacity:1}
+  td{border-bottom:1px solid #f1f5f9;padding:9px 10px;vertical-align:top}
+  .cd{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:99px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);font-size:12.5px;white-space:nowrap}
+  .cd b{font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .cd .pulse{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);
+    animation:pulse 2s infinite}
+  .cd.soon .pulse{background:#f59e0b;box-shadow:0 0 0 0 rgba(245,158,11,.6);animation-duration:1s}
+  .cd.now{border-color:rgba(34,197,94,.45)}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+  @media (prefers-reduced-motion: reduce){ .cd .pulse{animation:none} }
+  .meter{display:inline-flex;flex-direction:column;gap:6px;min-width:132px;padding:7px 11px 8px;
+    border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.05)}
+  .mtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    font-size:11px;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
+  .mtop b{font-size:12.5px;font-weight:700;letter-spacing:0;opacity:1;font-variant-numeric:tabular-nums}
+  .mbar{display:block;height:4px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden}
+  .mbar i{display:block;height:100%;border-radius:99px;transition:width .35s ease}
+  tr.r{cursor:pointer} tr.r:hover td{background:#f8fafc}
+  .ch{display:inline-block;width:12px;color:var(--mute);font-size:11px}
+  .ext{text-decoration:none;color:var(--mute);font-size:12px;padding:0 4px;border-radius:4px}
+  .ext:hover{color:var(--blue);background:#eff6ff}
+  /* Posted is done: strike the title so a glance down the table shows what is
+     handled. Skipped and expired are dimmed but not struck — different meaning. */
+  /* Done means struck through AND labelled: a strike alone is missable. */
+  tr.posted .t,tr.pmdone .t{text-decoration:line-through;text-decoration-thickness:2px;color:var(--mute)}
+  tr.posted .t{text-decoration-color:#16a34a}
+  /* Filled is waiting on you, not done: underlined in amber, never struck. */
+  tr.filling .t{text-decoration:underline;text-decoration-style:dotted;text-decoration-color:#d97706;text-decoration-thickness:2px}
+  tr.pmdone .t{text-decoration-color:#2563eb}
+  .done{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;
+    font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
+    background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;vertical-align:1px}
+  tr.pmdone .done{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
+  /* Same shape as .done so the list reads consistently, amber because it is
+     waiting on you rather than finished. */
+  .waiting{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;
+    font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
+    background:#fef3c7;color:#b45309;border:1px solid #fde68a;vertical-align:1px}
+  /* What the other freelancers already promised on that thread. */
+  .rivals{margin:0 0 10px;padding:8px 10px;border:1px solid var(--line);border-left:3px solid #94a3b8;
+    border-radius:6px;background:#f8fafc}
+  .rivals .lbl{margin:0 0 6px}
+  .rival{font-size:12px;color:#475569;line-height:1.5;margin-bottom:5px;white-space:pre-wrap}
+  .rival:last-child{margin-bottom:0}
+  .reading{font-size:12px;color:#475569;margin:0 0 7px}
+  .chip{display:inline-block;padding:1px 7px;margin:0 3px 3px 0;border-radius:99px;font-size:11px;font-weight:600}
+  .chip.dull{background:#e2e8f0;color:#64748b}
+  .chip.open{background:#dcfce7;color:#15803d;border:1px solid #bbf7d0}
+  .rival b{color:#0f172a}
+  tr.filling td{background:#fffdf5}
+  tr.filling:hover td{background:#fffbeb}
+  tr.pmdone td{background:#f8fbff}
+  tr.pmdone:hover td{background:#eff6ff}
+  tr.posted td{background:#f6fdf8}
+  tr.posted:hover td{background:#eefbf3}
+  tr.dim td{opacity:.55}
+  tr.dim:hover td{opacity:.8}
+  tr.hot td:first-child{box-shadow:inset 3px 0 0 #f97316}
+  tr.warm td:first-child{box-shadow:inset 3px 0 0 #eab308}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .t{font-weight:600;color:var(--ink);text-decoration:none}
+  tr.r:not(.posted):not(.pmdone):hover .t{text-decoration:underline;text-decoration-color:#cbd5e1}
+  .t:hover{color:var(--blue)}
+  .sub{color:var(--mute);font-size:12px}
+  .st{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#e2e8f0;text-transform:uppercase;font-weight:700}
+  .POSTED{background:#dcfce7;color:#15803d}.FAILED{background:#fee2e2;color:#b91c1c}.SKIPPED{background:#f1f5f9;color:#64748b}
+  .BACKFILL{background:#e0e7ff;color:#3730a3}.APPROVED{background:#fef3c7;color:#b45309}.EXPIRED{background:#f3f4f6;color:#6b7280}
+  .stale{color:var(--red);font-weight:600}
+  .approx{font-size:10px;color:var(--amber)}
+  .detail td{background:#f8fafc;padding:14px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:0 0 4px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:10px;
+           font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical;background:#fff}
+  textarea.dm{background:#fffbeb}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .snip{background:#fff;border-left:3px solid var(--line);padding:10px;white-space:pre-wrap;font-size:13px;margin-bottom:12px}
+  .msg{font-size:12px;margin-top:6px;min-height:16px}
+  .msg.ok{color:var(--green)}.msg.err{color:var(--red)}
+  .empty{padding:50px;text-align:center;color:var(--mute)}
+  #log{padding:16px 20px 30px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#475569}
+  /* Two views of the table: the HAF job board, and every other source. */
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .seg button{border:0;border-radius:0;padding:7px 14px;background:#fff;color:var(--mute)}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--blue);color:#fff}
+  .tag{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+  .tag.NEW{background:#dcfce7;color:#15803d}.tag.BUMP{background:#fef3c7;color:#b45309}.tag.DONE{background:#e2e8f0;color:#475569}
+  .tag.BUYER{background:#fee2e2;color:#b91c1c}.tag.QUESTION{background:#dbeafe;color:#1d4ed8}.tag.INFO{background:#f1f5f9;color:#64748b}
+  .srcline{font-size:12px;color:var(--mute)}
+  #log div.error{color:var(--red)}
+</style>
+<header>
+  <h1>HAF Watcher <small id="ver"></small></h1>
+  <span><span class="dot" id="dot"></span><span id="state">…</span></span>
+  <span id="countdown" class="cd" hidden></span>
+  <span id="rate" style="display:inline-flex;align-items:center;gap:10px"></span>
+  <span class="sp"></span>
+  <button id="poll" class="pri" title="Read every source right now - Hire a Freelancer, the watched forums and the site-wide feed - instead of waiting for the next automatic check">Check for new threads</button>
+  <button id="pollsrc" class="pri" hidden title="Read only the watched forums and the site-wide feed right now">Check other sources</button>
+  <button id="regen" title="Open each thread again, read the buyer's post and the replies already on it, and have Claude write every draft again from what is actually there">🔄 Rewrite drafts</button>
+  <button id="studio" title="Research a niche on BHW and get a 4-week plan of discussion threads that bring buyers to you" style="background:#c2861a;border-color:#c2861a;color:#fff">✍️ Thread Studio</button>
+  <button id="radar" title="Threads worth a public reply, 3 an hour to Telegram. Separate from HAF; nothing is posted for you." style="background:#0f766e;border-color:#0f766e;color:#fff">📡 Reply Radar</button>
+  <button id="pulse" title="How many people are on BHW, every half hour: daily, weekly, monthly bars and the best hours to post" style="background:#7c3aed;border-color:#7c3aed;color:#fff">📈 Traffic</button>
+  <button id="insights" title="Charts of when threads are posted, by day and by hour">📊 Stats</button>
+  <button id="lab" title="Study the service threads that get the most replies, and get copy for yours">🧪 Thread Lab</button>
+  <button id="services" title="Your own BHW service threads - separate from these buyer leads">🧵 My threads</button>
+  <a href="../hunt/hunt.html" style="padding:7px 12px;border:1px solid #334155;border-radius:8px;background:#b45309;color:#fff;font:600 13px system-ui;text-decoration:none">🧲 Hunt</a>
+  <button id="opts">⚙︎ Settings</button>
+  <details class="menu" id="menu">
+    <summary>More</summary>
+    <div class="panel">
+      <button id="update" title="Reload the extension after pulling new code">Install update</button>
+      <button id="pmcheck" title="Read your BlackHatWorld message list and tick off anything already sent">Check sent PMs</button>
+      <button id="backfill" title="Record the last two days of threads, without sending anything">Load last 48h</button>
+      <button id="deep" title="Walk the forum pages and record older threads too">Load older threads…</button>
+      <button id="loadsrc" title="Put the last few days of a watched forum into the Other sources queue">Load other sources…</button>
+      <button id="seedbank" title="Read a watched forum's recent replies into the answer bank">Seed answer bank…</button>
+      <button id="approvals" title="Anything you tapped Post on in Telegram">Run approved posts</button>
+      <button id="sync" title="Pull the newest rows from your Google Sheet into this table">Load from Sheet</button>
+    </div>
+  </details>
+</header>
+<div id="ownerbar" hidden style="margin:14px 20px 0;padding:12px 16px;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;font-size:13.5px;line-height:1.5"></div>
+<div class="stats" id="stats"></div>
+<div class="tools">
+  <span class="seg" id="seg"><button id="vhaf" data-view="haf">Hire a Freelancer</button><button id="vother" data-view="other">Other sources</button><a href="../hunt/hunt.html" id="vhunt" style="padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#0f172a;color:#fcd34d;font:700 13px system-ui;text-decoration:none;margin-left:6px">🧲 Hunt</a></span>
+  <input id="q" placeholder="Search title, author, keyword…">
+  <select id="fstatus" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:13px system-ui">
+    <option value="">All</option>
+    <option value="SENT">To do</option>
+    <option value="APPROVED">Queued</option>
+    <option value="POSTED">Posted</option>
+    <option value="SKIPPED">Skipped</option>
+    <option value="FAILED">Failed</option>
+    <option value="BACKFILL">History</option>
+    <option value="EXPIRED">Too late</option>
+  </select>
+  <label style="font-size:13px;color:var(--mute)"><input type="checkbox" id="hidedone"> hide posted / skipped</label>
+  <span id="count" style="font-size:12.5px;color:var(--mute)"></span>
+  <span class="sp" style="flex:1"></span>
+  <span id="keys" class="sub" style="font-size:12.5px"></span>
+  <span id="upd" class="sub" style="font-size:12.5px"></span>
+  <button id="updNow" hidden title="Reload onto the new version now instead of waiting a minute">Install update now</button>
+  <button id="cmd" title="Copy - paste it to pull the newest version right now">…</button>
+  <span id="cmdmsg" style="font-size:12px;color:var(--green)"></span>
+</div>
+<div class="wrap">
+  <table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<div id="log"></div>
+<script type="module" src="dashboard.js"></script>

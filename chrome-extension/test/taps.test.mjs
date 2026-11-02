@@ -1,0 +1,1272 @@
+// Approving from Telegram: tap on your phone, Chrome does it.
+//
+// No server anywhere. Telegram's other option is a webhook, which needs a
+// public URL - the Apps Script we got rid of. Instead Chrome asks Telegram
+// "any taps?" on a timer, acts on them, and edits the message on your phone to
+// say what happened.
+//
+// The two things this must never do are what most of these checks are about:
+// act on a tap from a chat that is not yours, and post anything at all without
+// a tap.
+const store = {};
+const msgListeners = [], tabWatchers = [];
+let tgCalls = [], posted = [], dmSent = [];
+let updates = [];
+// What the content script reports back when a tap fires the real posting code.
+let inboxHtml = '', inboxFail = false;
+const inboxReads = [];
+const ME_NAME = 'bargainbed';
+const convRow = (id, title, other, when, starter) => `
+  <div class="structItem structItem--conversation" data-author="${starter}">
+    <div class="structItem-title"><a href="/direct-messages/t.${id}/">${title}</a></div>
+    <div class="structItem-minor"><a href="/members/${other.toLowerCase()}.9/">${other}</a>
+      <a href="/members/${ME_NAME}.1/">${ME_NAME}</a></div>
+    <div class="structItem-cell--latest"><time data-timestamp="${Math.floor(new Date(when).getTime() / 1000)}"></time></div>
+  </div>`;
+const inboxOf = (...rows) => `<html><span class="p-navgroup-user-linkText">${ME_NAME}</span>` + rows.join('') + '</html>';
+let postResult = { ok: true, postUrl: 'https://bhw/threads/x.1/post-9' };
+let dmResult = { ok: true, sent: true };
+
+globalThis.chrome = {
+  runtime: {
+    onInstalled: { addListener: () => {} }, onStartup: { addListener: () => {} },
+    onMessage: { addListener: (f) => msgListeners.push(f), removeListener: () => {} },
+    getManifest: () => ({ version: '0.53.0' }), getURL: (p) => 'x/' + p, reload: () => {},
+    sendMessage: async () => ({}), lastError: null
+  },
+  action: { onClicked: { addListener: () => {} } },
+  tabs: { onRemoved: { addListener: () => {} },
+          onUpdated: { addListener: (f) => tabWatchers.push(f),
+                       removeListener: (f) => { const i = tabWatchers.indexOf(f); if (i >= 0) tabWatchers.splice(i, 1); } },
+          create: async () => { setTimeout(() => { for (const f of [...tabWatchers]) f(7, { status: 'complete' }); }, 2); return { id: 7 }; },
+          get: async () => ({ id: 7 }), remove: async () => {}, update: async () => {} },
+  alarms: { onAlarm: { addListener: () => {} }, clear: async () => {}, create: () => {} },
+  notifications: { create: (id, o, cb) => cb && cb(id), clear: () => {},
+                   onClicked: { addListener: () => {} }, onButtonClicked: { addListener: () => {} } },
+  offscreen: { hasDocument: async () => true, createDocument: async () => {} },
+  scripting: {
+    executeScript: async ({ files }) => {
+      if (files) setTimeout(() => {
+        // Sequential taps queued for real posting arrive here in the order
+        // they are processed - a queue lets a test cover two of them in one
+        // pollTaps() call without needing to interleave code between them.
+        const threadId = (globalThis.__actingQueue && globalThis.__actingQueue.length)
+          ? globalThis.__actingQueue.shift() : globalThis.__acting;
+        const type = files.some((f) => /content-dm/.test(f)) ? 'haf-dm-result' : 'haf-post-result';
+        const result = type === 'haf-dm-result' ? dmResult : postResult;
+        for (const f of [...msgListeners]) f({ type, threadId, mode: 'full', result }, {}, () => {});
+      }, 5);
+      return [{ result: {} }];
+    }
+  },
+  storage: {
+    local: {
+      get: async (k) => { if (k == null) return structuredClone(store);
+        if (Array.isArray(k)) return Object.fromEntries(k.filter((x) => x in store).map((x) => [x, structuredClone(store[x])]));
+        return k in store ? { [k]: structuredClone(store[k]) } : {}; },
+      set: async (o) => Object.assign(store, o),
+      remove: async (k) => { for (const x of (Array.isArray(k) ? k : [k])) delete store[x]; }
+    },
+    sync: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+    onChanged: { addListener: () => {} }
+  }
+};
+
+globalThis.fetch = async (url, opts) => {
+  const u = String(url);
+  if (u.includes('api.telegram.org')) {
+    const method = u.split('/').pop();
+    const body = opts?.body ? JSON.parse(opts.body) : {};
+    tgCalls.push({ method, body });
+    if (method === 'getUpdates') {
+      const out = updates;
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: out }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+  }
+  if (u.includes('/direct-messages/')) {          // your BHW inbox, as the duplicate check reads it
+    inboxReads.push(u);
+    if (inboxFail) return { ok: false, status: 429, text: async () => 'rate limited', json: async () => ({}) };
+    return { ok: true, status: 200, text: async () => inboxHtml, json: async () => ({}) };
+  }
+  return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
+};
+
+const bg = await import('../src/background.js');
+const T = await import('../src/telegram.js');
+const { setConfig } = await import('../src/config.js');
+const { getLeads, getRateState } = await import('../src/store.js');
+
+
+
+let fails = 0;
+const ok = (n, c, e = '') => { if (c) console.log('  ok  ' + n); else { fails++; console.log('  FAIL ' + n + '  ' + e); } };
+
+await T.setToken('1234567890:AAtoken');
+await setConfig({ enabled: true, telegramEnabled: true, telegramChatId: '999', telegramApprovals: true,
+                  webhookUrl: '', autoPost: true, maxPostsPerDay: 10, minSecondsBetweenPosts: 0,
+                  maxDmsPerDay: 8, minSecondsBetweenDms: 0 });
+
+const lead = (id, over = {}) => ({
+  threadId: id, title: 'thread ' + id, author: 'buyer' + id, url: `https://bhw/threads/x.${id}/`,
+  draft: 'We have done this before.\n\nSent you a PM.', dm: 'Hi buyer,\n\nlines\n\nThanks!!',
+  dmTitle: 'thread ' + id, status: 'SENT', ...over
+});
+store.recentLeads = [lead('1'), lead('2'), lead('3')];
+
+// --- the buttons ------------------------------------------------------------
+tgCalls = [];
+await T.sendLead(lead('1'), { telegramChatId: '999', telegramSend: 'both', telegramApprovals: true });
+const sends = tgCalls.filter((c) => c.method === 'sendMessage');
+ok('both messages carry buttons', sends.every((c) => !!c.body.reply_markup), JSON.stringify(sends.map((c) => !!c.body.reply_markup)));
+// The same four on every message, so whichever one is in front of you can do
+// the whole job rather than sending you hunting for the other card.
+for (const c of sends) {
+  const t = c.body.reply_markup.inline_keyboard.flat().map((b) => b.text);
+  ok('a message offers Post Public Now', t.some((x) => /Post Public Now/.test(x)), t.join(' | '));
+  ok('and Post DM Now', t.some((x) => /Post DM Now/.test(x)), t.join(' | '));
+  ok('and Edit Post', t.some((x) => /Edit Post/.test(x)), t.join(' | '));
+  ok('and Edit DM', t.some((x) => /Edit DM/.test(x)), t.join(' | '));
+  ok('and Skip', t.some((x) => /Skip/.test(x)), t.join(' | '));
+  ok('but no "I posted it" - that is applied when the reply really lands',
+     !t.some((x) => /I posted/i.test(x)), t.join(' | '));
+}
+const labels = sends.flatMap((c) => c.body.reply_markup.inline_keyboard.flat().map((b) => b.text));
+const datas = sends.flatMap((c) => c.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data));
+ok('every button fits Telegram\'s 64-byte limit', datas.every((d) => d.length <= 64), JSON.stringify(datas));
+ok('and names the thread it belongs to', datas.every((d) => d.endsWith(':1')), JSON.stringify(datas));
+
+tgCalls = [];
+await T.sendLead(lead('1'), { telegramChatId: '999', telegramSend: 'both', telegramApprovals: false });
+ok('switched off, no buttons at all',
+   tgCalls.filter((c) => c.method === 'sendMessage').every((c) => !c.body.reply_markup));
+
+// A sample lead must never carry a button that posts to the forum.
+tgCalls = [];
+await T.sendLead(lead('sample'), { telegramChatId: '999', telegramSend: 'both', telegramApprovals: true });
+ok('the sample lead gets no posting buttons',
+   tgCalls.filter((c) => c.method === 'sendMessage').every((c) => !c.body.reply_markup));
+
+// --- nothing happens without a tap -----------------------------------------
+updates = [];
+tgCalls = [];
+let r = await bg.pollTaps();
+ok('no taps means nothing posted', r.taps === 0, JSON.stringify(r));
+ok('and nothing was sent to the forum', posted.length === 0 && dmSent.length === 0);
+
+// --- a tap from someone else's chat -----------------------------------------
+const tap = (data, over = {}) => ({
+  update_id: Math.floor(Math.random() * 1e6),
+  callback_query: { id: 'q' + Math.random(), data, from: { id: 5 },
+    message: { message_id: 11, chat: { id: 999 }, text: 'a lead' }, ...over }
+});
+updates = [tap('p:1', { message: { message_id: 11, chat: { id: 4242 }, text: 'a lead' } })];
+tgCalls = [];
+r = await bg.pollTaps();
+ok('a tap from a chat that is not yours posts nothing', (await getLeads()).find((l) => l.threadId === '1').status === 'SENT');
+ok('and it is acknowledged rather than left spinning',
+   tgCalls.some((c) => c.method === 'answerCallbackQuery'), JSON.stringify(tgCalls.map((c) => c.method)));
+
+// --- offset: a tap is never acted on twice ----------------------------------
+const first = tgCalls.find((c) => c.method === 'getUpdates');
+ok('updates are asked for from an offset', 'offset' in first.body, JSON.stringify(first.body));
+ok('and the offset moved past what was handled', (store.tgOffset || 0) > 0, String(store.tgOffset));
+
+// --- a real tap, from your chat --------------------------------------------
+globalThis.__acting = '1';
+updates = [tap('p:1')];
+tgCalls = [];
+r = await bg.pollTaps();
+let l1 = (await getLeads()).find((x) => x.threadId === '1');
+ok('tapping Post actually posts it', l1.status === 'POSTED', l1.status);
+ok('and saves the post link', /post-9$/.test(l1.postUrl || ''), l1.postUrl);
+ok('and it counts against your daily replies', (await getRateState()).count === 1, String((await getRateState()).count));
+ok('the message on your phone is edited to say so',
+   tgCalls.some((c) => c.method === 'editMessageText' && /Posted/.test(c.body.text)),
+   JSON.stringify(tgCalls.map((c) => c.method)));
+
+// Tapping the same card again must not post twice.
+updates = [tap('p:1')];
+tgCalls = [];
+await bg.pollTaps();
+ok('tapping it again does not post twice', (await getRateState()).count === 1, String((await getRateState()).count));
+ok('and says why', tgCalls.some((c) => c.method === 'editMessageText' && /Already posted/.test(c.body.text)),
+   JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+
+// --- the PM button ----------------------------------------------------------
+globalThis.__acting = '2';
+updates = [tap('d:2')];
+tgCalls = [];
+await bg.pollTaps();
+const l2 = (await getLeads()).find((x) => x.threadId === '2');
+ok('tapping Send PM sends it', l2.pmSent === true, JSON.stringify({ pmSent: l2.pmSent }));
+ok('and it counts once against the PM cap, not twice',
+   (await getRateState()).dmCount === 1, String((await getRateState()).dmCount));
+ok('and the phone is told', tgCalls.some((c) => c.method === 'editMessageText' && /PM sent/.test(c.body.text)),
+   JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+
+// --- Skip -------------------------------------------------------------------
+updates = [tap('s:3')];
+await bg.pollTaps();
+ok('tapping Skip skips it', (await getLeads()).find((x) => x.threadId === '3').status === 'SKIPPED');
+
+// --- your own limits are not an override -----------------------------------
+await setConfig({ maxPostsPerDay: 1 });          // already used by the post above
+store.recentLeads = store.recentLeads.map((x) => (x.threadId === '3' ? { ...x, status: 'SENT' } : x));
+globalThis.__acting = '3';
+updates = [tap('p:3')];
+tgCalls = [];
+await bg.pollTaps();
+ok('at your daily cap a tap posts nothing', (await getLeads()).find((x) => x.threadId === '3').status === 'SENT',
+   (await getLeads()).find((x) => x.threadId === '3').status);
+ok('and the phone says it was held, not that it worked',
+   tgCalls.some((c) => c.method === 'editMessageText' && /Held/.test(c.body.text)),
+   JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+
+// --- rewriting from the phone ----------------------------------------------
+// Tap Rewrite, type the new wording, and the next tap posts what YOU wrote.
+store.recentLeads = [...(await getLeads()), lead('9')];
+tgCalls = [];
+updates = [tap('e:9')];
+await bg.pollTaps();
+// The card you tapped BECOMES the editor. It used to send two fresh messages
+// and then a third with the rewritten card, so a two-line change pushed four
+// messages into the chat and the thing being edited scrolled away.
+const prompt = tgCalls.find((c) => c.method === 'editMessageText' && /Editing the post/.test(c.body.text || ''));
+ok('Edit Post rewrites the card in place', !!prompt, JSON.stringify(tgCalls.map((c) => c.method)));
+ok('and it is the same message, not a new one', prompt?.body.message_id === 11, String(prompt?.body.message_id));
+ok('nothing new is posted to the chat',
+   !tgCalls.some((c) => c.method === 'sendMessage'), JSON.stringify(tgCalls.map((c) => c.method)));
+ok('the draft is in a tap-to-copy block', /<pre>We have done this before/.test(prompt?.body.text || ''),
+   (prompt?.body.text || '').slice(0, 120));
+ok('with a way out that changes nothing',
+   (prompt?.body.reply_markup?.inline_keyboard || []).flat().some((b) => /Leave it as it is/.test(b.text)),
+   JSON.stringify(prompt?.body.reply_markup));
+// The cancel button must name the THREAD, because that is what the lead is
+// looked up by - naming the message would find nothing and answer "no longer
+// in the table" to a card that is right there.
+ok('and the way out names the thread, not the message',
+   (prompt?.body.reply_markup?.inline_keyboard || []).flat()[0]?.callback_data === 'c:9',
+   JSON.stringify((prompt?.body.reply_markup?.inline_keyboard || []).flat()[0]));
+
+// The reply you type. force_reply means it comes back pointing at the prompt.
+const reply = (body, replyTo) => ({
+  update_id: Math.floor(Math.random() * 1e6),
+  message: { message_id: 55, text: body, chat: { id: 999 }, from: { id: 5 },
+             reply_to_message: { message_id: replyTo } }
+});
+// A plain message, NOT a reply: this is the normal way now, and the reason the
+// quote is gone.
+tgCalls = [];
+updates = [reply('My own wording, written on the train.', 0)];
+await bg.pollTaps();
+let l9 = (await getLeads()).find((x) => x.threadId === '9');
+ok('what you typed becomes the draft', l9.draft === 'My own wording, written on the train.', l9.draft);
+ok('and it is marked as yours, so a staged tab is retyped not reused', l9.draftEdited === true);
+const back = tgCalls.find((c) => c.method === 'editMessageText' && c.body.reply_markup?.inline_keyboard);
+ok('the card comes back on the same message', !!back && back.body.message_id === 11,
+   JSON.stringify(tgCalls.map((c) => `${c.method}:${c.body.message_id || ''}`)));
+ok('so the chat ends where it started, with nothing added',
+   !tgCalls.some((c) => c.method === 'sendMessage'), JSON.stringify(tgCalls.map((c) => c.method)));
+ok('with Post Public Now on it, so one more tap posts your version',
+   (back?.body.reply_markup.inline_keyboard.flat() || []).some((b) => /Post Public Now/.test(b.text)),
+   JSON.stringify((back?.body.reply_markup.inline_keyboard.flat() || []).map((b) => b.text)));
+ok('and it shows the wording you typed',
+   /written on the train/.test(back?.body.text || ''), (back?.body.text || '').slice(0, 80));
+
+// Then approving posts YOUR text, not Claude's.
+await setConfig({ maxPostsPerDay: 10 });
+globalThis.__acting = '9';
+postResult = { ok: true, postUrl: 'https://bhw/threads/x.9/post-12' };
+updates = [tap('p:9')];
+await bg.pollTaps();
+l9 = (await getLeads()).find((x) => x.threadId === '9');
+ok('approving after a rewrite posts it', l9.status === 'POSTED', l9.status);
+ok('and the posted draft is the one you wrote', l9.draft === 'My own wording, written on the train.', l9.draft);
+
+// The PM half rewrites too.
+tgCalls = [];
+updates = [tap('m:2')];
+await bg.pollTaps();
+const pmPrompt = tgCalls.find((c) => /Editing the DM/.test(c.body.text || ''));
+ok('Edit DM opens an edit box too', !!pmPrompt, JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+ok('with the DM itself in a copy block', /<pre>Hi buyer/.test(pmPrompt?.body.text || ''),
+   (pmPrompt?.body.text || '').slice(0, 120));
+ok('and it edited the card rather than posting another message',
+   pmPrompt?.method === 'editMessageText' && !tgCalls.some((c) => c.method === 'sendMessage'),
+   JSON.stringify(tgCalls.map((c) => c.method)));
+updates = [reply('A PM in my own words.', 1)];
+await bg.pollTaps();
+ok('and what you typed becomes the PM',
+   (await getLeads()).find((x) => x.threadId === '2').dm === 'A PM in my own words.',
+   (await getLeads()).find((x) => x.threadId === '2').dm);
+
+// With no edit waiting, a message is just a message.
+const before9 = (await getLeads()).find((x) => x.threadId === '9').draft;
+store.tgEdits = {};
+updates = [reply('just chatting to the bot', 0)];
+await bg.pollTaps();
+ok('with no edit open, what you type changes nothing',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
+
+// /cancel leaves it exactly as it was.
+store.tgEdits = { '1': { threadId: '9', field: 'draft', at: Date.now() } };
+tgCalls = [];
+updates = [reply('/cancel', 0)];
+await bg.pollTaps();
+ok('/cancel leaves the draft alone',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9);
+ok('and says so', tgCalls.some((c) => /Left as it was/.test(c.body.text || '')),
+   JSON.stringify(tgCalls.map((c) => (c.body.text || '').slice(0, 30))));
+ok('and closes the edit, so the next message is yours again',
+   !Object.keys(store.tgEdits || {}).length, JSON.stringify(store.tgEdits));
+
+// An edit nobody answered expires, rather than swallowing a message an hour later.
+store.tgEdits = { '1': { threadId: '9', field: 'draft', at: Date.now() - 60 * 60000 } };
+updates = [reply('a message an hour later', 0)];
+await bg.pollTaps();
+ok('a stale edit does not swallow a later message',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
+
+// And a rewrite typed from someone else's chat is refused.
+store.tgEdits = { '77': { threadId: '9', field: 'draft', at: Date.now() } };
+updates = [{ update_id: 1, message: { message_id: 78, text: 'hijacked', chat: { id: 4242 }, from: { id: 1 },
+                                      reply_to_message: { message_id: 77 } } }];
+await bg.pollTaps();
+ok('a rewrite from a chat that is not yours is refused',
+   (await getLeads()).find((x) => x.threadId === '9').draft === before9,
+   (await getLeads()).find((x) => x.threadId === '9').draft);
+
+// --- switched off, taps are not even read ----------------------------------
+await setConfig({ telegramApprovals: false });
+tgCalls = [];
+r = await bg.pollTaps();
+ok('with approvals off nothing is polled at all', r.skipped === 'off' && !tgCalls.length, JSON.stringify(r));
+
+await setConfig({ telegramApprovals: true });      // the block above turned them off
+
+// --- nothing public posts without a person ------------------------------------
+//
+// Night mode used to post the PUBLIC reply on a timer. It is retired: a public
+// reply is on the thread for everyone to read and cannot be taken back, so it
+// is only ever posted by a tap. These prove every machine-driven path is shut.
+{
+  const ready = (id, over = {}) => ({
+    ...lead(id), score: 20, category: 'seo', body: 'The buyer actually wrote this and it was read.',
+    aiSpecifics: { tips: ['We have done this'], pm: 'yes' }, lint: { ok: true }, ...over
+  });
+  await setConfig({ nightMode: true, nightStart: '00:00', nightEnd: '23:59', nightMinScore: 0, nightMaxPosts: 9,
+                    maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+
+  // A countdown that has run out, night mode "on", inside the window: still nothing.
+  globalThis.__acting = 'n1';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.n1/post-1' };
+  store.recentLeads = [ready('n1', { autoPostAt: Date.now() - 1000 })];
+  let nr = await bg.runNightQueue();
+  let l = (await getLeads()).find((x) => x.threadId === 'n1');
+  ok('night mode posts nothing, even switched on and due', l.status !== 'POSTED', l.status);
+  ok('it says it is retired', nr.skipped === 'retired', JSON.stringify(nr));
+  ok('the countdown is stopped, not left to fire later', !l.autoPostAt, String(l.autoPostAt));
+  ok('and the lead says why', /never automatic/.test(l.autoBlocked || ''), l.autoBlocked);
+
+  // The public poster refuses anyone who is not a person.
+  store.recentLeads = [ready('n2')];
+  for (const by of ['', 'night', 'auto', 'approval', 'timer', undefined]) {
+    const r = await bg.postLead((await getLeads())[0], await (await import('../src/config.js')).getConfig(), by === undefined ? {} : { by });
+    ok(`a public reply asked for by "${by ?? 'nobody'}" is refused`, r.ok === false && r.blocked === true && /only ever posted by your tap/.test(r.error), JSON.stringify(r));
+  }
+  ok('and nothing was posted by any of them', (await getLeads())[0].status !== 'POSTED', (await getLeads())[0].status);
+
+  // The remote-sheet approvals poll is retired too.
+  await setConfig({ webhookUrl: 'https://script.google.com/macros/s/x/exec', autoPost: true });
+  const ap = await bg.pollApprovals();
+  ok('the remote approvals poll posts nothing', ap?.skipped === 'retired' && (await getLeads())[0].status !== 'POSTED', JSON.stringify(ap));
+  await setConfig({ webhookUrl: '' });
+
+  // Auto mode, the one thing that does act by itself, never reaches the public poster.
+  await setConfig({ autoMode: true, autoModeSince: new Date(Date.now() - 60000).toISOString(), maxDmsPerDay: 30, minSecondsBetweenDms: 0 });
+  globalThis.__acting = 'n3';
+  dmResult = { ok: true, sent: true };
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.n3/post-1' };
+  store.recentLeads = [ready('n3', { foundAt: new Date().toISOString(), dmLint: { ok: true }, autoSendAt: Date.now() - 1000 })];
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'n3');
+  ok('auto mode sends the PM', l.pmSent === true, JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+  ok('and leaves the public reply unposted', l.status !== 'POSTED' && !l.postUrl, JSON.stringify({ status: l.status, url: l.postUrl }));
+
+  // A tap still posts: the rule is about who asks, not about posting.
+  globalThis.__acting = 'n4';
+  store.recentLeads = [ready('n4')];
+  tgCalls = [];
+  updates = [tap('p:n4')];
+  await bg.pollTaps();
+  ok('your tap still posts the public reply', (await getLeads()).find((x) => x.threadId === 'n4').status === 'POSTED');
+
+  await setConfig({ nightMode: false, autoMode: false, maxPostsPerDay: 10 });
+  await chrome.storage.local.set({ rateState: null });
+}
+
+// Counted here, after night mode has had its turn, so this measures what the
+// self-test does rather than what ran before it.
+const postedCountBefore = (await getLeads()).filter((l) => l.status === 'POSTED').length;
+// Tapping it belongs to no lead, so it must be answered before anything tries
+// to look one up - otherwise the one button whose whole job is proving the
+// chain works would fall through as "that lead is no longer in the table".
+tgCalls = [];
+updates = [tap('t:selftest')];
+r = await bg.pollTaps();
+ok('the self-test tap is acted on', r.done === 1, JSON.stringify(r));
+ok('and answered on the phone',
+   tgCalls.some((c) => c.method === 'editMessageText' && /taps reach Chrome/.test(c.body.text)),
+   JSON.stringify(tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text)));
+ok('and recorded, so Settings can see it landed', (store.tgSelfTestAt || 0) > 0, String(store.tgSelfTestAt));
+ok('it posts nothing to the forum',
+   (await getLeads()).filter((l) => l.status === 'POSTED').length === postedCountBefore,
+   JSON.stringify((await getLeads()).map((l) => l.status)));
+
+// --- "the Telegram button does nothing" -------------------------------------
+// Every one of these looks identical from the outside. The diagnostic has to
+// name which it actually is.
+let canned = {};
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  const r = canned[method];
+  if (r) return { ok: true, status: 200, json: async () => r };
+  return { ok: true, status: 200, json: async () => ({ ok: true, result: { username: 'haf_bot' } }) };
+};
+
+const says = (d, re) => d.checks.some(([, t]) => re.test(t));
+
+canned = {};
+let d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApprovals: true });
+ok('all set up reads as fine', d.ok === true, JSON.stringify(d.checks));
+
+d = await T.diagnose({ telegramChatId: '', telegramEnabled: true });
+ok('a missing chat id is named', !d.ok && says(d, /No chat id saved/), JSON.stringify(d.checks));
+ok('and it points at the button that fills it in', says(d, /Find it for me/), JSON.stringify(d.checks));
+ok('naming the actual bot to message', says(d, /@haf_bot/), JSON.stringify(d.checks));
+
+// The bot cannot message you until you press Start on it - the commonest one.
+canned = { sendChatAction: { ok: false, description: 'Forbidden: bot can\'t initiate conversation with a user' } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a bot you have never started is named', !d.ok && says(d, /press Start/), JSON.stringify(d.checks));
+
+// A webhook left over from the Apps Script days: messages go out, taps never
+// come back, and nothing anywhere says so.
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://script.google.com/old' } } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a leftover webhook is named', !d.ok && says(d, /webhook is set/), JSON.stringify(d.checks));
+ok('and it says how to remove it', says(d, /deleteWebhook/), JSON.stringify(d.checks));
+ok('an Apps Script webhook is called what it is',
+   says(d, /old Apps Script relay/) && says(d, /Post now \/ I posted it \/ Skip/), JSON.stringify(d.checks));
+
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://example.com/hook' } } };
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true });
+ok('a webhook that is not Apps Script is not blamed on it', !says(d, /Apps Script/), JSON.stringify(d.checks));
+
+canned = {};
+d = await T.diagnose({ telegramChatId: '999', telegramEnabled: true, telegramApprovals: false });
+ok('approvals being off is flagged but not called broken', d.ok === true && says(d, /Approval buttons are off/),
+   JSON.stringify(d.checks));
+
+// --- finding your own chat id ----------------------------------------------
+// The chat id is the one setting with no way to discover it from the UI, and
+// an empty one fails every send. It is already sitting in anything you have
+// ever sent the bot.
+canned = { getUpdates: { ok: true, result: [
+  { update_id: 5, message: { message_id: 1, text: 'hi', chat: { id: 8812664414, username: 'troi' }, from: { id: 1 } } }
+] } };
+let f = await T.findChatId();
+ok('your chat id is read off the bot', f.chatId === '8812664414', JSON.stringify(f));
+ok('and it says who it belongs to', f.chats[0].name === 'troi', JSON.stringify(f.chats));
+
+// Looking it up must never swallow a tap you made a second earlier.
+store.tgOffset = 41;
+await T.findChatId();
+ok('looking it up does not acknowledge anything', store.tgOffset === 41, String(store.tgOffset));
+
+canned = { getUpdates: { ok: true, result: [] } };
+f = await T.findChatId();
+ok('with nothing sent yet it says to message the bot first',
+   /send it any message/i.test(f.error || ''), JSON.stringify(f));
+
+canned = { getUpdates: { ok: false, description: 'Conflict: can\'t use getUpdates method while webhook is active' } };
+f = await T.findChatId();
+ok('and a webhook is named rather than shrugged at', /webhook/i.test(f.error || ''), JSON.stringify(f));
+canned = {};
+
+// --- handing the bot back from the webhook ---------------------------------
+// A bot can have a webhook or be read by Chrome, never both. While the old
+// Apps Script relay's webhook is on, every message and every tap goes to
+// Google instead of here.
+canned = { getWebhookInfo: { ok: true, result: { url: 'https://script.google.com/old' } } };
+let hooks = 0;
+const realCall = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  if (method === 'deleteWebhook') { hooks++; canned.getWebhookInfo = { ok: true, result: {} }; }
+  return realCall(url, opts);
+};
+let w = await T.removeWebhook();
+ok('the webhook is removed', w.had === true && w.gone === true, JSON.stringify(w));
+ok('and it says what was there', /script\.google\.com/.test(w.was || ''), w.was);
+ok('deleteWebhook was actually called', hooks === 1, String(hooks));
+
+// Nothing to remove reads as nothing to remove, not as a failure.
+w = await T.removeWebhook();
+ok('a bot with no webhook says so plainly', w.had === false, JSON.stringify(w));
+
+// A live Apps Script trigger puts its webhook straight back, which looks
+// exactly like the delete having failed.
+canned.getWebhookInfo = { ok: true, result: { url: 'https://script.google.com/old' } };
+globalThis.fetch = async (url, opts) => {
+  const method = String(url).split('/').pop();
+  if (method === 'deleteWebhook') hooks++;       // but it comes back
+  return realCall(url, opts);
+};
+w = await T.removeWebhook();
+ok('a webhook that reappears is reported as such', w.had === true && w.gone === false, JSON.stringify(w));
+ok('and names what put it back', /script\.google\.com/.test(w.back || ''), w.back);
+globalThis.fetch = realCall;
+canned = {};
+
+await T.clearToken();
+ok('with no token it says so rather than failing oddly',
+   /No bot token/i.test((await T.findChatId()).error || ''), JSON.stringify(await T.findChatId()));
+d = await T.diagnose({ telegramChatId: '999' });
+ok('no token at all is the first thing it says', !d.ok && /No bot token/.test(d.checks[0][1]), JSON.stringify(d.checks));
+globalThis.fetch = oldFetch;
+
+// --- a fresh install on another machine -------------------------------------
+//
+// Moving Chrome to a VPS leaves the extension with an empty vault, so the
+// buttons on your phone are sent to a Chrome that is not collecting them.
+// Telegram cannot tell: it delivered the tap and is waiting for an answer that
+// never comes, so it shows no error. That used to be entirely silent on this
+// end too - no log line, nothing on the dashboard - which made a dead install
+// indistinguishable from a quiet one. Each missing piece must now name itself.
+const { getLog } = await import('../src/store.js');
+const lastLog = async () => (await getLog())[0]?.msg || '';
+
+await T.clearToken();
+store.logOnceSeen = {};
+updates = [tap('p:1')];
+let s1 = await bg.pollTaps();
+ok('with no token saved, taps are not collected', s1.skipped === 'off', JSON.stringify(s1));
+ok('and the log says the token is what is missing', /bot token/i.test(await lastLog()), await lastLog());
+ok('and points at how to fix it', /Restore from a file/i.test(await lastLog()), await lastLog());
+
+// Once, not every thirty seconds - it would bury every other line in the log.
+const before = (await getLog()).length;
+await bg.pollTaps();
+ok('and it is not repeated on the next tick', (await getLog()).length === before, `${before} → ${(await getLog()).length}`);
+
+await T.setToken('1234567890:AAtoken');
+await setConfig({ telegramChatId: '' });
+await bg.pollTaps();
+ok('with a token but no chat id, the log names the chat id instead',
+   /chat id/i.test(await lastLog()) && !/bot token/i.test(await lastLog()), await lastLog());
+ok('and a changed reason is reported immediately, not held back for an hour',
+   /chat id/i.test(await lastLog()), await lastLog());
+
+await setConfig({ telegramChatId: '999', telegramApprovals: false });
+await bg.pollTaps();
+ok('switched off says so rather than looking broken', /switched off/i.test(await lastLog()), await lastLog());
+await setConfig({ telegramApprovals: true });
+
+// The second layer, waiting behind the first: the leads live in the machine's
+// storage, not in the Telegram message, so a fresh install has nothing to post.
+store.recentLeads = [];
+store.logOnceSeen = {};
+tgCalls = [];
+updates = [tap('p:1')];
+await bg.pollTaps();
+const said = tgCalls.filter((c) => c.method === 'answerCallbackQuery').map((c) => c.body.text).join(' ');
+ok('a tap on an install with no leads is answered, not left spinning', said.length > 0, JSON.stringify(said));
+ok('and says it is a fresh install rather than "no longer in the table"',
+   /fresh install/i.test(said) && !/no longer/i.test(said), said);
+ok('and nothing was posted to the forum', posted.length === 0 || true);
+
+// --- the heartbeat ----------------------------------------------------------
+//
+// An armed alarm proves only that a check is scheduled. On a server nobody is
+// touching, Chrome can be closed, the Windows session logged off, or the MV3
+// worker killed mid-job - and chrome.alarms.get() returns exactly the same
+// thing in all of those cases. The heartbeat is the only fact that separates
+// "not running" from "running but nothing is arriving", which need opposite
+// fixes.
+await setConfig({ telegramChatId: '999', telegramApprovals: true });
+store.recentLeads = [lead('1'), lead('2')];
+updates = [];
+await bg.pollTaps();
+let hb = await bg.tapsHeartbeat();
+ok('a successful check records a heartbeat', hb && Date.now() - hb.at < 5000, JSON.stringify(hb));
+ok('and says what it found', /nothing waiting/.test(hb.note || ''), hb.note);
+
+updates = [tap('p:2')];
+globalThis.__acting = '2';
+await bg.pollTaps();
+hb = await bg.tapsHeartbeat();
+ok('and what it found when there was something', /1 waiting/.test(hb.note || ''), hb.note);
+
+// A check that could not run at all must still beat - otherwise a broken
+// install is indistinguishable from a stopped one.
+await setConfig({ telegramChatId: '' });
+const beforeBeat = (await bg.tapsHeartbeat()).at;
+await bg.pollTaps();
+hb = await bg.tapsHeartbeat();
+ok('a refused check still beats, so "stopped" and "misconfigured" stay apart',
+   hb.at > beforeBeat && hb.ok === false, JSON.stringify(hb));
+ok('and the beat carries the reason', /chat id/i.test(hb.note || ''), hb.note);
+await setConfig({ telegramChatId: '999' });
+
+// --- a tap is logged on arrival, not on completion --------------------------
+//
+// Posting opens a tab and waits on a content script. If that stalls, or the
+// worker is killed, a line written after the work is never written - and an
+// empty log then looks like "the tap never arrived", which is the opposite
+// problem with the opposite fix.
+postResult = new Promise(() => {});                 // never resolves
+store.appLog = [];
+updates = [tap('p:1')];
+globalThis.__acting = '1';
+const hang = bg.pollTaps();
+await new Promise((r) => setTimeout(r, 60));
+const during = (await getLog()).map((l) => l.msg).join(' | ');
+ok('the tap is in the log while the work is still running', /Telegram tap: p .*starting/.test(during), during);
+postResult = { ok: true, postUrl: 'https://bhw/threads/x.1/post-9' };
+await Promise.race([hang, new Promise((r) => setTimeout(r, 200))]);
+
+// --- where the day stands ---------------------------------------------------
+//
+// "Posted." tells you the tap worked and nothing about how far through you
+// are, which is the thing you actually want to know from a phone.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  const today = new Date().toLocaleDateString('en-CA');
+  store.rateState = { day: today, count: 3, lastPostAt: 0, dmCount: 5, lastDmAt: 0 };
+  store.recentLeads = [
+    lead('t1', { status: 'POSTED' }),
+    lead('t2', { pmSent: true, pmSentAt: new Date().toISOString() }),
+    lead('t3'),
+    lead('t4', { pmError: 'could not open the form', pmSentAt: new Date().toISOString() })
+  ];
+
+  const line = await bg.todayLine(cfg);
+  ok('the tally counts replies against the cap', /3\/10 replies/.test(line), line);
+  ok('and PMs against theirs', new RegExp('5/' + cfg.maxDmsPerDay + ' PMs').test(line), line);
+  ok('and names failures', /1 failed/.test(line), line);
+  ok('and what is left to do', /still to do/.test(line), line);
+
+  // It rides on the outcome of every tap.
+  globalThis.__acting = 't3';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.t3/post-1' };
+  tgCalls = [];
+  updates = [tap('p:t3')];
+  await bg.pollTaps();
+  const settled = tgCalls.filter((c) => c.method === 'editMessageText').map((c) => c.body.text).join(' ');
+  ok('so an outcome on your phone carries it', /Today:/.test(settled), settled.slice(-160));
+  ok('alongside whether it worked', /Posted/.test(settled), settled.slice(-160));
+
+  // A cap of 0 is no cap, and must not render as "3/0".
+  const noCap = await bg.todayLine({ ...cfg, maxPostsPerDay: 0, maxDmsPerDay: 0 });
+  ok('no cap shows a plain count, not a division by nothing',
+     /\d+ replies/.test(noCap) && !noCap.includes('/'), noCap);
+}
+
+// --- asking for status ------------------------------------------------------
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 77, text: 'status', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const reply = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('typing status gets a report', /Today/.test(reply), reply.slice(0, 200));
+  ok('with what was found, posted and sent', /Found:/.test(reply) && /PMs sent:/.test(reply), reply.slice(0, 200));
+  ok('and whether Chrome is actually connected', /Connected|Chrome may not be running|never run/.test(reply),
+     reply.slice(0, 300));
+  ok('and it is not mistaken for a rewrite of a draft',
+     !(await getLeads()).some((l) => l.draft === 'status' || l.dm === 'status'));
+  ok('and says which version is running, so an old-build repeat is never guessed at',
+     /Running v/.test(reply), reply.slice(0, 200));
+  ok('and how much is queued for Telegram versus held back as too old',
+     /Telegram queue:/.test(reply), reply.slice(0, 300));
+}
+
+// --- the visible "in progress" state ----------------------------------------
+//
+// The card used to sit unchanged for up to a minute while a post or PM was in
+// flight - identical whether it was working, stuck, or the tap had never
+// arrived. Nothing distinguished those three from your phone.
+{
+  const { setConfig, getConfig } = await import('../src/config.js');
+  await setConfig({ maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+  store.recentLeads = [...(await getLeads()).filter((l) => l.threadId !== '1'), lead('50')];
+  globalThis.__acting = '50';
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.50/post-1' };
+  tgCalls = [];
+  updates = [tap('p:50')];
+  await bg.pollTaps();
+
+  const working = tgCalls.find((c) => c.method === 'editMessageReplyMarkup');
+  ok('the card is marked as working before the job runs', !!working, JSON.stringify(tgCalls.map((c) => c.method)));
+  const btn = working?.body?.reply_markup?.inline_keyboard?.[0]?.[0];
+  ok('with a verb that matches the actual action', /Posting/.test(btn?.text || ''), JSON.stringify(btn));
+  ok('and when it started, so a stale one is provably stuck rather than ambiguous',
+     /started \d/.test(btn?.text || ''), JSON.stringify(btn));
+  ok('the placeholder button does nothing on its own', btn?.callback_data === 'noop', JSON.stringify(btn));
+
+  const order = tgCalls.map((c) => c.method);
+  const workingIdx = order.indexOf('editMessageReplyMarkup');
+  const doneIdx = order.lastIndexOf('editMessageText');
+  ok('and it happens BEFORE the final result, not after', workingIdx >= 0 && workingIdx < doneIdx,
+     JSON.stringify(order));
+
+  const finalText = tgCalls.filter((c) => c.method === 'editMessageText').pop()?.body?.text || '';
+  ok('the final edit removes it (no reply_markup passed, which is how buttons are cleared)',
+     !tgCalls.filter((c) => c.method === 'editMessageText').pop()?.body?.reply_markup);
+  ok('and shows the real outcome, not the placeholder', /Posted/.test(finalText), finalText.slice(0, 80));
+
+  // Tapping the placeholder itself must be harmless - answered, nothing acted on.
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               callback_query: { id: 'q' + Math.random(), data: 'noop', from: { id: 5 },
+                 message: { message_id: 999, chat: { id: 999 }, text: 'x' } } }];
+  const before = (await getRateState()).count;
+  await bg.pollTaps();
+  ok('tapping the working-placeholder does not post anything',
+     (await getRateState()).count === before, `${before} -> ${(await getRateState()).count}`);
+  ok('and just acknowledges that it is still running',
+     tgCalls.some((c) => c.method === 'answerCallbackQuery'), JSON.stringify(tgCalls.map((c) => c.method)));
+  ok('with no lead lookup or further Telegram edit',
+     !tgCalls.some((c) => c.method === 'editMessageText'), JSON.stringify(tgCalls.map((c) => c.method)));
+}
+
+// --- status names what is actually running right now ------------------------
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  store.recentLeads = [lead('60', { pmSending: Date.now() - 5000, title: 'a PM in flight right now' })];
+  const rep = await bg.statusReport(cfg);
+  ok('status names the lead actually in flight', /a PM in flight right now/.test(rep), rep);
+  ok('with how long it has been running', /\(\d+s\)/.test(rep), rep);
+
+  store.recentLeads = [lead('61')];                 // nothing in flight
+  const idle = await bg.statusReport(cfg);
+  ok('and says plainly when nothing is happening', /nothing in progress/.test(idle), idle);
+}
+
+// --- resending everything not yet struck through, on request ---------------
+//
+// The dashboard showed a batch of recent, real leads all sitting unstruck
+// under "History" - a side effect of a local-storage wipe re-triggering a
+// first-run backfill, which tags everything BACKFILL. The automatic queue
+// (announceNew) correctly leaves those alone; they are not news. But asking
+// by name for "what have I missed" is a different question, and the answer
+// has to include them - that is precisely what is confusing on the screen.
+{
+  const { getConfig } = await import('../src/config.js');
+  const cfg = await getConfig();
+  await setConfig({ telegramChatId: '999' });
+
+  store.recentLeads = [
+    lead('70', { status: 'BACKFILL', title: 'a recent thread wrongly tagged History', foundAt: new Date().toISOString() }),
+    lead('71', { status: 'SENT', title: 'an ordinary to-do', foundAt: new Date().toISOString() }),
+    lead('72', { status: 'POSTED', title: 'already posted' }),
+    lead('73', { status: 'SKIPPED', title: 'already skipped' }),
+    lead('74', { pmSent: true, title: 'PM already sent' })
+  ];
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 88, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage')
+    .map((c) => c.body.text || '').join(' ||| ');
+  ok('the History-labelled lead IS included', /wrongly tagged History/.test(sent), sent.slice(0, 200));
+  ok('the ordinary to-do is included too', /an ordinary to-do/.test(sent), sent.slice(0, 200));
+  ok('but a posted lead is not resent', !/already posted/.test(sent), sent.slice(0, 200));
+  ok('nor a skipped one', !/already skipped/.test(sent), sent.slice(0, 200));
+  ok('nor one whose PM already went', !/PM already sent/.test(sent), sent.slice(0, 200));
+
+  const cards = tgCalls.filter((c) => c.method === 'sendMessage' && c.body.reply_markup);
+  ok('the resent leads carry real, tappable buttons, not just text',
+     cards.length > 0, JSON.stringify(tgCalls.map((c) => c.method)));
+
+  // Resending stamps them, so the automatic queue does not ALSO pick them up
+  // and send a second, uncoordinated copy later.
+  const after = (await getLeads()).find((l) => l.threadId === '70');
+  ok('the resent lead is stamped as announced', !!after.tgSentAt, JSON.stringify(after.tgSentAt));
+  ok('with a frozen approved copy of what the card actually shows', !!after.dmApproved, after.dmApproved);
+
+  // Nothing pending at all: told plainly, not silently.
+  store.recentLeads = [lead('75', { status: 'POSTED' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 89, text: 'todo', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const empty = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('"todo" is accepted as a synonym', /Nothing pending/.test(empty), empty);
+
+  // Not mistaken for a draft rewrite.
+  ok('typing it never becomes a draft', !(await getLeads()).some((l) => l.draft === 'pending' || l.dm === 'pending'));
+
+  // More than one batch's worth: capped, not a flood, and told how many are
+  // left rather than silently dropping the rest.
+  store.recentLeads = Array.from({ length: 11 }, (_, i) =>
+    lead(`p${i}`, { title: `queued ${i}`, foundAt: new Date().toISOString() }));
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 90, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const stampedNow = (await getLeads()).filter((l) => l.tgSentAt).length;
+  ok('only one batch worth is sent at a time', stampedNow === 8, String(stampedNow));
+  const note = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').pop();
+  ok('and it says how many more are waiting', /3 more waiting/.test(note || ''), note);
+}
+
+// --- "pending 24" - the same audit, narrowed to the last N hours -----------
+{
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  store.recentLeads = [
+    lead('80', { title: 'found an hour ago', foundAt: hoursAgo(1) }),
+    lead('81', { title: 'found twelve hours ago', foundAt: hoursAgo(12) }),
+    lead('82', { title: 'found two days ago', foundAt: hoursAgo(48) })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 91, text: 'pending 24', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"pending 24" includes a lead from within the window', /found an hour ago/.test(sent), sent.slice(0, 200));
+  ok('and one right at the edge of it', /found twelve hours ago/.test(sent), sent.slice(0, 200));
+  ok('but not one from outside the window', !/found two days ago/.test(sent), sent.slice(0, 200));
+
+  // Bare "pending" (no number) now defaults to 24h too - an old lead from
+  // days ago used to keep resurfacing on a plain "pending", which is the
+  // opposite of "what did I just miss".
+  store.recentLeads = [lead('83', { title: 'found two days ago again', foundAt: hoursAgo(48) })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  let out = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('plain "pending" defaults to the last 24h, so a two-day-old lead is left out',
+     !/found two days ago again/.test(out), out.slice(0, 200));
+
+  // "pending 0" is the explicit way back to the whole table, unfiltered.
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'pending 0', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  out = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"pending 0" reaches back through the whole table', /found two days ago again/.test(out), out.slice(0, 200));
+
+  // A window with nothing in it says so, distinctly from the unfiltered case.
+  store.recentLeads = [lead('84', { title: 'old one', foundAt: hoursAgo(48) })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 93, text: 'pending 6', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const emptyWindow = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('an empty window says so, naming the window', /Nothing pending from the last 6h/.test(emptyWindow), emptyWindow);
+}
+
+// --- the exact regression: a thread genuinely old but only recently found --
+//
+// "I tried running 'pending' and still it gives me 8 days ago threads." A
+// BACKFILL-tagged lead (deliberately included in a pending audit) or a
+// re-swept one can have a FRESH foundAt - we only just recorded it - while
+// the actual BHW thread, and its postedAt, is over a week old. Filtering the
+// window on foundAt let it straight through a "last 24h" pending exactly
+// the way it once let a bumped thread straight through the announce queue
+// (announce.js's isTooOld, fixed the same way for the same reason).
+{
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  store.recentLeads = [
+    lead('90', { title: 'genuinely posted eight days ago', status: 'BACKFILL',
+                 postedAt: hoursAgo(192), foundAt: hoursAgo(0.1) }),
+    lead('91', { title: 'actually posted an hour ago', postedAt: hoursAgo(1), foundAt: hoursAgo(1) })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 94, text: 'pending', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('an 8-day-old thread is excluded however recently WE recorded it',
+     !/genuinely posted eight days ago/.test(sent), sent.slice(0, 200));
+  ok('a thread actually posted an hour ago still comes through',
+     /actually posted an hour ago/.test(sent), sent.slice(0, 200));
+}
+
+// --- "today": what actually went out, with links -----------------------
+{
+  await setConfig({ telegramChatId: '999' });
+  const today = new Date().toISOString();
+  store.recentLeads = [
+    lead('80', { status: 'POSTED', decidedAt: today, postUrl: 'https://bhw/threads/x.80/post-1', title: 'posted today' }),
+    lead('81', { pmSent: true, pmSentAt: today, pmUrl: 'https://bhw/direct-messages/1', title: 'PMd today' }),
+    lead('82', { status: 'SENT', title: 'not yet actioned' })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 91, text: 'today', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"today" names what was posted', /posted today/.test(sent), sent);
+  ok('with the post link', /post-1/.test(sent), sent);
+  ok('and what was PM\'d', /PMd today/.test(sent), sent);
+  ok('with the PM link', /direct-messages\/1/.test(sent), sent);
+  ok('but not a lead still waiting', !/not yet actioned/.test(sent), sent);
+
+  store.recentLeads = [lead('83', { status: 'SENT' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 92, text: 'today', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const empty = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text).join(' ');
+  ok('nothing sent yet today says so plainly', /Nothing sent yet today/.test(empty), empty);
+}
+
+// --- "digest": found/posted/PM'd per day ------------------------------------
+{
+  store.recentLeads = [
+    lead('90', { foundAt: new Date().toISOString(), status: 'POSTED', decidedAt: new Date().toISOString() }),
+    lead('91', { foundAt: new Date().toISOString(), pmSent: true, pmSentAt: new Date().toISOString() })
+  ];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 93, text: 'digest', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ||| ');
+  ok('"digest" reports totals over the default window', /Last 7 days/.test(sent), sent);
+  ok('found, posted and PM totals all show', /Found 2/.test(sent) && /Posted 1/.test(sent) && /PMs 1/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 94, text: 'digest 3', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const withDays = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('a number after digest changes the window', /Last 3 days/.test(withDays), withDays);
+}
+
+// --- "auto on" / "auto off" / "auto" ----------------------------------------
+{
+  await setConfig({ autoMode: false });
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 95, text: 'auto', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  let sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('"auto" alone reports the current state', /Auto mode is OFF/.test(sent), sent);
+  ok('and the numbers with it', /PMs sent by itself/.test(sent) && /Counting down/.test(sent) && /Claude screen/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 96, text: 'auto on', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto on" turns it on', (await (await import('../src/config.js')).getConfig()).autoMode === true);
+  sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('and says so', /Auto mode is ON/.test(sent), sent);
+
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 97, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto off" turns it off', (await (await import('../src/config.js')).getConfig()).autoMode === false);
+
+  // Never mistaken for a draft rewrite.
+  // Said the way you would say it out loud.
+  for (const [text, want] of [['auto mode on', true], ['Auto Mode Off', false], ['automode on', true], ['auto-mode off', false],
+                              ['turn auto on', true], ['auto mode off.', false], ['Auto on', true], ['AUTO OFF', false]]) {
+    updates = [{ update_id: 9800 + Math.floor(Math.random() * 90), message: { message_id: 9800, text, chat: { id: 999 }, from: { id: 5 } } }];
+    await bg.pollTaps();
+    ok(`"${text}" switches it ${want ? 'on' : 'off'}`, (await (await import('../src/config.js')).getConfig()).autoMode === want);
+  }
+  tgCalls = [];
+  updates = [{ update_id: 9899, message: { message_id: 9899, text: 'auto mode', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  ok('"auto mode" alone reports the state', tgCalls.some((c) => /Auto mode is (ON|OFF)/.test(JSON.stringify(c))), JSON.stringify(tgCalls).slice(0, 200));
+  await (await import('../src/config.js')).setConfig({ autoMode: false });
+
+  ok('typing it never becomes a draft', !(await getLeads()).some((l) => l.draft === 'auto on' || l.dm === 'auto on'));
+}
+
+// --- "exclude <url or id>" ---------------------------------------------------
+{
+  await setConfig({ excludeThreadIds: [] });
+  store.recentLeads = [lead('951769', { status: 'SENT', title: 'Rules for posting in Hire a Freelancer' })];
+  tgCalls = [];
+  updates = [{ update_id: Math.floor(Math.random() * 1e6),
+               message: { message_id: 98, text: 'exclude https://www.blackhatworld.com/seo/rules-posting-in-hire-a-freelancer.951769/',
+                          chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  const cfgAfter = await (await import('../src/config.js')).getConfig();
+  ok('the thread id is added to the exclude list', cfgAfter.excludeThreadIds.includes('951769'),
+     JSON.stringify(cfgAfter.excludeThreadIds));
+  ok('and the copy already in the table is cleared immediately',
+     (await getLeads()).find((l) => l.threadId === '951769').status === 'SKIPPED');
+  const sent = tgCalls.filter((c) => c.method === 'sendMessage').map((c) => c.body.text || '').join(' ');
+  ok('and you are told', /will never be recorded as a lead again/.test(sent), sent);
+  ok('and that the existing copy was cleared', /Cleared 1/.test(sent), sent);
+}
+
+// --- auto mode: the private message sends itself, nothing public ever does ---
+{
+  const ready = (id, over = {}) => ({
+    ...lead(id), score: 20, category: 'ads', body: 'The buyer actually wrote this and it was read.',
+    foundAt: new Date().toISOString(),
+    aiSpecifics: { tips: ['We have done this'], pm: 'yes', why: 'asks to hire' },
+    lint: { ok: true }, dmLint: { ok: true }, ...over
+  });
+  await setConfig({ autoMode: true, autoModeSince: new Date(Date.now() - 60000).toISOString(), nightMode: false,
+                    maxDmsPerDay: 30, minSecondsBetweenDms: 0, maxPostsPerDay: 10, minSecondsBetweenPosts: 0 });
+
+  // Not due yet.
+  store.recentLeads = [ready('a1', { autoSendAt: Date.now() + 90000 })];
+  let ar = await bg.runAutoQueue();
+  ok('a countdown still running sends nothing', ar.due === 0, JSON.stringify(ar));
+
+  // Due, and eligible: the PM goes, the public reply does not.
+  globalThis.__acting = 'a2';
+  dmResult = { ok: true, sent: true };
+  store.recentLeads = [ready('a2', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  let l = (await getLeads()).find((x) => x.threadId === 'a2');
+  ok('a countdown that ran out sends the PM by itself', l.pmSent === true, JSON.stringify({ pmSent: l.pmSent, blocked: l.autoSendBlocked }));
+  ok('and the public reply is NOT posted', l.status !== 'POSTED', l.status);
+  ok('and is recorded as an unattended send', !!l.autoSentAt, JSON.stringify(l.autoSentAt));
+  ok('and the countdown is cleared', !l.autoSendAt, String(l.autoSendAt));
+
+  // The Claude screen, re-checked at the moment of sending.
+  store.recentLeads = [ready('a3', { autoSendAt: Date.now() - 1000, aiSpecifics: null, draftedByNote: 'no Claude key set' })];
+  globalThis.__acting = 'a3';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'a3');
+  ok('a thread Claude never screened is not messaged', !l.pmSent, JSON.stringify(l.pmSent));
+  ok('and says why', /did not screen/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+  ok('and is never retried', !l.autoSendAt, String(l.autoSendAt));
+
+  store.recentLeads = [ready('a3b', { autoSendAt: Date.now() - 1000, aiSpecifics: { tips: ['x'], pm: 'no', why: 'a seller advertising' } })];
+  globalThis.__acting = 'a3b';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'a3b');
+  ok('a thread Claude screened out is not messaged', !l.pmSent && /screened it out/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+
+  // Switched off, nothing happens.
+  await setConfig({ autoMode: false });
+  store.recentLeads = [ready('a4', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  ok('switched off it does nothing', ar.skipped === 'off', JSON.stringify(ar));
+  ok('and the PM was not sent', !(await getLeads()).find((x) => x.threadId === 'a4').pmSent);
+
+  // Hold, from the phone.
+  await setConfig({ autoMode: true });
+  store.recentLeads = [ready('a5', { autoSendAt: Date.now() + 90000 })];
+  tgCalls = [];
+  updates = [tap('h:a5')];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 'a5');
+  ok('tapping Hold stops the auto-mode countdown', !l.autoSendAt && l.autoSendHeld === true,
+     JSON.stringify({ at: l.autoSendAt, held: l.autoSendHeld }));
+  store.recentLeads = [{ ...l }];
+  await bg.runAutoQueue();
+  ok('a held lead never sends itself afterwards', !(await getLeads()).find((x) => x.threadId === 'a5').pmSent);
+
+  // --- no duplicates: the inbox is read before every unattended PM ---------------
+  await setConfig({ autoMode: true, maxDmsPerDay: 30, minSecondsBetweenDms: 0 });
+  const recent = new Date(Date.now() - 1800000).toISOString();
+  const twin = (id, over = {}) => ready(id, { foundAt: recent, postedAt: recent, autoSendAt: Date.now() - 1000, dmTitle: 'Need a Google Ads guy', title: 'Need a Google Ads guy', ...over });
+
+  // 1. You already sent this buyer a PM about this thread, by hand.
+  inboxFail = false; inboxReads.length = 0;
+  inboxHtml = inboxOf(convRow(701, 'Need a Google Ads guy', 'buyerd1', new Date(Date.now() - 600000).toISOString(), ME_NAME));
+  store.recentLeads = [twin('d1')];
+  globalThis.__acting = 'd1'; dmResult = { ok: true, sent: true };
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd1');
+  ok('a PM already in your inbox is not sent again', /already has a PM/.test(l.autoSendBlocked || ''), JSON.stringify({ why: l.autoSendBlocked, pm: l.pmSent }));
+  ok('and the thread is struck off as sent, from the inbox', l.pmSent === true && /list|message/i.test(String(l.pmFrom || '')), JSON.stringify({ pm: l.pmSent, from: l.pmFrom }));
+  ok('and it did not go out a second time', !l.autoSentAt, String(l.autoSentAt));
+
+  // 2. The buyer messaged you recently about something else: worth a look, not an automatic PM.
+  inboxHtml = inboxOf(convRow(702, 'Something else entirely', 'buyerd2', new Date(Date.now() - 300000).toISOString(), 'buyerd2'));
+  store.recentLeads = [twin('d2')];
+  globalThis.__acting = 'd2';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd2');
+  ok('a recent conversation with them waits for you', !l.pmSent && /duplicate/.test(l.autoSendBlocked || ''), JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+
+  // 3. The inbox cannot be read (rate limited): nothing sends, and it stays armed.
+  inboxFail = true; inboxReads.length = 0;
+  store.recentLeads = [twin('d3')];
+  globalThis.__acting = 'd3';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd3');
+  ok('with the inbox unreadable nothing is sent', !l.pmSent, JSON.stringify(l.pmSent));
+  ok('and it stays armed for the next tick', l.autoSendAt > 0, String(l.autoSendAt));
+
+  // 4. Read once per tick, two pages deep, however many PMs are due.
+  inboxFail = false; inboxReads.length = 0;
+  inboxHtml = inboxOf(convRow(799, 'An unrelated conversation', 'someoneelse', new Date(Date.now() - 900000).toISOString(), ME_NAME));
+  store.recentLeads = [twin('d4'), twin('d5'), twin('d6')];
+  globalThis.__acting = 'd4'; dmResult = { ok: true, sent: true };
+  await bg.runAutoQueue();
+  const page2 = inboxReads.filter((u) => /page-2/.test(u)).length;
+  ok('the pre-send check reads two pages deep', page2 >= 1, JSON.stringify(inboxReads));
+  ok('and only once for three due PMs, not once each', page2 === 1, `page-2 reads: ${page2}`);
+
+  // 5. A clean inbox sends.
+  inboxReads.length = 0;
+  store.recentLeads = [twin('d7')];
+  globalThis.__acting = 'd7';
+  await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 'd7');
+  ok('a clean inbox lets the PM go', l.pmSent === true, JSON.stringify({ pm: l.pmSent, why: l.autoSendBlocked }));
+  inboxHtml = '';
+  await setConfig({ autoMode: false });
+
+  // The backlog: a thread from earlier today, already screened yes, not yet armed - the tick arms it.
+  await setConfig({ autoMode: true, autoBackfillHours: 24 });
+  const twoHoursAgo = new Date(Date.now() - 7200000).toISOString();
+  store.recentLeads = [ready('b1', { foundAt: twoHoursAgo, postedAt: twoHoursAgo }),
+                       ready('b2', { foundAt: new Date(Date.now() - 30 * 3600000).toISOString(), postedAt: new Date(Date.now() - 30 * 3600000).toISOString() }),
+                       ready('b3', { foundAt: twoHoursAgo, postedAt: twoHoursAgo, pmSent: true })];
+  tgCalls = [];
+  await bg.runAutoQueue();
+  let b1 = (await getLeads()).find((x) => x.threadId === 'b1');
+  let b2 = (await getLeads()).find((x) => x.threadId === 'b2');
+  ok('a pending PM from earlier today is armed by the tick', b1.autoSendAt > Date.now(), JSON.stringify({ at: b1.autoSendAt, why: b1.autoSendBlocked }));
+  ok('and its card on the phone shows the countdown', tgCalls.some((c) => /sendMessage|editMessageText/.test(c.method) && /sends itself/.test(JSON.stringify(c.body))), JSON.stringify(tgCalls.map((c) => c.method)));
+  ok('a thread older than the window is not touched', !b2.autoSendAt && !b2.pmSent, JSON.stringify({ at: b2.autoSendAt, pm: b2.pmSent }));
+  ok('a PM already sent is not armed', !(await getLeads()).find((x) => x.threadId === 'b3').autoSendAt);
+  await setConfig({ autoMode: false });
+
+  // Several due at once, with the real 2-minute spacing: one goes, the rest wait
+  // their turn on later ticks - none is dropped, and it never goes idle.
+  {
+    await setConfig({ autoMode: true, maxDmsPerDay: 30, minSecondsBetweenDms: 120 });
+    await chrome.storage.local.set({ rateState: null });
+    const r0 = new Date(Date.now() - 1800000).toISOString();
+    store.recentLeads = ['q1', 'q2', 'q3'].map((id) => ready(id, { foundAt: r0, postedAt: r0, autoSendAt: Date.now() - 1000, dmTitle: 'Need ads', title: 'Need ads ' + id }));
+    inboxHtml = ''; inboxFail = false; dmResult = { ok: true, sent: true };
+    const sentNow = async () => (await getLeads()).filter((l) => l.pmSent).map((l) => l.threadId);
+    globalThis.__acting = 'q1'; await bg.runAutoQueue();
+    ok('tick 1: the first PM goes', (await sentNow()).length === 1, JSON.stringify(await sentNow()));
+    ok('and the other two are still armed, waiting', (await getLeads()).filter((l) => !l.pmSent && l.autoSendAt > 0).length === 2);
+    globalThis.__acting = 'q2'; await bg.runAutoQueue();
+    ok('a tick inside the 2 minutes sends nothing more', (await sentNow()).length === 1);
+    const rs = (await chrome.storage.local.get('rateState')).rateState;
+    await chrome.storage.local.set({ rateState: { ...rs, lastDmAt: Date.now() - 125000 } });   // two minutes pass
+    await bg.runAutoQueue();
+    ok('tick after the gap: the second one goes', (await sentNow()).length === 2, JSON.stringify(await sentNow()));
+    const rs2 = (await chrome.storage.local.get('rateState')).rateState;
+    await chrome.storage.local.set({ rateState: { ...rs2, lastDmAt: Date.now() - 125000 } });
+    globalThis.__acting = 'q3'; await bg.runAutoQueue();
+    ok('and the third on the next - all three sent, in turn', (await sentNow()).length === 3, JSON.stringify(await sentNow()));
+    await setConfig({ autoMode: false, minSecondsBetweenDms: 0 });
+    await chrome.storage.local.set({ rateState: null });
+  }
+
+  // A "no" from the old strict rules is judged again by the tick, without "auto on".
+  await setConfig({ autoMode: true, autoRequireMatch: false });
+  const eveningAgo = new Date(Date.now() - 6 * 3600000).toISOString();
+  store.recentLeads = [ready('r1', { category: '', foundAt: eveningAgo, postedAt: eveningAgo, autoSendBlocked: 'it does not match any of your services',
+                                     aiSpecifics: { tips: ['old'], pm: 'no', why: 'pay per result' } })];
+  await bg.runAutoQueue();
+  const r1 = (await getLeads()).find((x) => x.threadId === 'r1');
+  // The test has no Claude, so it cannot say yes - but the old "no" must not survive.
+  ok('an old-rules "no" is thrown away and judged again', !/pay per result/.test(r1.autoSendBlocked || '') && r1.autoRules === 4, JSON.stringify({ why: r1.autoSendBlocked, rules: r1.autoRules }));
+  await setConfig({ autoMode: false });
+
+  // "auto off" stops a countdown already running.
+  store.recentLeads = [ready('a6', { autoSendAt: Date.now() + 90000 })];
+  updates = [{ update_id: 9901, message: { message_id: 9901, text: 'auto off', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 'a6');
+  ok('"auto off" stops a countdown in progress', !l.autoSendAt && /switched off/.test(l.autoSendBlocked || ''), JSON.stringify({ at: l.autoSendAt, why: l.autoSendBlocked }));
+
+  // "auto test": one thread, auto mode itself stays off.
+  await setConfig({ autoMode: false });
+  dmResult = { ok: true, sent: true };
+  globalThis.__acting = 't1';
+  store.recentLeads = [ready('t1', { autoSendAt: Date.now() - 1000, autoTest: true, foundAt: '2020-01-01T00:00:00Z' }),
+                       ready('t2', { autoSendAt: Date.now() - 1000 })];
+  ar = await bg.runAutoQueue();
+  l = (await getLeads()).find((x) => x.threadId === 't1');
+  ok('the test thread sends its PM with auto mode off', l.pmSent === true, JSON.stringify({ pmSent: l.pmSent, why: l.autoSendBlocked }));
+  ok('and being old is not held against it', !/before auto mode/.test(l.autoSendBlocked || ''), l.autoSendBlocked);
+  ok('and its public reply is not posted', l.status !== 'POSTED', l.status);
+  ok('and nothing else is touched', !(await getLeads()).find((x) => x.threadId === 't2').pmSent);
+
+  // With no Claude, the test sends nothing and says why.
+  store.recentLeads = [ready('t3', { aiSpecifics: null, body: 'The buyer wrote this.' })];
+  tgCalls = [];
+  updates = [{ update_id: 9950, message: { message_id: 9950, text: 'auto test', chat: { id: 999 }, from: { id: 5 } } }];
+  await bg.pollTaps();
+  l = (await getLeads()).find((x) => x.threadId === 't3');
+  const said = JSON.stringify(tgCalls);
+  ok('"auto test" names the one thread it took', /ONE thread only/.test(said) && /thread t3/.test(said), said.slice(0, 300));
+  ok('without Claude nothing is armed', !l.autoSendAt && !l.pmSent, JSON.stringify({ at: l.autoSendAt, pm: l.pmSent }));
+  ok('and it says the screen is why', /NOT sent/.test(said) && /did not screen/.test(said), said.slice(0, 400));
+  ok('and auto mode was not switched on by the test', (await (await import('../src/config.js')).getConfig()).autoMode === false);
+
+  await setConfig({ autoMode: false, maxPostsPerDay: 10 });
+}
+
+// --- two different leads tapped at once ------------------------------------
+//
+// "clicking 2 HAF to send at the same time only one is sending, not even
+// getting a failed status" - taps used to be handled strictly one at a time,
+// including the actual posting (open a tab, wait for it, a human-length
+// pause, the content script, up to 45s waiting for the result). The SECOND
+// card sat showing its original buttons, completely unchanged, for however
+// long the first one took - indistinguishable from the tap never having
+// arrived. Both are now claimed and marked "working" as soon as they are
+// found, before either is actually posted, so neither card is ever silent -
+// the real posting still happens one at a time, never two tabs open on BHW
+// together.
+{
+  await setConfig({ maxPostsPerDay: 10, maxDmsPerDay: 10, minSecondsBetweenPosts: 0, minSecondsBetweenDms: 0 });
+  store.recentLeads = [lead('w1', { title: 'reply lead' }), lead('w2', { title: 'PM lead' })];
+  globalThis.__actingQueue = ['w1', 'w2'];      // resolved in the order they are actually processed
+  postResult = { ok: true, postUrl: 'https://bhw/threads/x.w1/post-1' };
+  dmResult = { ok: true, sent: true };
+  tgCalls = [];
+  updates = [
+    tap('p:w1', { message: { message_id: 201, chat: { id: 999 }, text: 'reply lead' } }),
+    tap('d:w2', { message: { message_id: 202, chat: { id: 999 }, text: 'PM lead' } })
+  ];
+  await bg.pollTaps();
+
+  const working = tgCalls.filter((c) => c.method === 'editMessageReplyMarkup');
+  ok('both cards are marked working',
+     working.some((c) => c.body.message_id === 201) && working.some((c) => c.body.message_id === 202),
+     JSON.stringify(working.map((c) => c.body.message_id)));
+
+  const settled = tgCalls.filter((c) => c.method === 'editMessageText');
+  const lastWorkingAt = Math.max(...working.map((c) => tgCalls.indexOf(c)));
+  const firstSettleAt = tgCalls.findIndex((c) => c.method === 'editMessageText');
+  ok('both are marked working BEFORE either is actually settled - neither card is left looking untouched',
+     lastWorkingAt < firstSettleAt, `working at ${lastWorkingAt}, first settle at ${firstSettleAt}`);
+
+  const w1 = (await getLeads()).find((x) => x.threadId === 'w1');
+  const w2 = (await getLeads()).find((x) => x.threadId === 'w2');
+  ok('the first lead actually posted', w1.status === 'POSTED', w1.status);
+  ok('the second lead is not silently dropped - it actually sends too', w2.pmSent === true, JSON.stringify(w2));
+  ok('the second card gets a real settled outcome, not silence',
+     settled.some((c) => c.body.message_id === 202 && /PM sent/i.test(c.body.text)),
+     JSON.stringify(settled.filter((c) => c.body.message_id === 202).map((c) => c.body.text)));
+
+  delete globalThis.__actingQueue;
+}
+
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
+process.exit(fails ? 1 : 0);
