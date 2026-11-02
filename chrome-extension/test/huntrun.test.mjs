@@ -114,13 +114,22 @@ bags.local.hunt.nextAt = Date.now() - 1;
 whatsNew = { 1: page(12, (i) => R(`Looking for SEO help ${i}`, { m: 200 + i, rep: 6 })), 2: page(5, (i) => R(`More ${i}?`)) };
 r = await bg.huntTick();
 ok('update: page 1 had 12 new, so page 2 is not read', r.ok && r.pages === 1 && r.fresh === 12 && bhwReads().length === 1, { r, o: bhwReads() });
-ok('one summary with 12 new threads', msgs().filter((m) => /🧲 <b>12 new threads/.test(m.text)).length === 1, msgs().map((m) => m.text.slice(0, 60)));
+ok('one live-feed message with the 12 new threads', msgs().filter((m) => /🧲 <b>Live feed · 12 new threads/.test(m.text)).length === 1, msgs().map((m) => m.text.slice(0, 60)));
 opened.length = 0; tg = [];
 bags.local.hunt.nextAt = Date.now() - 1;
 whatsNew = { 1: page(3, (i) => R(`Looking for links A${i}`, { m: 400 })), 2: page(3, (i) => R(`Looking for links B${i}`, { m: 400 })), 3: page(2, (i) => R(`Looking for links C${i}`, { m: 400 })) };
 r = await bg.huntTick();
 ok('under 10 new: reads on to page 3 at most', r.pages === 3 && r.fresh === 8 && bhwReads().length === 3, { r, o: bhwReads() });
-ok('8 new are held for the next summary, not sent half', !msgs().some((m) => /🧲/.test(m.text)) && bags.local.hunt.pending.length === 8);
+ok('8 new are held for the next feed message, not sent half', !msgs().some((m) => /🧲/.test(m.text)) && bags.local.hunt.pending.length === 8);
+
+// ---- 3b. Hire a Freelancer never reaches Hunt's Telegram (HAF already handles it)
+opened.length = 0; tg = [];
+bags.local.hunt.pending = [];
+bags.local.hunt.nextAt = Date.now() - 1;
+whatsNew = { 1: [...page(10, (i) => R(`Need SEO for shop ${i}`, { m: 2, rep: 0, forum: 'Hire a Freelancer' })), ...page(10, (i) => R(`Looking for outreach ${i}`, { m: 300, rep: 6, forum: 'Black Hat SEO' }))] };
+r = await bg.huntTick();
+const feedMsg = msgs().find((m) => /Live feed/.test(m.text))?.text || '';
+ok('feed holds the 10 forum threads and none of the 10 HAF ones; no gem for HAF', /Live feed · 10 new threads/.test(feedMsg) && !/Need SEO for shop/.test(feedMsg) && !msgs().some((m) => /💎/.test(m.text) && /shop/.test(m.text)), msgs().map((m) => m.text.slice(0, 80)));
 
 // ---- 4. the hourly cap: 15 BHW pages, HAF reads included
 opened.length = 0;

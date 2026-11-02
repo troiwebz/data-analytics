@@ -2179,7 +2179,7 @@ async function huntUpdate(cfg, { pages, fast = false, quiet = false }) {
   const pruned = hunt.prunePool(before, { now });
   await chrome.storage.local.set({ [HUNT_POOL_KEY]: pruned.pool });
   const st = await huntState();
-  const pending = [...new Set([...(st.pending || []), ...fresh])].filter((id) => pruned.pool[id]);
+  const pending = [...new Set([...(st.pending || []), ...fresh])].filter((id) => pruned.pool[id] && !hunt.isHaf(pruned.pool[id].forum));
   const next = {
     ...st, fastDone: true, lastAt: now, nextAt: now + hunt.nextGapMin(quiet) * 60000,
     lastUpdate: { at: now, pages: read, fresh: fresh.length, wall: wall ? 1 : 0, fast },
@@ -2259,10 +2259,10 @@ async function huntSummary(cfg) {
   if (cfg.huntSummary === false || !(await huntTelegramOk(cfg))) return false;
   const st = await huntState();
   const pool = await huntPool();
-  const items = (st.pending || []).map((id) => pool[id]).filter(Boolean);
+  const items = (st.pending || []).map((id) => pool[id]).filter((i) => i && !hunt.isHaf(i.forum));
   if (items.length < hunt.MIN_NEW_PER_UPDATE) return false;
-  try { await telegram.sendCard(cfg.telegramChatId, hunt.formatSummary(items, { telegramCats: huntFocus(cfg) })); }
-  catch (e) { await log(`Hunt summary: ${e.message}`, 'error'); return false; }
+  try { for (const msg of hunt.formatFeed(items)) await telegram.sendCard(cfg.telegramChatId, msg); }
+  catch (e) { await log(`Hunt feed: ${e.message}`, 'error'); return false; }
   await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), pending: [], summaryAt: Date.now() } });
   return true;
 }
@@ -2270,7 +2270,7 @@ async function huntSummary(cfg) {
 async function huntReady(cfg) {
   if (!(await huntTelegramOk(cfg))) return;
   const c = hunt.countPool(await huntPool());
-  await telegram.say(cfg.telegramChatId, `✅ Hunt is ready: ${c.all} threads so far, 💰 ${c.buyers} buyers, 🎓 ${c.experts} questions.\nThe last 7 days load quietly over the next 1-2 hours. Gems come here straight away; a summary comes every 10 new threads.`).catch(() => {});
+  await telegram.say(cfg.telegramChatId, `✅ Hunt is ready: ${c.all} threads so far, 💰 ${c.buyers} buyers, 🎓 ${c.experts} questions.\nThe last 7 days load quietly over the next 1-2 hours. Gems come here straight away; the live feed comes every 10 new threads. Hire a Freelancer stays with HAF.`).catch(() => {});
   await chrome.storage.local.set({ [HUNT_KEY]: { ...(await huntState()), pending: [] } });
 }
 

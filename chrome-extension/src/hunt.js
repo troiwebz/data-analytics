@@ -125,7 +125,7 @@ export function scoreOf(row, { now = Date.now(), focus = [] } = {}) {
 
 /** A gem is worth a phone ping straight away. Returns a short reason, or ''. */
 export function gemOf(item, { now = Date.now(), focus = [] } = {}) {
-  if (!item || item.status) return '';
+  if (!item || item.status || isHaf(item.forum)) return '';
   const rep = Number(item.replyCount) || 0;
   const age = now - (t0(item.startedAt) || 0);
   const mine = !focus.length || focus.includes(item.cat);
@@ -278,20 +278,35 @@ export function formatGem(i, reason, { now = Date.now() } = {}) {
 }
 export const gemKeyboard = (i) => ({ inline_keyboard: [[{ text: '🔗 Open thread', url: i.url }]] });
 
-/** One message per update, only when 10 or more new threads are waiting: counts by category, then the best few. */
-export function formatSummary(items, { now = Date.now(), top = 6, telegramCats = null } = {}) {
+/** Hire a Freelancer: HAF already reads, drafts and messages these, so Hunt's Telegram leaves them out. */
+export const isHaf = (forum) => /hire a freelancer/i.test(String(forum || ''));
+export const FEED_PER_MESSAGE = 15;
+const LANE_ICON = { buyer: '💰', expert: '🎓', other: '🆕' };
+
+/**
+ * The live feed: every new thread since the last message, newest first, each with its category and a tap-to-open
+ * title. Sent once 10 or more are waiting; more than 15 go out as several messages. Returns an array of messages.
+ */
+export function formatFeed(items, { now = Date.now(), per = FEED_PER_MESSAGE } = {}) {
+  const list = items.filter((i) => !isHaf(i.forum)).sort((a, b) => (t0(b.startedAt) || b.firstSeen || 0) - (t0(a.startedAt) || a.firstSeen || 0));
+  if (!list.length) return [];
+  const buyers = list.filter((i) => i.lane === 'buyer').length, experts = list.filter((i) => i.lane === 'expert').length;
   const by = {};
-  for (const i of items) by[i.cat] = (by[i.cat] || 0) + 1;
-  const buyers = items.filter((i) => i.lane === 'buyer').length, experts = items.filter((i) => i.lane === 'expert').length;
+  for (const i of list) by[i.cat] = (by[i.cat] || 0) + 1;
   const cats = ALL_CATEGORIES.filter((c) => by[c.id]).map((c) => `${c.icon} ${c.name} ${by[c.id]}`).join(' · ');
-  const best = items.filter((i) => (i.lane === 'buyer' || i.lane === 'expert') && (!telegramCats || telegramCats.includes(i.cat)))
-    .sort((a, b) => b.score - a.score).slice(0, top);
-  const lines = [`🧲 <b>${items.length} new threads</b> · 💰 ${buyers} buyers · 🎓 ${experts} questions`, cats, ''];
-  best.forEach((i, n) => {
-    const rep = Number(i.replyCount) || 0;
-    lines.push(`<b>${n + 1}. ${i.lane === 'buyer' ? '💰' : '🎓'} <a href="${h(i.url)}">${h(i.title)}</a></b>`, `${h(topicName(i.cat, i.topic))} · ${h(i.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · ${ago(i.startedAt, now)}`, '');
-  });
-  if (!best.length) lines.push('No buyers or questions in your categories this time; all of them are on the dashboard.', '');
-  lines.push('All of them: dashboard → Hunt tab, or your phone link.');
-  return lines.join('\n').slice(0, 3900);
+  const out = [];
+  for (let k = 0; k < list.length; k += per) {
+    const part = list.slice(k, k + per);
+    const lines = k === 0
+      ? [`🧲 <b>Live feed · ${list.length} new thread${list.length === 1 ? '' : 's'}</b> · 💰 ${buyers} buyers · 🎓 ${experts} questions`, cats, '']
+      : [`🧲 <b>Live feed, continued</b> (${k + 1}-${k + part.length} of ${list.length})`, ''];
+    part.forEach((i, n) => {
+      const rep = Number(i.replyCount) || 0, c = ALL_CATEGORIES.find((x) => x.id === i.cat) || OTHER;
+      lines.push(`<b>${k + n + 1}. ${LANE_ICON[i.lane] || '🆕'} <a href="${h(i.url)}">${h(i.title)}</a></b>${rep === 0 ? ' 🔥' : ''}`,
+        `${c.icon} ${h(c.name)} › ${h(topicName(i.cat, i.topic))} · ${h(i.forum)} · ${rep} repl${rep === 1 ? 'y' : 'ies'} · ${ago(i.startedAt, now) || 'just now'}`, '');
+    });
+    if (k + per >= list.length) lines.push('💰 buyer · 🎓 question · 🆕 thread · 🔥 no replies yet. Hire a Freelancer stays with HAF.');
+    out.push(lines.join('\n').slice(0, 3900));
+  }
+  return out;
 }

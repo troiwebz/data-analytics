@@ -93,8 +93,14 @@ ok('caps: 15 pages an hour, 3 per update, 10 new per summary, 8 gems a day', H.P
 
 // Telegram text
 const items = Object.values(H.mergeRows({}, Array.from({ length: 12 }, (_, i) => R(40 + i, i % 3 ? `Looking for backlinks pack ${i}` : `How to fix indexing ${i}?`, { m: 5 + i })), { now, focus: ['seo'] }).pool);
-const sum = H.formatSummary(items, { now, telegramCats: ['seo'] });
-ok('summary: count, buyers and questions, categories, best 6 with links', /12 new threads/.test(sum) && /💰 8 buyers/.test(sum) && /🎓 4 questions/.test(sum) && /🔎 SEO 12/.test(sum) && (sum.match(/<a href=/g) || []).length === 6, sum);
+const feedItems = [...items, ...Object.values(H.mergeRows({}, [R(90, 'Need SEO for my clinic', { m: 2, forum: 'Hire a Freelancer' }), R(91, 'My SEO journey day 3', { m: 4, forum: 'White Hat SEO' })], { now }).pool)];
+const feed = H.formatFeed(feedItems, { now });
+const sum = feed.join('\n');
+ok('feed: every new thread listed, newest first, Hire a Freelancer left out', feed.length === 1 && /Live feed · 13 new threads/.test(sum) && !/clinic/.test(sum) && (sum.match(/<a href=/g) || []).length === 13 && sum.indexOf('journey day 3') < sum.indexOf('backlinks pack 1'), sum);
+ok('feed: lane icon, category › topic, replies, age; plain threads come too', /🆕 <a href=[^>]+>My SEO journey day 3/.test(sum) && /🔎 SEO › /.test(sum) && /💰 9 buyers/.test(sum) === false && /💰 8 buyers/.test(sum), sum.slice(0, 400));
+const many = Object.values(H.mergeRows({}, Array.from({ length: 32 }, (_, i) => R(200 + i, `Looking for links ${i}`, { m: 1 + i })), { now }).pool);
+ok('feed: more than 15 go out as several messages, numbered on', (() => { const f = H.formatFeed(many, { now }); return f.length === 3 && /continued<\/b> \(16-30 of 32\)/.test(f[1]) && /<b>32\. /.test(f[2]); })());
+ok('no gem for Hire a Freelancer (HAF has it)', H.gemOf({ ...H.mergeRows({}, [R(92, 'Looking for backlinks', { m: 3, forum: 'Hire a Freelancer' })], { now }).pool['92'] }, { now, focus: ['seo'] }) === '');
 const gem = H.formatGem(items[0], 'fresh buyer', { now });
 ok('gem message: lane, category › topic, link, why', /💎/.test(gem) && /SEO › /.test(gem) && /<a href="https:\/\/www\.blackhatworld\.com/.test(gem) && /Why: fresh buyer/.test(gem), gem);
 ok('gem button opens the thread only (nothing is posted)', JSON.stringify(H.gemKeyboard(items[0])) === JSON.stringify({ inline_keyboard: [[{ text: '🔗 Open thread', url: items[0].url }]] }));
