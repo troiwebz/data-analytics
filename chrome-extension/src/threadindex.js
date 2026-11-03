@@ -85,7 +85,7 @@ export function tagOf(entry, lead) {
  * Everything in the index matching the words, newest activity first.
  * mode: 'all' | 'new' | 'bump' | 'done'. Leads are consulted for DONE.
  */
-export async function searchIndex(query, { mode = 'all', leads = [], limit = 40 } = {}) {
+export async function searchIndex(query, { mode = 'all', leads = [], limit = 40, extra = [] } = {}) {
   const index = await getIndex();
   const byLead = new Map((leads || []).map((l) => [String(l.threadId), l]));
   const words = String(query || '').trim().split(/\s+/).filter(Boolean);
@@ -101,6 +101,9 @@ export async function searchIndex(query, { mode = 'all', leads = [], limit = 40 
                   startedAt: l.postedAt, lastActivityAt: l.lastActivityAt || l.postedAt, bumps: l.bump ? 1 : 0, fromLead: true });
     }
   }
+  // Rows the hunter already holds (read before 1.27.2 fed the index) - same rule.
+  const have = new Set(rows.map((e) => String(e.threadId)));
+  for (const e of extra || []) if (e && e.threadId && !have.has(String(e.threadId))) { rows.push(e); have.add(String(e.threadId)); }
   for (const e of rows) {
     const hay = `${e.title}\n${e.snippet || ''}`;
     if (!rxs.every((rx) => rx.test(hay))) continue;

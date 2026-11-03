@@ -2154,6 +2154,10 @@ export async function huntTick({ force = false } = {}) {
 async function huntRead(url, cfg, source) {
   const page = await huntReadInTab(url, extractRadarListing);
   if (page.me) await chrome.storage.local.set({ bhwMe: page.me });
+  // 1.27.2: the hunter is the only reader of the rest of the site now, so what it
+  // reads goes into the search index too - "casino" on the phone finds these.
+  await upsertIndex((page.rows || []).filter((r) => r && r.threadId).map((r) => rowItem(r, 'hunt')), 'hunt', { days: cfg.indexDays })
+    .catch((e) => log(`hunt index: ${e.message}`, 'error'));
   const now = Date.now();
   const merged = hunt.mergeRows(await huntPool(), page.rows || [], { now, focus: huntFocus(cfg), source });
   await chrome.storage.local.set({ [HUNT_POOL_KEY]: merged.pool });
@@ -3995,7 +3999,10 @@ async function takeSearch(ev, cfg) {
   if (words.length > 1 && ['new', 'bump', 'bumped', 'done'].includes(last)) { mode = last === 'bumped' ? 'bump' : last; words.pop(); }
   const query = words.join(' ');
   const leads = await getLeads();
-  const found = await searchIndex(query, { mode, leads, limit: 200 });
+  const pool = Object.values((await chrome.storage.local.get(HUNT_POOL_KEY))[HUNT_POOL_KEY] || {});
+  const found = await searchIndex(query, { mode, leads, limit: 200,
+    extra: pool.map((h) => ({ threadId: String(h.id), url: h.url, title: h.title, author: h.author, snippet: '', source: 'hunt',
+      forum: h.forum, startedAt: h.startedAt, lastActivityAt: h.lastActivityAt || h.startedAt, bumps: 0 })) });
   if (!found.length) {
     await telegram.say(cfg.telegramChatId, `🔎 Nothing for "${query}"${mode !== 'all' ? ` (${mode})` : ''} in the last ${cfg.indexDays || 7} days. `
       + `The index only holds threads seen since install. "watch ${query}" makes every new one come here.`);
