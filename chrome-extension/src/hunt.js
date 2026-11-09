@@ -9,7 +9,7 @@ export const POSTS_URL = `${BHW}/whats-new/posts/`;
 export const FORUM_LIST_URL = `${BHW}/forums/`;
 
 export const HOUR = 3600000;
-export const PAGES_PER_HOUR = 12;          // the hunter's own BHW pages an hour (HAF is paced on its own)
+export const PAGES_PER_HOUR = 12;          // the hunter's own BHW pages an hour, only when you press a button (1.27.3: no background reading)
 export const MAX_PAGES_PER_UPDATE = 3;
 export const MIN_NEW_PER_UPDATE = 10;
 export const FAST_START_PAGES = 3;

@@ -80,6 +80,7 @@ bags.local.config = { ...bags.local.config, configVersion: 37, huntOn: undefined
 await migrateConfig();
 ok('migration: hunter on, focus SEO + content, WTB to HAF on', bags.local.config.huntOn === true && bags.local.config.wtbOn === true && bags.local.config.huntFocus.join() === 'seo,content', bags.local.config);
 
+bags.local.config.huntAuto = true;   // 1.27.3: background hunting is off by default; these tests exercise it switched on
 // ---- 1. fast first start: 3 pages straight away, a Ready message, gems for fresh buyers
 whatsNew = {
   1: [R('Looking for backlink builder for SaaS', { m: 8, rep: 1 }), R('Why did my site get deindexed?', { m: 20, rep: 0 }), R('⭐ Cheap links 50% off ⭐'), R('Hello everyone, new here'),
@@ -213,7 +214,7 @@ delete bags.local[LK];
 // ---- 8. HAF is untouched, and the old readers stand aside
 ok('nothing written to HAF\'s leads', !bags.local.recentLeads || !Object.values(bags.local.recentLeads).some((l) => /Looking for links/.test(l.title || '')));
 const rn = await bg.radarNewTick();
-ok('the old new-threads watch steps aside while the hunter runs', rn.skipped === 'hunt', rn);
+ok('1.27.3: the 10-minute new-threads watch runs again alongside the hunter', rn.skipped !== 'hunt', rn);
 bags.local.config.huntOn = false;
 r = await bg.huntTick();
 ok('Hunt off: nothing runs', r.skipped === 'off');

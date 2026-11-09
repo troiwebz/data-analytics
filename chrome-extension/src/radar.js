@@ -48,7 +48,7 @@ export const GROUP_LABELS = {
 
 export const DEFAULT_RADAR_CFG = { on: true, everyMinutes: 60, perBatch: 3, dailyTarget: 10, briefs: true, general: false, words: DEFAULT_WORDS, muted: [], families: {}, newWatch: true, newEvery: 10, newAll: true, newMaxReplies: 10, familiesOn: false, alertsOn: false };
 /** 1.23: how many threads one new-threads message carries; the rest wait for the next check (never lost, never a flood). */
-export const NEW_MAX_PER_MESSAGE = 10;
+export const NEW_MAX_PER_MESSAGE = 15;   // 1.27.3: was 10
 /** Threads that are only a hello: the one kind you asked never to see. Title or the Introductions board. */
 export const WELCOME_TITLE = /^\s*(hello|hi|hey|hola|greetings|welcome|good (morning|evening|afternoon|day)|new (here|member|to (bhw|the forum|blackhatworld))|newbie|i'?m new|just joined|introduc\w*|nice to meet)\b/i;
 export const WELCOME_FORUM = /introduc/i;
@@ -122,8 +122,10 @@ export function tierOf(row, match, now = Date.now()) {
 export function extractRadarListing() {
   const t = String(document.title || '');
   const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
-  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
-      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+  if ((!document.querySelector('.p-pageWrapper, .p-body, .p-header') && /just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t))
+      || (!document.querySelector('.p-pageWrapper, .p-body, .p-header')   // 1.27.3: a real block page has no BHW layout; a thread TITLE saying "has been blocked" is not a wall
+          && /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body))
+      || /you have been rate limited|too many requests/i.test(String((document.querySelector('.blockMessage--error') || {}).innerText || ''))) {
     return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
   }
   const iso = (el) => { const v = el && el.getAttribute('data-timestamp'); const n = v ? parseInt(v, 10) * 1000 : NaN; return isFinite(n) && n > 0 ? new Date(n).toISOString() : null; };
@@ -433,8 +435,10 @@ export function searchUrl(term, { days = 7, now = Date.now() } = {}) {
 export function extractRadarSearch() {
   const t = String(document.title || '');
   const body = String((document.body && document.body.innerText) || '').slice(0, 3000);
-  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
-      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body)) {
+  if ((!document.querySelector('.p-pageWrapper, .p-body, .p-header') && /just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t))
+      || (!document.querySelector('.p-pageWrapper, .p-body, .p-header')   // 1.27.3: a real block page has no BHW layout; a thread TITLE saying "has been blocked" is not a wall
+          && /you have been rate limited|access denied|has been blocked|verify you are human/i.test(body))
+      || /you have been rate limited|too many requests/i.test(String((document.querySelector('.blockMessage--error') || {}).innerText || ''))) {
     return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
   }
   const rows = [];
@@ -463,6 +467,10 @@ export function extractRadarSearch() {
 /** Boards whose threads are never a public-reply target (buyers' boards, sales boards, housekeeping). */
 export const FORUM_DENY = /hire a freelancer|want to buy|marketplace|for sale|selling|renting|seo - |packages|\bmisc\b|hosting|proxies|content \/|copywriting|ebooks|web design|programming|panels|freebies|giveaways|introductions|dispute|suggestions|news|lounge|journey/i;
 /** Titles that are sales, not discussion. */
+/** 1.27.3: casino / gambling threads are marked HOT and go to the top of the 10-minute list. */
+export const HOT_TITLE = /\b(casinos?|gambl\w*|betting|bets?|igaming|i-gaming|sportsbooks?|bookmakers?|slots?|poker|lotter(y|ies)|sweepstakes?)\b/i;
+/** 1.27.3: someone SELLING (not asking) - kept out of the 10-minute list. Buyers and questions stay in. */
+export const SELLER_TITLE = /\b(wts|for sale|selling|sell my|discount|% off|buy now|lifetime deal|group buy|cheapest|best price|limited offer|giveaway)\b|\$\s?\d|⭐|✅|⚡|❌|⏩|🔥/i;
 export const SALES_TITLE = /\b(wts|for sale|selling|cheap|discount|% off|buy now|services?|lifetime deal|group buy|hiring|hire|dm me|pm me)\b|\$\s?\d|⭐|✅|⚡|❌|⏩/i;
 
 export const isMuted = (title, muted) => { const rx = wordRegex(muted || []); return !!(rx && rx.test(String(title || ''))); };
@@ -544,15 +552,15 @@ export function markSent(state, ids, now = Date.now()) {
 export const RADAR_HELP = [
   '📡 <b>Reply radar - the commands you can send</b> (this list comes once a day; "radar help" shows it any time)',
   '',
-  '<b>next casino</b> - live search of the whole forum for that keyword and its family, grouped into topic clusters, best thread per cluster. Never repeats a thread.',
-  '<b>next casino 5</b> - up to 5 clusters',
+  '<b>casino</b> or <b>next casino</b> - BHW search for that word, most relevant first, up to 5 pages read slowly. One list of up to 10, sales threads and introductions left out, 🔥 on casino/gambling. Never repeats a thread; send it again for more.',
+  '<b>next casino 5</b> - only 5 threads',
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',
   '<b>brief 3</b> - Claude\'s asked / already said / missing for thread 3 of the last message (about a cent)',
   '<b>families</b> - the niches Radar runs (one every 20 minutes) · <b>run casino</b> - run one now · <b>more casino</b> - the next layer · <b>pin casino</b> - at least hourly',
   '<b>add casino &lt;word&gt;</b> / <b>drop casino &lt;word&gt;</b> - edit a family\'s words',
   '<b>block ads</b> / <b>block seo</b> - run a board block right now (off by default since the families took over)',
-  '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 15 minutes on its own) · <b>new threads off</b> / <b>on</b>',
+  '<b>new threads</b> - check BHW\'s new-threads page right now (it runs every 10 minutes on its own) · <b>new threads off</b> / <b>on</b>',
   '<b>radar</b> - status · <b>radar on</b> / <b>radar off</b> · <b>radar now</b> - run the hourly check now',
   '<b>radar count 4</b> - correct today\'s number of public replies',
   '<b>radar help</b> - this list',
@@ -653,9 +661,11 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
       // 1.23 'everything' mode: a normal forum, any topic, any board. Out: only a hello, a thread with too many replies
       // already (you asked for under 10), marketplace boards, and a muted word. No niche words, no age limit beyond the page itself.
       if (WELCOME_TITLE.test(r.title) || WELCOME_FORUM.test(r.forum || '')) continue;
-      if ((Number(r.replyCount) || 0) >= maxReplies) continue;
+      // 1.27.3: no reply limit any more (you asked for everything); sellers out; casino/gambling marked hot.
+      void maxReplies;
+      if (SELLER_TITLE.test(r.title)) continue;
       if (FORUM_DENY.test(r.forum || '') || isMuted(r.title, muted)) continue;
-      out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: 'all', tier: 'N' });
+      out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: 'all', tier: 'N', hot: HOT_TITLE.test(r.title) });
       continue;
     }
     const started = ms(r.startedAt); if (!started || now - started > hours * 3600000) continue;
@@ -668,22 +678,35 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
     if (!inSection && match !== 'strict') continue;
     out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || section?.name || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: match || 'section', tier: 'N' });
   }
-  return all ? out.sort((a, b) => (ms(b.lastActivityAt) || ms(b.startedAt)) - (ms(a.lastActivityAt) || ms(a.startedAt))) : out.sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+  return all ? out.sort((a, b) => (b.hot ? 1 : 0) - (a.hot ? 1 : 0) || (ms(b.lastActivityAt) || ms(b.startedAt)) - (ms(a.lastActivityAt) || ms(a.startedAt))) : out.sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
 }
 
 /** The 15-minute message: only threads never shown before, newest first, with links. */
 export function formatNewThreads(items, { now = Date.now(), count = 0, target = 10, families = {}, more = 0, all = false } = {}) {
   const d = new Date(now);
-  const lines = [`🆕 <b>New threads</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} new`, ''];
+  const hot = items.filter((q) => q.hot).length;
+  const lines = [`🆕 <b>New threads</b> · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${items.length} new${hot ? ` · 🔥 ${hot} hot` : ''}`, ''];
   items.forEach((q, i) => {
     const rep = Number(q.replyCount) || 0;
     const fresh = ms(q.startedAt) && now - ms(q.startedAt) < 6 * HOUR;
-    lines.push(`<b>${i + 1}. ${rep === 0 ? '🔥 ' : ''}<a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · ${fresh || !q.lastActivityAt ? `started ${ago(q.startedAt, now)}` : `last reply ${last(q.lastActivityAt, now)}`} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
+    lines.push(`<b>${i + 1}. ${q.hot ? '🔥 HOT · ' : ''}<a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section)} · ${fresh || !q.lastActivityAt ? `started ${ago(q.startedAt, now)}` : `last reply ${last(q.lastActivityAt, now)}`} · ${rep} repl${rep === 1 ? 'y' : 'ies'}${rep === 0 ? ' · first reply open' : ''}`, '');
   });
   if (more > 0) lines.push(`${more} more waiting; they come with the next check.`, '');
   lines.push(`Public replies today: <b>${count} of ${target}</b>`);
-  if (all) lines.push('Every 10 minutes: every thread started or answered on BHW with under 10 replies. Send: new threads off · new threads on · radar help');
+  if (all) lines.push('Every 10 minutes: every new or answered thread on BHW, sellers and introductions left out, 🔥 casino/gambling first. Send: new threads off · new threads on · radar help');
   else lines.push(keywordIdeas(items, { families }));
+  return lines.join('\n').slice(0, 3900);
+}
+
+/** 1.27.3: the "next casino" list - same look as the 10-minute list, hot first. */
+export function formatSearchList(items, { now = Date.now(), keyword = '', pages = 1 } = {}) {
+  const hot = items.filter((q) => q.hot).length;
+  const lines = [`🔎 <b>${h(keyword)}</b> · ${items.length} thread(s) from ${pages} search page(s)${hot ? ` · 🔥 ${hot} hot` : ''}`, ''];
+  items.forEach((q, i) => {
+    const rep = Number(q.replyCount) || 0;
+    lines.push(`<b>${i + 1}. ${q.hot ? '🔥 HOT · ' : ''}<a href="${h(q.url)}">${h(q.title)}</a></b>`, `${h(q.section || q.forum || '')} · last post ${last(q.lastActivityAt, now)} · ${rep} repl${rep === 1 ? 'y' : 'ies'}`, '');
+  });
+  lines.push(`Sales threads and introductions left out; threads already sent are not repeated. Send "next ${h(keyword)}" again for more.`);
   return lines.join('\n').slice(0, 3900);
 }
 

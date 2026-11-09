@@ -40,7 +40,7 @@ import { ownership, takeOver, describe as describeOwner, loginProblem } from './
 import { STUDIO_SECTIONS, nicheRegex, pickThreads, STUDIO_SYSTEM, studioPrompt, parseStudio, addPlan } from './studio.js';
 import { RADAR_SECTIONS, NEVER as RADAR_NEVER, DEFAULT_RADAR_CFG, DEFAULT_WORDS as RADAR_WORDS, compileWords, extractRadarListing, foldSweep, pickBatch, markShown, markReplied, markHidden,
   countToday, setCount, emptyState as radarEmpty, NEW_MAX_PER_MESSAGE, BRIEF_SYSTEM, briefPrompt, parseBriefs, formatCard, radarKeyboard, settledCard,
-  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
+  familyFor, FAMILY_SYSTEM, familyPrompt, parseFamily, searchUrl, extractRadarSearch, filterSearch, CLUSTER_SYSTEM, clusterPrompt, parseClusters, formatClusterCard, markSent, RADAR_HELP, formatBatchMessage, batchKeyboard, formatClusterMessage, NEW_THREADS_URLS, NEW_EVERY_MS, pickNewThreads, formatNewThreads, formatSearchList, SELLER_TITLE, HOT_TITLE, WELCOME_TITLE, PARTICIPATED_URL, PARTICIPATED_EVERY_MS,
   DEFAULT_BLOCKS, extractForumList, resolveBoards, boardUrl, boardAllowed, pickBlock, formatBlock, blockOrder, formatAnswered,
   FAMILIES, FAMILY_EVERY_MIN, FAMILY_MIN, GATE_ABOVE, mergeFamilies, familyRegex, pickNextFamily, nextTerms, familyCandidates, GATE_SYSTEM, gatePrompt, parseGate, chooseFamilyItems, formatFamily } from './radar.js';
 import { ASK_SYSTEM, ASK_DENY, ASK_HELP, askPrompt, parseAsk, ruleAsk, pickAsk, titleHasTerm, RANK_SYSTEM, rankPrompt, parseRank, formatAsk, applyWatch, matchWatches, formatWatch, formatWatchList } from './ask.js';
@@ -1654,8 +1654,8 @@ async function radarPaused() {
   return Date.now() < mine ? mine : 0;
 }
 async function radarWall(why) {
-  await chrome.storage.local.set({ [RADAR_WALL_KEY]: Date.now() + 30 * 60000 });
-  await log(`${why} - Radar and Traffic pause for 30 minutes (HAF keeps reading)`, 'error');
+  await chrome.storage.local.set({ [RADAR_WALL_KEY]: Date.now() + 2 * 3600000 });   // 1.27.3: was 30 minutes
+  await log(`${why} - Radar, Traffic and Hunt pause for 2 hours (HAF keeps reading)`, 'error');
 }
 // While HAF is sending a PM or posting, the side readers wait: no tab of theirs
 // opens next to HAF's content script.
@@ -2064,7 +2064,6 @@ let newRead = { at: 0, rows: [] };
 export const __forgetNewReadForTest = () => { newRead = { at: 0, rows: [] }; };   // tests only
 export async function radarNewTick({ force = false } = {}) {
   if (await hafBusy()) return { skipped: 'haf' };
-  if (!force && (await getConfig()).huntOn !== false) return { skipped: 'hunt' };   // 1.27.0: the hunter reads what's new instead
   const rc = await getRadarCfg();
   if (rc.newWatch === false && !force) return { skipped: 'off' };
   let st = await getRadar();
@@ -2133,10 +2132,13 @@ const huntGap = () => new Promise((r) => setTimeout(r, 6000 + Math.random() * 90
 export async function huntTick({ force = false } = {}) {
   const cfg = await getConfig();
   if (cfg.huntOn === false && !force) return { skipped: 'off' };
+  if (!force && !cfg.huntAuto) return { skipped: 'on request only' };   // 1.27.3: no background BHW reading - the 10-minute feed covers what's new
   if (huntRunning) return { skipped: 'running' };
   if (!force && cfg.sleepEnabled && night.inWindow(cfg, cfg.sleepStart, cfg.sleepEnd)) return { skipped: 'asleep' };
   if (await hafBusy()) return { skipped: 'haf' };
   if (await radarPaused()) return { skipped: 'wall' };
+  // 1.27.3: after a wall the hunter stays out an hour longer than HAF's slow pace, so HAF recovers first.
+  { const { hafSlowUntil = 0 } = await chrome.storage.local.get('hafSlowUntil'); if (!force && Date.now() < hafSlowUntil + 3600000) return { skipped: 'cooling' }; }
   huntRunning = true;
   try {
     let st = await huntState();
@@ -2831,76 +2833,60 @@ const setRadarCfg = async (patch) => { const { [RADAR_CFG]: c = {} } = await chr
  * after "next" comes here.
  */
 async function radarSearch(keyword, n, cfg) {
+  // 1.27.3: plain and cheap - BHW's own search, newest post first, up to 5 pages read slowly,
+  // sellers / sales boards / introductions out, one list of up to 10 you have not been sent. No Claude.
   const rc = await getRadarCfg();
   const chat = cfg.telegramChatId;
   let st = await getRadar();
-  // Ten live searches an hour at most: a burst of search pages is what draws a wall.
-  const hour = (st.searchLog || []).filter((t) => Date.now() - t < 3600000);
-  if (hour.length >= 10) { await telegram.say(chat, '🔎 Ten live searches already this hour. Wait a few minutes and send it again.'); return; }
+  const kw = String(keyword || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
   const until = await radarPaused();
-  if (until) { await telegram.say(chat, `🔎 BHW showed a wall recently; searching again from ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`); return; }
-  const kw = keyword.toLowerCase().trim();
-  let family = familyFor(kw, rc.families);
-  let cost = 0;
-  if (!family) {
-    try {
-      if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
-      const a = await askClaude(FAMILY_SYSTEM, familyPrompt(kw), { maxTokens: 600, timeoutMs: 60000 });
-      cost += a.cost || 0;
-      family = parseFamily(a.text, kw);
-    } catch { /* fall through to the bare keyword */ }
-    family = family || [kw];
-    await setRadarCfg({ families: { ...rc.families, [kw]: family } });
-    await telegram.say(chat, `🔎 Searching <b>${kw}</b> as: ${family.join(', ')}\nChange it with "add ${kw} &lt;word&gt;" or "drop ${kw} &lt;word&gt;".`, { html: true });
-  }
-  await setRadar({ ...st, searchLog: [...hour, Date.now()] });
-  await jobStart(`Reply Radar search: ${kw}`);
+  if (until) { await telegram.say(chat, `🔎 BHW asked us to slow down; searching again from ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. HAF keeps working.`); return; }
+  // At most 10 search pages an hour (two full searches): a burst of search pages is what draws a wall.
+  const hour = (st.searchLog || []).filter((t) => Date.now() - t < 3600000);
+  const left = SEARCH_PAGES_PER_HOUR - hour.length;
+  if (left < 1) { const wait = Math.ceil((Math.min(...hour) + 3600000 - Date.now()) / 60000); await telegram.say(chat, `🔎 ${SEARCH_PAGES_PER_HOUR} search pages already this hour. Send it again in ${wait} min.`); return; }
+  const want = Math.min(10, Math.max(1, n || 10));
+  const maxPages = Math.min(SEARCH_MAX_PAGES, left);
+  await telegram.say(chat, `🔎 Searching BHW for <b>${h(kw)}</b> - up to ${maxPages} page(s), most relevant first, slowly (about ${Math.ceil(maxPages * 0.5)} min). HAF keeps working.`, { html: true });
+  await jobStart(`Search: ${kw}`);
   try {
-    const gap = () => new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
-    let rows = [], loggedIn = true;
-    for (const term of family.slice(0, 5)) {
-      const page = await readInTab(searchUrl(term), extractRadarSearch);
-      if (!page.loggedIn) { loggedIn = false; break; }
-      rows.push(...(page.rows || []).map((r) => ({ ...r, term })));
-      await gap();
+    const found = new Map();
+    let first = null, read = 0;
+    for (let p = 1; p <= maxPages && found.size < want; p++) {
+      const url = p === 1 ? `https://www.blackhatworld.com/search/search?keywords=${encodeURIComponent(kw)}&o=relevance` : searchPage(first, p);
+      if (!url) break;
+      const page = await readInTab(url, extractRadarSearch);
+      read++;
+      st = await getRadar(); await setRadar({ ...st, searchLog: [...(st.searchLog || []).filter((t) => Date.now() - t < 3600000), Date.now()] });
+      if (!page.loggedIn) { await telegram.say(chat, '🔎 This Chrome is signed out of BHW, so search is unavailable. Sign in to BHW on the server and send it again.'); return; }
+      if (p === 1) first = page.url;
+      st = await getRadar();
+      for (const r of filterSearch(page.rows || [], st, { muted: rc.muted, days: 3650 })) {
+        if (SELLER_TITLE.test(r.title) || WELCOME_TITLE.test(r.title)) continue;
+        if (!found.has(r.threadId)) found.set(r.threadId, { ...r, section: r.forum, hot: HOT_TITLE.test(r.title) });
+      }
+      if (!page.next) break;
+      if (p < maxPages && found.size < want) await new Promise((r) => setTimeout(r, 20000 + Math.random() * 15000));   // a person reading, not a burst
     }
-    await refreshParticipated();
+    const items = [...found.values()].sort((a, b) => (b.hot ? 1 : 0) - (a.hot ? 1 : 0)).slice(0, want);   // BHW's relevance order, hot first
+    if (!items.length) { await telegram.say(chat, `🔎 Nothing new for <b>${h(kw)}</b> in ${read} page(s) - sales threads left out, and threads you were already sent are not repeated. Try another word.`, { html: true }); return; }
     st = await getRadar();
-    let found;
-    if (!loggedIn) {
-      // Signed out of BHW in this Chrome: the search page is a form and nothing else. Fall back to what the hourly sweep already holds.
-      const rx = new RegExp(`\\b(${family.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]?')).join('|')})`, 'i');
-      found = Object.values(st.queue).filter((q) => rx.test(q.title) && !st.sent?.[q.threadId]).map((q) => ({ ...q, forum: q.section, snippet: '' }));
-      await telegram.say(chat, '🔎 This Chrome is not signed in to BHW, so the live search is unavailable. Showing matches from the hourly sweep instead.');
-    } else found = filterSearch(rows, st, { muted: rc.muted });
-    if (!found.length) { await telegram.say(chat, `🔎 Nothing new for <b>${kw}</b> in the last 7 days that you have not already been sent. Try another word, or "family ${kw}" to widen it.`, { html: true }); return; }
-    let clusters;
-    try {
-      if (!(await radarClaudeOk()).ok) throw new Error('Claude kept for HAF today');
-      const a = await askClaude(CLUSTER_SYSTEM, clusterPrompt(kw, found), { maxTokens: 2500, timeoutMs: 90000 });
-      cost += a.cost || 0;
-      clusters = parseClusters(a.text, found);
-    } catch (e) { clusters = parseClusters('', found); await log(`Reply Radar search: clusters without Claude (${e.message})`); }
-    clusters = clusters.slice(0, Math.min(5, Math.max(1, n || rc.perBatch || 3)));
-    const count = countToday(st), cards = { ...(st.cards || {}) }, shown = [];
-    const bests = clusters.map((c) => found.find((r) => String(r.threadId) === c.ids[0]));
-    for (const c of clusters) shown.push(...c.ids.slice(0, 3));
-    for (const best of bests) {
-      // The best thread of each cluster also joins the queue, so "I replied" and the Radar page know it.
-      if (!st.queue[best.threadId]) st.queue[best.threadId] = { threadId: best.threadId, url: best.url, title: best.title, section: best.forum, author: best.author || '', startedAt: null, lastActivityAt: best.lastActivityAt, replyCount: best.replyCount, views: null, match: 'search', tier: 'S', shown: 1, shownAt: Date.now(), brief: null, firstSeen: Date.now() };
-    }
-    // One message for the whole search (1.14.1), buttons per cluster's best thread.
-    const slimRows = found.filter((r) => shown.includes(String(r.threadId))).map((r) => ({ threadId: r.threadId, url: r.url, title: r.title, forum: r.forum, replyCount: r.replyCount, lastActivityAt: r.lastActivityAt }));
-    const mid = await telegram.sendCard(chat, formatClusterMessage(clusters, found, { keyword: kw, count, target: rc.dailyTarget, families: rc.families }), batchKeyboard(bests));
-    if (mid) cards[String(mid)] = { kind: 'search', keyword: kw, ids: bests.map((b) => b.threadId), clusters, rows: slimRows, at: Date.now() };
-    await saveRadar({ ...markSent(st, shown), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) });
-    await log(`Reply Radar search "${kw}": ${rows.length} results, ${found.length} new threads, ${clusters.length} cluster(s) in one message${cost ? ` ($${cost.toFixed(3)})` : ''}`);
+    const mid = await telegram.sendCard(chat, formatSearchList(items, { keyword: kw, pages: read }), batchKeyboard(items));
+    const cards = { ...(st.cards || {}) };
+    if (mid) cards[String(mid)] = { kind: 'batch', ids: items.map((q) => q.threadId), at: Date.now(), items: Object.fromEntries(items.map((q) => [q.threadId, { threadId: q.threadId, url: q.url, title: q.title, section: q.section, lastActivityAt: q.lastActivityAt, replyCount: q.replyCount, brief: null }])) };
+    await saveRadar({ ...markSent(st, items.map((q) => q.threadId)), cards: Object.fromEntries(Object.entries(cards).filter(([, v]) => v && v.ids).slice(-100)) });
+    await log(`Search "${kw}": ${read} page(s), ${items.length} thread(s) sent`);
   } catch (e) {
     if (/blocked/i.test(e.message)) await radarWall(e.message);
-    await log(`Reply Radar search: ${e.message}`, 'error');
-    await telegram.say(chat, `🔎 Search failed: ${e.message}`);
+    await log(`Search: ${e.message}`, 'error');
+    await telegram.say(chat, `🔎 Search stopped: ${/blocked/i.test(e.message) ? 'BHW asked us to slow down - paused for a while, HAF keeps working' : e.message}`);
   } finally { await jobEnd(); }
 }
+const SEARCH_PAGES_PER_HOUR = 10, SEARCH_MAX_PAGES = 5;
+/** Page n of a BHW search result, the way BHW writes it: /search/45765323/?page=2&q=casino&o=relevance */
+const searchPage = (firstUrl, n) => {
+  try { const u = new URL(firstUrl); if (!/^\/search\/\d+\/?$/.test(u.pathname)) return ''; u.searchParams.set('page', String(n)); if (!u.searchParams.get('o')) u.searchParams.set('o', 'relevance'); return u.toString(); } catch { return ''; }
+};
 
 /** "radar", "radar on|off|now|help", "radar count 4", "next <word>", "family", "add", "drop", "mute", "unmute". True when the message was for Radar. */
 async function radarCommand(body, cfg) {
@@ -3998,6 +3984,13 @@ async function takeSearch(ev, cfg) {
   const last = words[words.length - 1].toLowerCase();
   if (words.length > 1 && ['new', 'bump', 'bumped', 'done'].includes(last)) { mode = last === 'bumped' ? 'bump' : last; words.pop(); }
   const query = words.join(' ');
+  // 1.27.3: a plain word ("casino", "casino gambling") is a live BHW search, same as "next casino".
+  // "casino new / bump / done" still looks only at what was already read. Chat words never search.
+  if (mode === 'all') {
+    if (/^(ok(ay)?|yes|yeah|no|nope|thanks?|thank you|thx|hi|hello|hey|good|great|nice|fine|cool|test|hmm+|k)$/i.test(query)) return false;
+    await radarSearch(query, 0, cfg);
+    return true;
+  }
   const leads = await getLeads();
   const pool = Object.values((await chrome.storage.local.get(HUNT_POOL_KEY))[HUNT_POOL_KEY] || {});
   const found = await searchIndex(query, { mode, leads, limit: 200,

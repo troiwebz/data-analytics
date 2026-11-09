@@ -18,8 +18,10 @@ export const EVERY_MS = 30 * 60000;
 export function extractOnline() {
   const t = String(document.title || '');
   const text = String((document.body && (document.body.innerText || document.body.textContent)) || '').replace(/\s+/g, ' ');
-  if (/just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t)
-      || /you have been rate limited|access denied|has been blocked|verify you are human/i.test(text.slice(0, 3000))) {
+  if ((!document.querySelector('.p-pageWrapper, .p-body, .p-header') && /just a moment|access denied|attention required|rate limited|error 429|too many requests/i.test(t))
+      || (!document.querySelector('.p-pageWrapper, .p-body, .p-header')   // 1.27.3: a real block page has no BHW layout; a thread TITLE saying "has been blocked" is not a wall
+          && /you have been rate limited|access denied|has been blocked|verify you are human/i.test(text.slice(0, 3000)))
+      || /you have been rate limited|too many requests/i.test(String((document.querySelector('.blockMessage--error') || {}).innerText || ''))) {
     return { blocked: `BHW blocked the page: ${t.slice(0, 80)}` };
   }
   const grab = (label) => { const m = text.match(new RegExp(label.replace(/ /g, '\\s+') + '\\s*:?\\s*([\\d,]+)', 'i')); return m ? parseInt(m[1].replace(/,/g, ''), 10) : null; };
