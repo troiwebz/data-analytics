@@ -2847,13 +2847,13 @@ async function radarSearch(keyword, n, cfg) {
   if (left < 1) { const wait = Math.ceil((Math.min(...hour) + 3600000 - Date.now()) / 60000); await telegram.say(chat, `🔎 ${SEARCH_PAGES_PER_HOUR} search pages already this hour. Send it again in ${wait} min.`); return; }
   const want = Math.min(10, Math.max(1, n || 10));
   const maxPages = Math.min(SEARCH_MAX_PAGES, left);
-  await telegram.say(chat, `🔎 Searching BHW for <b>${h(kw)}</b> - up to ${maxPages} page(s), most relevant first, slowly (about ${Math.ceil(maxPages * 0.5)} min). HAF keeps working.`, { html: true });
+  await telegram.say(chat, `🔎 Searching BHW for <b>${h(kw)}</b> - up to ${maxPages} page(s), latest posts from the last ${SEARCH_DAYS} days, slowly (about ${Math.ceil(maxPages * 0.5)} min). HAF keeps working.`, { html: true });
   await jobStart(`Search: ${kw}`);
   try {
     const found = new Map();
     let first = null, read = 0;
     for (let p = 1; p <= maxPages && found.size < want; p++) {
-      const url = p === 1 ? `https://www.blackhatworld.com/search/search?keywords=${encodeURIComponent(kw)}&o=relevance` : searchPage(first, p);
+      const url = p === 1 ? searchUrl(kw, { days: SEARCH_DAYS }) : searchPage(first, p);   // 1.27.4: newest post first, last 14 days (relevance gave 100-day-old threads)
       if (!url) break;
       const page = await readInTab(url, extractRadarSearch);
       read++;
@@ -2861,14 +2861,14 @@ async function radarSearch(keyword, n, cfg) {
       if (!page.loggedIn) { await telegram.say(chat, '🔎 This Chrome is signed out of BHW, so search is unavailable. Sign in to BHW on the server and send it again.'); return; }
       if (p === 1) first = page.url;
       st = await getRadar();
-      for (const r of filterSearch(page.rows || [], st, { muted: rc.muted, days: 3650 })) {
-        if (SELLER_TITLE.test(r.title) || WELCOME_TITLE.test(r.title)) continue;
+      for (const r of filterSearch(page.rows || [], st, { muted: rc.muted, days: SEARCH_DAYS })) {
+        if (SELLER_TITLE.test(r.title) || WELCOME_TITLE.test(r.title) || /cloak/i.test(`${r.forum} ${r.title}`)) continue;
         if (!found.has(r.threadId)) found.set(r.threadId, { ...r, section: r.forum, hot: HOT_TITLE.test(r.title) });
       }
       if (!page.next) break;
       if (p < maxPages && found.size < want) await new Promise((r) => setTimeout(r, 20000 + Math.random() * 15000));   // a person reading, not a burst
     }
-    const items = [...found.values()].sort((a, b) => (b.hot ? 1 : 0) - (a.hot ? 1 : 0)).slice(0, want);   // BHW's relevance order, hot first
+    const items = [...found.values()].sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt)).slice(0, want);   // latest post first: bumped threads on top
     if (!items.length) { await telegram.say(chat, `🔎 Nothing new for <b>${h(kw)}</b> in ${read} page(s) - sales threads left out, and threads you were already sent are not repeated. Try another word.`, { html: true }); return; }
     st = await getRadar();
     const mid = await telegram.sendCard(chat, formatSearchList(items, { keyword: kw, pages: read }), batchKeyboard(items));
@@ -2882,10 +2882,10 @@ async function radarSearch(keyword, n, cfg) {
     await telegram.say(chat, `🔎 Search stopped: ${/blocked/i.test(e.message) ? 'BHW asked us to slow down - paused for a while, HAF keeps working' : e.message}`);
   } finally { await jobEnd(); }
 }
-const SEARCH_PAGES_PER_HOUR = 10, SEARCH_MAX_PAGES = 5;
+const SEARCH_PAGES_PER_HOUR = 10, SEARCH_MAX_PAGES = 5, SEARCH_DAYS = 14;
 /** Page n of a BHW search result, the way BHW writes it: /search/45765323/?page=2&q=casino&o=relevance */
 const searchPage = (firstUrl, n) => {
-  try { const u = new URL(firstUrl); if (!/^\/search\/\d+\/?$/.test(u.pathname)) return ''; u.searchParams.set('page', String(n)); if (!u.searchParams.get('o')) u.searchParams.set('o', 'relevance'); return u.toString(); } catch { return ''; }
+  try { const u = new URL(firstUrl); if (!/^\/search\/\d+\/?$/.test(u.pathname)) return ''; u.searchParams.set('page', String(n)); if (!u.searchParams.get('o')) u.searchParams.set('o', 'date'); return u.toString(); } catch { return ''; }
 };
 
 /** "radar", "radar on|off|now|help", "radar count 4", "next <word>", "family", "add", "drop", "mute", "unmute". True when the message was for Radar. */

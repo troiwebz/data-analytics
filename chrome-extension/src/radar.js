@@ -552,7 +552,7 @@ export function markSent(state, ids, now = Date.now()) {
 export const RADAR_HELP = [
   '📡 <b>Reply radar - the commands you can send</b> (this list comes once a day; "radar help" shows it any time)',
   '',
-  '<b>casino</b> or <b>next casino</b> - BHW search for that word, most relevant first, up to 5 pages read slowly. One list of up to 10, sales threads and introductions left out, 🔥 on casino/gambling. Never repeats a thread; send it again for more.',
+  '<b>casino</b> or <b>next casino</b> - BHW search for that word, latest posts of the last 14 days first (bumped threads on top), up to 5 pages read slowly. One list of up to 10, sales threads and introductions left out, 🔥 on casino/gambling. Never repeats a thread; send it again for more.',
   '<b>next casino 5</b> - only 5 threads',
   '<b>family pbn</b> - the words a keyword searches as · <b>add pbn aged domain</b> / <b>drop pbn footprint</b> - edit them',
   '<b>mute affiliate link</b> / <b>unmute …</b> - threads with that word are never shown',

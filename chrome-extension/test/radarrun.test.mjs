@@ -238,7 +238,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   let out = await say('next casino');
   const cards = tg.filter((m) => m.method === 'sendMessage' && m.reply_markup);
   const txt = cards.map((c) => c.text).join('\n');
-  ok('"next casino" reads BHW search by relevance and sends ONE list', cards.length === 1 && /🔎 <b>casino<\/b> · \d+ thread\(s\) from 1 search page/.test(txt) && opened.some((u) => /search\/search\?keywords=casino&o=relevance/.test(u)), { n: cards.length, txt: txt.slice(0, 200), opened });
+  ok('"next casino" reads BHW search, newest posts of 14 days, and sends ONE list', cards.length === 1 && /🔎 <b>casino<\/b> · \d+ thread\(s\) from 1 search page/.test(txt) && opened.some((u) => /search\/search\?keywords=casino&c\[newer_than\]=\d{4}-\d\d-\d\d&o=date/.test(u)), { n: cards.length, txt: txt.slice(0, 200), opened });
   ok('no Claude used for a search', claude.length === 0);
   ok('casino threads are 🔥 HOT', /🔥 HOT · <a href="[^"]+">Casino ads on TikTok/.test(txt));
   ok('Hire a Freelancer and the seller are left out', !/casino ads expert/.test(txt) && !/Casino backlinks \$5/.test(txt), txt);
@@ -249,7 +249,7 @@ ok('send:false fills the queue and sends no card', r.ok && r.queued >= 3 && !tg.
   ok('"next casino" again never repeats: nothing new, and it says so', !tg.some((m) => m.reply_markup) && /Nothing new for <b>casino<\/b>/.test(out), out.slice(-200));
   delete bags.local.radar; tg = []; opened.length = 0;
   out = await say('casino');
-  ok('a plain word "casino" runs the same live search', tg.some((m) => m.reply_markup && /🔎 <b>casino<\/b>/.test(m.text)) && opened.some((u) => /keywords=casino&o=relevance/.test(u)), out.slice(0, 160));
+  ok('a plain word "casino" runs the same live search', tg.some((m) => m.reply_markup && /🔎 <b>casino<\/b>/.test(m.text)) && opened.some((u) => /keywords=casino&c\[newer_than\]=\d{4}-\d\d-\d\d&o=date/.test(u)), out.slice(0, 160));
   tg = []; opened.length = 0; out = await say('ok');
   ok('"ok" is chat, not a search', !opened.some((u) => /keywords=/.test(u)) && !/🔎 Searching/.test(out));
   out = await say('mute affiliate journey');
