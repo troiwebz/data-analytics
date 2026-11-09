@@ -4,13 +4,14 @@
 param([string]$Dest = (Split-Path -Parent $PSScriptRoot))
 $ErrorActionPreference = 'Stop'
 function Plain($s) { if (-not $s -or $s.Length -eq 0) { return '' }; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) } }
-$ak = Plain (Read-Host 'Anthropic API key (sk-ant-..., Enter to keep)' -AsSecureString)
-$tt = Plain (Read-Host 'Telegram bot token (123456:ABC..., Enter to keep)' -AsSecureString)
-$ci = Read-Host 'Telegram chat id (digits, Enter to keep)'
+$ak = (Plain (Read-Host 'Anthropic API key (sk-ant-..., Enter to keep)' -AsSecureString)).Trim()
+$tt = (Plain (Read-Host 'Telegram bot token (123456:ABC..., Enter to keep)' -AsSecureString)).Trim()
+$ci = (Read-Host 'Telegram chat id (digits, Enter to keep)').Trim()
 if ($ak) { $second = $ak.IndexOf('sk-ant-', 1); if ($second -gt 0) { $ak = $ak.Substring(0, $second) } }   # pasted twice = glued together; keep one
-if ($ak -and -not $ak.StartsWith('sk-ant-')) { Write-Output 'That Anthropic key does not start with sk-ant- - nothing written.'; exit 1 }
-if ($tt -and $tt -notmatch '^\d+:[\w-]{20,}$') { Write-Output 'That bot token does not look like 123456:ABC... - nothing written.'; exit 1 }
-if ($ci -and $ci -notmatch '^-?\d{4,}$') { Write-Output 'The chat id should be digits only - nothing written.'; exit 1 }
+# A bad entry is skipped on its own - it never blocks the others (a stray key over RDP used to stop the bot token being saved).
+if ($ak -and -not $ak.StartsWith('sk-ant-')) { Write-Output "Anthropic key skipped: it does not start with sk-ant- ($($ak.Length) characters typed). The saved one is kept."; $ak = '' }
+if ($tt -and $tt -notmatch '^\d+:[\w-]{20,}$') { Write-Output "Bot token skipped: it does not look like 123456:ABC... ($($tt.Length) characters). Paste with a right-click."; $tt = '' }
+if ($ci -and $ci -notmatch '^-?\d{4,}$') { Write-Output 'Chat id skipped: digits only.'; $ci = '' }
 if (-not ($ak -or $tt -or $ci)) { Write-Output 'Nothing entered - nothing changed.'; exit 0 }
 $out = Join-Path $Dest 'haf-keys.json'
 $d = @{}
