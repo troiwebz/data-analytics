@@ -471,6 +471,8 @@ export const FORUM_DENY = /hire a freelancer|want to buy|marketplace|for sale|se
 export const HOT_TITLE = /\b(casinos?|gambl\w*|betting|bets?|igaming|i-gaming|sportsbooks?|bookmakers?|slots?|poker|lotter(y|ies)|sweepstakes?)\b/i;
 /** 1.27.3: someone SELLING (not asking) - kept out of the 10-minute list. Buyers and questions stay in. */
 export const SELLER_TITLE = /\b(wts|for sale|selling|sell my|discount|% off|buy now|lifetime deal|group buy|cheapest|best price|limited offer|giveaway)\b|\$\s?\d|⭐|✅|⚡|❌|⏩|🔥/i;
+/** 1.27.5: the 10-minute feed keeps every discussion board (Lounge, News, Journeys...). Out: buyers' and sellers' boards and hellos. */
+export const FEED_DENY = /hire a freelancer|want to buy|marketplace|for sale|selling|renting|seo - |packages|\bmisc\b|hosting|proxies|content \/|copywriting|ebooks|web design|panels|freebies|giveaways|introductions/i;
 export const SALES_TITLE = /\b(wts|for sale|selling|cheap|discount|% off|buy now|services?|lifetime deal|group buy|hiring|hire|dm me|pm me)\b|\$\s?\d|⭐|✅|⚡|❌|⏩/i;
 
 export const isMuted = (title, muted) => { const rx = wordRegex(muted || []); return !!(rx && rx.test(String(title || ''))); };
@@ -664,7 +666,7 @@ export function pickNewThreads(rows, state, rx, { now = Date.now(), hours = 6, m
       // 1.27.3: no reply limit any more (you asked for everything); sellers out; casino/gambling marked hot.
       void maxReplies;
       if (SELLER_TITLE.test(r.title)) continue;
-      if (FORUM_DENY.test(r.forum || '') || isMuted(r.title, muted)) continue;
+      if (FEED_DENY.test(r.forum || '') || isMuted(r.title, muted)) continue;
       out.push({ threadId: id, url: r.url, title: r.title, section: r.forum || '', author: r.author, startedAt: r.startedAt, lastActivityAt: r.lastActivityAt, replyCount: r.replyCount || 0, match: 'all', tier: 'N', hot: HOT_TITLE.test(r.title) });
       continue;
     }
